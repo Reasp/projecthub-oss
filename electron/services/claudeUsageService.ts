@@ -4,6 +4,12 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { PROJECT_HUB_CLAUDE_DIR } from './aiAgentService.js';
+import {
+  interpretUsageCliResult,
+  isLoggedOutAuthStatus,
+  type ClaudeUsageCliError,
+  type ClaudeUsageCliResult
+} from './claudeUsageCliResult.js';
 
 export interface ClaudeUsageLimitWindow {
   percent: number;
@@ -53,6 +59,8 @@ export interface ClaudeUsageData {
   rawText?: string;
   updatedAt: number;
   isFallback?: boolean;
+  /** Почему `claude -p /usage` не дал лимитов (TASK-126); при успешном ответе поля нет. */
+  cliError?: ClaudeUsageCliError;
 }
 
 /**
@@ -89,6 +97,9 @@ class ClaudeUsageService {
   private cachedUsage: ClaudeUsageData | null = null;
   private lastFetchTime = 0;
   private readonly CACHE_TTL_MS = 45 * 1000; // 45 seconds
+  // Замер 2026-10-05 (CLI 2.1.289): ответ за 6.3 с, прежние 8 с срабатывали на загруженной машине.
+  private readonly CLI_TIMEOUT_MS = 20 * 1000;
+  private readonly AUTH_STATUS_TIMEOUT_MS = 5 * 1000;
   private rateLimits: ClaudeRateLimitSnapshot | null = null;
 
   /**
@@ -106,13 +117,16 @@ class ClaudeUsageService {
     }
 
     let cliUsageText: string | null = null;
+    let cliError: ClaudeUsageCliError | undefined;
     let parsedFromCli: ReturnType<typeof this.parseUsageText> | null = null;
 
-    // В тестах Vitest не спауним внешний CLI, чтобы тесты выполнялись изолированно и детерминированно
-    if (!process.env.VITEST) {
-      try {
-        cliUsageText = await this.fetchUsageFromCli();
-        if (cliUsageText) {
+    try {
+      const cliResult = await this.fetchUsageFromCli();
+      if (cliResult) {
+        cliUsageText = cliResult.text || null;
+        cliError = cliResult.error;
+        // Текст отказа не парсим: лимитов в нём нет, а тип подписки из него не следует.
+        if (cliUsageText && (!cliError || cliError.kind === 'unrecognized')) {
           parsedFromCli = this.parseUsageText(cliUsageText);
           if (parsedFromCli.sessionLimit || parsedFromCli.weeklyLimit || parsedFromCli.fableLimit) {
             const nextSnapshot: ClaudeRateLimitSnapshot = {
@@ -125,15 +139,22 @@ class ClaudeUsageService {
             this.rateLimits = nextSnapshot;
           }
         }
-      } catch (err: any) {
-        // Если CLI недоступен (например, в CI или без установки claude), откатываемся на кэш и снимки
-        console.warn('[ClaudeUsage] CLI fetch failed, falling back to local cache & rate limit snapshot:', err.message);
       }
+    } catch (err: any) {
+      cliError = { kind: 'failed', detail: err?.message || String(err) };
+    }
+
+    if (cliError) {
+      // Если CLI недоступен или не авторизован, откатываемся на кэш и снимки, а причину отдаём в UI
+      console.warn(
+        `[ClaudeUsage] CLI fetch failed (${cliError.kind}), falling back to local cache & rate limit snapshot:`,
+        cliError.detail ?? ''
+      );
     }
 
     const statsCacheData = await this.readStatsCacheFile();
 
-    if (!parsedFromCli && !statsCacheData && !this.rateLimits) {
+    if (!parsedFromCli && !statsCacheData && !this.rateLimits && !cliError) {
       throw new Error(
         'Не удалось получить usage данные Claude Code: нет ответа от CLI, отсутствует stats-cache.json и ещё не было rate-limit событий'
       );
@@ -156,7 +177,8 @@ class ClaudeUsageService {
       dailyActivity: statsCacheData?.dailyActivity,
       rawText: cliUsageText || this.describeSources(statsCacheData !== null),
       updatedAt: now,
-      isFallback: !this.rateLimits && !parsedFromCli?.sessionLimit && !parsedFromCli?.weeklyLimit
+      isFallback: !this.rateLimits && !parsedFromCli?.sessionLimit && !parsedFromCli?.weeklyLimit,
+      cliError
     };
 
     this.cachedUsage = usage;
@@ -164,8 +186,32 @@ class ClaudeUsageService {
     return usage;
   }
 
-  public async fetchUsageFromCli(): Promise<string> {
-    return new Promise((resolve, reject) => {
+  /**
+   * Запуск `claude -p /usage`. Не отклоняется: отказ авторизации, таймаут и сбой запуска приходят
+   * в поле `error`. `null` — CLI не опрашивался.
+   */
+  public async fetchUsageFromCli(): Promise<ClaudeUsageCliResult | null> {
+    // В тестах Vitest не спауним внешний CLI, чтобы тесты выполнялись изолированно и детерминированно
+    if (process.env.VITEST) return null;
+
+    const run = await this.runClaudeCli(['-p', '/usage'], this.CLI_TIMEOUT_MS);
+    if (run.timedOut) return { text: '', error: { kind: 'timeout' } };
+    if (run.spawnError) return { text: '', error: { kind: 'failed', detail: run.spawnError } };
+
+    const result = interpretUsageCliResult(run.code, run.stdout, run.stderr);
+    // Профиль без входа отвечает на /usage сводкой стоимости сессии с кодом 0 — причину уточняет auth status.
+    if (result.error && result.error.kind !== 'auth') {
+      const status = await this.runClaudeCli(['auth', 'status'], this.AUTH_STATUS_TIMEOUT_MS);
+      if (isLoggedOutAuthStatus(status.stdout)) return { text: result.text, error: { kind: 'auth' } };
+    }
+    return result;
+  }
+
+  private runClaudeCli(
+    args: string[],
+    timeoutMs: number
+  ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut?: boolean; spawnError?: string }> {
+    return new Promise((resolve) => {
       const configDir = existsSync(path.join(PROJECT_HUB_CLAUDE_DIR, '.credentials.json'))
         ? PROJECT_HUB_CLAUDE_DIR
         : undefined;
@@ -176,7 +222,7 @@ class ClaudeUsageService {
         ...(configDir ? { CLAUDE_CONFIG_DIR: configDir } : {})
       };
 
-      const child = spawn('claude', ['-p', '/usage'], {
+      const child = spawn('claude', args, {
         shell: true,
         stdio: ['pipe', 'pipe', 'pipe'],
         env
@@ -200,21 +246,17 @@ class ClaudeUsageService {
         try {
           child.kill();
         } catch {}
-        reject(new Error('Превышено время ожидания ответа от claude /usage'));
-      }, 8000);
+        resolve({ code: null, stdout, stderr, timedOut: true });
+      }, timeoutMs);
 
       child.on('close', (code) => {
         clearTimeout(timer);
-        if (code === 0 || stdout.trim().length > 0) {
-          resolve(stdout.trim());
-        } else {
-          reject(new Error(stderr || `claude /usage завершился с кодом ${code}`));
-        }
+        resolve({ code, stdout, stderr });
       });
 
       child.on('error', (err) => {
         clearTimeout(timer);
-        reject(err);
+        resolve({ code: null, stdout, stderr, spawnError: err.message });
       });
     });
   }

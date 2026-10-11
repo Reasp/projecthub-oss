@@ -2380,6 +2380,11 @@ export interface ClaudeUsageData {
   rawText?: string;
   updatedAt: number;
   isFallback?: boolean;
+  /** Почему `claude -p /usage` не дал лимитов (TASK-126); при успешном ответе поля нет. */
+  cliError?: {
+    kind: 'auth' | 'timeout' | 'failed' | 'unrecognized';
+    detail?: string;
+  };
 }
 
 declare global {

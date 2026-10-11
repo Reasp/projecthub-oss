@@ -533,6 +533,13 @@ export interface TranslationDictionary {
     loadingDesc: string;
     apiUnavailable: string;
     loadError: string;
+    limitUnknown: string;
+    cliAuthExpired: string;
+    cliTimeout: string;
+    cliFailed: string;
+    cliUnrecognized: string;
+    signIn: string;
+    notSynced: string;
   };
   tabs: {
     tasks: string;

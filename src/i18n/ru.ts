@@ -635,7 +635,14 @@ export const ru: TranslationDictionary = {
     close: 'Закрыть',
     loadingDesc: 'Считывание квот и истории сессий Claude Code...',
     apiUnavailable: 'API получения usage Claude Code недоступно',
-    loadError: 'Ошибка загрузки статистики usage'
+    loadError: 'Ошибка загрузки статистики usage',
+    limitUnknown: 'нет данных',
+    cliAuthExpired: 'Claude Code в профиле ProjectHub не авторизован: сессия истекла или выполнен выход. Войдите и нажмите «Обновить».',
+    cliTimeout: 'Claude CLI не ответил вовремя. Лимиты не обновлены.',
+    cliFailed: 'Не удалось выполнить claude -p /usage. Лимиты не обновлены.',
+    cliUnrecognized: 'Claude CLI не сообщил лимиты подписки. Его ответ — на вкладке «Сырой вывод».',
+    signIn: 'Войти',
+    notSynced: 'Свежих данных от CLI Claude Code нет'
   },
   tabs: {
     tasks: 'Задачи & Backlog',

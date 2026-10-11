@@ -4,6 +4,7 @@ import {
   X,
   Gauge,
   RefreshCw,
+  AlertTriangle,
   Clock,
   Sparkles,
   Server,
@@ -74,6 +75,17 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
   const fablePercent = usageData?.fableLimit?.percent ?? 0;
   const hasFable = !!usageData?.fableLimit;
   const currentBreakdown = breakdownPeriod === '24h' ? usageData?.last24h : usageData?.last7d;
+  const cliError = usageData?.cliError;
+  const cliErrorText = cliError
+    ? {
+        auth: t.claudeUsage.cliAuthExpired,
+        timeout: t.claudeUsage.cliTimeout,
+        failed: t.claudeUsage.cliFailed,
+        unrecognized: t.claudeUsage.cliUnrecognized
+      }[cliError.kind]
+    : null;
+  // Окна лимита нет — это «нет данных», а не нулевой расход.
+  const unknownBadgeColor = 'bg-slate-800/80 text-slate-400 border-slate-700/60';
 
   const getProgressColor = (percent: number) => {
     if (percent >= 85) return 'from-rose-500 to-red-600 shadow-rose-500/30';
@@ -187,6 +199,26 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
             </div>
           )}
 
+          {cliError && (
+            <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-xs text-amber-200 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0 space-y-1">
+                <div>{cliErrorText}</div>
+                {cliError.detail && (
+                  <div className="font-mono text-[11px] text-amber-300/70 break-words select-text">{cliError.detail}</div>
+                )}
+              </div>
+              {cliError.kind === 'auth' && window.api?.startClaudeLogin && (
+                <button
+                  onClick={() => window.api.startClaudeLogin()}
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold transition"
+                >
+                  {t.claudeUsage.signIn}
+                </button>
+              )}
+            </div>
+          )}
+
           {isLoading && !usageData && (
             <div className="py-12 flex flex-col items-center justify-center space-y-3">
               <RefreshCw className="w-7 h-7 text-amber-400 animate-spin" />
@@ -207,11 +239,11 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                       {t.claudeUsage.sessionLimit}
                     </span>
                     <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${getBadgeColor(
-                        sessionPercent
-                      )}`}
+                      className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${
+                        usageData.sessionLimit ? getBadgeColor(sessionPercent) : unknownBadgeColor
+                      }`}
                     >
-                      {sessionPercent}% used
+                      {usageData.sessionLimit ? `${sessionPercent}% used` : t.claudeUsage.limitUnknown}
                     </span>
                   </div>
 
@@ -219,14 +251,14 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                   <div className="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden p-0.5">
                     <div
                       className={`h-full rounded-full bg-gradient-to-r ${getProgressColor(sessionPercent)} transition-all duration-500`}
-                      style={{ width: `${Math.min(100, Math.max(2, sessionPercent))}%` }}
+                      style={{ width: usageData.sessionLimit ? `${Math.min(100, Math.max(2, sessionPercent))}%` : '0%' }}
                     />
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
                     <span>{t.claudeUsage.sessionResetLabel}</span>
                     <span className="font-medium text-slate-300">
-                      {usageData.sessionLimit?.resetsAt || t.claudeUsage.resetsInHours}
+                      {usageData.sessionLimit ? usageData.sessionLimit.resetsAt || t.claudeUsage.resetsInHours : '—'}
                     </span>
                   </div>
                 </div>
@@ -239,11 +271,11 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                       {t.claudeUsage.weeklyLimit}
                     </span>
                     <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${getBadgeColor(
-                        weeklyPercent
-                      )}`}
+                      className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${
+                        usageData.weeklyLimit ? getBadgeColor(weeklyPercent) : unknownBadgeColor
+                      }`}
                     >
-                      {weeklyPercent}% used
+                      {usageData.weeklyLimit ? `${weeklyPercent}% used` : t.claudeUsage.limitUnknown}
                     </span>
                   </div>
 
@@ -251,14 +283,14 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                   <div className="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden p-0.5">
                     <div
                       className={`h-full rounded-full bg-gradient-to-r ${getProgressColor(weeklyPercent)} transition-all duration-500`}
-                      style={{ width: `${Math.min(100, Math.max(2, weeklyPercent))}%` }}
+                      style={{ width: usageData.weeklyLimit ? `${Math.min(100, Math.max(2, weeklyPercent))}%` : '0%' }}
                     />
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
                     <span>{t.claudeUsage.weeklyResetLabel}</span>
                     <span className="font-medium text-slate-300">
-                      {usageData.weeklyLimit?.resetsAt || t.claudeUsage.resetsInWeek}
+                      {usageData.weeklyLimit ? usageData.weeklyLimit.resetsAt || t.claudeUsage.resetsInWeek : '—'}
                     </span>
                   </div>
                 </div>
@@ -539,8 +571,8 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
         {/* Modal Footer */}
         <div className="p-4 border-t border-slate-800/80 bg-[#121522] flex items-center justify-between text-xs">
           <div className="text-slate-500 text-[11px] flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            {t.claudeUsage.syncedWithCli}
+            <span className={`w-1.5 h-1.5 rounded-full ${cliError ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+            {cliError ? t.claudeUsage.notSynced : t.claudeUsage.syncedWithCli}
           </div>
           <button
             onClick={onClose}

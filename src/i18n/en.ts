@@ -635,7 +635,14 @@ export const en: TranslationDictionary = {
     close: 'Close',
     loadingDesc: 'Fetching quotas and session history from Claude Code...',
     apiUnavailable: 'Claude Code usage API is unavailable',
-    loadError: 'Failed to load usage statistics'
+    loadError: 'Failed to load usage statistics',
+    limitUnknown: 'no data',
+    cliAuthExpired: 'Claude Code is not signed in for the ProjectHub profile: the session expired or was signed out. Sign in, then press Refresh.',
+    cliTimeout: 'Claude CLI did not answer in time. Limits were not updated.',
+    cliFailed: 'Could not run claude -p /usage. Limits were not updated.',
+    cliUnrecognized: 'Claude CLI did not report subscription limits. Its answer is on the Raw Output tab.',
+    signIn: 'Sign in',
+    notSynced: 'No fresh data from Claude Code CLI'
   },
   tabs: {
     tasks: 'Tasks & Backlog',
