@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Sparkles, Download, ArrowRightLeft, TriangleAlert, FileText } from 'lucide-react';
+import { RefreshCw, Sparkles, Download, ArrowRightLeft, TriangleAlert, FileText } from '../../common/icons';
 import { useTranslation } from '../../../i18n';
 import { useDialog } from '../../../hooks/useDialog';
 import { collapseUnchanged, lineDiff, lineDiffStats } from '../../../lib/lineDiff';
@@ -178,7 +178,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
             <div className="font-mono text-xs font-semibold">{entry.id}</div>
             {entry.description && <div className="text-[11px] text-muted-foreground line-clamp-2">{entry.description}</div>}
           </div>
-          <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${STATUS_STYLE[entry.status]}`}>{s.status[entry.status]}</span>
+          <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded border ${STATUS_STYLE[entry.status]}`}>{s.status[entry.status]}</span>
         </div>
 
         {problems.length > 0 && (
@@ -193,7 +193,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
 
         {entry.fileDiff && (
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{s.filesTitle}</div>
+            <div className="text-[11px] font-medium text-muted-foreground mb-1">{s.filesTitle}</div>
             <div className="max-h-32 overflow-y-auto space-y-0.5">
               {entry.fileDiff.map((f) => (
                 <div key={f.relPath} className="flex items-center justify-between gap-2 text-[11px]">
@@ -273,7 +273,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
     if (!listing) return null;
     return (
       <>
-        <div className="flex flex-wrap gap-1.5 text-[10px]" data-testid="skills-summary">
+        <div className="flex flex-wrap gap-1.5 text-[11px]" data-testid="skills-summary">
           {(['diverged', 'claudeOnly', 'agentsOnly', 'synced'] as SkillStatus[])
             .filter((st) => listing.summary[st] > 0)
             .map((st) => (
@@ -302,10 +302,10 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
                     selectedId === e.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-secondary/40'
                   }`}
                 >
-                  <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${STATUS_STYLE[e.status]}`}>{s.status[e.status]}</span>
+                  <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded border ${STATUS_STYLE[e.status]}`}>{s.status[e.status]}</span>
                   <span className="font-mono text-[11px] truncate flex-1" title={e.description ?? e.id}>{e.id}</span>
                   {hasProblems && <TriangleAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                  <span className="shrink-0 flex gap-1 text-[10px]">
+                  <span className="shrink-0 flex gap-1 text-[11px]">
                     {SKILL_ROOT_ORDER.map((r) => (
                       <span key={r} className={`px-1 rounded ${e.copies[r] ? 'bg-secondary text-foreground' : 'text-muted-foreground/40 line-through'}`}>
                         {s.rootShort[r]}
@@ -332,7 +332,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
     <>
       <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{s.source}</label>
+          <label className="text-[11px] font-medium text-muted-foreground block mb-1">{s.source}</label>
           <select
             value={sourceSel}
             onChange={(e) => setSourceSel(e.target.value)}
@@ -347,7 +347,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
           </select>
         </div>
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{s.targets}</div>
+          <div className="text-[11px] font-medium text-muted-foreground mb-1">{s.targets}</div>
           <div className="flex items-center gap-3 text-xs py-1.5">
             {SKILL_ROOT_ORDER.map((r) => (
               <label key={r} className="flex items-center gap-1.5" title={rootLabel(r)}>
@@ -375,17 +375,17 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono text-[11px] truncate">{item.id}</span>
                     {item.sourceDiverged && (
-                      <span className="text-[10px] text-amber-400" title={s.sourceDiverged}>
+                      <span className="text-[11px] text-amber-400" title={s.sourceDiverged}>
                         {s.fromRoot.replace('{root}', s.rootPath[item.from])}
                       </span>
                     )}
                   </div>
-                  {item.description && <div className="text-[10px] text-muted-foreground truncate" title={item.description}>{item.description}</div>}
-                  {item.blocker && <div className="text-[10px] text-amber-400">{item.blocker}</div>}
+                  {item.description && <div className="text-[11px] text-muted-foreground truncate" title={item.description}>{item.description}</div>}
+                  {item.blocker && <div className="text-[11px] text-amber-400">{item.blocker}</div>}
                 </div>
                 <div className="shrink-0 flex items-center gap-1">
                   {SKILL_ROOT_ORDER.filter((r) => toRoots.includes(r)).map((r) => (
-                    <span key={r} className={`text-[10px] px-1.5 py-0.5 rounded border ${ACTION_STYLE[item.actions[r]]}`} title={s.rootPath[r]}>
+                    <span key={r} className={`text-[11px] px-1.5 py-0.5 rounded border ${ACTION_STYLE[item.actions[r]]}`} title={s.rootPath[r]}>
                       {s.rootShort[r]}: {s.importAction[item.actions[r]]}
                     </span>
                   ))}

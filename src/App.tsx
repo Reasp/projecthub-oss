@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
-import { ProjectTabsBar } from './components/layout/ProjectTabsBar';
+import { ActivityBar } from './components/layout/ActivityBar';
+import { StatusBar } from './components/layout/StatusBar';
 import { ProjectWorkspace } from './components/projects/ProjectWorkspace';
 import { TerminalPanel } from './components/terminal/TerminalPanel';
 import { OmniSearchModal } from './components/search/OmniSearchModal';
@@ -21,7 +22,7 @@ import { useNotificationStore } from './store/useNotificationStore';
 import { useFederationStore } from './store/useFederationStore';
 import { useTranslation } from './i18n/useTranslation';
 import { useToast } from './hooks/useTimeoutState';
-import { Bot, ShieldAlert, X } from 'lucide-react';
+import { Bot, ShieldAlert, X } from './components/common/icons';
 
 
 /** Фокус в элементе, где пользователь вводит текст: input/textarea/contentEditable или терминал xterm. */
@@ -298,26 +299,26 @@ export const App: React.FC = () => {
   ]);
 
   return (
-    <div className="flex h-screen w-screen bg-[#0f1117] text-slate-100 overflow-hidden font-sans">
-      {/* Left Sidebar */}
-      {isSidebarOpen && <Sidebar />}
+    <div className="flex flex-col h-screen w-screen bg-ph-panel text-slate-100 overflow-hidden font-sans">
+      {/*
+        Раскладка как в IDE (decision-73): Activity Bar → сайдбар проектов → рабочая область
+        (шапка с вкладками открытых проектов, вид вкладки, нижняя панель терминала) → строка состояния.
+      */}
+      <div className="flex-1 flex min-h-0">
+        <ActivityBar />
 
-      {/* Main App Layout */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Header */}
-        <Header />
+        {isSidebarOpen && <Sidebar />}
 
-        {/* Active Projects Session Tabs Bar */}
-        <ProjectTabsBar />
-
-        {/* Workspace Area */}
-        <div className="flex-1 flex flex-col overflow-hidden relative">
-          <ProjectWorkspace />
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <Header />
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            <ProjectWorkspace />
+          </div>
+          <TerminalPanel />
         </div>
-
-        {/* Bottom Interactive Terminal & Process Drawer */}
-        <TerminalPanel />
       </div>
+
+      <StatusBar />
 
       {/* Global Omni-search Modal (Ctrl + K) */}
       <OmniSearchModal
@@ -336,15 +337,15 @@ export const App: React.FC = () => {
 
       {/* Remote MCP Action Toast Notification */}
       {remoteActionToast && (
-        <div className="fixed top-16 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-indigo-950/95 border border-indigo-500/60 shadow-2xl text-xs text-white backdrop-blur-md animate-in slide-in-from-top-3 duration-200">
-          <Bot className="w-4 h-4 text-indigo-400 shrink-0 animate-pulse" />
+        <div className="fixed top-14 right-4 z-50 flex items-center gap-2.5 px-3.5 py-2 rounded-lg bg-ph-elevated border border-slate-700 shadow-xl text-xs text-slate-100 animate-in slide-in-from-top-3 duration-200">
+          <Bot className="w-4 h-4 text-indigo-400 shrink-0" />
           <span className="font-medium">{remoteActionToast}</span>
         </div>
       )}
 
       {/* Предупреждение о запуске агента без проверки разрешений (fallback HITL, TASK-57) */}
       {fallbackNotice && (
-        <div className="fixed bottom-6 right-6 z-[10000] max-w-md flex items-start gap-2.5 px-4 py-3 rounded-xl bg-rose-950/95 border border-rose-500/60 shadow-2xl text-xs text-rose-100 backdrop-blur-md">
+        <div className="fixed bottom-9 right-4 z-[10000] max-w-md flex items-start gap-2.5 px-3.5 py-3 rounded-lg bg-ph-elevated border border-rose-500/50 shadow-xl text-xs text-rose-100">
           <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
           <span className="flex-1">{t.hitl.fallbackNotice.replace('{reason}', fallbackNotice)}</span>
           <button type="button" onClick={dismissFallbackNotice} className="p-0.5 rounded hover:bg-rose-900/60 text-rose-300">

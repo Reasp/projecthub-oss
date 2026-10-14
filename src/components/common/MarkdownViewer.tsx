@@ -1,7 +1,7 @@
 import React, { createContext, useContext } from 'react';
 import { MermaidDiagram } from './MermaidDiagram';
 import { parseMarkdownBlocks, type MarkdownBlock } from './markdownBlocks';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Lightbulb, Flame } from 'lucide-react';
+import { Copy, Check, Info, AlertTriangle, AlertCircle, Lightbulb, Flame } from './icons';
 import { useI18n } from '../../i18n';
 import { useTimeoutState } from '../../hooks/useTimeoutState';
 import { useDocRefs, type DocRefNavigation } from '../../hooks/useDocRefs';
@@ -77,7 +77,7 @@ const BlockRenderer: React.FC<{ block: MarkdownBlock }> = ({ block }) => {
         );
       }
       return (
-        <h4 data-heading-key={headingKey} className="text-xs font-semibold text-slate-200 mt-3 mb-1 uppercase tracking-wider text-slate-400">
+        <h4 data-heading-key={headingKey} className="text-xs font-medium text-slate-200 mt-3 mb-1 text-slate-400">
           <InlineMarkdown text={text} />
         </h4>
       );
@@ -156,8 +156,8 @@ const CodeBlock: React.FC<{ lang: string; code: string }> = ({ lang, code }) => 
   };
 
   return (
-    <div className="my-4 rounded-xl border border-slate-800 bg-[#0d0f18] overflow-hidden shadow-lg group">
-      <div className="px-4 py-1.5 bg-[#141724] border-b border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+    <div className="my-4 rounded-xl border border-slate-800 bg-ph-panel overflow-hidden shadow-lg group">
+      <div className="px-4 py-1.5 border-b border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
         <span className="uppercase text-indigo-400 font-semibold">{lang}</span>
         <button
           onClick={handleCopy}
@@ -193,7 +193,7 @@ const AlertBlock: React.FC<{ type: 'note' | 'tip' | 'important' | 'warning' | 'c
     <div className={`my-4 p-4 rounded-xl border ${config.border} ${config.bg} flex items-start gap-3 shadow-md`}>
       <IconComp className={`w-4 h-4 shrink-0 mt-0.5 ${config.text}`} />
       <div className="flex-1 space-y-1">
-        <div className={`text-[11px] font-bold uppercase tracking-wider ${config.text}`}>
+        <div className={`text-[11px] font-medium ${config.text}`}>
           {title || config.label}
         </div>
         <div className="text-xs text-slate-300 leading-relaxed">
@@ -210,7 +210,7 @@ const TableBlock: React.FC<{ headers: string[]; rows: string[][] }> = ({ headers
       <table className="w-full text-left border-collapse text-xs">
         {headers.length > 0 && (
           <thead>
-            <tr className="bg-[#141724] border-b border-slate-800 text-slate-200">
+            <tr className="bg-ph-raised border-b border-slate-800 text-slate-200">
               {headers.map((h, idx) => (
                 <th key={idx} className="px-4 py-2.5 font-semibold">
                   <InlineMarkdown text={h} />
@@ -219,7 +219,7 @@ const TableBlock: React.FC<{ headers: string[]; rows: string[][] }> = ({ headers
             </tr>
           </thead>
         )}
-        <tbody className="divide-y divide-slate-800/60 bg-[#0e111d]">
+        <tbody className="divide-y divide-slate-800/60 bg-ph-elevated">
           {rows.map((row, rIdx) => (
             <tr key={rIdx} className="hover:bg-slate-800/30 transition">
               {row.map((cell, cIdx) => (

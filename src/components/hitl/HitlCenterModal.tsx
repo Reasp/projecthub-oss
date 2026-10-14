@@ -21,7 +21,7 @@ import {
   AlertTriangle,
   FolderOpen,
   Monitor
-} from 'lucide-react';
+} from '../common/icons';
 import { useHitlStore } from '../../store/useHitlStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -145,8 +145,8 @@ export const HitlCenterModal: React.FC = () => {
           return (
             <div
               key={req.id}
-              className={`rounded-xl border bg-[#141726] transition ${
-                req.orphaned ? 'border-slate-700/60 opacity-80' : 'border-amber-500/40 shadow-sm shadow-amber-900/20'
+              className={`rounded-xl border bg-ph-hover transition ${
+                req.orphaned ? 'border-slate-700/60 opacity-80' : 'border-amber-500/40 shadow-sm'
               }`}
             >
               <div className="px-4 py-3 flex items-start gap-3">
@@ -155,7 +155,7 @@ export const HitlCenterModal: React.FC = () => {
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${originStyle[origin] || originStyle.studio}`}>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${originStyle[origin] || originStyle.studio}`}>
                       {t.hitl.origin[origin as keyof typeof t.hitl.origin] || origin}
                     </span>
                     {(req.agentName || req.role) && (
@@ -169,11 +169,11 @@ export const HitlCenterModal: React.FC = () => {
                       <FolderOpen className="w-3 h-3 text-slate-500" />
                       {projectName(req.projectPath)}
                     </span>
-                    {req.tool && <span className="text-[10px] font-mono text-slate-500 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">{req.tool}</span>}
+                    {req.tool && <span className="text-[11px] font-mono text-slate-500 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">{req.tool}</span>}
                   </div>
                   <div className="text-xs font-semibold text-slate-100 break-words">{req.title}</div>
                   {req.command && (
-                    <pre className="text-[11px] font-mono text-amber-200/90 bg-[#0c0e17] border border-slate-800 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-all max-h-24 overflow-auto">
+                    <pre className="text-[11px] font-mono text-amber-200/90 bg-ph-panel border border-slate-800 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-all max-h-24 overflow-auto">
                       $ {req.command}
                     </pre>
                   )}
@@ -181,7 +181,7 @@ export const HitlCenterModal: React.FC = () => {
                     <div className="text-[11px] font-mono text-slate-300 truncate" title={req.filePath}>{req.filePath}</div>
                   )}
                   {req.details && !req.command && <div className="text-[11px] text-slate-400 line-clamp-2">{req.details}</div>}
-                  <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{t.hitl.waitingFor.replace('{time}', formatDuration(waited))}</span>
                     {left !== null && <span>{t.hitl.expiresIn.replace('{time}', formatDuration(left))}</span>}
                     <span className="font-mono text-slate-600">{req.id}</span>
@@ -248,9 +248,9 @@ export const HitlCenterModal: React.FC = () => {
       : e.filePath || e.title || e.tool || '';
     return (
       <tr key={`${e.requestId}-${e.ts}-${idx}`} className="border-t border-slate-800/60 hover:bg-slate-800/30 align-top">
-        <td className="px-2 py-1.5 whitespace-nowrap text-slate-400 font-mono text-[10px]">{new Date(e.ts).toLocaleString()}</td>
+        <td className="px-2 py-1.5 whitespace-nowrap text-slate-400 font-mono text-[11px]">{new Date(e.ts).toLocaleString()}</td>
         <td className="px-2 py-1.5 whitespace-nowrap">
-          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+          <span className={`text-[11px] px-1.5 py-0.5 rounded border ${
             e.kind === 'fallback' ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
               : e.kind === 'outcome' ? 'bg-slate-700/40 text-slate-300 border-slate-600/50'
                 : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
@@ -262,39 +262,39 @@ export const HitlCenterModal: React.FC = () => {
             {e.agentName ? ` · ${e.agentName}` : ''}
             {e.role ? <span className="text-slate-500"> / {e.role}</span> : null}
           </div>
-          <div className="text-[10px] text-slate-500 truncate" title={e.projectPath}>{projectName(e.projectPath)}</div>
+          <div className="text-[11px] text-slate-500 truncate" title={e.projectPath}>{projectName(e.projectPath)}</div>
         </td>
         <td className="px-2 py-1.5 text-slate-200 max-w-[360px]">
           <div className="flex items-center gap-1.5">
-            {e.tool && <span className="text-[10px] font-mono text-slate-500 shrink-0">{e.tool}</span>}
+            {e.tool && <span className="text-[11px] font-mono text-slate-500 shrink-0">{e.tool}</span>}
             <span className="truncate font-mono text-[11px]" title={action}>{action}</span>
           </div>
           {e.kind === 'outcome' && e.outcome && (
-            <div className="text-[10px] text-slate-400">
+            <div className="text-[11px] text-slate-400">
               {t.hitl.outcome[e.outcome]}
               {typeof e.durationMs === 'number' ? ` · ${e.durationMs < 1000 ? `${e.durationMs}ms` : formatDuration(e.durationMs)}` : ''}
               {e.detail ? `: ${e.detail}` : ''}
             </div>
           )}
-          {e.kind === 'fallback' && e.detail && <div className="text-[10px] text-rose-300/80">{e.detail}</div>}
-          {e.comment && <div className="text-[10px] text-slate-400 italic">«{e.comment}»</div>}
+          {e.kind === 'fallback' && e.detail && <div className="text-[11px] text-rose-300/80">{e.detail}</div>}
+          {e.comment && <div className="text-[11px] text-slate-400 italic">«{e.comment}»</div>}
         </td>
         <td className="px-2 py-1.5 whitespace-nowrap">
           {e.decision && (
-            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${e.decision === 'allow' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+            <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${e.decision === 'allow' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
               {e.decision === 'allow' ? t.hitl.decisionAllow : t.hitl.decisionDeny}
             </span>
           )}
           {e.kind === 'decision' && e.outcome === 'session_gone' && (
-            <div className="text-[10px] text-slate-500">{t.hitl.outcome.session_gone}</div>
+            <div className="text-[11px] text-slate-500">{t.hitl.outcome.session_gone}</div>
           )}
         </td>
         <td className="px-2 py-1.5 text-slate-300 whitespace-nowrap text-[11px]">
           {by}
-          {e.deviceName ? <div className="text-[10px] text-slate-500">{e.deviceName}</div> : null}
-          {e.rule ? <div className="text-[10px] font-mono text-slate-500">{e.rule}</div> : null}
+          {e.deviceName ? <div className="text-[11px] text-slate-500">{e.deviceName}</div> : null}
+          {e.rule ? <div className="text-[11px] font-mono text-slate-500">{e.rule}</div> : null}
         </td>
-        <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap text-[10px] font-mono">
+        <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap text-[11px] font-mono">
           {typeof e.waitedMs === 'number' ? formatDuration(e.waitedMs) : ''}
         </td>
       </tr>
@@ -307,7 +307,7 @@ export const HitlCenterModal: React.FC = () => {
         <select
           value={auditQuery.month || ''}
           onChange={(e) => setAuditQuery({ month: e.target.value || undefined })}
-          className="bg-[#0c0e17] border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+          className="bg-ph-panel border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
           title={t.hitl.filterMonth}
         >
           <option value="">{t.hitl.filterAllMonths}</option>
@@ -316,7 +316,7 @@ export const HitlCenterModal: React.FC = () => {
         <select
           value={auditQuery.decidedBy || ''}
           onChange={(e) => setAuditQuery({ decidedBy: (e.target.value || undefined) as HitlDecisionSourceKind | undefined })}
-          className="bg-[#0c0e17] border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+          className="bg-ph-panel border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
           title={t.hitl.filterBy}
         >
           <option value="">{t.hitl.filterBy}: {t.hitl.filterAny}</option>
@@ -325,7 +325,7 @@ export const HitlCenterModal: React.FC = () => {
         <select
           value={auditQuery.decision || ''}
           onChange={(e) => setAuditQuery({ decision: (e.target.value || undefined) as 'allow' | 'deny' | undefined })}
-          className="bg-[#0c0e17] border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+          className="bg-ph-panel border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
           title={t.hitl.filterDecision}
         >
           <option value="">{t.hitl.filterDecision}: {t.hitl.filterAny}</option>
@@ -343,7 +343,7 @@ export const HitlCenterModal: React.FC = () => {
             if (v !== auditQuery.search) setAuditQuery({ search: v });
           }}
           placeholder={t.hitl.filterSearch}
-          className="flex-1 min-w-[180px] bg-[#0c0e17] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+          className="flex-1 min-w-[180px] bg-ph-panel border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
         />
         <button
           type="button"
@@ -377,7 +377,7 @@ export const HitlCenterModal: React.FC = () => {
       ) : (
         <div className="rounded-xl border border-slate-800 overflow-auto max-h-[52vh]">
           <table className="w-full text-xs">
-            <thead className="bg-[#10121c] text-[10px] uppercase tracking-wider text-slate-500 sticky top-0">
+            <thead className="bg-ph-elevated text-[11px] text-slate-500 sticky top-0">
               <tr>
                 <th className="px-2 py-2 text-left font-semibold">{t.hitl.colTime}</th>
                 <th className="px-2 py-2 text-left font-semibold">{t.hitl.colEvent}</th>
@@ -393,7 +393,7 @@ export const HitlCenterModal: React.FC = () => {
         </div>
       )}
       {auditInfo?.auditDir && (
-        <div className="text-[10px] text-slate-600 font-mono truncate" title={auditInfo.auditDir}>
+        <div className="text-[11px] text-slate-600 font-mono truncate" title={auditInfo.auditDir}>
           {t.hitl.auditDir}: {auditInfo.auditDir}
         </div>
       )}
@@ -401,9 +401,9 @@ export const HitlCenterModal: React.FC = () => {
   );
 
   const modal = (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) closeCenter(); }}>
-      <div className="w-full max-w-5xl max-h-[90vh] flex flex-col rounded-2xl bg-[#12151f] border border-slate-800 shadow-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-[#161a27]">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) closeCenter(); }}>
+      <div className="w-full max-w-5xl max-h-[90vh] flex flex-col rounded-xl bg-ph-elevated border border-slate-700 shadow-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className={`p-2 rounded-xl border ${pending.length > 0 ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'}`}>
               {pending.length > 0 ? <ShieldAlert className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
@@ -414,20 +414,20 @@ export const HitlCenterModal: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-0.5 bg-[#0c0e17] p-0.5 rounded-lg border border-slate-800 text-xs">
+            <div className="flex items-center gap-0.5 bg-ph-panel p-0.5 rounded-lg border border-slate-800 text-xs">
               <button
                 type="button"
                 onClick={() => setCenterTab('queue')}
-                className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 font-medium transition ${centerTab === 'queue' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 font-medium transition ${centerTab === 'queue' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 <ListChecks className="w-3.5 h-3.5" />
                 {t.hitl.tabQueue}
-                {pending.length > 0 && <span className="ml-1 text-[10px] bg-amber-500 text-black font-bold rounded-full px-1.5">{pending.length}</span>}
+                {pending.length > 0 && <span className="ml-1 text-[11px] bg-amber-500 text-black font-bold rounded-full px-1.5">{pending.length}</span>}
               </button>
               <button
                 type="button"
                 onClick={() => setCenterTab('history')}
-                className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 font-medium transition ${centerTab === 'history' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 font-medium transition ${centerTab === 'history' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 <History className="w-3.5 h-3.5" />
                 {t.hitl.tabHistory}

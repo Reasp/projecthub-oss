@@ -9,7 +9,7 @@ import {
   Sliders,
   CheckCircle2,
   AlertCircle
-} from 'lucide-react';
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 
@@ -73,13 +73,13 @@ export const ScanSettingsModal: React.FC<ScanSettingsModalProps> = ({ isOpen, on
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-[#131622] border border-slate-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-150">
+      <div className="bg-ph-elevated border border-slate-700 rounded-xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-[#181b2a]/70">
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-              <FolderSearch className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
+              <FolderSearch className="w-4 h-4" />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-white">{t.scanSettings.title}</h2>
@@ -99,7 +99,7 @@ export const ScanSettingsModal: React.FC<ScanSettingsModalProps> = ({ isOpen, on
           {/* Scan roots section */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+              <label className="font-medium text-slate-200 text-[11px] flex items-center gap-1.5">
                 <Folder className="w-3.5 h-3.5 text-indigo-400" />
                 {t.scanSettings.directories} ({roots.length})
               </label>
@@ -121,7 +121,7 @@ export const ScanSettingsModal: React.FC<ScanSettingsModalProps> = ({ isOpen, on
                 roots.map((rootPath) => (
                   <div
                     key={rootPath}
-                    className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#181b2b] border border-slate-800/80 group hover:border-slate-700 transition"
+                    className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-ph-hover border border-slate-800/80 group hover:border-slate-700 transition"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       {isDriveRoot(rootPath) ? (
@@ -153,7 +153,7 @@ export const ScanSettingsModal: React.FC<ScanSettingsModalProps> = ({ isOpen, on
           </div>
 
           {/* Depth settings */}
-          <div className="p-4 rounded-xl bg-[#181b2b]/60 border border-slate-800 space-y-3">
+          <div className="p-4 rounded-xl bg-ph-hover/60 border border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium text-slate-200 flex items-center gap-1.5">
@@ -168,7 +168,7 @@ export const ScanSettingsModal: React.FC<ScanSettingsModalProps> = ({ isOpen, on
               <select
                 value={scanDepth}
                 onChange={(e) => setScanDepth(Number(e.target.value))}
-                className="bg-[#121522] border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                className="bg-ph-raised border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
               >
                 <option value={1}>1 {t.scanSettings.depthLevel1}</option>
                 <option value={2}>2 {t.scanSettings.depthLevel2}</option>
@@ -194,7 +194,7 @@ export const ScanSettingsModal: React.FC<ScanSettingsModalProps> = ({ isOpen, on
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 border-t border-slate-800 bg-[#181b2a]/70 flex items-center justify-between">
+        <div className="px-6 py-3.5 border-t border-slate-800 flex items-center justify-between">
           <span className="text-xs text-slate-400">
             {t.common.all}: <strong className="text-white">{projects.length}</strong>
           </span>
@@ -209,7 +209,7 @@ export const ScanSettingsModal: React.FC<ScanSettingsModalProps> = ({ isOpen, on
             <button
               onClick={handleRunScan}
               disabled={isScanning}
-              className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-md shadow-indigo-600/20 transition flex items-center gap-2 disabled:opacity-50"
+              className="ph-btn ph-btn-primary disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
               {isScanning ? t.common.loading : t.scanSettings.scanNow}

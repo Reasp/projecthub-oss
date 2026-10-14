@@ -315,7 +315,7 @@ export function statusGlyph(status: string): string {
     case 'review':
       return '◆';
     case 'done':
-      return '✔';
+      return '●';
     default:
       return '•';
   }

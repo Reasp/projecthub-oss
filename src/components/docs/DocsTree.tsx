@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, FileText, Folder, FolderOpen, ShieldCheck } from 'lucide-react';
+import { ChevronRight, FileText, Folder, FolderOpen, ShieldCheck } from '../common/icons';
 import { ancestorKeys, buildDocTree, type DocTreeFolder, type DocTreeNode } from '../../utils/docTree';
 import type { DocItem } from '../../types/electron';
 
@@ -114,8 +114,8 @@ export const DocsTree: React.FC<DocsTreeProps> = ({ docs, selectedPath, onSelect
           type="button"
           onClick={() => toggle(folder.key)}
           style={{ paddingLeft: 6 + depth * 14 }}
-          className={`w-full flex items-center gap-1.5 pr-2 py-1.5 rounded-lg text-left transition hover:bg-[#181c2d] ${
-            isRoot ? 'text-[11px] font-semibold uppercase tracking-wider text-slate-300' : 'text-xs font-medium text-slate-300'
+          className={`w-full flex items-center gap-1.5 pr-2 py-1.5 rounded-lg text-left transition hover:bg-ph-hover ${
+            isRoot ? 'text-[11px] font-medium text-slate-300' : 'text-xs font-medium text-slate-300'
           }`}
         >
           <ChevronRight className={`w-3.5 h-3.5 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
@@ -126,7 +126,7 @@ export const DocsTree: React.FC<DocsTreeProps> = ({ docs, selectedPath, onSelect
               <Folder className="w-3.5 h-3.5 shrink-0 text-amber-400/80" />
             ))}
           <span className="truncate flex-1">{folder.name}</span>
-          <span className="text-[10px] font-mono text-slate-500 shrink-0">{folder.count}</span>
+          <span className="text-[11px] font-mono text-slate-500 shrink-0">{folder.count}</span>
         </button>
         {isOpen && <div role="group">{folder.children.map((child) => renderNode(child, depth + 1))}</div>}
       </div>
@@ -158,7 +158,7 @@ export const DocsTree: React.FC<DocsTreeProps> = ({ docs, selectedPath, onSelect
         className={`flex items-start gap-2 pr-2 py-1.5 rounded-lg border cursor-pointer transition ${
           isSelected
             ? 'bg-indigo-600/15 border-indigo-500/50 text-white'
-            : 'border-transparent text-slate-300 hover:bg-[#181c2d]'
+            : 'border-transparent text-slate-300 hover:bg-ph-hover'
         }`}
       >
         {isDecision ? (
@@ -168,7 +168,7 @@ export const DocsTree: React.FC<DocsTreeProps> = ({ docs, selectedPath, onSelect
         )}
         <div className="min-w-0 flex-1">
           <div className="text-xs leading-snug line-clamp-2">{doc.title}</div>
-          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500">
+          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-500">
             <span className="font-mono">{doc.id}</span>
             {doc.date && <span>{doc.date.slice(0, 10)}</span>}
             {showStatus && (
@@ -186,7 +186,7 @@ export const DocsTree: React.FC<DocsTreeProps> = ({ docs, selectedPath, onSelect
   return (
     <div role="tree" data-testid="docs-tree" className="space-y-0.5">
       {hasSections && !forceExpanded && (
-        <div className="flex items-center justify-end gap-3 px-1 pb-1 text-[10px] text-slate-500">
+        <div className="flex items-center justify-end gap-3 px-1 pb-1 text-[11px] text-slate-500">
           <button type="button" onClick={() => update(new Set(allKeys))} className="hover:text-slate-200 transition">
             {labels.expandAll}
           </button>

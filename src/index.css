@@ -1,15 +1,258 @@
 @import "tailwindcss";
 
+/*
+ * Дизайн-токены ProjectHub (decision-73).
+ *
+ * Принципы — как у рабочих инструментов (VS Code, JetBrains): нейтральная тёмная гамма,
+ * один акцент для выбора и фокуса, цвет статусов только по смыслу (успех, предупреждение,
+ * ошибка), мелкие радиусы, плоские поверхности без стекла и свечения.
+ *
+ * Палитры `slate` и `indigo` переопределены здесь, поэтому существующие классы компонентов
+ * (`bg-slate-800`, `text-indigo-400` …) получают новую гамму без правки каждого файла:
+ *   slate  → нейтральный серый (поверхности, рамки, текст);
+ *   indigo → акцентный синий (выбор, фокус, основная кнопка).
+ * Поверхности задаются семантически: `bg-ph-*` вместо произвольных `bg-[#…]`.
+ */
+@theme {
+  /* Нейтральная шкала: тёплый оттенок не нужен, лёгкий холодный — чтобы не было «грязного» серого. */
+  --color-slate-50: #f7f7f8;
+  --color-slate-100: #ededef;
+  --color-slate-200: #dcdcdf;
+  --color-slate-300: #c3c3c8;
+  --color-slate-400: #9c9ca3;
+  --color-slate-500: #77777e;
+  --color-slate-600: #5a5a61;
+  --color-slate-700: #424248;
+  --color-slate-800: #313136;
+  --color-slate-900: #232327;
+  --color-slate-950: #161619;
+
+  /* Акцент: один спокойный синий вместо индиго-фиолетовой связки. */
+  --color-indigo-50: #eef6ff;
+  --color-indigo-100: #d9ebff;
+  --color-indigo-200: #b9dbff;
+  --color-indigo-300: #8cc3fa;
+  --color-indigo-400: #5aa8f2;
+  --color-indigo-500: #2f8ce6;
+  --color-indigo-600: #1873cc;
+  --color-indigo-700: #165ea6;
+  --color-indigo-800: #164c83;
+  --color-indigo-900: #153f6b;
+  --color-indigo-950: #0f2745;
+
+  /* Фиолетовый остаётся смысловым цветом (статус Review, AI-роли), но приглушённым. */
+  --color-violet-500: #8b7bd8;
+  --color-violet-600: #7563c4;
+  --color-purple-300: #c9b5f0;
+  --color-purple-400: #ad93e6;
+  --color-purple-500: #9277d6;
+  --color-purple-600: #7a5fc2;
+
+  /* Поверхности (от самой глубокой к самой поднятой). */
+  --color-ph-base: #141416;     /* колодцы: терминал, код, превью */
+  --color-ph-chrome: #18181b;   /* рамка окна: заголовок, activity bar, сайдбар, статус-бар */
+  --color-ph-panel: #1d1d20;    /* рабочая область вкладки */
+  --color-ph-elevated: #222226; /* карточки, всплывающие меню, модальные окна */
+  --color-ph-raised: #2a2a2f;   /* поля ввода, кнопки второго уровня */
+  --color-ph-hover: #2e2e33;
+  --color-ph-line: #2c2c31;     /* разделители и рамки по умолчанию */
+  --color-ph-focus: #2f8ce6;
+
+  /*
+   * Семантические токены в стиле shadcn. Swarm Arena, роли, Automations и настройки уведомлений
+   * написаны на них (`bg-background`, `text-muted-foreground`, `border-border` …), но токены не были
+   * определены — окна рисовались с прозрачным фоном. Теперь они указывают на ту же систему.
+   */
+  --color-background: var(--color-ph-elevated);
+  --color-foreground: #e4e4e7;
+  --color-card: var(--color-ph-panel);
+  --color-card-foreground: #e4e4e7;
+  --color-popover: var(--color-ph-elevated);
+  --color-popover-foreground: #e4e4e7;
+  --color-primary: var(--color-indigo-500);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--color-ph-raised);
+  --color-secondary-foreground: #e4e4e7;
+  --color-muted: var(--color-ph-raised);
+  --color-muted-foreground: var(--color-slate-400);
+  --color-accent: var(--color-ph-hover);
+  --color-accent-foreground: #f4f4f5;
+  --color-destructive: #e5484d;
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--color-ph-line);
+  --color-input: var(--color-slate-700);
+  --color-ring: var(--color-ph-focus);
+
+  /* Радиусы меньше дефолтных Tailwind: плотный инструмент, а не лендинг. */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
+  --radius-3xl: 12px;
+}
+
 @layer base {
   * {
-    border-color: #272a37;
+    border-color: var(--color-ph-line);
+  }
+
+  html,
+  body {
+    background: var(--color-ph-chrome);
+    color: #e4e4e7;
+  }
+
+  /* Видимый фокус с клавиатуры, как focusBorder в VS Code. Мышью рамка не появляется. */
+  button:focus-visible,
+  [role='tab']:focus-visible,
+  [role='button']:focus-visible,
+  a:focus-visible,
+  summary:focus-visible {
+    outline: 1px solid var(--color-ph-focus);
+    outline-offset: -1px;
   }
 }
 
-/* Custom Scrollbars */
+@layer components {
+  /* Элемент строки состояния: плоский, без рамки, подсветка только при наведении. */
+  .ph-status-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 100%;
+    padding: 0 0.5rem;
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--color-slate-400);
+    border-radius: 0;
+    transition: background-color 0.1s, color 0.1s;
+  }
+  .ph-status-item:hover {
+    background: var(--color-ph-hover);
+    color: var(--color-slate-100);
+  }
+  /* Предупреждающий фон — «крайняя мера» по гайдлайнам VS Code: только для ожидающего решения. */
+  .ph-status-item-warning {
+    background: color-mix(in srgb, var(--color-amber-500) 22%, transparent);
+    color: var(--color-amber-200);
+  }
+  .ph-status-item-warning:hover {
+    background: color-mix(in srgb, var(--color-amber-500) 32%, transparent);
+    color: var(--color-amber-100);
+  }
+  .ph-status-item-error {
+    background: color-mix(in srgb, var(--color-rose-500) 22%, transparent);
+    color: var(--color-rose-200);
+  }
+
+  /* Кнопка-иконка панели инструментов (заголовок, сайдбар, activity bar). */
+  .ph-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    border-radius: var(--radius-md);
+    color: var(--color-slate-400);
+    transition: background-color 0.1s, color 0.1s;
+  }
+  .ph-icon-button:hover {
+    background: var(--color-ph-hover);
+    color: var(--color-slate-100);
+  }
+  .ph-icon-button:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  /*
+   * Кнопки (приоритет 3 decision-73): одна высота, радиус и шрифт для всего приложения.
+   * Основная (синяя) — одна на экран/форму; вторичная — нейтральная подложка; ghost — без подложки.
+   */
+  .ph-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 1.75rem;
+    padding: 0 0.75rem;
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    transition: background-color 0.1s, color 0.1s, border-color 0.1s;
+  }
+  .ph-btn:disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .ph-btn-primary {
+    background: var(--color-indigo-600);
+    color: #fff;
+  }
+  .ph-btn-primary:hover {
+    background: var(--color-indigo-500);
+  }
+  .ph-btn-secondary {
+    background: var(--color-ph-raised);
+    color: var(--color-slate-100);
+  }
+  .ph-btn-secondary:hover {
+    background: var(--color-ph-hover);
+  }
+  .ph-btn-danger {
+    background: color-mix(in srgb, var(--color-rose-600) 85%, transparent);
+    color: #fff;
+  }
+  .ph-btn-danger:hover {
+    background: var(--color-rose-500);
+  }
+  .ph-btn-ghost {
+    background: transparent;
+    color: var(--color-slate-300);
+  }
+  .ph-btn-ghost:hover {
+    background: var(--color-ph-hover);
+    color: #fff;
+  }
+
+  /* Поле ввода / список / многострочное поле. */
+  .ph-input {
+    width: 100%;
+    min-height: 1.75rem;
+    padding: 0.3rem 0.625rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-slate-700);
+    background: var(--color-ph-raised);
+    color: var(--color-slate-100);
+    font-size: 12px;
+    transition: border-color 0.1s;
+  }
+  .ph-input::placeholder {
+    color: var(--color-slate-500);
+  }
+  .ph-input:focus {
+    outline: none;
+    border-color: var(--color-ph-focus);
+  }
+
+  /* Заголовок секции в сайдбаре, как «EXPLORER» в VS Code. */
+  .ph-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-slate-400);
+  }
+}
+
+/* Полосы прокрутки: тонкие, нейтральные. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -17,30 +260,35 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2e3446;
+  background: color-mix(in srgb, var(--color-slate-500) 35%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3e475e;
+  background: color-mix(in srgb, var(--color-slate-400) 50%, transparent);
+  background-clip: content-box;
 }
 
-/* Glassmorphism helpers */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * Бывшие «стеклянные» хелперы: имена оставлены для совместимости, эффект размытия убран —
+ * в рабочем инструменте поверхности различаются фоном и рамкой, а не blur.
+ */
 .glass-panel {
-  background: rgba(22, 25, 35, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--color-ph-chrome);
+  border: 1px solid var(--color-ph-line);
 }
 
 .glass-card {
-  background: rgba(30, 34, 48, 0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-ph-elevated);
+  border: 1px solid var(--color-ph-line);
 }
 
 .glass-card:hover {
-  background: rgba(36, 41, 58, 0.8);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--color-ph-hover);
 }

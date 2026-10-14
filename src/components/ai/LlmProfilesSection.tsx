@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Key, Pencil, Plus, RefreshCw, Server, Trash2 } from 'lucide-react';
+import { Key, Pencil, Plus, RefreshCw, Server, Trash2 } from '../common/icons';
 import type { LlmCompatFlags, LlmProfile, LlmProfileView, LlmProviderPreset, ModelCatalogResult } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
@@ -25,10 +25,10 @@ interface ProfileDraft {
 }
 
 const inputClass =
-  'w-full bg-[#161928] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 font-mono focus:outline-none focus:border-indigo-500';
-const labelClass = 'font-semibold text-slate-200 uppercase tracking-wider text-[11px] block mb-1.5';
+  'w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 font-mono focus:outline-none focus:border-indigo-500';
+const labelClass = 'font-medium text-slate-200 text-[11px] block mb-1.5';
 const smallButton =
-  'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-[#161928] text-[11px] text-slate-300 hover:text-white hover:border-slate-700 transition disabled:opacity-40';
+  'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-ph-hover text-[11px] text-slate-300 hover:text-white hover:border-slate-700 transition disabled:opacity-40';
 
 function newProfileId(): string {
   return `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -150,7 +150,7 @@ export const LlmProfilesSection: React.FC<LlmProfilesSectionProps> = ({ profileI
   const draftPreset = draft ? presetOf(draft.profile.presetId) : undefined;
 
   return (
-    <div className="space-y-3 p-4 rounded-xl bg-[#161928]/60 border border-slate-800">
+    <div className="space-y-3 p-4 rounded-xl bg-ph-hover/60 border border-slate-800">
       <div>
         <label className={`${labelClass} flex items-center gap-1.5`}>
           <Server className="w-3.5 h-3.5 text-indigo-400" />
@@ -186,7 +186,7 @@ export const LlmProfilesSection: React.FC<LlmProfilesSectionProps> = ({ profileI
       </div>
 
       {draft && (
-        <div className="space-y-3 p-3 rounded-lg border border-indigo-500/30 bg-[#121522]">
+        <div className="space-y-3 p-3 rounded-lg border border-indigo-500/30 bg-ph-raised">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>{l.preset}</label>

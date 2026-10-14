@@ -14,7 +14,7 @@ import {
   GitBranch,
   BrainCircuit,
   Loader2
-} from 'lucide-react';
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { CreateProjectOptions, TemplateAvailability } from '../../types/electron';
@@ -148,12 +148,12 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150 select-none">
-      <div className="bg-[#131622] border border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-150 select-none">
+      <div className="bg-ph-elevated border border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-[#171b2b]/70">
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white">
+            <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
               <Sparkles className="w-4 h-4 text-amber-300" />
             </div>
             <div>
@@ -183,7 +183,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
           {step === 1 && (
             <div className="space-y-4">
               <div>
-                <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] block mb-1.5">
+                <label className="font-medium text-slate-200 text-[11px] block mb-1.5">
                   {t.wizard.projectName} *
                 </label>
                 <input
@@ -193,12 +193,12 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
                   placeholder={t.wizard.projectNamePlaceholder}
-                  className="w-full bg-[#171a29] border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition font-medium"
+                  className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition font-medium"
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] block mb-1.5">
+                <label className="font-medium text-slate-200 text-[11px] block mb-1.5">
                   {t.wizard.parentDirectory}
                 </label>
                 <div className="flex items-center gap-2">
@@ -206,12 +206,12 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                     type="text"
                     value={parentDir}
                     onChange={(e) => setParentDir(e.target.value)}
-                    className="flex-1 bg-[#171a29] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-indigo-500"
+                    className="flex-1 bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-indigo-500"
                   />
                   <button
                     type="button"
                     onClick={handleSelectParentDir}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition flex items-center gap-1.5 border border-slate-700"
+                    className="ph-btn ph-btn-secondary"
                   >
                     <Folder className="w-3.5 h-3.5 text-indigo-400" />
                     {t.wizard.selectFolder}
@@ -220,21 +220,21 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
               </div>
 
               {projectName.trim() && (
-                <div className="p-3 rounded-xl bg-[#171a2b]/60 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                <div className="p-3 rounded-xl bg-ph-hover/60 border border-slate-800 text-[11px] text-slate-400 space-y-1">
                   <span className="text-slate-500 font-semibold block">{t.wizard.resultingPath}:</span>
                   <span className="font-mono text-indigo-300 break-all">{targetPath}</span>
                 </div>
               )}
 
               <div>
-                <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] block mb-1.5">
+                <label className="font-medium text-slate-200 text-[11px] block mb-1.5">
                   {t.wizard.templatePath}
                 </label>
                 <div className="flex items-center gap-2">
                   <div
                     className={`flex-1 min-w-0 rounded-xl px-3.5 py-2 text-xs font-mono border truncate ${
                       templateReady
-                        ? 'bg-[#171a29] border-slate-800 text-slate-300'
+                        ? 'bg-ph-hover border-slate-800 text-slate-300'
                         : 'bg-amber-950/20 border-amber-800/40 text-amber-200'
                     }`}
                     title={template?.path || ''}
@@ -246,7 +246,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                   <button
                     type="button"
                     onClick={handleSelectTemplateDir}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition flex items-center gap-1.5 border border-slate-700 shrink-0"
+                    className="ph-btn ph-btn-secondary shrink-0"
                   >
                     <Folder className="w-3.5 h-3.5 text-indigo-400" />
                     {t.wizard.selectFolder}
@@ -282,7 +282,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                     type="checkbox"
                     checked={initGit}
                     onChange={(e) => setInitGit(e.target.checked)}
-                    className="w-4 h-4 rounded bg-[#171a29] border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer"
+                    className="w-4 h-4 rounded bg-ph-hover border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer"
                   />
                   <span className="text-slate-300 font-medium flex items-center gap-1.5">
                     <GitBranch className="w-3.5 h-3.5 text-indigo-400" />
@@ -296,7 +296,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
           {step === 2 && (
             <div className="space-y-4">
               <div>
-                <h4 className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] mb-1">
+                <h4 className="font-medium text-slate-200 text-[11px] mb-1">
                   {t.wizard.selectModules}
                 </h4>
                 <p className="text-slate-400 text-[11px]">
@@ -311,11 +311,11 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                   className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between ${
                     features.docsRag
                       ? 'bg-indigo-600/10 border-indigo-500/40 text-white'
-                      : 'bg-[#171a29]/60 border-slate-800 text-slate-400'
+                      : 'bg-ph-hover/60 border-slate-800 text-slate-400'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center text-indigo-400">
+                    <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
                       <BookOpen className="w-4 h-4" />
                     </div>
                     <div>
@@ -341,11 +341,11 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                   className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between ${
                     features.envTools
                       ? 'bg-indigo-600/10 border-indigo-500/40 text-white'
-                      : 'bg-[#171a29]/60 border-slate-800 text-slate-400'
+                      : 'bg-ph-hover/60 border-slate-800 text-slate-400'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center text-indigo-400">
+                    <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
                       <Cpu className="w-4 h-4" />
                     </div>
                     <div>
@@ -371,11 +371,11 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                   className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between ${
                     features.backlogMcp
                       ? 'bg-indigo-600/10 border-indigo-500/40 text-white'
-                      : 'bg-[#171a29]/60 border-slate-800 text-slate-400'
+                      : 'bg-ph-hover/60 border-slate-800 text-slate-400'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center text-indigo-400">
+                    <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
                       <Layers className="w-4 h-4" />
                     </div>
                     <div>
@@ -401,11 +401,11 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                   className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between ${
                     features.bootstrap
                       ? 'bg-indigo-600/10 border-indigo-500/40 text-white'
-                      : 'bg-[#171a29]/60 border-slate-800 text-slate-400'
+                      : 'bg-ph-hover/60 border-slate-800 text-slate-400'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center text-indigo-400">
+                    <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
                       <Terminal className="w-4 h-4" />
                     </div>
                     <div>
@@ -431,17 +431,17 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                   className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between ${
                     features.lightrag
                       ? 'bg-purple-600/15 border-purple-500/40 text-white'
-                      : 'bg-[#171a29]/60 border-slate-800 text-slate-400'
+                      : 'bg-ph-hover/60 border-slate-800 text-slate-400'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-purple-500/15 flex items-center justify-center text-purple-400">
+                    <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-purple-400">
                       <BrainCircuit className="w-4 h-4" />
                     </div>
                     <div>
                       <span className="font-semibold text-xs text-slate-200 flex items-center gap-1.5">
                         {t.wizard.featureLightrag}
-                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300">
+                        <span className="text-[11px] uppercase font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300">
                           {t.wizard.heavyBadge}
                         </span>
                       </span>
@@ -463,7 +463,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
 
           {step === 3 && (
             <div className="py-8 flex flex-col items-center justify-center space-y-4 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 animate-pulse shadow-lg shadow-indigo-600/20">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-lg">
                 <Loader2 className="w-7 h-7 animate-spin" />
               </div>
               <div>
@@ -475,7 +475,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="px-6 py-3.5 border-t border-slate-800 bg-[#171b2b]/70 flex items-center justify-between">
+        <div className="px-6 py-3.5 border-t border-slate-800 flex items-center justify-between">
           {step > 1 && !isCreating ? (
             <button
               onClick={() => setStep((s) => (s - 1) as any)}
@@ -510,7 +510,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                 }}
                 disabled={!templateReady || isCheckingTemplate}
                 title={templateReady ? undefined : t.wizard.templateMissing}
-                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-md shadow-indigo-600/20 transition flex items-center gap-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-md transition flex items-center gap-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t.wizard.next}
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -521,7 +521,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
               <button
                 onClick={handleCreate}
                 disabled={isCreating || !templateReady}
-                className="px-5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium shadow-lg shadow-indigo-600/30 transition flex items-center gap-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                className="ph-btn ph-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                 {t.wizard.createButton}

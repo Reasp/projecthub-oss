@@ -3,18 +3,13 @@ import {
   GitBranch,
   GitCommit as GitCommitIcon,
   GitMerge,
-  Calendar,
   User,
   CheckCircle,
   Clock,
   Plus,
   ChevronRight,
-  Tag,
-  Archive,
   Globe,
-  Check,
   FileDiff,
-  Minus,
   Circle,
   ArrowUpFromLine,
   ArrowDownToLine,
@@ -27,10 +22,9 @@ import {
   Download,
   Upload,
   RotateCcw,
-  SlidersHorizontal,
-  ChevronDown,
-  FolderGit2
-} from 'lucide-react';
+  FolderGit2,
+  X
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
@@ -281,7 +275,7 @@ export const GitInspector: React.FC = () => {
   // ── Guard: no git ──
   if (!selectedProject?.hasGit) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#0d1017]">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-ph-panel">
         <GitBranch className="w-12 h-12 text-slate-600 mb-3" />
         <h3 className="text-sm font-semibold text-white mb-1">{t.git.title}</h3>
         <p className="text-xs text-slate-400 max-w-sm">
@@ -296,7 +290,7 @@ export const GitInspector: React.FC = () => {
   const unstagedFiles = details?.files.filter(f => !f.staged) ?? [];
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0d1017]">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-ph-panel">
 
       {/* Messages */}
       {errorMsg && (
@@ -336,7 +330,7 @@ export const GitInspector: React.FC = () => {
                 }}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                   isActive
-                    ? 'bg-indigo-600 text-white shadow-sm'
+                    ? 'bg-ph-hover text-slate-100'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
               >
@@ -386,9 +380,9 @@ export const GitInspector: React.FC = () => {
               <GitBranch className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
               <span className="font-semibold text-indigo-300 truncate max-w-[130px]">{details.currentBranch}</span>
               {details.isClean ? (
-                <span className="text-[10px] text-emerald-400 bg-emerald-950/50 px-1.5 py-0.2 rounded border border-emerald-700/30">{t.git.clean}</span>
+                <span className="text-[11px] text-emerald-400 bg-emerald-950/50 px-1.5 py-0.2 rounded border border-emerald-700/30">{t.git.clean}</span>
               ) : (
-                <span className="text-[10px] text-amber-400 bg-amber-950/50 px-1.5 py-0.2 rounded border border-amber-700/30">
+                <span className="text-[11px] text-amber-400 bg-amber-950/50 px-1.5 py-0.2 rounded border border-amber-700/30">
                   {details.files.length}
                 </span>
               )}
@@ -401,19 +395,19 @@ export const GitInspector: React.FC = () => {
       {activeTab === 'working' && (
         <div className="flex-1 flex overflow-hidden">
           {/* Left Column: Staged and Unstaged Files + Commit Box */}
-          <div className="w-80 shrink-0 flex flex-col border-r border-slate-800 overflow-hidden bg-[#0e111a]">
+          <div className="w-80 shrink-0 flex flex-col border-r border-slate-800 overflow-hidden bg-ph-panel">
 
             {/* Staged Section */}
             <div className="p-3 border-b border-slate-800/80 shrink-0">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
                   <ArrowUpFromLine className="w-3.5 h-3.5" />
                   {t.git.stagedFiles} • {stagedFiles.length}
                 </span>
                 {stagedFiles.length > 0 && (
                   <button
                     onClick={() => stagedFiles.forEach(f => gitUnstageFile(f.path))}
-                    className="text-[10px] text-slate-400 hover:text-slate-200 transition bg-slate-800 px-1.5 py-0.5 rounded"
+                    className="text-[11px] text-slate-400 hover:text-slate-200 transition bg-slate-800 px-1.5 py-0.5 rounded"
                   >
                     {t.git.unstageAll}
                   </button>
@@ -434,7 +428,7 @@ export const GitInspector: React.FC = () => {
                           isSelected ? 'bg-emerald-950/50 border border-emerald-600/50' : 'hover:bg-slate-800/60'
                         }`}
                       >
-                        <span className={`text-[10px] font-mono font-bold px-1 py-0.5 rounded border shrink-0 ${statusColors[f.index] || statusColors['?']}`}>
+                        <span className={`text-[11px] font-mono font-bold px-1 py-0.5 rounded border shrink-0 ${statusColors[f.index] || statusColors['?']}`}>
                           {f.index || 'A'}
                         </span>
                         <span className="text-slate-300 truncate flex-1 font-mono text-[11px]" title={f.path}>
@@ -457,14 +451,14 @@ export const GitInspector: React.FC = () => {
             {/* Unstaged Section */}
             <div className="flex-1 flex flex-col overflow-hidden p-3 min-h-0">
               <div className="flex items-center justify-between mb-2 shrink-0">
-                <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
                   <ArrowDownToLine className="w-3.5 h-3.5" />
                   {t.git.unstagedCount.replace('{count}', String(unstagedFiles.length))}
                 </span>
                 {unstagedFiles.length > 0 && (
                   <button
                     onClick={() => gitStageAll()}
-                    className="text-[10px] text-emerald-400 hover:text-emerald-300 transition bg-emerald-950/40 border border-emerald-700/40 px-1.5 py-0.5 rounded"
+                    className="text-[11px] text-emerald-400 hover:text-emerald-300 transition bg-emerald-950/40 border border-emerald-700/40 px-1.5 py-0.5 rounded"
                   >
                     {t.git.stageAll}
                   </button>
@@ -485,7 +479,7 @@ export const GitInspector: React.FC = () => {
                           isSelected ? 'bg-amber-950/50 border border-amber-600/50' : 'hover:bg-slate-800/60'
                         }`}
                       >
-                        <span className={`text-[10px] font-mono font-bold px-1 py-0.5 rounded border shrink-0 ${statusColors[f.working_dir] || statusColors['?']}`}>
+                        <span className={`text-[11px] font-mono font-bold px-1 py-0.5 rounded border shrink-0 ${statusColors[f.working_dir] || statusColors['?']}`}>
                           {f.working_dir || 'M'}
                         </span>
                         <span className="text-slate-300 truncate flex-1 font-mono text-[11px]" title={f.path}>
@@ -518,7 +512,7 @@ export const GitInspector: React.FC = () => {
                 value={commitMessage}
                 onChange={e => setCommitMessage(e.target.value)}
                 placeholder={t.git.commitMessagePlaceholder}
-                className="w-full bg-slate-950/80 border border-slate-700/80 rounded-lg p-2 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-indigo-500 resize-none h-16 font-mono"
+                className="w-full bg-ph-raised border border-slate-700 rounded-md p-2 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-indigo-500 resize-none h-16 font-mono"
                 onKeyDown={e => {
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleCommit();
                 }}
@@ -528,7 +522,7 @@ export const GitInspector: React.FC = () => {
                   {inProgressTask && (
                     <button
                       onClick={insertTaskId}
-                      className="flex items-center gap-1 px-2 py-1 rounded bg-violet-900/40 border border-violet-700/50 text-violet-300 text-[10px] hover:bg-violet-900/70 transition"
+                      className="ph-btn ph-btn-ghost h-6 px-2 text-[11px]"
                       title={t.git.insertTaskId.replace('{id}', inProgressTask.id)}
                     >
                       <Layers className="w-3 h-3" />
@@ -543,10 +537,10 @@ export const GitInspector: React.FC = () => {
                       setCommitMessage(msg);
                     }}
                     type="button"
-                    className="flex items-center gap-1 px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] hover:bg-amber-500/20 transition"
+                    className="ph-btn ph-btn-ghost h-6 px-2 text-[11px]"
                     title={t.git.aiCommitTooltip}
                   >
-                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <Sparkles className="w-3 h-3 text-slate-400" />
                     <span>AI Commit</span>
                   </button>
                 </div>
@@ -554,7 +548,7 @@ export const GitInspector: React.FC = () => {
                 <button
                   onClick={handleCommit}
                   disabled={!commitMessage.trim() || isCommitting || stagedFiles.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition shadow-sm"
+                  className="ph-btn ph-btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isCommitting ? (
                     <RefreshCw className="w-3 h-3 animate-spin" />
@@ -590,7 +584,7 @@ export const GitInspector: React.FC = () => {
       {activeTab === 'branches' && (
         <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl mx-auto w-full">
           {/* Branch Actions Toolbar */}
-          <div className="flex items-center justify-between gap-3 bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+          <div className="flex items-center justify-between gap-3 bg-ph-panel p-4 rounded-lg border border-ph-line">
             <div>
               <h3 className="text-sm font-semibold text-white">{t.git.branchesTitle}</h3>
               <p className="text-xs text-slate-400">{t.git.branchesSubtitle}</p>
@@ -631,7 +625,7 @@ export const GitInspector: React.FC = () => {
               <button
                 onClick={handleCreateBranch}
                 disabled={!newBranchName.trim()}
-                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-medium transition"
+                className="ph-btn ph-btn-primary disabled:opacity-40"
               >
                 {t.git.createAndSwitch}
               </button>
@@ -639,7 +633,7 @@ export const GitInspector: React.FC = () => {
                 onClick={() => { setShowNewBranchInput(false); setNewBranchName(''); }}
                 className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs"
               >
-                ✕
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
@@ -647,7 +641,7 @@ export const GitInspector: React.FC = () => {
           {/* Local Branches List */}
           <div className="bg-slate-900/60 rounded-xl border border-slate-800 overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-300 flex items-center gap-2">
                 <GitBranch className="w-3.5 h-3.5 text-indigo-400" />
                 {t.git.localBranches.replace('{count}', String(details?.branches.length ?? 0))}
               </span>
@@ -672,7 +666,7 @@ export const GitInspector: React.FC = () => {
                         {branch}
                       </span>
                       {isCurrent && (
-                        <span className="text-[10px] text-indigo-400 bg-indigo-500/20 px-2 py-0.5 rounded font-sans border border-indigo-500/30">
+                        <span className="text-[11px] text-indigo-400 bg-indigo-500/20 px-2 py-0.5 rounded font-sans border border-indigo-500/30">
                           {t.git.currentHead}
                         </span>
                       )}
@@ -692,7 +686,7 @@ export const GitInspector: React.FC = () => {
                           </button>
                           <button
                             onClick={() => handleMergeBranch(branch)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-950/60 hover:bg-indigo-900 text-indigo-300 text-xs transition border border-indigo-700/50"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded bg-ph-raised hover:bg-ph-hover text-slate-200 text-xs transition border border-slate-700"
                             title={t.git.mergeBranchTooltip.replace('{branch}', branch).replace('{current}', details.currentBranch)}
                           >
                             <GitMerge className="w-3 h-3" />
@@ -718,7 +712,7 @@ export const GitInspector: React.FC = () => {
           {details && details.remoteBranches.length > 0 && (
             <div className="bg-slate-900/60 rounded-xl border border-slate-800 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-300 flex items-center gap-2">
                   <Globe className="w-3.5 h-3.5 text-slate-400" />
                   {t.git.remoteBranches.replace('{count}', String(details.remoteBranches.length))}
                 </span>
@@ -751,7 +745,7 @@ export const GitInspector: React.FC = () => {
       {activeTab === 'compare' && (
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Compare Toolbar */}
-          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 text-xs shrink-0">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 text-xs shrink-0">
             <div className="flex items-center gap-2">
               <span className="text-slate-400">{t.git.compareTitle}</span>
               <select
@@ -772,7 +766,7 @@ export const GitInspector: React.FC = () => {
             <button
               onClick={handleRunCompare}
               disabled={isComparing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition"
+              className="ph-btn ph-btn-primary"
             >
               {isComparing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <GitMerge className="w-3 h-3" />}
               <span>{t.git.refreshCompare}</span>
@@ -793,7 +787,7 @@ export const GitInspector: React.FC = () => {
       {activeTab === 'history' && (
         <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full space-y-3">
           {gitLogs.map(c => (
-            <div key={c.hash} className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-slate-700 transition">
+            <div key={c.hash} className="p-4 rounded-lg bg-ph-panel border border-ph-line hover:border-slate-700 transition">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h4 className="text-xs font-semibold text-slate-200 mb-1">{c.message}</h4>
@@ -808,7 +802,7 @@ export const GitInspector: React.FC = () => {
                     </span>
                   </div>
                 </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-indigo-400 shrink-0">
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-indigo-400 shrink-0">
                   {c.hash.substring(0, 7)}
                 </span>
               </div>

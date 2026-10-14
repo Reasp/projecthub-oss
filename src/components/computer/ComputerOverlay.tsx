@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Monitor, OctagonX } from 'lucide-react';
+import { Monitor, OctagonX } from '../common/icons';
 import type { ComputerOverlayState } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 
@@ -40,7 +40,7 @@ export const ComputerOverlay: React.FC = () => {
           <OctagonX className="w-5 h-5 shrink-0" />
           <div className="min-w-0">
             <div className="text-xs font-bold truncate">{t.computerUse.overlayBlocked}</div>
-            <div className="text-[10px] text-rose-300 truncate">{t.computerUse.overlayBlockedHint}</div>
+            <div className="text-[11px] text-rose-300 truncate">{t.computerUse.overlayBlockedHint}</div>
           </div>
         </div>
       </div>
@@ -60,7 +60,7 @@ export const ComputerOverlay: React.FC = () => {
             {t.computerUse.overlayTitle}
             {state.label ? <span className="font-normal text-orange-300"> · {state.label}</span> : null}
           </div>
-          <div className="text-[10px] text-orange-300/80 truncate">{t.computerUse.overlayHint.replace('{hotkey}', state.hotkey)}</div>
+          <div className="text-[11px] text-orange-300/80 truncate">{t.computerUse.overlayHint.replace('{hotkey}', state.hotkey)}</div>
         </div>
         <button
           type="button"

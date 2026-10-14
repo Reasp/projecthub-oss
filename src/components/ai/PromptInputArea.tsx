@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
-import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, GitCommit, Rocket } from 'lucide-react';
+import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, GitCommit, Rocket } from '../common/icons';
 import type { BacklogTask, GitRepoDetails } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { voiceService, type VoiceState } from '../../services/voiceService';
@@ -94,12 +94,12 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   };
 
   return (
-    <div className="p-4 bg-[#111420] border-t border-slate-800 shrink-0 space-y-2.5">
+    <div className="p-4 bg-ph-elevated border-t border-slate-800 shrink-0 space-y-2.5">
       {/* Quick Action Prompt Buttons Row */}
       <div className="flex items-center justify-between gap-2 flex-wrap pb-0.5">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider flex items-center gap-1 mr-1">
-            <span className="text-xs">⚡</span>
+          <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1 mr-1">
+            <Zap className="w-3 h-3" />
             <span>{t.aiStudio.input.quickPrompts}</span>
           </span>
 
@@ -107,7 +107,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
             type="button"
             disabled={isStreaming}
             onClick={() => onSend(t.aiStudio.quickActions.nextTaskPrompt)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-500/40 text-[11px] font-semibold text-indigo-200 hover:text-white transition shadow-sm hover:border-indigo-400 disabled:opacity-50 group"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-ph-raised hover:bg-ph-hover border border-slate-700 text-[11px] font-medium text-slate-200 hover:text-white transition hover:border-slate-600 disabled:opacity-50 group"
             title={t.aiStudio.quickActions.nextTaskPrompt}
           >
             <ListTodo className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform" />
@@ -118,7 +118,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
             type="button"
             disabled={isStreaming}
             onClick={() => onSend(t.aiStudio.quickActions.commitPrompt)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-500/40 text-[11px] font-semibold text-emerald-200 hover:text-white transition shadow-sm hover:border-emerald-400 disabled:opacity-50 group"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-ph-raised hover:bg-ph-hover border border-slate-700 text-[11px] font-medium text-slate-200 hover:text-white transition hover:border-slate-600 disabled:opacity-50 group"
             title={t.aiStudio.quickActions.commitPrompt}
           >
             <GitCommit className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
@@ -129,7 +129,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
             type="button"
             disabled={isStreaming}
             onClick={() => onSend(t.aiStudio.quickActions.deployPrompt)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-950/60 hover:bg-purple-900/80 border border-purple-500/40 text-[11px] font-semibold text-purple-200 hover:text-white transition shadow-sm hover:border-purple-400 disabled:opacity-50 group"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-ph-raised hover:bg-ph-hover border border-slate-700 text-[11px] font-semibold text-slate-200 hover:text-white transition shadow-sm hover:border-slate-700 disabled:opacity-50 group"
             title={t.aiStudio.quickActions.deployPrompt}
           >
             <Rocket className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
@@ -154,13 +154,13 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
 
       {/* Context Attachment Pills */}
       <div className="flex items-center gap-2 text-xs flex-wrap">
-        <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+        <span className="text-[11px] text-slate-500 font-medium">
           {t.aiStudio.input.contextTags}:
         </span>
         <button
           type="button"
           onClick={() => handleInsertContext('task')}
-          className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#161a29] border border-slate-800 hover:border-indigo-500/50 hover:bg-indigo-500/10 text-[11px] text-slate-300 transition"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-ph-hover border border-slate-800 hover:border-indigo-500/50 hover:bg-indigo-500/10 text-[11px] text-slate-300 transition"
         >
           <CheckSquare className="w-3 h-3 text-amber-400" />
           @Task
@@ -168,7 +168,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
         <button
           type="button"
           onClick={() => handleInsertContext('git')}
-          className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#161a29] border border-slate-800 hover:border-indigo-500/50 hover:bg-indigo-500/10 text-[11px] text-slate-300 transition"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-ph-hover border border-slate-800 hover:border-indigo-500/50 hover:bg-indigo-500/10 text-[11px] text-slate-300 transition"
         >
           <GitBranch className="w-3 h-3 text-indigo-400" />
           @GitStatus
@@ -176,7 +176,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
         <button
           type="button"
           onClick={() => handleInsertContext('docs')}
-          className="flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#161a29] border border-slate-800 hover:border-indigo-500/50 hover:bg-indigo-500/10 text-[11px] text-slate-300 transition"
+          className="flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-ph-hover border border-slate-800 hover:border-indigo-500/50 hover:bg-indigo-500/10 text-[11px] text-slate-300 transition"
         >
           <BookOpen className="w-3 h-3 text-purple-400" />
           @Docs
@@ -184,7 +184,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
       </div>
 
       {/* Input Textarea & Send / Mic / Stop Button */}
-      <div className="flex items-end gap-2 bg-[#171b2a] border border-slate-700/80 rounded-2xl p-2.5 shadow-inner focus-within:border-indigo-500 transition">
+      <div className="flex items-end gap-2 bg-ph-hover border border-slate-700/80 rounded-2xl p-2.5 shadow-inner focus-within:border-indigo-500 transition">
         <textarea
           ref={textareaRef}
           rows={1}
@@ -214,10 +214,10 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
               isSpeech
                 ? 'bg-emerald-600 text-white ring-2 ring-emerald-500/40 animate-pulse'
                 : isTranscribing
-                ? 'bg-amber-600 text-white animate-bounce'
+                ? 'bg-amber-600 text-white'
                 : isHandsFree
                 ? 'bg-indigo-600 text-white ring-2 ring-indigo-500/40'
-                : 'bg-[#121522] border border-slate-700 hover:border-indigo-500/70 text-slate-400 hover:text-indigo-400'
+                : 'bg-ph-raised border border-slate-700 hover:border-indigo-500/70 text-slate-400 hover:text-indigo-400'
             }`}
             title={isHandsFree ? t.aiStudio.input.handsFreeDisableTitle : t.aiStudio.input.handsFreeEnableTitle}
           >
@@ -234,7 +234,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
           <button
             type="button"
             onClick={onAbort}
-            className="p-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-medium shadow-md shadow-rose-600/20 transition flex items-center gap-1 shrink-0 text-xs"
+            className="ph-btn ph-btn-danger shrink-0"
             title={t.aiStudio.input.stop}
           >
             <Square className="w-3.5 h-3.5 fill-current" />
@@ -245,7 +245,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
             type="button"
             onClick={handleSend}
             disabled={!input.trim()}
-            className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-md shadow-indigo-600/20 transition disabled:opacity-40 disabled:hover:bg-indigo-600 shrink-0"
+            className="ph-btn ph-btn-primary disabled:opacity-40 disabled:hover:bg-indigo-600 shrink-0"
             title={`${t.aiStudio.input.send} (Enter)`}
           >
             <Send className="w-4 h-4" />

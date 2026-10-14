@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, X, RefreshCw, Download, FileArchive, ExternalLink } from 'lucide-react';
+import { Activity, X, RefreshCw, Download, FileArchive, ExternalLink } from '../common/icons';
 
 import type { DiagnosticsInfo, UpdaterStatus } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -83,24 +83,25 @@ export const DiagnosticsBadge: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition border ${
-          hasUpdateBadge
-            ? 'bg-indigo-950/40 border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/50'
-            : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
-        }`}
+        className={`ph-status-item ${hasUpdateBadge ? 'text-indigo-300' : ''}`}
         title={t.diagnostics.badgeTooltip}
       >
-        <Activity className="w-3.5 h-3.5 shrink-0" />
-        {hasUpdateBadge && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />}
+        {/* Версия приложения — понятнее иконки-пульса; точка — доступно обновление */}
+        {updater?.currentVersion ? (
+          <span className="tabular-nums">v{updater.currentVersion}</span>
+        ) : (
+          <Activity className="w-3.5 h-3.5 shrink-0" />
+        )}
+        {hasUpdateBadge && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />}
       </button>
 
       {isOpen &&
         createPortal(
-          <div className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-lg bg-[#121522] border border-slate-700/80 rounded-2xl shadow-2xl p-6 space-y-5 text-slate-200 font-sans">
+          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl p-6 space-y-5 text-slate-200 font-sans">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+                  <div className="p-1.5 rounded-lg bg-ph-raised text-indigo-400">
                     <Activity className="w-5 h-5" />
                   </div>
                   <div>
@@ -135,7 +136,7 @@ export const DiagnosticsBadge: React.FC = () => {
               )}
 
               <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-ph-panel border border-ph-line">
                   <div className="text-[11px] text-slate-300 flex-1 pr-2">
                     {updateLabel || t.diagnostics.updateNotAvailable}
                   </div>
@@ -143,7 +144,7 @@ export const DiagnosticsBadge: React.FC = () => {
                     type="button"
                     onClick={handleCheckUpdates}
                     disabled={updater?.state === 'checking' || updater?.state === 'downloading'}
-                    className="px-3 py-1.5 rounded-lg font-medium text-xs flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 disabled:opacity-50 shrink-0"
+                    className="ph-btn ph-btn-secondary disabled:opacity-50 shrink-0"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${updater?.state === 'checking' ? 'animate-spin' : ''}`} />
                     {t.diagnostics.checkUpdates}
@@ -166,12 +167,12 @@ export const DiagnosticsBadge: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleOpenRelease}
-                      className="w-full px-3 py-1.5 rounded-lg font-medium text-xs flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
+                      className="ph-btn ph-btn-primary w-full"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       {t.diagnostics.viewRelease}
                     </button>
-                    <p className="text-[10px] text-slate-500 text-center">{t.diagnostics.autoInstallUnsupportedMac}</p>
+                    <p className="text-[11px] text-slate-500 text-center">{t.diagnostics.autoInstallUnsupportedMac}</p>
                   </div>
                 )}
               </div>
@@ -181,7 +182,7 @@ export const DiagnosticsBadge: React.FC = () => {
                   type="button"
                   onClick={handleCollectArchive}
                   disabled={isCollecting}
-                  className="w-full px-3 py-1.5 rounded-lg font-medium text-xs flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 disabled:opacity-50"
+                  className="ph-btn ph-btn-secondary w-full disabled:opacity-50"
                 >
                   <FileArchive className="w-3.5 h-3.5" />
                   {isCollecting ? t.diagnostics.collectingArchive : t.diagnostics.collectArchive}

@@ -10,12 +10,10 @@ import {
   ChevronRight,
   ListTodo,
   Kanban,
-  Flag,
-  AlertCircle,
-  Sparkles,
-  BarChart2
-} from 'lucide-react';
+  AlertCircle
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
+import { plainPreview } from '../../utils/plainPreview';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { CreateMilestoneModal } from './CreateMilestoneModal';
@@ -68,28 +66,28 @@ export const MilestonesRoadmapView: React.FC = () => {
     switch (status) {
       case 'Completed':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
             <CheckCircle2 className="w-3 h-3" />
             {t.milestones.statusCompleted}
           </span>
         );
       case 'In Progress':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
             <Clock className="w-3 h-3" />
             {t.milestones.statusInProgress}
           </span>
         );
       case 'Deferred':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
             <AlertCircle className="w-3 h-3" />
             {t.milestones.statusDeferred}
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
             <Target className="w-3 h-3" />
             {t.milestones.statusPlanning}
           </span>
@@ -105,30 +103,19 @@ export const MilestonesRoadmapView: React.FC = () => {
   const inProgressMilestones = milestones.filter((m) => m.status === 'In Progress').length;
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0f1117]">
-      {/* Header Bar */}
-      <div className="px-6 py-4 border-b border-slate-800/80 bg-[#12151f]/60 flex items-center justify-between gap-4 shrink-0 flex-nowrap overflow-hidden">
-        <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
-          <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
-            <Target className="w-5 h-5 shrink-0" />
-          </div>
-          <div className="min-w-0 truncate">
-            <div className="flex items-center gap-2 truncate">
-              <h2 className="text-sm font-semibold text-white truncate">{t.milestones.title}</h2>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700/60 shrink-0 whitespace-nowrap">
-                {totalMilestones}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-              {t.milestones.subtitle}
-            </p>
-          </div>
-        </div>
-
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-ph-panel">
+      {/* Заголовок вида: счётчики этапов строкой, без отдельных KPI-карточек (decision-73) */}
+      <div className="h-11 px-4 flex items-center gap-3 border-b border-ph-line shrink-0 min-w-0">
+        <h2 className="text-[13px] font-medium text-slate-100 shrink-0">{t.milestones.title}</h2>
+        {milestones.length > 0 && (
+          <span className="text-xs text-slate-500 tabular-nums truncate">
+            {t.common.all}: {totalMilestones} · {t.kanban.inProgress}: {inProgressMilestones} · {t.kanban.done}: {completedMilestones}
+          </span>
+        )}
         <button
           onClick={handleOpenCreate}
           title={t.milestones.newMilestone}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-lg shadow-indigo-600/20 shrink-0 whitespace-nowrap"
+          className="ph-btn ph-btn-primary ml-auto shrink-0"
         >
           <Plus className="w-3.5 h-3.5 shrink-0" />
           <span className="hidden sm:inline">{t.milestones.newMilestone}</span>
@@ -136,55 +123,18 @@ export const MilestonesRoadmapView: React.FC = () => {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-        {/* Summary Stats Cards */}
-        {milestones.length > 0 && (
-          <div className="grid grid-cols-3 gap-4">
-            <div className="p-4 rounded-xl bg-[#161922]/80 border border-slate-800 flex items-center justify-between">
-              <div>
-                <p className="text-[11px] text-slate-400 font-medium">{t.common.all}</p>
-                <p className="text-xl font-bold text-white mt-1">{totalMilestones}</p>
-              </div>
-              <div className="w-9 h-9 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-                <Flag className="w-4 h-4" />
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-[#161922]/80 border border-slate-800 flex items-center justify-between">
-              <div>
-                <p className="text-[11px] text-slate-400 font-medium">{t.kanban.inProgress}</p>
-                <p className="text-xl font-bold text-cyan-400 mt-1">{inProgressMilestones}</p>
-              </div>
-              <div className="w-9 h-9 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
-                <Clock className="w-4 h-4" />
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-[#161922]/80 border border-slate-800 flex items-center justify-between">
-              <div>
-                <p className="text-[11px] text-slate-400 font-medium">{t.kanban.done}</p>
-                <p className="text-xl font-bold text-emerald-400 mt-1">{completedMilestones}</p>
-              </div>
-              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                <CheckCircle2 className="w-4 h-4" />
-              </div>
-            </div>
-          </div>
-        )}
-
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
         {/* Milestones List */}
         {milestones.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center border border-dashed border-slate-800 rounded-2xl bg-[#161922]/40">
-            <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-3">
-              <Target className="w-7 h-7" />
-            </div>
+          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
+            <Target className="w-6 h-6 text-slate-600 mb-3" />
             <h3 className="text-sm font-semibold text-white mb-1">{t.milestones.noMilestones}</h3>
             <p className="text-xs text-slate-400 max-w-sm mb-4">
               {t.milestones.subtitle}
             </p>
             <button
               onClick={handleOpenCreate}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-lg shadow-indigo-600/20"
+              className="ph-btn ph-btn-primary"
             >
               <Plus className="w-3.5 h-3.5" />
               {t.milestones.newMilestone}
@@ -211,26 +161,23 @@ export const MilestonesRoadmapView: React.FC = () => {
               return (
                 <div
                   key={m.id}
-                  className="rounded-xl border border-slate-800/90 bg-[#161922] shadow-sm hover:border-slate-700/80 transition overflow-hidden"
+                  className="rounded-lg border border-ph-line bg-ph-elevated hover:border-slate-600 transition overflow-hidden"
                 >
                   {/* Card Main Header */}
-                  <div className="p-5 flex flex-col gap-3">
+                  <div className="p-4 flex flex-col gap-3">
                     <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 mt-0.5">
-                          <Target className="w-4 h-4" />
-                        </div>
-                        <div>
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="min-w-0">
                           <div className="flex items-center gap-2.5 flex-wrap">
-                            <span className="text-[11px] font-mono font-medium text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                            <span className="text-[11px] font-mono text-slate-500">
                               {m.id}
                             </span>
-                            <h3 className="text-sm font-semibold text-white">{m.title}</h3>
+                            <h3 className="text-[13px] font-medium text-slate-100">{m.title}</h3>
                             {getStatusBadge(m.status)}
                           </div>
                           {m.description && (
                             <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">
-                              {m.description}
+                              {plainPreview(m.description)}
                             </p>
                           )}
                         </div>
@@ -318,7 +265,7 @@ export const MilestonesRoadmapView: React.FC = () => {
                   </div>
 
                   {/* Toggle Task List Drawer */}
-                  <div className="px-5 py-2.5 bg-[#12151e]/60 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                  <div className="px-5 py-2.5 border-t border-slate-800/80 flex items-center justify-between text-xs">
                     <button
                       onClick={() => setExpandedMilestoneId(isExpanded ? null : m.id)}
                       className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition font-medium"
@@ -341,7 +288,7 @@ export const MilestonesRoadmapView: React.FC = () => {
 
                   {/* Expanded Task List */}
                   {isExpanded && (
-                    <div className="p-4 bg-[#10131b] border-t border-slate-800/80 flex flex-col gap-2">
+                    <div className="p-4 bg-ph-elevated border-t border-slate-800/80 flex flex-col gap-2">
                       {mTasks.length === 0 ? (
                         <p className="text-xs text-slate-500 italic py-2 text-center">
                           {t.kanban.noTasks}
@@ -350,10 +297,10 @@ export const MilestonesRoadmapView: React.FC = () => {
                         mTasks.map((task) => (
                           <div
                             key={task.id}
-                            className="flex items-center justify-between p-2.5 rounded-lg bg-[#161922] border border-slate-800/80 hover:border-slate-700 transition text-xs"
+                            className="flex items-center justify-between p-2.5 rounded-lg bg-ph-hover border border-slate-800/80 hover:border-slate-700 transition text-xs"
                           >
                             <div className="flex items-center gap-2">
-                              <span className="font-mono text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+                              <span className="font-mono text-[11px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
                                 {task.id}
                               </span>
                               <span
@@ -366,7 +313,7 @@ export const MilestonesRoadmapView: React.FC = () => {
                             </div>
 
                             <span
-                              className={`text-[10px] px-2 py-0.5 rounded font-semibold ${
+                              className={`text-[11px] px-2 py-0.5 rounded font-semibold ${
                                 task.status === 'Done'
                                   ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                   : task.status === 'In Progress'

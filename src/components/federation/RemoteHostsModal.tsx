@@ -19,7 +19,7 @@ import {
   Trash2,
   Link2,
   Unlink
-} from 'lucide-react';
+} from '../common/icons';
 import { useFederationStore, type RemoteHostTab } from '../../store/useFederationStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
@@ -213,7 +213,7 @@ export const RemoteHostsModal: React.FC = () => {
                   }`}
                 >
                   <div className="font-medium">{p.name || p.path}</div>
-                  <div className="text-[10px] text-slate-500 truncate">{p.path}</div>
+                  <div className="text-[11px] text-slate-500 truncate">{p.path}</div>
                 </button>
               ))
             ) : (
@@ -238,7 +238,7 @@ export const RemoteHostsModal: React.FC = () => {
                       <div className="text-xs font-semibold text-slate-200 truncate">
                         {task.id} — {task.title}
                       </div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">
+                      <div className="text-[11px] text-slate-500 mt-0.5">
                         {task.status}
                         {assigned ? ` · ${assigned.raw}` : ''}
                       </div>
@@ -255,7 +255,7 @@ export const RemoteHostsModal: React.FC = () => {
                             roleSlug
                           })
                         }
-                        className="shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-600/80 hover:bg-emerald-500 text-[10px] font-medium text-white transition"
+                        className="shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-600/80 hover:bg-emerald-500 text-[11px] font-medium text-white transition"
                       >
                         <Play className="w-3 h-3" />
                         {t.federation.runAssigned}
@@ -280,7 +280,7 @@ export const RemoteHostsModal: React.FC = () => {
               <div key={proc.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-700/60 bg-slate-900/60 p-3">
                 <div className="min-w-0">
                   <div className="text-xs font-semibold text-slate-200 truncate">{proc.name}</div>
-                  <div className="text-[10px] text-slate-500 truncate">
+                  <div className="text-[11px] text-slate-500 truncate">
                     {proc.status}
                     {proc.port ? ` · :${proc.port}` : ''}
                   </div>
@@ -322,12 +322,12 @@ export const RemoteHostsModal: React.FC = () => {
                   {swarm.taskId ? `${swarm.taskId} — ` : ''}
                   {swarm.taskTitle || swarm.mode}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">
+                <div className="text-[11px] text-slate-500 mt-0.5">
                   {swarm.status} · {swarm.origin || swarm.mode}
                 </div>
                 <div className="mt-2 space-y-1">
                   {swarm.agents.map((agent) => (
-                    <div key={agent.id} className="flex items-center justify-between text-[10px] text-slate-400">
+                    <div key={agent.id} className="flex items-center justify-between text-[11px] text-slate-400">
                       <span className="truncate">
                         {agent.name}
                         {agent.roleSlug ? ` · ${agent.roleSlug}` : ''}
@@ -351,9 +351,9 @@ export const RemoteHostsModal: React.FC = () => {
           hostData.approvals.map((req) => (
             <div key={req.requestId} className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
               <div className="text-xs font-semibold text-amber-100">{req.title || req.tool || req.type}</div>
-              {req.command && <pre className="mt-1 text-[10px] text-slate-400 whitespace-pre-wrap break-all">{req.command}</pre>}
-              {req.filePath && <div className="mt-1 text-[10px] text-slate-500 truncate">{req.filePath}</div>}
-              <div className="text-[10px] text-slate-500 mt-1">
+              {req.command && <pre className="mt-1 text-[11px] text-slate-400 whitespace-pre-wrap break-all">{req.command}</pre>}
+              {req.filePath && <div className="mt-1 text-[11px] text-slate-500 truncate">{req.filePath}</div>}
+              <div className="text-[11px] text-slate-500 mt-1">
                 {req.agentName || req.sessionId}
                 {req.role ? ` · ${req.role}` : ''}
               </div>
@@ -394,12 +394,12 @@ export const RemoteHostsModal: React.FC = () => {
 
   const modal = (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close();
       }}
     >
-      <div className="w-full max-w-5xl h-[80vh] flex flex-col rounded-2xl border border-slate-700/70 bg-[#12141f] shadow-2xl overflow-hidden">
+      <div className="w-full max-w-5xl h-[80vh] flex flex-col rounded-xl border border-slate-700 bg-ph-elevated shadow-2xl overflow-hidden">
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-slate-800">
           <div>
             <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
@@ -418,7 +418,7 @@ export const RemoteHostsModal: React.FC = () => {
           <div className="w-64 shrink-0 border-r border-slate-800 flex flex-col">
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
               <div>
-                <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">{t.federation.hostsSection}</div>
+                <div className="text-[11px] text-slate-500 mb-1.5">{t.federation.hostsSection}</div>
                 {peers.length ? (
                   <div className="space-y-1">
                     {peers.map((peer) => (
@@ -440,7 +440,7 @@ export const RemoteHostsModal: React.FC = () => {
                             <Globe className="w-3 h-3 text-slate-500" />
                           )}
                         </div>
-                        <div className="text-[10px] text-slate-500 mt-0.5 truncate">
+                        <div className="text-[11px] text-slate-500 mt-0.5 truncate">
                           {t.federation.status[peer.status]}
                           {peer.rights ? ` · ${t.federation.rights[peer.rights]}` : ''}
                         </div>
@@ -488,14 +488,14 @@ export const RemoteHostsModal: React.FC = () => {
                 ) : (
                   <div className="text-[11px] text-slate-500 space-y-1">
                     <p>{t.federation.noPeers}</p>
-                    <p className="text-[10px] text-slate-600">{t.federation.noPeersHint}</p>
+                    <p className="text-[11px] text-slate-600">{t.federation.noPeersHint}</p>
                   </div>
                 )}
               </div>
 
               {discovered.length > 0 && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">{t.federation.discoveredSection}</div>
+                  <div className="text-[11px] text-slate-500 mb-1.5">{t.federation.discoveredSection}</div>
                   <div className="space-y-1">
                     {discovered.map((host) => (
                       <button
@@ -514,7 +514,7 @@ export const RemoteHostsModal: React.FC = () => {
                         className="w-full text-left rounded-lg border border-slate-700/60 bg-slate-900/40 hover:bg-slate-800/60 px-2.5 py-2 transition"
                       >
                         <div className="text-xs text-slate-200 truncate">{host.machineName}</div>
-                        <div className="text-[10px] text-slate-500 truncate">
+                        <div className="text-[11px] text-slate-500 truncate">
                           {host.isOnline ? host.platform : t.federation.status.offline}
                           {host.protocolIncompatible ? ` · ${t.federation.protocolMismatch}` : ''}
                         </div>
@@ -547,21 +547,21 @@ export const RemoteHostsModal: React.FC = () => {
                   { key: 'machineName' as const, label: t.federation.fieldMachineName }
                 ].map((field) => (
                   <label key={field.key} className="block">
-                    <span className="text-[10px] uppercase tracking-wide text-slate-500">{field.label}</span>
+                    <span className="text-[11px] text-slate-500">{field.label}</span>
                     <input
                       value={form[field.key]}
                       onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
-                      className="mt-1 w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                      className="mt-1 w-full px-2.5 py-1.5 rounded-md bg-ph-raised border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                     />
                   </label>
                 ))}
 
                 <label className="block">
-                  <span className="text-[10px] uppercase tracking-wide text-slate-500">{t.federation.fieldTransport}</span>
+                  <span className="text-[11px] text-slate-500">{t.federation.fieldTransport}</span>
                   <select
                     value={form.transport}
                     onChange={(e) => setForm({ ...form, transport: e.target.value as FederationTransport })}
-                    className="mt-1 w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                    className="mt-1 w-full px-2.5 py-1.5 rounded-md bg-ph-raised border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                   >
                     <option value="lan">{t.federation.transportLan}</option>
                     <option value="relay">{t.federation.transportRelay}</option>
@@ -569,12 +569,12 @@ export const RemoteHostsModal: React.FC = () => {
                 </label>
 
                 <label className="block">
-                  <span className="text-[10px] uppercase tracking-wide text-slate-500">{t.federation.fieldAddress}</span>
+                  <span className="text-[11px] text-slate-500">{t.federation.fieldAddress}</span>
                   <input
                     value={form.address}
                     onChange={(e) => setForm({ ...form, address: e.target.value })}
                     placeholder={form.transport === 'lan' ? t.federation.fieldAddressLanHint : t.federation.fieldAddressRelayHint}
-                    className="mt-1 w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                    className="mt-1 w-full px-2.5 py-1.5 rounded-md bg-ph-raised border border-slate-700 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                   />
                 </label>
 
@@ -583,12 +583,12 @@ export const RemoteHostsModal: React.FC = () => {
                   { key: 'pin' as const, label: t.federation.fieldPin }
                 ].map((field) => (
                   <label key={field.key} className="block">
-                    <span className="text-[10px] uppercase tracking-wide text-slate-500">{field.label}</span>
+                    <span className="text-[11px] text-slate-500">{field.label}</span>
                     <input
                       type="password"
                       value={form[field.key]}
                       onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
-                      className="mt-1 w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                      className="mt-1 w-full px-2.5 py-1.5 rounded-md bg-ph-raised border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                     />
                   </label>
                 ))}

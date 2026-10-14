@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { ChevronDown, Check, Sparkles, Zap, Cpu, Flame, Layers, Search, HardDrive, Server } from 'lucide-react';
+import { ChevronDown, Check, Sparkles, Zap, Cpu, Flame, Layers, Search, HardDrive, Server,
+} from '../common/icons';
+import { ClaudeLogo } from '../common/BrandLogo';
 import { useI18n } from '../../i18n';
 import { filterModelGroups, sortProfilesForMenu, type ModelGroup } from '../../lib/providerSelect';
 import type { ClaudeModelOption, AIProviderConfig, LlmProfileView } from '../../types/electron';
@@ -255,12 +257,12 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
           e.stopPropagation();
           setIsOpen((prev) => !prev);
         }}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0d101a] border border-slate-800 hover:border-slate-700 hover:bg-[#141724] text-slate-200 text-[11px] font-medium transition shadow-sm cursor-pointer"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-ph-panel border border-slate-800 hover:border-slate-700 hover:bg-ph-raised text-slate-200 text-[11px] font-medium transition shadow-sm cursor-pointer"
         title={ps.selectModelTitle}
       >
-        <span className="text-amber-400 font-bold text-[10px]">✳</span>
+        <ClaudeLogo className="w-3.5 h-3.5" />
         <span className="font-medium max-w-[160px] truncate">{triggerLabel}</span>
-        {triggerSource && <span className="text-[10px] text-slate-400 max-w-[110px] truncate">· {triggerSource}</span>}
+        {triggerSource && <span className="text-[11px] text-slate-400 max-w-[110px] truncate">· {triggerSource}</span>}
         {activeProfile?.local && <HardDrive className="w-3 h-3 text-emerald-400" aria-label={ps.local} />}
         <ChevronDown className="w-3 h-3 text-slate-400 ml-0.5" />
       </button>
@@ -268,12 +270,12 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
       {/* Dropdown Menu */}
       {isOpen && (
         <div
-          className="absolute right-0 top-full mt-1.5 w-96 bg-[#121522] border border-slate-800 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/50"
+          className="absolute right-0 top-full mt-1.5 w-96 bg-ph-raised border border-slate-800 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/50"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="p-2 border-b border-slate-800/80 bg-[#161a2b]/90 space-y-1.5">
-            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-1">{ps.menuTitle}</span>
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#0d101a] border border-slate-800">
+          <div className="p-2 border-b border-slate-800/80 bg-ph-hover/90 space-y-1.5">
+            <span className="text-[11px] font-medium text-slate-400 px-1">{ps.menuTitle}</span>
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-ph-panel border border-slate-800">
               <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               <input
                 ref={searchRef}
@@ -290,17 +292,17 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
 
           <div className="max-h-96 overflow-y-auto p-1.5 space-y-2">
             {isLegacyProvider && !query && (
-              <div className="px-2 py-1.5 text-[10px] text-slate-400 border border-slate-800 rounded-lg">
+              <div className="px-2 py-1.5 text-[11px] text-slate-400 border border-slate-800 rounded-lg">
                 {config.provider}: <span className="font-mono text-slate-200">{config.model || ps.noModelSelected}</span>
               </div>
             )}
             {visibleGroups.map((group) => (
               <div key={group.key} className="space-y-1">
-                <div className="flex items-center gap-1.5 px-1.5 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <div className="flex items-center gap-1.5 px-1.5 pt-0.5 text-[11px] font-medium text-slate-400">
                   {group.key === CLI_GROUP_KEY ? <Sparkles className="w-3 h-3" /> : <Server className="w-3 h-3" />}
                   <span className="truncate normal-case">{group.label}</span>
                   {group.local && (
-                    <span className="text-[9px] px-1.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono normal-case">
+                    <span className="text-[11px] px-1.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono normal-case">
                       {ps.local}
                     </span>
                   )}
@@ -311,7 +313,7 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
                     </span>
                   )}
                 </div>
-                {group.models.length === 0 && !group.loading && <p className="px-2 text-[10px] text-slate-500">{ps.noModels}</p>}
+                {group.models.length === 0 && !group.loading && <p className="px-2 text-[11px] text-slate-500">{ps.noModels}</p>}
                 {group.models.map((m) => {
                   const selected = isSelected(group.key, m.id);
                   return (
@@ -322,7 +324,7 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
                       className={`w-full text-left p-2 rounded-lg transition flex items-start justify-between group ${
                         selected
                           ? 'bg-indigo-600/20 border border-indigo-500/40 text-white'
-                          : 'hover:bg-[#181c2e] text-slate-300 border border-transparent'
+                          : 'hover:bg-ph-hover text-slate-300 border border-transparent'
                       }`}
                     >
                       <div className="space-y-0.5 min-w-0 pr-2">
@@ -334,13 +336,13 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
                             {m.name ?? m.id}
                           </span>
                           {m.badge && (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono border border-amber-500/30">
+                            <span className="text-[11px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono border border-amber-500/30">
                               {m.badge}
                             </span>
                           )}
                         </div>
                         {m.description && (
-                          <p className="text-[10px] text-slate-400 group-hover:text-slate-300 leading-tight">{m.description}</p>
+                          <p className="text-[11px] text-slate-400 group-hover:text-slate-300 leading-tight">{m.description}</p>
                         )}
                       </div>
 

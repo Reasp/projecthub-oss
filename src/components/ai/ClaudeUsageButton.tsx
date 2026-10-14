@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Gauge } from 'lucide-react';
+import { Gauge } from '../common/icons';
 import { ClaudeUsageModal } from './ClaudeUsageModal';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -8,11 +8,14 @@ import type { ClaudeUsageData } from '../../types/electron';
 interface ClaudeUsageButtonProps {
   className?: string;
   showText?: boolean;
+  /** `status` — элемент строки состояния (decision-73), `chip` — кнопка в панели вкладки */
+  variant?: 'status' | 'chip';
 }
 
 export const ClaudeUsageButton: React.FC<ClaudeUsageButtonProps> = ({
   className = '',
-  showText = true
+  showText = true,
+  variant = 'chip'
 }) => {
   const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -55,13 +58,14 @@ export const ClaudeUsageButton: React.FC<ClaudeUsageButtonProps> = ({
 
   const getBadgeStyle = () => {
     const percent = sessionPercent ?? 0;
-    if (percent >= 85) {
-      return 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse';
+    if (variant === 'status') {
+      // Фон только когда лимит почти исчерпан — это требует действия
+      return percent >= 85 ? 'ph-status-item ph-status-item-error' : 'ph-status-item';
     }
-    if (percent >= 60) {
-      return 'bg-amber-500/20 text-amber-300 border-amber-500/40';
-    }
-    return 'bg-slate-800/80 text-slate-300 border-slate-700/60 hover:bg-slate-700 hover:text-white';
+    const base = 'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-medium transition shrink-0';
+    if (percent >= 85) return `${base} bg-rose-500/15 text-rose-300 border-rose-500/40`;
+    if (percent >= 60) return `${base} bg-amber-500/15 text-amber-300 border-amber-500/40`;
+    return `${base} bg-ph-raised text-slate-300 border-slate-700 hover:bg-ph-hover hover:text-white`;
   };
 
   const getPercentColor = () => {
@@ -101,12 +105,12 @@ export const ClaudeUsageButton: React.FC<ClaudeUsageButtonProps> = ({
         type="button"
         onClick={() => setIsModalOpen(true)}
         title={getTooltip()}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition shrink-0 ${getBadgeStyle()} ${className}`}
+        className={`${getBadgeStyle()} ${className}`}
       >
         <Gauge className={`w-3.5 h-3.5 shrink-0 ${getGaugeColor()}`} />
         {showText && <span>Usage</span>}
         {typeof sessionPercent === 'number' && (
-          <span className={`font-mono font-bold text-[10px] ${getPercentColor()}`}>
+          <span className={`font-mono ${getPercentColor()}`}>
             {sessionPercent}%
           </span>
         )}

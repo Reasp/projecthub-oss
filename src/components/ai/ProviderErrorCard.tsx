@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw } from '../common/icons';
 import type { ProviderErrorInfo } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { providerErrorView } from '../../lib/providerErrorView';
@@ -54,7 +54,7 @@ export const ProviderErrorCard: React.FC<ProviderErrorCardProps> = ({ error, inf
           ) : (
             !view && <p className="text-rose-100/90 leading-relaxed whitespace-pre-wrap break-words">{error}</p>
           )}
-          {view && <p className="text-[10px] text-rose-300/70">{view.retryHint}</p>}
+          {view && <p className="text-[11px] text-rose-300/70">{view.retryHint}</p>}
         </div>
         {onRetry && (
           <button

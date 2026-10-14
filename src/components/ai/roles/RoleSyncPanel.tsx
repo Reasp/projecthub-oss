@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, UploadCloud, Terminal, Copy, KeyRound, FileText, TriangleAlert } from 'lucide-react';
+import { RefreshCw, UploadCloud, Terminal, Copy, KeyRound, FileText, TriangleAlert } from '../../common/icons';
 import { useTranslation } from '../../../i18n';
 import type { RoleExportTarget, RoleSyncFile, RoleSyncFileAction, RoleSyncOptionsInput, RoleSyncPlan, TerminalHookSettings } from '../../../types/electron';
 import { hookEnvSnippets, inferSyncOptions } from './roleSyncView';
@@ -152,11 +152,11 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
           selectedPath === f.relPath ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-secondary/40'
         }`}
       >
-        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${ACTION_STYLE[f.action]}`}>{s.action[f.action]}</span>
+        <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded border ${ACTION_STYLE[f.action]}`}>{s.action[f.action]}</span>
         <div className="flex-1 min-w-0">
           <div className="font-mono text-[11px] truncate" title={f.relPath}>{f.relPath}</div>
           {(f.error || f.modified || notes.length > 0) && (
-            <div className="text-[10px] text-muted-foreground">
+            <div className="text-[11px] text-muted-foreground">
               {f.error ? <span className="text-amber-400">{f.error}</span> : null}
               {f.modified && f.action === 'orphan' ? <span className="text-amber-400">{s.modifiedByHand} </span> : null}
               {notes.join('; ')}
@@ -164,7 +164,7 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
           )}
         </div>
         {choosable && (
-          <label className="shrink-0 flex items-center gap-1 text-[10px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+          <label className="shrink-0 flex items-center gap-1 text-[11px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
             <input
               type="checkbox"
               checked={chosen}
@@ -193,7 +193,7 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
           </label>
           <label className="flex items-center gap-1.5" title={s.codexUnverified}>
             <input type="checkbox" checked={options.targets.includes('codex')} onChange={() => toggleTarget('codex')} /> {s.targetCodex}
-            <span className="text-[10px] text-amber-400">{s.unverifiedBadge}</span>
+            <span className="text-[11px] text-amber-400">{s.unverifiedBadge}</span>
           </label>
           <label className="flex items-center gap-1.5" title={s.antigravityHint}>
             <input type="checkbox" checked={options.targets.includes('antigravity')} onChange={() => toggleTarget('antigravity')} /> {s.targetAntigravity}
@@ -214,7 +214,7 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
       {settings && options?.hooks && (
         <div className="grid grid-cols-3 gap-3 rounded-lg border border-border p-3 bg-secondary/10">
           <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1" title={s.failModeHint}>{s.failMode}</label>
+            <label className="text-[11px] font-medium text-muted-foreground block mb-1" title={s.failModeHint}>{s.failMode}</label>
             <select
               value={settings.failMode}
               onChange={(e) => void saveSettings({ failMode: e.target.value as 'open' | 'closed' })}
@@ -225,7 +225,7 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
             </select>
           </div>
           <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1" title={s.timeoutHint}>{s.timeout}</label>
+            <label className="text-[11px] font-medium text-muted-foreground block mb-1" title={s.timeoutHint}>{s.timeout}</label>
             <input
               type="number"
               min={60}
@@ -241,7 +241,7 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
             />
           </div>
           <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1" title={s.stopChecksHint}>{s.stopChecks}</label>
+            <label className="text-[11px] font-medium text-muted-foreground block mb-1" title={s.stopChecksHint}>{s.stopChecks}</label>
             <select
               value={settings.stopChecks}
               onChange={(e) => void saveSettings({ stopChecks: e.target.value as TerminalHookSettings['stopChecks'] })}
@@ -257,7 +257,7 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
 
       {plan && (
         <>
-          <div className="flex flex-wrap gap-1.5 text-[10px]" data-testid="role-sync-summary">
+          <div className="flex flex-wrap gap-1.5 text-[11px]" data-testid="role-sync-summary">
             {(['create', 'update', 'conflict', 'orphan', 'foreign', 'unchanged'] as RoleSyncFileAction[])
               .filter((a) => plan.summary[a] > 0)
               .map((a) => (

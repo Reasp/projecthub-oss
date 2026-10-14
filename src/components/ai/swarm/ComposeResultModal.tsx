@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Layers, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Layers, CheckCircle2, AlertCircle } from '../../common/icons';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { useSwarmStore } from '../../../store/useSwarmStore';
 import type { SwarmSession } from '../../../types/electron';
@@ -88,9 +88,9 @@ export const ComposeResultModal: React.FC<ComposeResultModalProps> = ({ session,
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="relative w-full max-w-3xl max-h-[85vh] rounded-xl border border-border bg-card shadow-2xl flex flex-col"
+        className="relative w-full max-w-3xl max-h-[85vh] rounded-xl border border-slate-700 bg-ph-elevated shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
@@ -122,7 +122,7 @@ export const ComposeResultModal: React.FC<ComposeResultModalProps> = ({ session,
               <div key={agent.id} className="rounded-lg border border-border/60 bg-secondary/20 p-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-foreground truncate">{agent.config.name}</span>
-                  <span className="text-[10px] font-mono text-muted-foreground truncate" title={agent.worktreeBranch}>
+                  <span className="text-[11px] font-mono text-muted-foreground truncate" title={agent.worktreeBranch}>
                     {agent.worktreeBranch}
                   </span>
                 </div>

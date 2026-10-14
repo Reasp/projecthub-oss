@@ -1,40 +1,42 @@
 import React, { useRef } from 'react';
-import {
-  FolderGit2,
-  Folder,
-  X,
-  Plus,
-  GitBranch,
-  Layers,
-  Sparkles
-} from 'lucide-react';
+import { FolderGit2, Folder, X } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { useVoiceState } from '../../hooks/useVoiceState';
 import { VoiceBadge } from '../voice/VoiceBadge';
 
-export const ProjectTabsBar: React.FC = () => {
-  const { t, language } = useTranslation();
+/**
+ * Вкладки открытых проектов (decision-73). Живут прямо в шапке, как вкладки окна в браузере:
+ * отдельная строка под одну-две вкладки занимала место и дублировала имя проекта в шапке.
+ * Номер вкладки нужен для голосовых команд («проект 2»), поэтому виден, пока голос слушает.
+ * Путь проекта и метка шаблона — в подсказке вкладки.
+ */
+export const ProjectTabs: React.FC = () => {
+  const { t } = useTranslation();
+  const { isListening } = useVoiceState();
   const {
     projects,
     activeProjectPaths,
     selectedProject,
     selectProject,
     deactivateProject,
-    projectAgentStatuses
+    projectAgentStatuses,
+    workspaceRoot
   } = useProjectStore();
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Filter projects list to only those currently active
   const activeProjects = projects.filter((p) => activeProjectPaths.includes(p.path));
+  // Выбранный проект показываем вкладкой, даже если сессия для него не открыта
+  const tabs =
+    selectedProject && !activeProjects.some((p) => p.path === selectedProject.path)
+      ? [...activeProjects, selectedProject]
+      : activeProjects;
 
-  // If no projects are open in tabs, do not render empty bar
-  if (activeProjects.length === 0) return null;
+  if (tabs.length === 0) return null;
 
   const handleWheel = (e: React.WheelEvent) => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollLeft += e.deltaY;
-    }
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollLeft += e.deltaY;
   };
 
   const handleCloseTab = (e: React.MouseEvent, projectPath: string) => {
@@ -43,112 +45,111 @@ export const ProjectTabsBar: React.FC = () => {
   };
 
   return (
-    <div className="flex items-center bg-[#0d101a] border-b border-slate-800/80 px-2 select-none shrink-0 h-10 overflow-hidden relative">
-      {/* Scrollable Tabs List */}
+    <div className="flex items-stretch h-full min-w-0 select-none">
       <div
         ref={scrollContainerRef}
         onWheel={handleWheel}
-        className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1 h-full py-1 scroll-smooth"
+        className="flex items-stretch overflow-x-auto no-scrollbar h-full min-w-0"
+        role="tablist"
+        aria-label={t.projectTabs.activeProjectsCount.replace('{count}', String(activeProjects.length))}
       >
-        {activeProjects.map((project, idx) => {
+        {tabs.map((project, idx) => {
           const isSelected = selectedProject?.path === project.path;
+          const isOpen = activeProjectPaths.includes(project.path);
           const agentStatus = projectAgentStatuses[project.path];
           const uncommitted = project.uncommittedCount;
           const tabNumber = idx + 1;
+          const rootPath = isSelected ? workspaceRoot || project.path : project.path;
+          const tooltip = [
+            t.projectTabs.tabVoiceTitle.replace('{name}', project.name).replace('{number}', String(tabNumber)),
+            rootPath,
+            project.hasInfraConfig ? `ProjectTemplate — ${t.header.standardProjectTemplate}` : ''
+          ]
+            .filter(Boolean)
+            .join('\n');
 
           return (
             <div
               key={project.path}
+              role="tab"
+              aria-selected={isSelected}
+              tabIndex={0}
               onClick={() => selectProject(project)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition relative group border max-w-[220px] shrink-0 ${
-                isSelected
-                  ? 'bg-indigo-600/20 text-white border-indigo-500/40 shadow-sm'
-                  : 'bg-[#141724]/60 hover:bg-[#181d2f] text-slate-400 hover:text-slate-200 border-slate-800/60'
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') selectProject(project);
+              }}
+              className={`group relative flex items-center gap-2 pl-3 pr-1.5 text-[13px] cursor-pointer border-r border-ph-line max-w-[240px] shrink-0 transition-colors ${
+                isSelected ? 'bg-ph-panel text-slate-100' : 'text-slate-400 hover:text-slate-200 hover:bg-ph-hover/50'
               }`}
-              title={t.projectTabs.tabVoiceTitle.replace('{name}', project.name).replace('{number}', String(tabNumber))}
+              title={tooltip}
             >
-              {/* Voice / Tab Order Badge */}
-              <span
-                className={`text-[10px] font-mono px-1 py-0.2 rounded border transition ${
-                  isSelected
-                    ? 'bg-indigo-500/30 text-indigo-200 border-indigo-500/50 font-bold'
-                    : 'bg-slate-800/80 text-slate-400 border-slate-700/60 group-hover:text-slate-200'
-                }`}
-                title={t.projectTabs.tabVoiceNumberTooltip.replace(/\{number\}/g, String(tabNumber))}
-              >
-                {tabNumber}
-              </span>
+              {isSelected && <span className="absolute left-0 right-0 top-0 h-px bg-indigo-400" />}
 
-              {/* Project Icon */}
-              {project.hasGit ? (
-                <FolderGit2
-                  className={`w-3.5 h-3.5 shrink-0 ${
-                    isSelected ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-400'
-                  }`}
-                />
-              ) : (
-                <Folder
-                  className={`w-3.5 h-3.5 shrink-0 ${
-                    isSelected ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-400'
-                  }`}
-                />
-              )}
-
-              {/* Project Name & Voice Alias */}
-              <div className="flex items-center gap-1 truncate flex-1 min-w-0">
-                <span className="truncate font-semibold">{project.name}</span>
-                {project.voiceAlias && (
-                  <span
-                    className="text-[9px] font-mono px-1 py-0.2 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-700/50 shrink-0"
-                    title={t.projectTabs.voiceAliasTooltip.replace('{alias}', project.voiceAlias)}
-                  >
-                    «{project.voiceAlias}»
-                  </span>
-                )}
-                <VoiceBadge
-                  command={t.projectTabs.tabVoiceCommand.replace('{number}', String(tabNumber))}
-                  altCommand={project.voiceAlias}
-                  variant={isSelected ? 'emerald' : 'indigo'}
-                />
-              </div>
-
-              {/* Git Uncommitted Badge */}
-              {uncommitted !== undefined && uncommitted > 0 && (
-                <span className="px-1 py-0.2 rounded text-[9px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
-                  +{uncommitted}
+              {isListening && (
+                <span
+                  className="text-[11px] tabular-nums text-slate-500"
+                  title={t.projectTabs.tabVoiceNumberTooltip.replace(/\{number\}/g, String(tabNumber))}
+                >
+                  {tabNumber}
                 </span>
               )}
 
-              {/* Agent Active Indicator */}
-              {agentStatus?.status === 'running' && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+              {project.hasGit ? (
+                <FolderGit2 className={`w-4 h-4 shrink-0 ${isSelected ? 'text-indigo-400' : 'text-slate-500'}`} />
+              ) : (
+                <Folder className={`w-4 h-4 shrink-0 ${isSelected ? 'text-indigo-400' : 'text-slate-500'}`} />
               )}
 
-              {/* Close Tab Button */}
-              <button
-                type="button"
-                onClick={(e) => handleCloseTab(e, project.path)}
-                className={`p-0.5 rounded-md hover:bg-slate-700/60 transition shrink-0 ${
-                  isSelected
-                    ? 'text-indigo-300 hover:text-white'
-                    : 'text-slate-500 hover:text-slate-300 opacity-60 group-hover:opacity-100'
-                }`}
-                title={t.projectTabs.closeTab}
-              >
-                <X className="w-3 h-3" />
-              </button>
+              <span className={`truncate ${isSelected ? 'font-medium' : ''}`}>{project.name}</span>
+              {project.voiceAlias && (
+                <span
+                  className="text-[11px] text-slate-500 shrink-0"
+                  title={t.projectTabs.voiceAliasTooltip.replace('{alias}', project.voiceAlias)}
+                >
+                  «{project.voiceAlias}»
+                </span>
+              )}
+              <VoiceBadge
+                command={t.projectTabs.tabVoiceCommand.replace('{number}', String(tabNumber))}
+                altCommand={project.voiceAlias}
+                variant={isSelected ? 'emerald' : 'indigo'}
+              />
+
+              {/* Незакоммиченные изменения — точка, как «изменён» у вкладки редактора; число в подсказке */}
+              {uncommitted !== undefined && uncommitted > 0 && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                  title={t.git.unstagedCount.replace('{count}', String(uncommitted))}
+                />
+              )}
+              {agentStatus?.status === 'running' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" title={t.header.claudeExecutingTooltip} />
+              )}
+
+              {isOpen && (
+                <button
+                  type="button"
+                  onClick={(e) => handleCloseTab(e, project.path)}
+                  className={`p-0.5 rounded hover:bg-ph-hover transition shrink-0 ${
+                    isSelected
+                      ? 'text-slate-400 hover:text-white'
+                      : 'text-slate-500 hover:text-slate-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+                  }`}
+                  title={t.projectTabs.closeTab}
+                  aria-label={t.projectTabs.closeTab}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Right Action / Counter Info with Voice Hints */}
-      <div className="flex items-center gap-2 pl-2 border-l border-slate-800/60 text-[11px] font-mono text-slate-500 shrink-0">
+      {/* Голосовые подсказки навигации по проектам */}
+      <div className="flex items-center gap-1 px-2 shrink-0">
         <VoiceBadge command={t.voice.voiceBadges.nextProject} />
         <VoiceBadge command={t.voice.voiceBadges.closeProject} variant="amber" />
-        <span title={t.projectTabs.activeProjectsCount.replace('{count}', String(activeProjects.length))}>
-          {activeProjects.length} {t.sidebar.activeOnly.toLowerCase()}
-        </span>
       </div>
     </div>
   );

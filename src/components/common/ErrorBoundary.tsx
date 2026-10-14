@@ -1,5 +1,5 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from './icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { ru } from '../../i18n/ru';
 import { en } from '../../i18n/en';
@@ -51,8 +51,8 @@ export class ErrorBoundary extends Component<Props, State> {
       const t = (useProjectStore.getState().language === 'en' ? en : ru).errorBoundary;
 
       return (
-        <div className="min-h-screen w-full bg-[#0f1117] text-slate-100 flex items-center justify-center p-6 select-none font-sans">
-          <div className="bg-[#141724] border border-rose-900/60 rounded-2xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-4 animate-in fade-in duration-200">
+        <div className="min-h-screen w-full bg-ph-panel text-slate-100 flex items-center justify-center p-6 select-none font-sans">
+          <div className="bg-ph-elevated border border-rose-900/60 rounded-xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-3 text-rose-400">
               <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20">
                 <AlertTriangle className="w-6 h-6" />
@@ -64,7 +64,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
 
             {this.state.error && (
-              <div className="p-3.5 rounded-xl bg-[#0e111a] border border-slate-800 text-xs font-mono text-rose-300 break-all leading-relaxed max-h-48 overflow-y-auto">
+              <div className="p-3.5 rounded-xl bg-ph-panel border border-slate-800 text-xs font-mono text-rose-300 break-all leading-relaxed max-h-48 overflow-y-auto">
                 <div className="font-bold text-rose-400 mb-1">{this.state.error.name}: {this.state.error.message}</div>
                 {this.state.error.stack && (
                   <pre className="text-[11px] text-slate-400 whitespace-pre-wrap mt-2">{this.state.error.stack}</pre>
@@ -83,7 +83,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <button
                 type="button"
                 onClick={this.handleReload}
-                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-medium flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition"
+                className="ph-btn ph-btn-primary"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 {t.reloadApp}

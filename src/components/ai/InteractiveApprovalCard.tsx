@@ -11,9 +11,9 @@ import {
   CircleDot,
   Circle,
   CornerDownLeft,
-  Sparkles,
-  Monitor
-} from 'lucide-react';
+  Monitor,
+  AlertTriangle
+} from '../common/icons';
 import type { ApprovalRequest, QuestionOption } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { VoiceBadge } from '../voice/VoiceBadge';
@@ -120,18 +120,18 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
   // ----------------------------------------------------
   if (isQuestion && qData) {
     return (
-      <div className="my-3.5 max-w-2xl rounded-2xl bg-[#151722] border border-slate-700/80 shadow-2xl shadow-black/60 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 select-none font-sans text-slate-200">
+      <div className="my-3.5 max-w-2xl rounded-xl bg-ph-elevated border border-slate-700 shadow-2xl shadow-black/60 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 select-none font-sans text-slate-200">
         {/* Header */}
-        <div className="px-5 py-3.5 bg-[#1a1d2c] border-b border-slate-700/70 flex items-center justify-between gap-3">
+        <div className="px-5 py-3.5 border-b border-slate-700/70 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="p-1 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 shrink-0">
+            <div className="text-indigo-300 shrink-0">
               <HelpCircle className="w-4 h-4" />
             </div>
-            <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wide">
+            <h3 className="text-xs font-medium text-slate-100">
               {qData.title || t.aiStudio.approval.questionTitle}
             </h3>
             {queueInfo && queueInfo.total > 1 && (
-              <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full font-mono">
+              <span className="text-[11px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full font-mono">
                 {queueInfo.current} / {queueInfo.total}
               </span>
             )}
@@ -169,7 +169,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
                   className={`group px-3.5 py-2.5 rounded-xl border transition cursor-pointer flex items-start gap-3 ${
                     isSelected
                       ? 'bg-indigo-600/15 border-indigo-500/70 text-white shadow-sm ring-1 ring-indigo-500/40'
-                      : 'bg-[#10121c]/80 border-slate-800 hover:border-slate-600 hover:bg-[#131624] text-slate-300'
+                      : 'bg-ph-elevated/80 border-slate-800 hover:border-slate-600 hover:bg-ph-raised text-slate-300'
                   }`}
                 >
                   {/* Radio or Checkbox icon */}
@@ -216,7 +216,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
                 className={`rounded-xl border transition ${
                   isOtherSelected
                     ? 'bg-indigo-600/15 border-indigo-500/70 shadow-sm ring-1 ring-indigo-500/40'
-                    : 'bg-[#10121c]/80 border-slate-800 hover:border-slate-600'
+                    : 'bg-ph-elevated/80 border-slate-800 hover:border-slate-600'
                 }`}
               >
                 <div
@@ -252,7 +252,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
                       value={otherText}
                       onChange={(e) => setOtherText(e.target.value)}
                       placeholder={t.aiStudio.approval.otherPlaceholder}
-                      className="w-full bg-[#0a0c13] border border-indigo-500/60 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-400 transition"
+                      className="w-full bg-ph-base border border-indigo-500/60 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-400 transition"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && canSubmitQuestion) {
                           handleApprove();
@@ -285,7 +285,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
                 type="button"
                 disabled={isSubmitting || !canSubmitQuestion}
                 onClick={handleApprove}
-                className="px-5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 disabled:opacity-40 disabled:pointer-events-none text-white font-semibold text-xs shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 transition active:scale-[0.98]"
+                className="ph-btn ph-btn-primary disabled:opacity-40 disabled:pointer-events-none"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>
@@ -305,24 +305,25 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
   // 2. COMMAND & FILE WRITE APPROVAL MODE
   // ----------------------------------------------------
   return (
-    <div className="my-3 p-4 rounded-xl bg-gradient-to-r from-amber-500/10 via-[#181a28] to-slate-900 border-2 border-amber-500/50 shadow-lg shadow-amber-950/30 text-slate-200 animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div className="my-3 p-4 rounded-xl bg-amber-500/10 border-2 border-amber-500/50 shadow-lg text-slate-200 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="flex items-start gap-3">
         <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
-          <ShieldAlert className="w-5 h-5 animate-pulse" />
+          <ShieldAlert className="w-5 h-5" />
         </div>
 
         <div className="flex-1 min-w-0 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
-            <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
-              <span>⚠️ {t.aiStudio.approval.title}</span>
+            <h4 className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>{t.aiStudio.approval.title}</span>
             </h4>
             <div className="flex items-center gap-1.5">
               {queueInfo && queueInfo.total > 1 && (
-                <span className="text-[10px] bg-amber-500/30 text-amber-200 border border-amber-500/40 px-2 py-0.5 rounded-full font-mono font-bold">
+                <span className="text-[11px] bg-amber-500/30 text-amber-200 border border-amber-500/40 px-2 py-0.5 rounded-full font-mono font-bold">
                   {queueInfo.current} / {queueInfo.total}
                 </span>
               )}
-              <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">
+              <span className="text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">
                 Human-in-the-Loop
               </span>
             </div>
@@ -340,7 +341,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
 
           {/* File path preview */}
           {request.filePath && (
-            <div className="p-2.5 rounded-lg bg-[#0c0e15] border border-slate-800 flex items-center gap-2 font-mono text-xs text-indigo-300">
+            <div className="p-2.5 rounded-lg bg-ph-panel border border-slate-800 flex items-center gap-2 font-mono text-xs text-indigo-300">
               <FileCode className="w-4 h-4 text-indigo-400 shrink-0" />
               <span className="select-all">{request.filePath}</span>
             </div>
@@ -348,7 +349,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
 
           {/* Command preview */}
           {request.command && (
-            <div className="p-2.5 rounded-lg bg-[#0c0e15] border border-slate-800 flex items-center gap-2 font-mono text-xs text-emerald-400 overflow-x-auto">
+            <div className="p-2.5 rounded-lg bg-ph-panel border border-slate-800 flex items-center gap-2 font-mono text-xs text-emerald-400 overflow-x-auto">
               {request.type === 'computer_action' ? (
                 <Monitor className="w-4 h-4 text-slate-500 shrink-0" />
               ) : (
@@ -366,7 +367,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 placeholder={t.aiStudio.approval.optionalComment}
-                className="w-full bg-[#0d0f17] border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition pr-8"
+                className="w-full bg-ph-panel border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition pr-8"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isSubmitting) {
                     handleApprove();
@@ -383,7 +384,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
               type="button"
               disabled={isSubmitting}
               onClick={handleApprove}
-              className="flex-1 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:opacity-50 text-white font-semibold text-xs shadow-md shadow-emerald-700/20 flex items-center justify-center gap-1.5 transition active:scale-[0.98]"
+              className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs shadow-md flex items-center justify-center gap-1.5 transition"
               title={t.aiStudio.approval.voiceApproveTitle}
             >
               <Check className="w-4 h-4" />
@@ -395,7 +396,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
               type="button"
               disabled={isSubmitting}
               onClick={handleReject}
-              className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 hover:border-rose-700/60 border border-slate-700 disabled:opacity-50 text-slate-300 font-medium text-xs flex items-center justify-center gap-1.5 transition active:scale-[0.98]"
+              className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 hover:border-rose-700/60 border border-slate-700 disabled:opacity-50 text-slate-300 font-medium text-xs flex items-center justify-center gap-1.5 transition"
               title={t.aiStudio.approval.voiceRejectTitle}
             >
               <X className="w-4 h-4" />

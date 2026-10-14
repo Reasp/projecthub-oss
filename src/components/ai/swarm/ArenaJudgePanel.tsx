@@ -1,5 +1,5 @@
 import React from 'react';
-import { Gavel, RefreshCw, Play, Square, Settings2, Layers, Trophy, ShieldAlert, GitMerge } from 'lucide-react';
+import { Gavel, RefreshCw, Play, Square, Settings2, Layers, Trophy, ShieldAlert, GitMerge } from '../../common/icons';
 import { useTranslation } from '../../../i18n/useTranslation';
 import type { AgentSlotState, SwarmSession } from '../../../types/electron';
 import { componentLabel, formatScore, scoreClass } from '../../../utils/arenaFormat';
@@ -79,14 +79,14 @@ export const ArenaJudgePanel: React.FC<ArenaJudgePanelProps> = ({
     <div className="p-4 rounded-xl border border-border/70 bg-card/40 shadow-xs space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center border border-primary/20 shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-primary shrink-0">
             <Gavel className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-foreground">{j.title}</span>
               <span
-                className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${
+                className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${
                   judge?.status === 'running'
                     ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
                     : judge?.status === 'done'
@@ -99,7 +99,7 @@ export const ArenaJudgePanel: React.FC<ArenaJudgePanelProps> = ({
                 {statusLabel()}
               </span>
               {judge?.status === 'running' && stageLabel() && (
-                <span className="text-[10px] text-muted-foreground">{stageLabel()}</span>
+                <span className="text-[11px] text-muted-foreground">{stageLabel()}</span>
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{j.subtitle}</p>
@@ -181,7 +181,7 @@ export const ArenaJudgePanel: React.FC<ArenaJudgePanelProps> = ({
       {leader?.score && (
         <div className="rounded-lg border border-border/60 bg-secondary/20 p-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="text-[11px] font-medium text-muted-foreground">
               {j.scoreBreakdown} — {leader.config.name}
             </span>
             <span className={`text-sm font-bold font-mono ${scoreClass(leader.score)}`}>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, X, FileCode, CheckCircle2, XCircle } from 'lucide-react';
+import { Check, X, FileCode, CheckCircle2, XCircle } from '../common/icons';
 import type { AIToolCall } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 
@@ -23,7 +23,7 @@ export const DiffReviewCard: React.FC<DiffReviewCardProps> = ({
 
   if (!diff) {
     return (
-      <div className="my-2 p-3 rounded-xl bg-[#141724] border border-slate-800 text-xs font-mono text-slate-300">
+      <div className="my-2 p-3 rounded-xl bg-ph-raised border border-slate-800 text-xs font-mono text-slate-300">
         <div className="flex items-center gap-2 text-indigo-400 font-semibold mb-1">
           <FileCode className="w-4 h-4" />
           <span>{toolCall.name}</span>
@@ -38,13 +38,13 @@ export const DiffReviewCard: React.FC<DiffReviewCardProps> = ({
   const patchLines = (diff.patch || '').split('\n');
 
   return (
-    <div className="my-3 rounded-xl bg-[#0f121d] border border-slate-700/80 overflow-hidden shadow-xl animate-in fade-in duration-150">
+    <div className="my-3 rounded-xl bg-ph-elevated border border-slate-700/80 overflow-hidden shadow-xl animate-in fade-in duration-150">
       {/* Diff Header */}
-      <div className="px-4 py-2.5 bg-[#151928] border-b border-slate-800 flex items-center justify-between flex-wrap gap-2 text-xs">
+      <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2 text-xs">
         <div className="flex items-center gap-2 font-mono text-slate-200">
           <FileCode className="w-4 h-4 text-indigo-400" />
           <span className="font-semibold text-indigo-300">{diff.filePath}</span>
-          <span className="text-[10px] text-slate-500">
+          <span className="text-[11px] text-slate-500">
             ({toolCall.args.explanation || t.aiStudio.diffReview.fileModification})
           </span>
         </div>
@@ -71,7 +71,7 @@ export const DiffReviewCard: React.FC<DiffReviewCardProps> = ({
               </button>
               <button
                 onClick={() => onAccept(messageId, toolCall.id, diff.filePath, diff.newContent)}
-                className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-md shadow-emerald-600/20 transition text-[11px]"
+                className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-md transition text-[11px]"
               >
                 <Check className="w-3.5 h-3.5" />
                 {t.aiStudio.diffReview.acceptChanges}
@@ -82,7 +82,7 @@ export const DiffReviewCard: React.FC<DiffReviewCardProps> = ({
       </div>
 
       {/* Diff Code View */}
-      <div className="p-3 bg-[#0a0c13] font-mono text-[11px] leading-relaxed max-h-72 overflow-y-auto overflow-x-auto text-slate-300 select-text">
+      <div className="p-3 bg-ph-base font-mono text-[11px] leading-relaxed max-h-72 overflow-y-auto overflow-x-auto text-slate-300 select-text">
         <pre className="whitespace-pre">
           {patchLines.map((line, idx) => {
             const isAdd = line.startsWith('+') && !line.startsWith('+++');

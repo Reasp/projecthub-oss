@@ -15,15 +15,15 @@ import {
   BookOpen,
   GitFork,
   Plus,
-  Trash2,
   SlidersHorizontal,
   Lock,
   LogOut,
   Clock,
   History,
   DollarSign,
-  Layers
-} from 'lucide-react';
+  Layers,
+} from '../common/icons';
+import { BrandLogo, ClaudeLogo } from '../common/BrandLogo';
 import { useAIStudioStore, DEFAULT_AUTO_APPROVE_RULES } from '../../store/useAIStudioStore';
 import { useHitlStore } from '../../store/useHitlStore';
 import type { AIProviderConfig, AutoApproveRules } from '../../types/electron';
@@ -210,12 +210,12 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150 select-none">
-      <div className="bg-[#121522] border border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-150 select-none">
+      <div className="bg-ph-elevated border border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-[#161a2b]/70">
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-600/20 text-white">
+            <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
               <Sparkles className="w-4 h-4 text-amber-300" />
             </div>
             <div>
@@ -232,7 +232,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Tabs Bar */}
-        <div className="px-6 pt-3 bg-[#141726]/60 border-b border-slate-800 flex items-center gap-2">
+        <div className="px-6 pt-3 bg-ph-hover/60 border-b border-slate-800 flex items-center gap-2">
           <button
             type="button"
             onClick={() => setActiveTab('general')}
@@ -304,13 +304,13 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
           {activeTab === 'general' && (
             <div className="space-y-5">
               {/* Claude.ai Pro/Team Subscription Info Card */}
-              <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/10 via-[#181a29] to-indigo-600/10 border border-amber-500/30 space-y-2.5">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
-                    <span className="text-sm font-bold">✳</span>
+                  <div className="flex items-center gap-2 text-slate-100 font-medium text-xs">
+                    <ClaudeLogo className="w-4 h-4" />
                     <span>{t.aiStudio.settingsModal.accountInfo} (Claude.ai OAuth)</span>
                   </div>
-                  <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">
+                  <span className="text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">
                     {claudeAuth?.isLoggedIn ? '● ACTIVE' : 'NOT LOGGED IN'}
                   </span>
                 </div>
@@ -322,7 +322,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       <span>
                         {t.aiStudio.loggedInAs}: <strong className="text-amber-300">{claudeAuth.email}</strong>
                       </span>
-                      <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
+                      <span className="text-[11px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
                         {claudeAuth.seatTier || 'Pro / Team'}
                       </span>
                     </div>
@@ -364,9 +364,9 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       <button
                         type="button"
                         onClick={() => startClaudeLogin()}
-                        className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs shadow-md shadow-amber-600/20 transition flex items-center gap-1.5"
+                        className="ph-btn ph-btn-primary"
                       >
-                        <span className="font-bold text-xs">✳</span>
+                        <ClaudeLogo className="w-3.5 h-3.5" mono />
                         <span>{t.aiStudio.loginClaude}</span>
                       </button>
                     </div>
@@ -376,73 +376,88 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
 
               {/* Provider Selection */}
               <div>
-                <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] block mb-2">
+                <label className="font-medium text-slate-200 text-[11px] block mb-2">
                   {t.aiStudio.settingsModal.provider}:
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => handleProviderChange('anthropic')}
-                    className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
+                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
                       form.provider === 'anthropic'
-                        ? 'bg-amber-500/10 border-amber-500/50 text-white shadow-sm ring-1 ring-amber-500/30'
-                        : 'bg-[#161928] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
+                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
                     }`}
                   >
-                    <span className="font-semibold text-xs text-amber-300">Anthropic Claude</span>
-                    <span className="text-[10px] text-slate-400">Claude CLI / Messages API</span>
+                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
+                      <ClaudeLogo className="w-3.5 h-3.5" />
+                      Anthropic Claude
+                    </span>
+                    <span className="text-[11px] text-slate-400">Claude CLI / Messages API</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleProviderChange('openrouter')}
-                    className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
+                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
                       form.provider === 'openrouter'
-                        ? 'bg-indigo-600/15 border-indigo-500/50 text-white shadow-sm ring-1 ring-indigo-500/30'
-                        : 'bg-[#161928] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
+                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
                     }`}
                   >
-                    <span className="font-semibold text-xs text-indigo-300">OpenRouter</span>
-                    <span className="text-[10px] text-slate-400">Multi-Model Proxy</span>
+                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
+                      <BrandLogo name="openrouter" className="w-3.5 h-3.5" />
+                      OpenRouter
+                    </span>
+                    <span className="text-[11px] text-slate-400">Multi-Model Proxy</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleProviderChange('deepseek')}
-                    className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
+                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
                       form.provider === 'deepseek'
-                        ? 'bg-blue-600/15 border-blue-500/50 text-white shadow-sm ring-1 ring-blue-500/30'
-                        : 'bg-[#161928] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
+                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
                     }`}
                   >
-                    <span className="font-semibold text-xs text-blue-300">DeepSeek API</span>
-                    <span className="text-[10px] text-slate-400">V3 & R1</span>
+                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
+                      <BrandLogo name="deepseek" className="w-3.5 h-3.5" />
+                      DeepSeek API
+                    </span>
+                    <span className="text-[11px] text-slate-400">V3 & R1</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleProviderChange('ollama')}
-                    className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
+                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
                       form.provider === 'ollama'
-                        ? 'bg-emerald-600/15 border-emerald-500/50 text-white shadow-sm ring-1 ring-emerald-500/30'
-                        : 'bg-[#161928] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
+                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
                     }`}
                   >
-                    <span className="font-semibold text-xs text-emerald-300">Local Ollama</span>
-                    <span className="text-[10px] text-slate-400">100% Offline</span>
+                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
+                      <BrandLogo name="ollama" className="w-3.5 h-3.5 text-slate-100" />
+                      Local Ollama
+                    </span>
+                    <span className="text-[11px] text-slate-400">100% Offline</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleProviderChange('custom')}
-                    className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
+                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
                       form.provider === 'custom'
-                        ? 'bg-purple-600/15 border-purple-500/50 text-white shadow-sm ring-1 ring-purple-500/30'
-                        : 'bg-[#161928] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
+                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
                     }`}
                   >
-                    <span className="font-semibold text-xs text-purple-300">Custom OpenAI Endpoint</span>
-                    <span className="text-[10px] text-slate-400">vLLM, LM Studio, LiteLLM</span>
+                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
+                      <Server className="w-3.5 h-3.5 text-slate-400" />
+                      Custom OpenAI Endpoint
+                    </span>
+                    <span className="text-[11px] text-slate-400">vLLM, LM Studio, LiteLLM</span>
                   </button>
 
                   <button
@@ -451,11 +466,11 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                     className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
                       form.provider === 'openai-compatible'
                         ? 'bg-cyan-600/15 border-cyan-500/50 text-white shadow-sm ring-1 ring-cyan-500/30'
-                        : 'bg-[#161928] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        : 'bg-ph-hover border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
                     }`}
                   >
                     <span className="font-semibold text-xs text-cyan-300">{t.llmProfiles.providerButton}</span>
-                    <span className="text-[10px] text-slate-400">{t.llmProfiles.providerButtonHint}</span>
+                    <span className="text-[11px] text-slate-400">{t.llmProfiles.providerButtonHint}</span>
                   </button>
                 </div>
               </div>
@@ -475,7 +490,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                     onClick={handleImportLegacy}
                     disabled={legacyImport.busy}
                     title={t.providerSelect.importLegacyHint}
-                    className="px-2.5 py-1 rounded-lg border border-cyan-600/50 bg-cyan-950/40 text-cyan-300 hover:bg-cyan-900/40 disabled:opacity-50"
+                    className="px-2.5 py-1 rounded-lg border border-slate-700 bg-ph-raised text-slate-200 hover:bg-ph-hover disabled:opacity-50"
                   >
                     {t.providerSelect.importLegacy}
                   </button>
@@ -489,7 +504,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               {/* API Key */}
               {form.provider !== 'ollama' && form.provider !== 'openai-compatible' && (
                 <div>
-                  <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] block mb-1.5 flex items-center gap-1.5">
+                  <label className="font-medium text-slate-200 text-[11px] block mb-1.5 flex items-center gap-1.5">
                     <Key className="w-3.5 h-3.5 text-indigo-400" />
                     {t.aiStudio.settingsModal.apiKey} ({form.provider.toUpperCase()})
                   </label>
@@ -505,7 +520,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                           ? 'sk-or-v1-...'
                           : 'sk-...'
                       }
-                      className="w-full bg-[#161928] border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 font-mono focus:outline-none focus:border-indigo-500 pr-10"
+                      className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 font-mono focus:outline-none focus:border-indigo-500 pr-10"
                     />
                     <button
                       type="button"
@@ -525,7 +540,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               {/* Model & Base URL */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] block mb-1.5 flex items-center gap-1.5">
+                  <label className="font-medium text-slate-200 text-[11px] block mb-1.5 flex items-center gap-1.5">
                     <Cpu className="w-3.5 h-3.5 text-indigo-400" />
                     {t.aiStudio.settingsModal.model}
                   </label>
@@ -534,7 +549,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                     list="model-options"
                     value={form.model}
                     onChange={(e) => setForm({ ...form, model: e.target.value })}
-                    className="w-full bg-[#161928] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
                     placeholder={form.provider === 'openai-compatible' ? t.llmProfiles.modelPlaceholder : 'Model name...'}
                   />
                   <datalist id="model-options">
@@ -546,7 +561,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
 
                 {(form.provider === 'ollama' || form.provider === 'custom') && (
                   <div>
-                    <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] block mb-1.5 flex items-center gap-1.5">
+                    <label className="font-medium text-slate-200 text-[11px] block mb-1.5 flex items-center gap-1.5">
                       <Server className="w-3.5 h-3.5 text-indigo-400" />
                       {t.aiStudio.settingsModal.baseUrl}
                     </label>
@@ -555,14 +570,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       value={form.baseUrl || ''}
                       onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
                       placeholder="http://127.0.0.1:11434"
-                      className="w-full bg-[#161928] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                 )}
               </div>
 
               {/* Sliders: Temperature & Thinking */}
-              <div className="p-4 rounded-xl bg-[#161928]/60 border border-slate-800 space-y-4">
+              <div className="p-4 rounded-xl bg-ph-hover/60 border border-slate-800 space-y-4">
                 {/* Усилие рассуждений (TASK-70.3, decision-41): без значения ничего не отправляется */}
                 <div>
                   <span className="font-medium text-slate-300 flex items-center gap-1.5 mb-1.5">
@@ -577,7 +592,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       hasApiKey: Boolean(form.apiKey?.trim()),
                       profileReasoning: llmProfiles.find((p) => p.id === form.profileId)?.compat.reasoning
                     })}
-                    className="w-full bg-[#161928] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
                   />
                 </div>
 
@@ -592,7 +607,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                         <button
                           type="button"
                           onClick={() => setForm({ ...form, temperature: undefined })}
-                          className="text-[10px] text-slate-400 hover:text-slate-200 underline"
+                          className="text-[11px] text-slate-400 hover:text-slate-200 underline"
                         >
                           {t.aiStudio.settingsModal.resetToModelDefault}
                         </button>
@@ -612,12 +627,12 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                     className="w-full accent-indigo-500"
                   />
                   {form.provider === 'anthropic' && (
-                    <p className="mt-1 text-[10px] text-slate-400 leading-relaxed">{t.aiStudio.settingsModal.temperatureHint}</p>
+                    <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">{t.aiStudio.settingsModal.temperatureHint}</p>
                   )}
                 </div>
 
                 {form.provider === 'anthropic' && form.reasoningEffort && (
-                  <p className="text-[10px] text-slate-400 leading-relaxed">{t.reasoningEffort.budgetOverridden}</p>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">{t.reasoningEffort.budgetOverridden}</p>
                 )}
 
                 {form.provider === 'anthropic' && !form.reasoningEffort && (
@@ -638,7 +653,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       onChange={(e) => setForm({ ...form, thinkingBudget: parseInt(e.target.value) })}
                       className="w-full accent-amber-500"
                     />
-                    <p className="mt-1 text-[10px] text-slate-400 leading-relaxed">{t.aiStudio.settingsModal.thinkingBudgetHint}</p>
+                    <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">{t.aiStudio.settingsModal.thinkingBudgetHint}</p>
                   </div>
                 )}
               </div>
@@ -649,7 +664,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
           {activeTab === 'autoApprove' && (
             <div className="space-y-5">
               {/* Master Toggle Card */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-[#181d2c] to-indigo-600/10 border-2 border-emerald-500/30 flex items-center justify-between gap-4">
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-between gap-4">
                 <div className="space-y-1">
                   <div className="font-bold text-white flex items-center gap-2 text-xs">
                     <ShieldCheck className="w-5 h-5 text-emerald-400" />
@@ -672,7 +687,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
 
               {/* Единый HITL-контур: таймаут ожидания решения и история решений (TASK-57) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                <div className="p-3 rounded-xl bg-[#141726] border border-slate-800 space-y-1.5">
+                <div className="p-3 rounded-xl bg-ph-hover border border-slate-800 space-y-1.5">
                   <label className="font-semibold text-slate-200 text-xs flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-amber-400" />
                     {t.hitl.timeoutMinLabel}
@@ -687,17 +702,17 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       updateRules({ approvalTimeoutMin: Number.isFinite(v) && v > 0 ? v : undefined });
                     }}
                     placeholder="1440"
-                    className="w-full bg-[#0c0e17] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-amber-500"
+                    className="w-full bg-ph-panel border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-amber-500"
                   />
-                  <p className="text-[10px] text-slate-400">{t.hitl.timeoutMinDesc}</p>
+                  <p className="text-[11px] text-slate-400">{t.hitl.timeoutMinDesc}</p>
                 </div>
-                <div className="p-3 rounded-xl bg-[#141726] border border-slate-800 flex flex-col justify-between gap-2">
+                <div className="p-3 rounded-xl bg-ph-hover border border-slate-800 flex flex-col justify-between gap-2">
                   <div>
                     <div className="font-semibold text-slate-200 text-xs flex items-center gap-1.5">
                       <History className="w-3.5 h-3.5 text-indigo-400" />
                       {t.hitl.openHistory}
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{t.hitl.openHistoryDesc}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{t.hitl.openHistoryDesc}</p>
                   </div>
                   <button
                     type="button"
@@ -712,11 +727,11 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
 
               {/* Action Types Permissions */}
               <div className="space-y-2">
-                <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] block">
+                <label className="font-medium text-slate-200 text-[11px] block">
                   {t.aiStudio.settingsModal.allowedCategoriesLabel}
                 </label>
                 <div className="grid grid-cols-2 gap-2.5">
-                  <label className="p-3 rounded-xl bg-[#141726] border border-slate-800 flex items-start gap-3 cursor-pointer hover:border-slate-700 transition">
+                  <label className="p-3 rounded-xl bg-ph-hover border border-slate-800 flex items-start gap-3 cursor-pointer hover:border-slate-700 transition">
                     <input
                       type="checkbox"
                       checked={rules.allowFileWrite}
@@ -728,11 +743,11 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                         <FileCode className="w-3.5 h-3.5 text-indigo-400" />
                         <span>{t.aiStudio.settingsModal.autoApproveWrite}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400">{t.aiStudio.settingsModal.autoApproveWriteDesc}</p>
+                      <p className="text-[11px] text-slate-400">{t.aiStudio.settingsModal.autoApproveWriteDesc}</p>
                     </div>
                   </label>
 
-                  <label className="p-3 rounded-xl bg-[#141726] border border-slate-800 flex items-start gap-3 cursor-pointer hover:border-slate-700 transition">
+                  <label className="p-3 rounded-xl bg-ph-hover border border-slate-800 flex items-start gap-3 cursor-pointer hover:border-slate-700 transition">
                     <input
                       type="checkbox"
                       checked={rules.allowCommands}
@@ -744,11 +759,11 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                         <Terminal className="w-3.5 h-3.5 text-emerald-400" />
                         <span>{t.aiStudio.settingsModal.autoApproveCommands}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400">{t.aiStudio.settingsModal.autoApproveCommandsDesc}</p>
+                      <p className="text-[11px] text-slate-400">{t.aiStudio.settingsModal.autoApproveCommandsDesc}</p>
                     </div>
                   </label>
 
-                  <label className="p-3 rounded-xl bg-[#141726] border border-slate-800 flex items-start gap-3 cursor-pointer hover:border-slate-700 transition">
+                  <label className="p-3 rounded-xl bg-ph-hover border border-slate-800 flex items-start gap-3 cursor-pointer hover:border-slate-700 transition">
                     <input
                       type="checkbox"
                       checked={rules.allowFileRead}
@@ -760,11 +775,11 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                         <BookOpen className="w-3.5 h-3.5 text-purple-400" />
                         <span>{t.aiStudio.settingsModal.autoApproveRead}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400">{t.aiStudio.settingsModal.autoApproveReadDesc}</p>
+                      <p className="text-[11px] text-slate-400">{t.aiStudio.settingsModal.autoApproveReadDesc}</p>
                     </div>
                   </label>
 
-                  <label className="p-3 rounded-xl bg-[#141726] border border-slate-800 flex items-start gap-3 cursor-pointer hover:border-slate-700 transition">
+                  <label className="p-3 rounded-xl bg-ph-hover border border-slate-800 flex items-start gap-3 cursor-pointer hover:border-slate-700 transition">
                     <input
                       type="checkbox"
                       checked={rules.allowSubagents}
@@ -776,20 +791,20 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                         <GitFork className="w-3.5 h-3.5 text-amber-400" />
                         <span>{t.aiStudio.settingsModal.autoApproveSubagents}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400">{t.aiStudio.settingsModal.autoApproveSubagentsDesc}</p>
+                      <p className="text-[11px] text-slate-400">{t.aiStudio.settingsModal.autoApproveSubagentsDesc}</p>
                     </div>
                   </label>
                 </div>
               </div>
 
               {/* Exclusion Lists: 1. File Write Exclusions */}
-              <div className="p-4 rounded-xl bg-[#141726] border border-slate-800 space-y-3">
+              <div className="p-4 rounded-xl bg-ph-hover border border-slate-800 space-y-3">
                 <div>
                   <div className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
                     <Lock className="w-3.5 h-3.5 text-amber-400" />
                     <span>{t.aiStudio.settingsModal.writeExclusionsTitle}</span>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-slate-400 mt-0.5">
                     {t.aiStudio.settingsModal.writeExclusionsDesc}
                   </p>
                 </div>
@@ -826,7 +841,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       }
                     }}
                     placeholder={t.aiStudio.settingsModal.addPatternPlaceholder}
-                    className="flex-1 bg-[#0c0e17] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-indigo-500"
+                    className="flex-1 bg-ph-panel border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-indigo-500"
                   />
                   <button
                     type="button"
@@ -840,13 +855,13 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               </div>
 
               {/* Exclusion Lists: 2. File Read Exclusions */}
-              <div className="p-4 rounded-xl bg-[#141726] border border-slate-800 space-y-3">
+              <div className="p-4 rounded-xl bg-ph-hover border border-slate-800 space-y-3">
                 <div>
                   <div className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
                     <EyeOff className="w-3.5 h-3.5 text-purple-400" />
                     <span>{t.aiStudio.settingsModal.readExclusionsTitle}</span>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-slate-400 mt-0.5">
                     {t.aiStudio.settingsModal.readExclusionsDesc}
                   </p>
                 </div>
@@ -883,7 +898,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       }
                     }}
                     placeholder={t.aiStudio.settingsModal.readPatternPlaceholder}
-                    className="flex-1 bg-[#0c0e17] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-indigo-500"
+                    className="flex-1 bg-ph-panel border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-indigo-500"
                   />
                   <button
                     type="button"
@@ -897,13 +912,13 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               </div>
 
               {/* Exclusion Lists: 3. Command Deny List */}
-              <div className="p-4 rounded-xl bg-[#141726] border border-slate-800 space-y-3">
+              <div className="p-4 rounded-xl bg-ph-hover border border-slate-800 space-y-3">
                 <div>
                   <div className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
                     <Terminal className="w-3.5 h-3.5 text-rose-400" />
                     <span>{t.aiStudio.settingsModal.commandDenyTitle}</span>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-slate-400 mt-0.5">
                     {t.aiStudio.settingsModal.commandDenyDesc}
                   </p>
                 </div>
@@ -940,7 +955,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                       }
                     }}
                     placeholder={t.aiStudio.settingsModal.commandPatternPlaceholder}
-                    className="flex-1 bg-[#0c0e17] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-rose-500"
+                    className="flex-1 bg-ph-panel border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-rose-500"
                   />
                   <button
                     type="button"
@@ -966,14 +981,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition"
+              className="ph-btn ph-btn-secondary"
             >
               {activeTab === 'pricing' || activeTab === 'tiers' ? t.pricing.close : t.common.cancel}
             </button>
             {activeTab !== 'pricing' && activeTab !== 'tiers' && (
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-lg shadow-indigo-600/20 transition flex items-center gap-1.5"
+              className="ph-btn ph-btn-primary"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               {t.aiStudio.settingsModal.save}

@@ -108,10 +108,38 @@ export function registerProjectsIpc(ctx: IpcContext) {
     await shell.openPath(targetPath);
   });
 
+  /**
+   * Открыть путь в VS Code. Раньше команда запускалась «вслепую»: без `code` в PATH кнопка молча
+   * ничего не делала. Теперь результат возвращается в UI, а на macOS при отсутствии `code`
+   * VS Code открывается как приложение (`open -a`), без установки shell-команды (decision-73).
+   */
+  const runDetached = (cmd: string, args: string[], shell: boolean) =>
+    new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      let settled = false;
+      const done = (result: { ok: boolean; error?: string }) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+      try {
+        const child = spawn(cmd, args, { shell, detached: true, stdio: 'ignore' });
+        child.on('error', (err) => done({ ok: false, error: err.message }));
+        // `code` и `open` передают путь уже запущенному приложению и быстро выходят; код 127 — команды нет
+        child.on('exit', (code) => done(code === 0 ? { ok: true } : { ok: false, error: `exit code ${code}` }));
+        setTimeout(() => {
+          child.unref();
+          done({ ok: true });
+        }, 3000);
+      } catch (err) {
+        done({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+
   ipcMain.handle('system:openInCode', async (_event, targetPath: string) => {
     const isWin = process.platform === 'win32';
-    const cmd = isWin ? 'code.cmd' : 'code';
-    spawn(cmd, [targetPath], { shell: true, detached: true });
+    const result = await runDetached(isWin ? 'code.cmd' : 'code', [`"${targetPath.replace(/"/g, '\\"')}"`], true);
+    if (result.ok || process.platform !== 'darwin') return result;
+    return runDetached('open', ['-a', 'Visual Studio Code', targetPath], false);
   });
 
   ipcMain.handle('system:openTerminal', async (_event, targetPath: string) => {

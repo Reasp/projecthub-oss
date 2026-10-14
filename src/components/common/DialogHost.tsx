@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, HelpCircle, Info, X } from 'lucide-react';
+import { AlertCircle, HelpCircle, Info, X } from './icons';
 import { useDialogStore } from '../../store/useDialogStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTimers } from '../../hooks/useTimeoutState';
@@ -80,14 +80,14 @@ export const DialogHost: React.FC = () => {
   const isDanger = activeDialog.type === 'confirm' && activeDialog.options.danger;
 
   return createPortal(
-    <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-150">
       <div
-        className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+        className="w-full max-w-md bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-900/50">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             {isDanger ? (
               <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
@@ -100,7 +100,7 @@ export const DialogHost: React.FC = () => {
           </div>
           <button
             onClick={handleCancel}
-            className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800/60 transition-colors"
+            className="ph-icon-button"
           >
             <X className="w-4 h-4" />
           </button>
@@ -119,18 +119,18 @@ export const DialogHost: React.FC = () => {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={activeDialog.options.placeholder}
-              className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+              className="w-full mt-1 px-2.5 py-1.5 bg-ph-raised border border-slate-700 rounded-md text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
             />
           )}
         </div>
 
         {/* Footer actions */}
-        <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-slate-800/80 bg-slate-950/40">
+        <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-slate-800/80">
           {activeDialog.type !== 'alert' && (
             <button
               type="button"
               onClick={handleCancel}
-              className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 transition-colors"
+              className="px-3 py-1.5 rounded-md text-xs font-medium text-slate-200 bg-ph-raised hover:bg-ph-hover transition-colors"
             >
               {activeDialog.options.cancelText || t.common.cancel}
             </button>
@@ -139,10 +139,10 @@ export const DialogHost: React.FC = () => {
             ref={confirmButtonRef}
             type="button"
             onClick={handleConfirm}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium text-white transition-colors shadow-xs ${
+            className={`px-3 py-1.5 rounded-md text-xs font-medium text-white transition-colors ${
               isDanger
-                ? 'bg-rose-600 hover:bg-rose-500 border border-rose-500/50'
-                : 'bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/50'
+                ? 'bg-rose-600 hover:bg-rose-500'
+                : 'bg-indigo-600 hover:bg-indigo-500'
             }`}
           >
             {activeDialog.options.confirmText ||

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, GitPullRequest, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
+import { X, GitPullRequest, Sparkles, AlertCircle, Loader2 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { generatePRDraft } from '../../services/aiAssistantService';
@@ -90,10 +90,10 @@ export const CreatePRModal: React.FC<CreatePRModalProps> = ({ isOpen, onClose })
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-2xl bg-[#161922] border border-slate-700/70 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-2xl bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-[#12151f]">
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5 text-indigo-400">
             <GitPullRequest className="w-5 h-5" />
             <h2 className="text-sm font-semibold text-white">{t.pr.createPRTitle}</h2>
@@ -126,7 +126,7 @@ export const CreatePRModal: React.FC<CreatePRModalProps> = ({ isOpen, onClose })
                 value={sourceBranch}
                 onChange={(e) => setSourceBranch(e.target.value)}
                 placeholder="feat/task-1"
-                className="w-full px-3 py-2 bg-[#0d0f15] border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+                className="w-full px-3 py-2 bg-ph-panel border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono text-xs"
                 required
               />
             </div>
@@ -139,7 +139,7 @@ export const CreatePRModal: React.FC<CreatePRModalProps> = ({ isOpen, onClose })
                 value={targetBranch}
                 onChange={(e) => setTargetBranch(e.target.value)}
                 placeholder="main"
-                className="w-full px-3 py-2 bg-[#0d0f15] border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+                className="w-full px-3 py-2 bg-ph-panel border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono text-xs"
                 required
               />
             </div>
@@ -155,7 +155,7 @@ export const CreatePRModal: React.FC<CreatePRModalProps> = ({ isOpen, onClose })
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="feat(task-1): Title"
-              className="w-full px-3 py-2 bg-[#0d0f15] border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 text-xs"
+              className="w-full px-3 py-2 bg-ph-panel border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 text-xs"
               required
             />
           </div>
@@ -186,7 +186,7 @@ export const CreatePRModal: React.FC<CreatePRModalProps> = ({ isOpen, onClose })
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="PR description..."
-              className="w-full px-3 py-2 bg-[#0d0f15] border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono text-xs leading-relaxed"
+              className="w-full px-3 py-2 bg-ph-panel border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono text-xs leading-relaxed"
             />
           </div>
 
@@ -215,14 +215,14 @@ export const CreatePRModal: React.FC<CreatePRModalProps> = ({ isOpen, onClose })
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition"
+                className="ph-btn ph-btn-secondary"
               >
                 {t.common.cancel}
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-lg shadow-indigo-600/20 transition disabled:opacity-50"
+                className="ph-btn ph-btn-primary disabled:opacity-50"
               >
                 {isSubmitting ? (
                   <>

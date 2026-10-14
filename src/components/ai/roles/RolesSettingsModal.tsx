@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Save, Trash2, Copy, TriangleAlert, Bot, UploadCloud, Sparkles } from 'lucide-react';
+import { X, Plus, Save, Trash2, Copy, TriangleAlert, Bot, UploadCloud, Sparkles } from '../../common/icons';
 import { useRolesStore } from '../../../store/useRolesStore';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useTranslation } from '../../../i18n';
@@ -37,7 +37,7 @@ function ChipListEditor({
   const [input, setInput] = useState('');
   return (
     <div>
-      <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{label}</label>
+      <label className="text-[11px] font-medium text-muted-foreground block mb-1">{label}</label>
       <div className="flex flex-wrap gap-1.5 mb-1.5">
         {values.map((v, i) => (
           <span key={`${v}-${i}`} className="px-2 py-0.5 rounded-md bg-secondary text-foreground border border-border flex items-center gap-1 text-[11px]">
@@ -149,8 +149,8 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-4xl h-[85vh] rounded-xl border border-border bg-card shadow-2xl text-card-foreground flex flex-col">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
+      <div className="relative w-full max-w-4xl h-[85vh] rounded-xl border border-slate-700 bg-ph-elevated shadow-2xl text-card-foreground flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-secondary/20">
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
@@ -183,7 +183,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
               >
                 <UploadCloud className="w-3.5 h-3.5" /> {t.roles.syncButton}
                 {syncDrift > 0 && (
-                  <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  <span className="ml-auto text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
                     {syncDrift}
                   </span>
                 )}
@@ -201,7 +201,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
               >
                 <Sparkles className="w-3.5 h-3.5" /> {t.skills.button}
                 {skillsDrift > 0 && (
-                  <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  <span className="ml-auto text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
                     {skillsDrift}
                   </span>
                 )}
@@ -221,9 +221,9 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
               >
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{r.name}</span>
-                  <span className="text-[10px] text-muted-foreground uppercase">{r.source}</span>
+                  <span className="text-[11px] text-muted-foreground uppercase">{r.source}</span>
                 </div>
-                <div className="text-[10px] text-muted-foreground">{r.slug}</div>
+                <div className="text-[11px] text-muted-foreground">{r.slug}</div>
               </button>
             ))}
           </div>
@@ -246,7 +246,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
           <div className={view === 'editor' ? 'flex-1 overflow-y-auto p-5 space-y-4' : 'hidden'}>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{t.roles.slug}</label>
+                <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.slug}</label>
                 <input
                   type="text"
                   value={draft.slug}
@@ -256,7 +256,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{t.roles.name}</label>
+                <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.name}</label>
                 <input
                   type="text"
                   value={draft.name}
@@ -268,7 +268,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
 
             <div className="grid grid-cols-5 gap-3">
               <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{t.roles.engine}</label>
+                <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.engine}</label>
                 <select
                   value={draft.engine || ''}
                   onChange={(e) => setDraft({ ...draft, engine: (e.target.value || undefined) as RoleEngine | undefined })}
@@ -280,7 +280,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                 </select>
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{t.providerSelect.label}</label>
+                <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.providerSelect.label}</label>
                 <ProviderProfileSelect
                   value={{ provider: draft.provider, profile: draft.profile }}
                   onChange={(choice) => {
@@ -293,7 +293,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{t.roles.model}</label>
+                <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.model}</label>
                 <input
                   type="text"
                   value={draft.model || ''}
@@ -311,7 +311,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
               </div>
               <div>
                 <label
-                  className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1"
+                  className="text-[11px] font-medium text-muted-foreground block mb-1"
                   title={t.modelTiers.selectHint}
                 >
                   {t.modelTiers.selectLabel}
@@ -323,7 +323,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{t.roles.budgetUsd}</label>
+                <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.budgetUsd}</label>
                 <input
                   type="number"
                   min={0}
@@ -339,7 +339,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
             </div>
 
             <div>
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{t.roles.tools}</label>
+              <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.tools}</label>
               <div className="flex flex-wrap gap-2">
                 {TOOL_CATEGORIES.map((cat) => {
                   const active = (draft.tools || []).includes(cat);
@@ -386,7 +386,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
             />
 
             <div>
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">{t.roles.systemPrompt}</label>
+              <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.systemPrompt}</label>
               <textarea
                 value={draft.systemPrompt}
                 onChange={(e) => setDraft({ ...draft, systemPrompt: e.target.value })}

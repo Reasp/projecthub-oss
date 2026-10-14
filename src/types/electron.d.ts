@@ -887,7 +887,8 @@ export interface IElectronAPI {
   // System Dialogs & Launchers
   selectDirectory: () => Promise<string | null>;
   openInExplorer: (targetPath: string) => Promise<void>;
-  openInCode: (targetPath: string) => Promise<void>;
+  /** `ok: false` — VS Code не найден или не запустился (decision-73) */
+  openInCode: (targetPath: string) => Promise<{ ok: boolean; error?: string } | void>;
   openTerminal: (targetPath: string) => Promise<void>;
 
   // Backlog Tasks & Real-time Watcher

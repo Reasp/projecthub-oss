@@ -2,18 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Server,
-  Radio,
   Copy,
   Check,
   RefreshCw,
   Power,
   Shield,
-  ExternalLink,
   Terminal,
-  Activity,
   X,
   Monitor
-} from 'lucide-react';
+} from '../common/icons';
 import { ComputerUseSettingsModal } from '../computer/ComputerUseSettingsModal';
 
 import type { McpServerStatus } from '../../types/electron';
@@ -103,21 +100,17 @@ export const McpServerStatusBadge: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition border ${
-          status.isRunning
-            ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/50 hover:border-emerald-500/50'
-            : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
-        }`}
+        className="ph-status-item"
         title={t.mcp.badgeTooltip}
       >
         <span
           className={`w-2 h-2 rounded-full shrink-0 ${
-            status.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+            status.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
           }`}
         />
         <span className="font-mono">MCP:{status.port}</span>
         {status.activeSessions > 0 && (
-          <span className="px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono">
+          <span className="text-emerald-300 font-mono">
             {status.activeSessions}
           </span>
         )}
@@ -126,19 +119,19 @@ export const McpServerStatusBadge: React.FC = () => {
       {/* Settings / Info Modal */}
       {isOpen &&
         createPortal(
-          <div className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-lg bg-[#121522] border border-slate-700/80 rounded-2xl shadow-2xl p-6 space-y-5 text-slate-200 font-sans">
+          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl p-6 space-y-5 text-slate-200 font-sans">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+                <div className="p-1.5 rounded-lg bg-ph-raised text-indigo-400">
                   <Server className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     {t.mcp.modalTitle}
                     <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-normal border ${
+                      className={`text-[11px] px-2 py-0.5 rounded-full font-mono font-normal border ${
                         status.isRunning
                           ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
                           : 'bg-slate-800 border-slate-700 text-slate-400'
@@ -162,7 +155,7 @@ export const McpServerStatusBadge: React.FC = () => {
             </div>
 
             {/* Controls Bar */}
-            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-ph-panel border border-ph-line text-xs">
               <div className="space-y-0.5">
                 <div className="font-semibold text-slate-200">{t.mcp.sseEndpoint}</div>
                 <div className="font-mono text-indigo-300 text-[11px] select-all">{status.url}</div>
@@ -255,7 +248,7 @@ export const McpServerStatusBadge: React.FC = () => {
                   )}
                 </button>
               </div>
-              <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[11px] text-slate-300 overflow-x-auto select-all max-h-36 leading-relaxed">
+              <pre className="p-3 rounded-lg bg-ph-panel border border-ph-line font-mono text-[11px] text-slate-300 overflow-x-auto select-all max-h-36 leading-relaxed">
                 {mcpJsonConfig}
               </pre>
             </div>
@@ -285,7 +278,7 @@ export const McpServerStatusBadge: React.FC = () => {
                   )}
                 </button>
               </div>
-              <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[10px] text-slate-400 overflow-x-auto select-all leading-tight">
+              <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[11px] text-slate-400 overflow-x-auto select-all leading-tight">
                 {curlExample}
               </pre>
             </div>

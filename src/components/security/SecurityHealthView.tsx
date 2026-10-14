@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, ExternalLink, ListPlus, Loader2, Play, ShieldAlert, ShieldCheck, WifiOff } from 'lucide-react';
+import { AlertCircle, CheckCircle, ExternalLink, ListPlus, Loader2, Play, ShieldAlert, ShieldCheck, WifiOff } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useToast } from '../../hooks/useTimeoutState';
@@ -74,7 +74,7 @@ export const SecurityHealthView: React.FC = () => {
   const total = report ? SEVERITY_ORDER.reduce((acc, sev) => acc + (report.counts[sev] ?? 0), 0) : 0;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#0d1017]">
+    <div className="flex-1 flex flex-col overflow-hidden bg-ph-panel">
       <div className="px-6 py-4 border-b border-slate-800/80 flex items-start justify-between gap-4 shrink-0">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-white flex items-center gap-2">
@@ -199,7 +199,7 @@ const EcosystemSection: React.FC<{
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase ${severityClass(f.severity as AuditSeverity, true)}`}>
+                      <span className={`px-1.5 py-0.5 rounded border text-[11px] font-semibold uppercase ${severityClass(f.severity as AuditSeverity, true)}`}>
                         {s.severity[f.severity]}
                       </span>
                       <span className="font-mono text-slate-100">{f.package}</span>

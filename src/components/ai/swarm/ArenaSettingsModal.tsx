@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Trash2, RotateCcw, Save, RefreshCw } from 'lucide-react';
+import { X, Plus, Trash2, RotateCcw, Save, RefreshCw } from '../../common/icons';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { useSwarmStore } from '../../../store/useSwarmStore';
 import type { ArenaConfig, CheckDefinition, CheckKind, ScoreComponentKey, ScoreWeights } from '../../../types/electron';
@@ -115,9 +115,9 @@ export const ArenaSettingsModal: React.FC<ArenaSettingsModalProps> = ({ projectP
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="relative w-full max-w-3xl max-h-[88vh] rounded-xl border border-border bg-card shadow-2xl flex flex-col"
+        className="relative w-full max-w-3xl max-h-[88vh] rounded-xl border border-slate-700 bg-ph-elevated shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
@@ -146,7 +146,7 @@ export const ArenaSettingsModal: React.FC<ArenaSettingsModalProps> = ({ projectP
               {/* Проверки */}
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <h4 className="text-xs font-medium text-muted-foreground">
                     {j.settingsChecks}
                   </h4>
                   <button
@@ -270,7 +270,7 @@ export const ArenaSettingsModal: React.FC<ArenaSettingsModalProps> = ({ projectP
                               />
                             </label>
                           </div>
-                          <p className="text-[10px] text-muted-foreground leading-relaxed">{j.settingsUiSmokeHint}</p>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">{j.settingsUiSmokeHint}</p>
                         </div>
                       )}
                     </div>
@@ -294,7 +294,7 @@ export const ArenaSettingsModal: React.FC<ArenaSettingsModalProps> = ({ projectP
               {/* Веса */}
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <h4 className="text-xs font-medium text-muted-foreground">
                     {j.settingsWeights}
                   </h4>
                   <button
@@ -329,7 +329,7 @@ export const ArenaSettingsModal: React.FC<ArenaSettingsModalProps> = ({ projectP
 
               {/* Ревьюер */}
               <section className="space-y-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="text-xs font-medium text-muted-foreground">
                   {j.settingsReviewer}
                 </h4>
                 <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer">
@@ -381,7 +381,7 @@ export const ArenaSettingsModal: React.FC<ArenaSettingsModalProps> = ({ projectP
 
               {/* Авто-мердж */}
               <section className="space-y-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="text-xs font-medium text-muted-foreground">
                   {j.settingsAutoMerge}
                 </h4>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">{j.settingsAutoMergeHint}</p>

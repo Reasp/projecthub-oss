@@ -7,8 +7,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Volume2,
-  X
-} from 'lucide-react';
+  X,
+  Lightbulb
+} from '../common/icons';
 import {
   voiceService,
   type TtsNotice,
@@ -891,9 +892,9 @@ export const VoiceControlWidget: React.FC = () => {
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10000] pointer-events-auto select-none max-w-xl px-4 animate-in slide-in-from-bottom-2 fade-in duration-150"
           >
             <div
-              className={`flex items-center gap-2.5 px-4 py-2 rounded-xl border shadow-2xl backdrop-blur-xl text-xs text-white ${
+              className={`flex items-center gap-2.5 px-4 py-2 rounded-xl border shadow-2xl text-xs text-white ${
                 ttsNoticeContent.tone === 'error'
-                  ? 'bg-[#16131d]/95 border-rose-500/70'
+                  ? 'bg-ph-elevated/95 border-rose-500/70'
                   : ttsNoticeContent.tone === 'warn'
                     ? 'bg-slate-900/95 border-amber-500/60'
                     : 'bg-slate-900/95 border-indigo-500/50'
@@ -925,9 +926,9 @@ export const VoiceControlWidget: React.FC = () => {
       {/* Voice Error Modal / Notification Banner */}
       {errorMessage && (
         <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[9999] pointer-events-auto select-none max-w-lg w-full px-4 animate-in slide-in-from-top-3 fade-in duration-200">
-          <div className="flex items-start gap-3 p-4 rounded-2xl bg-[#16131d] border-2 border-rose-500/80 shadow-2xl shadow-rose-950/60 backdrop-blur-xl text-xs text-white">
+          <div className="flex items-start gap-3 p-4 rounded-2xl bg-ph-elevated border-2 border-rose-500/80 shadow-2xl text-xs text-white">
             <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 shrink-0 mt-0.5">
-              <AlertTriangle className="w-5 h-5 animate-pulse" />
+              <AlertTriangle className="w-5 h-5" />
             </div>
             <div className="flex-1 space-y-1.5">
               <div className="font-bold text-rose-300 text-sm flex items-center justify-between">
@@ -944,10 +945,10 @@ export const VoiceControlWidget: React.FC = () => {
               <p className="text-slate-200 leading-relaxed text-[12px]">
                 {errorMessage}
               </p>
-              <div
-                className="pt-1 text-[11px] text-indigo-300 bg-indigo-950/40 p-2 rounded-lg border border-indigo-500/30"
-                dangerouslySetInnerHTML={{ __html: t.voice.rdpHint }}
-              />
+              <div className="flex items-start gap-1.5 text-[11px] text-slate-300 bg-ph-panel p-2 rounded-md border border-ph-line">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-300 shrink-0 mt-px" />
+                <div dangerouslySetInnerHTML={{ __html: t.voice.rdpHint }} />
+              </div>
             </div>
           </div>
         </div>
@@ -956,7 +957,7 @@ export const VoiceControlWidget: React.FC = () => {
       {/* Top HUD */}
       {shouldShowTopHud && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 pointer-events-none select-none animate-in slide-in-from-top-2 duration-150">
-          <div className="flex items-center gap-2.5 px-4 py-1.5 rounded-full bg-slate-900/90 border border-indigo-500/50 shadow-2xl backdrop-blur-xl text-xs text-white">
+          <div className="flex items-center gap-2.5 px-4 py-1.5 rounded-full bg-slate-900/90 border border-indigo-500/50 shadow-2xl text-xs text-white">
             {/* Audio Wave Visualizer Bars */}
             <div className="flex items-center gap-0.5 h-3.5 px-1 bg-slate-950/80 rounded-md border border-slate-800 shrink-0">
               <span
@@ -982,7 +983,7 @@ export const VoiceControlWidget: React.FC = () => {
                 </>
               ) : isSpeech ? (
                 <>
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                   <span className="text-emerald-300 font-semibold">{t.voice.listeningSpeech}</span>
                 </>
               ) : lastFeedback ? (

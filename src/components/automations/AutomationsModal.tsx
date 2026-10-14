@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, ExternalLink, Pause, Pencil, Play, Plus, RefreshCw, ShieldCheck, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Pause, Pencil, Play, Plus, RefreshCw, ShieldCheck, Trash2, Workflow, X } from '../common/icons';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useAutomationsStore } from '../../store/useAutomationsStore';
 import { useDialogStore } from '../../store/useDialogStore';
@@ -219,10 +219,10 @@ export const AutomationsModal: React.FC = () => {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium">{r.scope === 'builtin' ? a.builtinName : r.name}</span>
-              <span className={`rounded border px-1.5 py-0.5 text-[10px] ${STATUS_COLORS[status.key]}`} title={status.hint}>
+              <span className={`rounded border px-1.5 py-0.5 text-[11px] ${STATUS_COLORS[status.key]}`} title={status.hint}>
                 {status.text}
               </span>
-              {r.scope !== 'builtin' && <span className="font-mono text-[10px] text-muted-foreground">{r.id}</span>}
+              {r.scope !== 'builtin' && <span className="font-mono text-[11px] text-muted-foreground">{r.id}</span>}
             </div>
             <div className="mt-0.5 text-[11px] text-muted-foreground">
               {describeTrigger(r)} → {describeAction(r)}
@@ -233,7 +233,7 @@ export const AutomationsModal: React.FC = () => {
                 {r.scope === 'builtin' ? a.builtinHint : status.hint}
               </div>
             )}
-            {!r.issue && <div className="mt-1 text-[10px] text-slate-400">{describeCounters(r)}</div>}
+            {!r.issue && <div className="mt-1 text-[11px] text-slate-400">{describeCounters(r)}</div>}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {r.scope === 'project' && (r.trust === 'untrusted' || r.trust === 'changed') && !r.issue && (
@@ -334,7 +334,7 @@ export const AutomationsModal: React.FC = () => {
           value={draft[key]}
           onChange={(e) => setSettingsDraft({ ...draft, [key]: e.target.value })}
         />
-        {hint && <p className="mt-1 text-[10px] text-muted-foreground">{hint}</p>}
+        {hint && <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>}
       </div>
     );
     return (
@@ -352,8 +352,8 @@ export const AutomationsModal: React.FC = () => {
   const nothing = groups.global.length === 0 && groups.projectGroups.length === 0;
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-5xl h-[88vh] rounded-xl border border-border bg-card shadow-2xl text-card-foreground flex flex-col">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
+      <div className="relative w-full max-w-5xl h-[88vh] rounded-xl border border-slate-700 bg-ph-elevated shadow-2xl text-card-foreground flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-secondary/20">
           <div className="flex items-center gap-2">
             <Workflow className="w-5 h-5 text-primary" />
@@ -422,19 +422,19 @@ export const AutomationsModal: React.FC = () => {
               )}
 
               <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{a.groupBuiltin}</h3>
+                <h3 className="text-xs font-medium text-muted-foreground">{a.groupBuiltin}</h3>
                 {groups.builtin.map(renderRule)}
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{a.groupGlobal}</h3>
+                <h3 className="text-xs font-medium text-muted-foreground">{a.groupGlobal}</h3>
                 {groups.global.map(renderRule)}
                 {groups.global.length === 0 && !nothing && <div className="text-[11px] text-muted-foreground">{a.emptyGlobal}</div>}
               </section>
 
               {groups.projectGroups.map(([root, list]) => (
                 <section key={root} className="space-y-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" title={root}>
+                  <h3 className="text-xs font-medium text-muted-foreground" title={root}>
                     {fill(a.groupProject, { project: baseName(root) })}
                   </h3>
                   {list.map(renderRule)}

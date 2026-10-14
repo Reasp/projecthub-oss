@@ -12,14 +12,10 @@ import {
   Minimize2,
   X,
   Cpu,
-  RefreshCw,
   Rocket,
   FlaskConical,
-  Plus,
-  Radio,
-  FileCode,
-  Sparkles
-} from 'lucide-react';
+  Radio
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
@@ -72,25 +68,25 @@ export const TerminalPanel: React.FC = () => {
           key: 'run',
           def: actionConfig.run,
           icon: Play,
-          className: 'bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-400 border-emerald-800/40'
+          className: 'border-transparent text-slate-300 hover:bg-ph-hover hover:text-white'
         },
         {
           key: 'deploy',
           def: actionConfig.deploy,
           icon: Rocket,
-          className: 'bg-indigo-950/50 hover:bg-indigo-900/60 text-indigo-300 border-indigo-800/40'
+          className: 'border-transparent text-slate-300 hover:bg-ph-hover hover:text-white'
         },
         {
           key: 'test',
           def: actionConfig.test,
           icon: FlaskConical,
-          className: 'bg-amber-950/40 hover:bg-amber-900/50 text-amber-300 border-amber-800/40'
+          className: 'border-transparent text-slate-300 hover:bg-ph-hover hover:text-white'
         },
         ...(actionConfig.customActions ?? []).map((def) => ({
           key: `custom:${def.id}`,
           def,
           icon: Cpu,
-          className: 'bg-slate-800/60 hover:bg-slate-700/60 text-slate-300 border-slate-700/60'
+          className: 'border-transparent text-slate-300 hover:bg-ph-hover hover:text-white'
         }))
       ]
     : [];
@@ -305,7 +301,7 @@ export const TerminalPanel: React.FC = () => {
     <div
       ref={panelRef}
       style={{ height: heightStyle }}
-      className={`w-full bg-[#0a0d14] border-t border-slate-800 flex flex-col shrink-0 z-30 relative select-none shadow-2xl ${
+      className={`w-full bg-ph-base border-t border-slate-800 flex flex-col shrink-0 z-30 relative select-none shadow-2xl ${
         isDragging ? '' : 'transition-all duration-75'
       }`}
     >
@@ -318,7 +314,7 @@ export const TerminalPanel: React.FC = () => {
       </div>
 
       {/* Terminal Header Toolbar */}
-      <div className="h-9 px-3 bg-[#0e121c] border-b border-slate-800 flex items-center justify-between gap-2 overflow-hidden">
+      <div className="h-9 px-3 bg-ph-elevated border-b border-slate-800 flex items-center justify-between gap-2 overflow-hidden">
         {/* Terminal Sessions & Mode Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 py-1 scrollbar-none">
           {/* Quick Launch Buttons */}
@@ -327,18 +323,18 @@ export const TerminalPanel: React.FC = () => {
               <button
                 onClick={handleLaunchClaude}
                 title={t.terminal.newClaude}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-950/60 hover:bg-indigo-900/80 text-xs font-semibold text-indigo-300 border border-indigo-700/50 shadow-sm transition shrink-0"
+                className="flex items-center gap-1.5 h-6 px-2 rounded-md text-xs text-slate-300 hover:bg-ph-hover hover:text-white transition shrink-0"
               >
-                <Bot className="w-3.5 h-3.5 text-indigo-400" />
+                <Bot className="w-3.5 h-3.5 text-slate-400" />
                 <span>{t.terminal.newClaude}</span>
               </button>
 
               <button
                 onClick={handleLaunchShell}
                 title={t.terminal.newShell}
-                className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800/60 hover:bg-slate-700/70 text-xs font-medium text-slate-300 border border-slate-700/60 transition shrink-0"
+                className="flex items-center gap-1.5 h-6 px-2 rounded-md text-xs text-slate-300 hover:bg-ph-hover hover:text-white transition shrink-0"
               >
-                <TerminalIcon className="w-3 h-3 text-cyan-400" />
+                <TerminalIcon className="w-3.5 h-3.5 text-slate-400" />
                 <span>{t.terminal.newShell}</span>
               </button>
             </div>
@@ -359,8 +355,8 @@ export const TerminalPanel: React.FC = () => {
                 title={`${session.title} (${isRunning ? t.terminal.running : t.terminal.exited})`}
                 className={`group flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition shrink-0 cursor-pointer border whitespace-nowrap ${
                   isCurrent
-                    ? 'bg-[#181d2e] border-indigo-500/40 text-white shadow-sm'
-                    : 'bg-[#101422] border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-ph-hover border-indigo-500/40 text-white shadow-sm'
+                    : 'bg-ph-elevated border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                 }`}
               >
                 {session.type === 'claude' ? (
@@ -377,7 +373,7 @@ export const TerminalPanel: React.FC = () => {
 
                 {session.worktreeBranch && (
                   <span
-                    className="text-[9px] font-mono px-1 rounded bg-cyan-950/70 border border-cyan-700/60 text-cyan-300 shrink-0 font-bold"
+                    className="text-[11px] font-mono px-1 rounded bg-cyan-950/70 border border-cyan-700/60 text-cyan-300 shrink-0 font-bold"
                     title={`Worktree: ${session.worktreeBranch} (${session.cwd || ''})`}
                   >
                     WT
@@ -409,8 +405,8 @@ export const TerminalPanel: React.FC = () => {
             title={t.terminal.processLogs}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition shrink-0 whitespace-nowrap border ${
               terminalMode === 'process_logs'
-                ? 'bg-[#181d2e] border-indigo-500/40 text-white shadow-sm'
-                : 'bg-[#101422] border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                ? 'bg-ph-hover border-indigo-500/40 text-white shadow-sm'
+                : 'bg-ph-elevated border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
             <Radio className="w-3 h-3 text-amber-400 shrink-0" />
@@ -518,7 +514,7 @@ export const TerminalPanel: React.FC = () => {
       </div>
 
       {/* Terminal Viewport */}
-      <div className="flex-1 bg-[#0a0d14] overflow-hidden relative">
+      <div className="flex-1 bg-ph-base overflow-hidden relative">
         {/* Render Interactive PTY Tabs */}
         {ptySessions.map((session) => (
           <PtyTabTerminal
@@ -531,10 +527,7 @@ export const TerminalPanel: React.FC = () => {
         {/* If in PTY mode but no session exists yet, show welcome placeholder */}
         {terminalMode === 'pty' && ptySessions.length === 0 && (
           <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 p-6 space-y-3">
-            <div className="w-12 h-12 rounded-xl bg-indigo-950/40 border border-indigo-800/40 flex items-center justify-center text-indigo-400">
-              <Bot className="w-6 h-6" />
-            </div>
-            <div className="text-sm font-medium text-slate-300">
+            <div className="text-[13px] text-slate-300">
               {t.terminal.noActiveSessions}
             </div>
             <p className="text-xs text-slate-500 text-center max-w-md">
@@ -544,16 +537,16 @@ export const TerminalPanel: React.FC = () => {
               <div className="flex items-center gap-2 pt-1">
                 <button
                   onClick={handleLaunchClaude}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/20 transition"
+                  className="flex items-center gap-1.5 h-7 px-3 rounded-md bg-ph-raised hover:bg-ph-hover text-slate-100 text-xs transition"
                 >
                   <Bot className="w-4 h-4" />
-                  {t.terminal.launchClaudeInProject} {selectedProject.name}
+                  {t.terminal.launchClaudeInProject}
                 </button>
                 <button
                   onClick={handleLaunchShell}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition"
+                  className="flex items-center gap-1.5 h-7 px-3 rounded-md bg-ph-raised hover:bg-ph-hover text-slate-100 text-xs transition"
                 >
-                  <TerminalIcon className="w-4 h-4 text-cyan-400" />
+                  <TerminalIcon className="w-4 h-4 text-slate-400" />
                   {t.terminal.openShell}
                 </button>
               </div>
@@ -564,7 +557,7 @@ export const TerminalPanel: React.FC = () => {
         {/* Render Process / System Logs View */}
         <div
           style={{ display: terminalMode === 'process_logs' ? 'block' : 'none' }}
-          className="w-full h-full p-2 bg-[#0a0d14]"
+          className="w-full h-full p-2 bg-ph-base"
         >
           <div ref={processLogContainerRef} className="w-full h-full" />
         </div>

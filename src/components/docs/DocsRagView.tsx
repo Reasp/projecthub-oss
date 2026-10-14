@@ -7,7 +7,6 @@ import {
   RefreshCw,
   Search,
   CheckCircle2,
-  Database,
   Plus,
   Save,
   Eye,
@@ -20,7 +19,7 @@ import {
   List,
   Quote,
   Brain
-} from 'lucide-react';
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTimeoutState, useTimers } from '../../hooks/useTimeoutState';
@@ -221,24 +220,21 @@ export const DocsRagView: React.FC = () => {
   });
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 select-none">
-      {/* Header Banner with RAG Stats */}
-      <div className="p-4 rounded-2xl bg-[#141724]/80 border border-slate-800/80 flex items-center justify-between gap-4 shrink-0 flex-nowrap overflow-hidden mb-5">
+    <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
+      {/* Заголовок вида со статистикой индекса — как у остальных вкладок (decision-73) */}
+      <div className="h-11 px-4 flex items-center justify-between gap-4 shrink-0 flex-nowrap overflow-hidden border-b border-ph-line">
         <div className="flex items-center gap-3.5 min-w-0 flex-1 overflow-hidden">
-          <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
-            <Database className="w-5 h-5 shrink-0" />
-          </div>
-          <div className="min-w-0 truncate">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2 truncate">
+          <div className="min-w-0 truncate flex items-center gap-3">
+            <h3 className="text-[13px] font-medium text-slate-100 flex items-center gap-2 truncate shrink-0">
               <span className="truncate">{t.docs.title}</span>
               <span
-                className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0 whitespace-nowrap"
+                className={`text-[11px] shrink-0 whitespace-nowrap ${ragStats.hasIndex ? 'text-emerald-400' : 'text-amber-400'}`}
                 title={ragStats.hasIndex ? `LanceDB active (${ragStats.chunksCount} chunks)` : 'Vector index not generated'}
               >
                 {ragStats.hasIndex ? `${t.rag.ready} (${ragStats.chunksCount} chunks)` : t.rag.notIndexed}
               </span>
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5 truncate">
+            <p className="text-xs text-slate-500 truncate">
               {docsList.length} docs (
               {docsList.filter((d) => d.category === 'decision').length} {t.docs.decisionsTab},{' '}
               {docsList.filter((d) => d.category === 'doc').length} {t.docs.docsTab})
@@ -250,13 +246,13 @@ export const DocsRagView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0 flex-nowrap">
-          <div className="flex items-center gap-1 bg-[#10121d] p-1 rounded-xl border border-slate-800 text-[11px]" data-testid="docs-section-switch">
+          <div className="flex items-center p-0.5 rounded-md bg-ph-raised text-xs" data-testid="docs-section-switch">
             {(['docs', 'memory'] as const).map((key) => (
               <button
                 key={key}
                 onClick={() => setSection(key)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition ${
-                  section === key ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                className={`flex items-center gap-1.5 h-6 px-2 rounded transition ${
+                  section === key ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {key === 'memory' ? <Brain className="w-3.5 h-3.5" /> : <BookOpen className="w-3.5 h-3.5" />}
@@ -268,9 +264,9 @@ export const DocsRagView: React.FC = () => {
           <button
             onClick={() => setIsCreateModalOpen(true)}
             title={t.docs.newDoc}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-md shadow-indigo-600/20 transition shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-xs text-white transition shrink-0 whitespace-nowrap"
           >
-            <Plus className="w-4 h-4 shrink-0" />
+            <Plus className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">{t.docs.newDoc}</span>
           </button>
 
@@ -278,7 +274,7 @@ export const DocsRagView: React.FC = () => {
             onClick={handleReindex}
             disabled={isReindexing}
             title={t.rag.rebuildIndex}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700/60 transition disabled:opacity-50 shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs text-slate-300 hover:bg-ph-hover hover:text-white transition disabled:opacity-50 shrink-0 whitespace-nowrap"
           >
             <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isReindexing ? 'animate-spin text-indigo-400' : ''}`} />
             <span className="hidden sm:inline">{isReindexing ? t.rag.indexing : t.rag.rebuildIndex}</span>
@@ -291,11 +287,11 @@ export const DocsRagView: React.FC = () => {
         <MemoryView projectPath={selectedProject.path} />
       ) : (
       /* Main Split: Left Docs List, Right Editor / Viewer */
-      <div className="flex-1 flex gap-5 overflow-hidden">
+      <div className="flex-1 flex gap-4 overflow-hidden p-4">
         {/* Left Column: Docs List */}
-        <div className="w-80 bg-[#141724]/70 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
+        <div className="w-80 bg-ph-raised/70 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
           {/* Filter & Category Tabs */}
-          <div className="p-3 border-b border-slate-800 space-y-2.5 bg-[#111422]">
+          <div className="p-3 border-b border-slate-800 space-y-2.5 bg-ph-raised">
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
               <input
@@ -303,15 +299,15 @@ export const DocsRagView: React.FC = () => {
                 value={filterDocQuery}
                 onChange={(e) => setFilterDocQuery(e.target.value)}
                 placeholder={t.docs.searchPlaceholder}
-                className="w-full bg-[#10121d] border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-ph-elevated border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
               />
             </div>
 
-            <div className="flex items-center gap-1 bg-[#10121d] p-1 rounded-lg border border-slate-800 text-[11px]">
+            <div className="flex items-center gap-1 bg-ph-elevated p-1 rounded-lg border border-slate-800 text-[11px]">
               <button
                 onClick={() => setCategoryFilter('all')}
                 className={`flex-1 py-1 rounded-md font-medium transition ${
-                  categoryFilter === 'all' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  categoryFilter === 'all' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {t.docs.allTab} ({docsList.length})
@@ -319,7 +315,7 @@ export const DocsRagView: React.FC = () => {
               <button
                 onClick={() => setCategoryFilter('decision')}
                 className={`flex-1 py-1 rounded-md font-medium transition ${
-                  categoryFilter === 'decision' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  categoryFilter === 'decision' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {t.docs.decisionsTab} ({docsList.filter((d) => d.category === 'decision').length})
@@ -327,7 +323,7 @@ export const DocsRagView: React.FC = () => {
               <button
                 onClick={() => setCategoryFilter('doc')}
                 className={`flex-1 py-1 rounded-md font-medium transition ${
-                  categoryFilter === 'doc' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  categoryFilter === 'doc' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {t.docs.docsTab} ({docsList.filter((d) => d.category === 'doc').length})
@@ -364,11 +360,11 @@ export const DocsRagView: React.FC = () => {
         </div>
 
         {/* Right Column: Editor & Markdown View */}
-        <div className="flex-1 bg-[#141724]/70 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
+        <div className="flex-1 bg-ph-raised/70 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
           {selectedDoc ? (
             <>
               {/* Editor Header Bar */}
-              <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-[#111422] gap-3">
+              <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-ph-raised gap-3">
                 <div className="flex items-center gap-2.5 min-w-0">
                   {docBackStack.length > 0 && (
                     <button
@@ -391,17 +387,17 @@ export const DocsRagView: React.FC = () => {
                         {selectedDoc.title}
                       </span>
                       {isDocDirty && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium">
                           {t.common.unsavedChanges}
                         </span>
                       )}
                       {saveSuccessNotice && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium flex items-center gap-1">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3" /> {t.common.saved}
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] font-mono text-slate-500 block truncate">
+                    <span className="text-[11px] font-mono text-slate-500 block truncate">
                       {selectedDoc.section ? `${selectedDoc.section} · ` : ''}
                       {selectedDoc.filePath}
                     </span>
@@ -410,11 +406,11 @@ export const DocsRagView: React.FC = () => {
 
                 {/* View Mode Switcher & Save Button */}
                 <div className="flex items-center gap-2 shrink-0">
-                  <div className="flex items-center bg-[#10121d] p-1 rounded-xl border border-slate-800 text-xs">
+                  <div className="flex items-center bg-ph-elevated p-1 rounded-xl border border-slate-800 text-xs">
                     <button
                       onClick={() => setViewMode('preview')}
                       className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition ${
-                        viewMode === 'preview' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                        viewMode === 'preview' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                       }`}
                       title="Preview mode"
                     >
@@ -424,7 +420,7 @@ export const DocsRagView: React.FC = () => {
                     <button
                       onClick={() => setViewMode('split')}
                       className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition ${
-                        viewMode === 'split' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                        viewMode === 'split' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                       }`}
                       title="Split mode (Editor + Preview)"
                     >
@@ -434,7 +430,7 @@ export const DocsRagView: React.FC = () => {
                     <button
                       onClick={() => setViewMode('edit')}
                       className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition ${
-                        viewMode === 'edit' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                        viewMode === 'edit' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                       }`}
                       title="Editor only mode"
                     >
@@ -446,7 +442,7 @@ export const DocsRagView: React.FC = () => {
                   <button
                     onClick={handleSave}
                     disabled={isDocSaving || !isDocDirty}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-md shadow-indigo-600/20 transition disabled:opacity-40 disabled:hover:bg-indigo-600"
+                    className="ph-btn ph-btn-primary disabled:opacity-40 disabled:hover:bg-indigo-600"
                     title="Save (Ctrl + S)"
                   >
                     <Save className="w-3.5 h-3.5" />
@@ -457,7 +453,7 @@ export const DocsRagView: React.FC = () => {
 
               {/* Formatting Toolbar (Only in Edit or Split mode) */}
               {viewMode !== 'preview' && (
-                <div className="px-3 py-1.5 border-b border-slate-800 bg-[#121522] flex items-center gap-1 text-slate-400">
+                <div className="px-3 py-1.5 border-b border-slate-800 bg-ph-raised flex items-center gap-1 text-slate-400">
                   <button
                     onClick={() => insertSnippet('**', '**')}
                     className="p-1.5 rounded hover:bg-slate-800 hover:text-white transition"
@@ -528,7 +524,7 @@ export const DocsRagView: React.FC = () => {
                       value={docContent}
                       onChange={(e) => setDocContent(e.target.value)}
                       placeholder="Enter markdown content..."
-                      className="flex-1 w-full p-4 bg-[#0d0f17] text-slate-200 font-mono text-xs leading-relaxed focus:outline-none resize-none selection:bg-indigo-600/40 select-text cursor-text"
+                      className="flex-1 w-full p-4 bg-ph-panel text-slate-200 font-mono text-xs leading-relaxed focus:outline-none resize-none selection:bg-indigo-600/40 select-text cursor-text"
                       spellCheck={false}
                     />
                   </div>
@@ -536,7 +532,7 @@ export const DocsRagView: React.FC = () => {
 
                 {/* Live Markdown Preview Pane */}
                 {(viewMode === 'preview' || viewMode === 'split') && (
-                  <div ref={previewRef} className="flex-1 overflow-y-auto p-6 bg-[#10121d] select-text">
+                  <div ref={previewRef} className="flex-1 overflow-y-auto p-6 bg-ph-elevated select-text">
                     <MarkdownViewer content={docContent} />
                     <DocBacklinks
                       title={t.docs.backlinksTitle}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, CheckSquare, FileText, Link2, ShieldCheck } from 'lucide-react';
+import { Brain, CheckSquare, FileText, Link2, ShieldCheck } from '../common/icons';
 import { useDocRefs } from '../../hooks/useDocRefs';
 import type { DocBacklink } from '../../types/electron';
 
@@ -21,7 +21,7 @@ export const DocBacklinks: React.FC<{ title: string; items: DocBacklink[] }> = (
 
   return (
     <div className="mt-8 pt-4 border-t border-slate-800" data-testid="doc-backlinks">
-      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+      <div className="flex items-center gap-2 text-[11px] font-medium text-slate-400 mb-2">
         <Link2 className="w-3.5 h-3.5 text-indigo-400" />
         {title}
         <span className="font-mono font-normal text-slate-500">{items.length}</span>
@@ -38,7 +38,7 @@ export const DocBacklinks: React.FC<{ title: string; items: DocBacklink[] }> = (
               {KIND_ICON[item.kind]}
               <span className="font-mono text-[11px] text-slate-500 shrink-0">{item.id}</span>
               <span className="truncate">{item.title}</span>
-              {item.status && <span className="ml-auto text-[10px] font-mono text-slate-500 shrink-0">{item.status}</span>}
+              {item.status && <span className="ml-auto text-[11px] font-mono text-slate-500 shrink-0">{item.status}</span>}
             </button>
           </li>
         ))}
