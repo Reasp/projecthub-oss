@@ -47,7 +47,9 @@ export type ProviderErrorReason =
   | 'no_model'
   | 'no_key'
   | 'no_profile'
-  | 'provider';
+  | 'provider'
+  /** Движок не умеет нужный вид вызова (TASK-134.1, decision-74). */
+  | 'engine';
 
 export const PROVIDER_ERROR_KINDS: readonly ProviderErrorKind[] = [
   'auth',
@@ -85,6 +87,11 @@ export interface ProviderErrorInfo {
   serverMessage?: string;
   /** Итоговое сообщение для пользователя, логов и экспорта (ru, main-процесс). */
   message: string;
+  /**
+   * Назначение, для которого выбиралась модель (`plan.architect`, `voice.classify`…), — по нему интерфейс
+   * открывает нужную строку настроек (TASK-134.1, decision-74).
+   */
+  purpose?: string;
 }
 
 /** Контекст запроса: кто, куда и с какими настройками. */

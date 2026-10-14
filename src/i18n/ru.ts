@@ -2326,6 +2326,26 @@ export const ru: TranslationDictionary = {
       failed: 'провален',
       budget_exceeded: 'остановлен по бюджету',
       stopped: 'остановлен человеком'
+    },
+    buildsWith: 'Строит',
+    runsWith: 'Исполняет',
+    modelsHint: 'Модель узла уточняет тир, который архитектор назначит подзадаче.',
+    openModelSettings: 'Настроить модели',
+    nodeTier: 'тир {tier}'
+  },
+  modelRouting: {
+    defaultModel: 'модель по умолчанию',
+    subscription: 'по подписке',
+    local: 'локальная',
+    tier: 'тир {tier} · {source}',
+    sources: { slot: 'задано для запуска', role: 'задано в роли', purpose: 'задано назначением', tier: 'по тиру', main: 'основная модель' },
+    tierSources: { hint: 'из подзадачи', slot: 'из запуска', role: 'из роли', purpose: 'из назначения', default: 'по умолчанию' },
+    problems: {
+      engine_unsupported: 'движок не умеет этот вид вызова',
+      no_key: 'нет API-ключа',
+      no_profile: 'профиль не найден',
+      no_model: 'модель не выбрана',
+      provider: 'провайдер недоступен'
     }
   },
   roles: {

@@ -2190,6 +2190,22 @@ export interface TranslationDictionary {
       budget_exceeded: string;
       stopped: string;
     };
+    /** Чем план строится и исполняется (decision-75). */
+    buildsWith: string;
+    runsWith: string;
+    modelsHint: string;
+    openModelSettings: string;
+    nodeTier: string;
+  };
+  /** Подпись «чем обслуживается назначение» (decision-74, decision-75). */
+  modelRouting: {
+    defaultModel: string;
+    subscription: string;
+    local: string;
+    tier: string;
+    sources: { slot: string; role: string; purpose: string; tier: string; main: string };
+    tierSources: { hint: string; slot: string; role: string; purpose: string; default: string };
+    problems: { engine_unsupported: string; no_key: string; no_profile: string; no_model: string; provider: string };
   };
   remote: {
     title: string;

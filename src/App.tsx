@@ -7,6 +7,7 @@ import { ProjectWorkspace } from './components/projects/ProjectWorkspace';
 import { TerminalPanel } from './components/terminal/TerminalPanel';
 import { OmniSearchModal } from './components/search/OmniSearchModal';
 import { HotkeysHelpModal } from './components/layout/HotkeysHelpModal';
+import { AISettingsHost } from './components/ai/AISettingsHost';
 import { VoiceControlWidget } from './components/voice/VoiceControlWidget';
 import { DialogHost } from './components/common/DialogHost';
 import { HitlCenterModal } from './components/hitl/HitlCenterModal';
@@ -331,6 +332,9 @@ export const App: React.FC = () => {
         isOpen={isHotkeysHelpOpen}
         onClose={() => setHotkeysHelpOpen(false)}
       />
+
+      {/* Настройки AI по событию из любого места: панель плана, ошибки выбора модели (decision-75) */}
+      <AISettingsHost />
 
       {/* Global Voice Control Widget (STT/TTS) */}
       <VoiceControlWidget />

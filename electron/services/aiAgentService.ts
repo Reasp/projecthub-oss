@@ -55,6 +55,7 @@ interface OpenAICompatibleTarget {
 const ANTHROPIC_MESSAGES_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 import { logger } from './logger.js';
 import { buildClaudeCliCompletionCommand, parseClaudeCliCompletionOutput } from './claudeCliCompletion.js';
+import { mainEngineOf, normalizeMainEngineField, type MainEngine } from './modelTarget.js';
 import {
   DEFAULT_MAX_TOOL_STEPS,
   OpenAIToolCallAccumulator,
@@ -86,6 +87,11 @@ export interface AutoApproveRules {
 
 export interface AIProviderConfig {
   provider: 'anthropic' | 'openrouter' | 'deepseek' | 'ollama' | 'custom' | 'openai-compatible';
+  /**
+   * Движок основной модели (TASK-134.1, decision-74): `claude-cli` — Claude Code по подписке, `api` — запросы
+   * к провайдеру. Без поля движок выводит `mainEngineOf`: `anthropic` без ключа — это подписка.
+   */
+  engine?: MainEngine;
   /** Профиль для `openai-compatible` (TASK-70.1, decision-39): адрес, ключ и флаги — в профиле. */
   profileId?: string;
   apiKey?: string;
@@ -260,12 +266,12 @@ function requestChars(messages: unknown[], tools: unknown): number {
 }
 
 /** Аргумент командной строки для spawn с `shell: true` (как в claudeBridgeService). */
-function quoteShellArg(value: string): string {
+export function quoteShellArg(value: string): string {
   return `"${value.replace(/"/g, '\\"')}"`;
 }
 
 /** При `shell: true` `child.kill()` убил бы только оболочку, а не сам claude. */
-function killTree(child: ChildProcess): void {
+export function killTree(child: ChildProcess): void {
   if (child.exitCode !== null || child.signalCode !== null) return;
   if (child.pid) {
     treeKill(child.pid, 'SIGKILL', (err) => {
@@ -451,7 +457,8 @@ class AIAgentService {
         if (parsed && parsed.apiKey) {
           parsed.apiKey = secretStorageService.decrypt(parsed.apiKey);
         }
-        return parsed;
+        // Неизвестный движок из файла не должен увести запросы не туда: без поля действует вывод по ключу.
+        return parsed && typeof parsed === 'object' ? normalizeMainEngineField(parsed) : parsed;
       }
     } catch (err) {
       console.warn('Failed to load AI config, using defaults:', err);
@@ -485,9 +492,9 @@ class AIAgentService {
   /**
    * Одноразовый запрос к настроенной модели без стрима, инструментов и контекста проекта.
    *
-   * Провайдер и модель — из настроек пользователя ([[decision-26]] п. 0). Для `anthropic` без
-   * API-ключа запрос идёт в Claude Code CLI по подписке — облегчённым запуском, а не через
-   * `claudeBridgeService` с его агентским циклом ([[decision-35]]; ответ около 3 с). Если провайдеру
+   * Провайдер и модель — из настроек пользователя ([[decision-26]] п. 0). Когда движок конфига —
+   * Claude Code по подписке (`mainEngineOf`, decision-74), запрос идёт в CLI облегчённым запуском, а не
+   * через `claudeBridgeService` с его агентским циклом ([[decision-35]]; ответ около 3 с). Если провайдеру
    * нужен ключ, а его нет, метод честно возвращает ошибку — молча подменять провайдера нельзя.
    */
   public async complete(req: LlmCompleteRequest): Promise<LlmCompleteResult> {
@@ -505,11 +512,11 @@ class AIAgentService {
 
     try {
       const text =
-        config.provider !== 'anthropic'
-          ? await this.completeOpenAICompatible(req, config, model, controller.signal)
-          : config.apiKey?.trim()
+        mainEngineOf(config) === 'claude-cli'
+          ? await this.completeClaudeCli(req, model, controller.signal)
+          : config.provider === 'anthropic'
             ? await this.completeAnthropic(req, config, model, controller.signal)
-            : await this.completeClaudeCli(req, model, controller.signal);
+            : await this.completeOpenAICompatible(req, config, model, controller.signal);
       return { text, model, provider: config.provider };
     } catch (err) {
       // Отмена вызывающим кодом — как есть; срабатывание своего таймера — ошибка «сервер не ответил».

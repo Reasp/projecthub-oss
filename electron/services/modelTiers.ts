@@ -411,8 +411,11 @@ export function tierForModelSize(sizeB: number): ModelTier {
 }
 
 export interface TierSeedInput {
-  /** Настройки AI Studio: модель, которой пользователь уже пользуется. */
-  aiStudio?: { provider: string; profileId?: string; model?: string };
+  /**
+   * Настройки AI Studio: модель, которой пользователь уже пользуется. `engine: 'claude-cli'` — она работает
+   * через Claude Code по подписке (decision-74): звено `api` без ключа было бы нерабочим.
+   */
+  aiStudio?: { provider: string; profileId?: string; model?: string; engine?: 'claude-cli' | 'api' };
   profiles: readonly { id: string; name: string; local?: boolean }[];
   /** Кэш каталогов профилей: id профиля → модели. */
   catalogs: Readonly<Record<string, readonly string[]>>;
@@ -449,7 +452,9 @@ export function seedModelTiers(input: TierSeedInput, base: ModelTierSettings = e
   const studio = input.aiStudio;
   const studioModel = clean(studio?.model);
   if (studio && studioModel && studioModel !== 'default') {
-    if (studio.provider === 'openai-compatible') {
+    if (studio.engine === 'claude-cli') {
+      add('balanced', { engine: 'claude-cli', model: studioModel });
+    } else if (studio.provider === 'openai-compatible') {
       if (studio.profileId) add('balanced', { engine: 'api', model: studioModel, profile: profileRef(studio.profileId) });
     } else {
       add('balanced', { engine: 'api', model: studioModel, provider: studio.provider });

@@ -1079,6 +1079,8 @@ export interface IElectronAPI {
   generatePlan: (options: GeneratePlanOptions) => Promise<PlanState | { error: string }>;
   listPlans: (projectPath?: string) => Promise<PlanState[]>;
   getPlanForTask: (projectPath: string, taskId: string) => Promise<PlanState | null>;
+  /** Чем план будет построен и исполнен сейчас (decision-75). */
+  getPlanModels: (projectPath: string) => Promise<PlanModelsPreview | { error: string }>;
   approvePlan: (planId: string) => Promise<{ success: boolean; error?: string }>;
   stopPlan: (planId: string) => Promise<{ success: boolean; error?: string }>;
   skipPlanNode: (planId: string, taskId: string, skipped: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -2142,6 +2144,8 @@ export interface ModelCatalogResult {
 
 export interface AIProviderConfig {
   provider: 'anthropic' | 'openrouter' | 'deepseek' | 'ollama' | 'custom' | 'openai-compatible';
+  /** Движок основной модели (TASK-134.1, decision-74); без поля `anthropic` без ключа — подписка. */
+  engine?: 'claude-cli' | 'api';
   /** Профиль для `openai-compatible` (TASK-70.1). */
   profileId?: string;
   apiKey?: string;
@@ -2207,7 +2211,8 @@ export type ProviderErrorReason =
   | 'no_model'
   | 'no_key'
   | 'no_profile'
-  | 'provider';
+  | 'provider'
+  | 'engine';
 
 export interface ProviderErrorInfo {
   kind: ProviderErrorKind;
@@ -2224,6 +2229,8 @@ export interface ProviderErrorInfo {
   reasoningEffort?: string;
   serverMessage?: string;
   message: string;
+  /** Назначение, для которого выбиралась модель (TASK-134.1, decision-74). */
+  purpose?: string;
 }
 
 /** Диалог AI Studio; хранится файлом `~/.projecthub/sessions/<hash(projectPath)>/<id>.json` (TASK-35). */
@@ -3178,6 +3185,45 @@ export interface StartDoneLoopOptions {
   autoReview?: boolean;
 }
 
+/** Назначения моделей (decision-74). Зеркало `electron/services/modelPurposes.ts`. */
+export type ModelPurpose =
+  | 'studio'
+  | 'agent'
+  | 'plan.architect'
+  | 'plan.node'
+  | 'arena.reviewer'
+  | 'pr.review'
+  | 'voice.classify'
+  | 'voice.punctuate'
+  | 'voice.computer'
+  | 'task.draft';
+
+/** Чем обслуживается назначение (decision-74, decision-75). Зеркало `ModelRouteView` из `modelRouter.ts`. */
+export interface ModelRouteView {
+  purpose: ModelPurpose;
+  kind: 'complete' | 'turn' | 'agent';
+  source: 'slot' | 'role' | 'purpose' | 'tier' | 'main';
+  engine: 'claude-cli' | 'codex-cli' | 'gemini-cli' | 'api';
+  model?: string;
+  tier?: ModelTier;
+  tierSource?: 'hint' | 'slot' | 'role' | 'purpose' | 'default';
+  /** Адресат API-пути: имя профиля или прежний провайдер. */
+  provider?: string;
+  /** Готовая подпись (ru) из main-процесса: «sonnet · Claude Code». */
+  label: string;
+  /** Вызов идёт через Claude Code по подписке. */
+  subscription: boolean;
+  local?: boolean;
+  notes: string[];
+  problem?: { code: 'engine_unsupported' | 'no_key' | 'no_profile' | 'no_model' | 'provider'; message: string };
+}
+
+/** Чем план будет построен и исполнен при текущих настройках (decision-75). */
+export interface PlanModelsPreview {
+  architect: ModelRouteView;
+  node: ModelRouteView;
+}
+
 /** Планировщик подзадач (TASK-80, decision-49). Зеркало `electron/services/planTypes.ts`. */
 export type PlanNodeState =
   | 'pending'
@@ -3208,6 +3254,12 @@ export interface PlanNode {
   costUsd?: number;
   iterations?: number;
   reason?: string;
+  /** Назначение, для которого не удалось выбрать модель (decision-75). */
+  reasonPurpose?: string;
+  /** Тир, который подзадаче назначила роль architect (decision-75). */
+  modelTier?: ModelTier;
+  /** Чем узел запущен (decision-75). */
+  model?: ModelRouteView;
   startedAt?: number;
   finishedAt?: number;
 }
@@ -3229,6 +3281,8 @@ export interface PlanState {
   phase: PlanPhase;
   outcome?: PlanOutcome;
   reason?: string;
+  /** Назначение, для которого не удалось выбрать модель (decision-75). */
+  reasonPurpose?: string;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -3239,7 +3293,7 @@ export interface PlanState {
   integrationWorktree?: string;
   approvedGraphHash?: string;
   approvedAt?: number;
-  architect: { attempts: number; costUsd?: number; errors?: string[]; rawResponse?: string };
+  architect: { attempts: number; costUsd?: number; errors?: string[]; rawResponse?: string; model?: ModelRouteView };
   totalCostUsd?: number;
   stopped?: boolean;
 }

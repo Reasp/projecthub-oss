@@ -14,6 +14,7 @@
 import type { AIProviderConfig } from './aiAgentService.js';
 import { normalizeReasoningEffort } from './reasoningEffort.js';
 import { providerConfigError } from './providerErrors.js';
+import { usesClaudeCli } from './modelTarget.js';
 
 export type ProviderId = AIProviderConfig['provider'];
 
@@ -251,6 +252,11 @@ function withInfo(config: AIProviderConfig, profiles: readonly ProfileRefEntry[]
 export function apiConfigProblem(config: AIProviderConfig): string | null {
   const model = clean(config.model);
   if (config.provider === 'anthropic') {
+    if (usesClaudeCli(config)) {
+      return config.engine === 'claude-cli'
+        ? 'в AI Studio выбран Claude Code по подписке (API-путь требует ключ)'
+        : 'в AI Studio выбран Anthropic без API-ключа (API-путь требует ключ)';
+    }
     if (!clean(config.apiKey)) return 'в AI Studio выбран Anthropic без API-ключа (API-путь требует ключ)';
     return null;
   }

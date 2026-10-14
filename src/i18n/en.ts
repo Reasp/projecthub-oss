@@ -2326,6 +2326,26 @@ export const en: TranslationDictionary = {
       failed: 'failed',
       budget_exceeded: 'stopped on budget',
       stopped: 'stopped by human'
+    },
+    buildsWith: 'Planned by',
+    runsWith: 'Executed by',
+    modelsHint: 'The node model is refined by the tier the architect assigns to each subtask.',
+    openModelSettings: 'Model settings',
+    nodeTier: 'tier {tier}'
+  },
+  modelRouting: {
+    defaultModel: 'default model',
+    subscription: 'subscription',
+    local: 'local',
+    tier: 'tier {tier} · {source}',
+    sources: { slot: 'set for this run', role: 'set in the role', purpose: 'set by assignment', tier: 'by tier', main: 'main model' },
+    tierSources: { hint: 'from the subtask', slot: 'from the run', role: 'from the role', purpose: 'from the assignment', default: 'default' },
+    problems: {
+      engine_unsupported: 'the engine cannot make this kind of call',
+      no_key: 'no API key',
+      no_profile: 'profile not found',
+      no_model: 'no model selected',
+      provider: 'provider unavailable'
     }
   },
   roles: {

@@ -16,7 +16,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { agentFleetService } from './agentFleetService.js';
-import { aiAgentService, type AIMessage } from './aiAgentService.js';
+import type { AIMessage } from './aiAgentService.js';
 import { appEventBus } from './eventBus.js';
 import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { applyFinalSummary, normalizeFrontmatter, parseTaskBody, withUpdatedDate } from './backlogTaskFormat.js';
@@ -25,10 +25,12 @@ import { buildAgentContext } from './contextBuilder.js';
 import { execGit } from './checkpointGit.js';
 import { findReviewStatus } from './doneLoop.js';
 import { hitlService } from './hitlService.js';
-import { llmProfileService } from './llmProfileService.js';
-import { apiToolNamesForCategories } from './roleEngineAdapter.js';
+import { modelCallService } from './modelCallService.js';
+import { modelRouteView, slotFieldsFromResolved, type ModelRouteView } from './modelRouter.js';
+import { targetFromRole, targetFromSlot } from './modelTarget.js';
+import { providerErrorInfoOf } from './providerErrors.js';
 import { loadRoles } from './roleService.js';
-import { resolveSlotProviderConfig } from './slotProvider.js';
+import type { RoleDefinition } from './roleTypes.js';
 import { findTaskFile } from './taskFileLookup.js';
 import { worktreeService } from './worktreeService.js';
 import {
@@ -68,12 +70,25 @@ export type ConflictResolution = 'retry' | 'skip' | 'stop';
 interface PlanDeps {
   fleet: Pick<typeof agentFleetService, 'startDoneLoop' | 'getSwarm' | 'stopSwarm' | 'on'>;
   git: (cwd: string, args: string[]) => Promise<string>;
+  /** Выбор модели по назначению и ход архитектора (decision-74, decision-75). */
+  models: Pick<typeof modelCallService, 'resolve' | 'turn'>;
 }
 
 const defaultDeps: PlanDeps = {
   fleet: agentFleetService,
-  git: (cwd, args) => execGit(args, { cwd })
+  git: (cwd, args) => execGit(args, { cwd }),
+  models: modelCallService
 };
+
+/** Роль архитектора и роль исполнителя узлов, если в настройках плана не задана другая. */
+const ARCHITECT_ROLE = 'architect';
+const NODE_ROLE = 'implementer';
+
+/** Чем план будет построен и исполнен при текущих настройках — для панели до запуска. */
+export interface PlanModelsPreview {
+  architect: ModelRouteView;
+  node: ModelRouteView;
+}
 
 function slug(value: string): string {
   return value
@@ -112,11 +127,14 @@ export class PlanService extends EventEmitter {
   private mergeQueues = new Map<string, Promise<void>>();
   private subscribed = false;
 
+  private readonly deps: PlanDeps;
+
   constructor(
     private readonly store: PlanStore = new PlanStore(),
-    private readonly deps: PlanDeps = defaultDeps
+    deps: Partial<PlanDeps> = {}
   ) {
     super();
+    this.deps = { ...defaultDeps, ...deps };
   }
 
   /** Читает планы с диска и подписывается на события сессий узлов. */
@@ -225,9 +243,38 @@ export class PlanService extends EventEmitter {
     } catch (err) {
       plan.phase = 'failed';
       plan.reason = err instanceof Error ? err.message : String(err);
+      // Ошибка выбора модели называет назначение: по нему панель ведёт в настройки.
+      const purpose = providerErrorInfoOf(err)?.purpose;
+      if (purpose) plan.reasonPurpose = purpose;
       this.emitPlan(plan, true);
     }
     return plan;
+  }
+
+  /**
+   * Чем план будет построен и исполнен сейчас: назначения «архитектор» и «узлы плана» с учётом ролей.
+   * Тир конкретной подзадачи здесь неизвестен — он уточняет модель узла при запуске.
+   */
+  public async previewModels(projectPath: string, settings?: Partial<PlanSettings>): Promise<PlanModelsPreview> {
+    const [architectRole, nodeRole] = await Promise.all([
+      this.findRole(projectPath, settings?.architect?.roleSlug ?? ARCHITECT_ROLE),
+      this.findRole(projectPath, settings?.agent?.roleSlug ?? NODE_ROLE)
+    ]);
+    const [architect, node] = await Promise.all([
+      this.deps.models.resolve({ purpose: 'plan.architect', slot: targetFromSlot(settings?.architect), role: targetFromRole(architectRole) }),
+      this.deps.models.resolve({ purpose: 'plan.node', slot: targetFromSlot(settings?.agent), role: targetFromRole(nodeRole) })
+    ]);
+    return { architect: modelRouteView(architect), node: modelRouteView(node) };
+  }
+
+  private async findRole(projectPath: string, slugName: string): Promise<RoleDefinition | undefined> {
+    try {
+      const { roles } = await loadRoles(projectPath);
+      return roles.find((r) => r.slug === slugName);
+    } catch (err) {
+      console.warn('[PlanService] Не удалось загрузить роли:', err);
+      return undefined;
+    }
   }
 
   /** Попытки получить валидный план: невалидный не создаёт подзадач, замечания уходят модели. */
@@ -245,12 +292,30 @@ export class PlanService extends EventEmitter {
       } as AIMessage
     ];
 
+    // Модель выбирается один раз на все попытки: повторный запрос должен идти той же моделью.
+    const role = await this.findRole(plan.projectPath, plan.settings.architect?.roleSlug ?? ARCHITECT_ROLE);
+    const resolved = await this.deps.models.resolve({
+      purpose: 'plan.architect',
+      slot: targetFromSlot(plan.settings.architect),
+      role: targetFromRole(role)
+    });
+    plan.architect.model = modelRouteView(resolved);
+
     let costUsd: number | undefined;
     for (let attempt = 1; attempt <= MAX_PLAN_ATTEMPTS; attempt += 1) {
       plan.architect.attempts = attempt;
       this.emitPlan(plan);
 
-      const answer = await this.runArchitectTurn(plan, messages);
+      const answer = await this.deps.models.turn({
+        purpose: 'plan.architect',
+        resolved,
+        sessionId: `plan-${plan.id}`,
+        projectPath: plan.projectPath,
+        messages,
+        ...(role?.systemPrompt ? { roleSystemPrompt: role.systemPrompt } : {}),
+        // Контекст задачи уже в первом сообщении: `taskId` в ход не передаётся, иначе он попал бы в запрос дважды.
+        timeoutMs: ARCHITECT_TIMEOUT_MS
+      });
       if (answer.costUsd !== undefined) costUsd = (costUsd ?? 0) + answer.costUsd;
 
       const parsed = parseAgentPlan(answer.text);
@@ -277,71 +342,6 @@ export class PlanService extends EventEmitter {
     throw new Error(
       `Роль architect не вернула валидный план за ${MAX_PLAN_ATTEMPTS} попытки: ${(plan.architect.errors ?? []).join('; ')}`
     );
-  }
-
-  private async architectSystemPrompt(plan: PlanState): Promise<string | undefined> {
-    const slugName = plan.settings.architect?.roleSlug ?? 'architect';
-    try {
-      const { roles } = await loadRoles(plan.projectPath);
-      return roles.find((r) => r.slug === slugName)?.systemPrompt;
-    } catch (err) {
-      console.warn('[PlanService] Не удалось загрузить роли:', err);
-      return undefined;
-    }
-  }
-
-  /** Один ход модели без worktree: план — это чтение и рассуждение, файлы менять не надо. */
-  private async runArchitectTurn(plan: PlanState, messages: AIMessage[]): Promise<{ text: string; costUsd?: number }> {
-    const sessionId = `plan-${plan.id}`;
-    const { config } = resolveSlotProviderConfig(
-      plan.settings.architect?.providerConfig,
-      await aiAgentService.getConfig(),
-      await llmProfileService.listProfiles()
-    );
-    const roleSystemPrompt = await this.architectSystemPrompt(plan);
-
-    return new Promise((resolve, reject) => {
-      let buffer = '';
-      let costUsd: number | undefined;
-      let settled = false;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        aiAgentService.abortStream(sessionId);
-        reject(new Error(`Роль architect не ответила за ${Math.round(ARCHITECT_TIMEOUT_MS / 1000)} с`));
-      }, ARCHITECT_TIMEOUT_MS);
-      timer.unref?.();
-      const done = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        fn();
-      };
-
-      aiAgentService
-        .streamChat(
-          {
-            sessionId,
-            projectPath: plan.projectPath,
-            messages,
-            config,
-            mode: 'chat',
-            ...(roleSystemPrompt ? { roleSystemPrompt } : {}),
-            allowedToolNames: apiToolNamesForCategories(['read', 'search']),
-            taskId: plan.taskId
-          },
-          (chunk) => {
-            if (chunk.text) buffer += chunk.text;
-            if (chunk.usage?.costUsd !== undefined) costUsd = chunk.usage.costUsd;
-          },
-          (finalMsg) => {
-            if (finalMsg.usage?.costUsd !== undefined) costUsd = finalMsg.usage.costUsd;
-            done(() => resolve({ text: finalMsg.content || buffer, ...(costUsd !== undefined ? { costUsd } : {}) }));
-          },
-          (err) => done(() => reject(new Error(err)))
-        )
-        .catch((err) => done(() => reject(err instanceof Error ? err : new Error(String(err)))));
-    });
   }
 
   /** Создаёт подзадачи Backlog.md по плану и записывает читаемый план в родительскую задачу. */
@@ -373,7 +373,9 @@ export class PlanService extends EventEmitter {
         taskId: created.id,
         title: draft.title,
         state: 'pending',
-        dependsOn: draft.dependsOn.map((d) => taskIdByKey.get(d)).filter((id): id is string => Boolean(id))
+        dependsOn: draft.dependsOn.map((d) => taskIdByKey.get(d)).filter((id): id is string => Boolean(id)),
+        // Тира в формате задач Backlog.md нет, поэтому он живёт в состоянии плана (decision-75).
+        ...(draft.modelTier ? { modelTier: draft.modelTier } : {})
       });
     }
 
@@ -628,16 +630,47 @@ export class PlanService extends EventEmitter {
     }
   }
 
+  /**
+   * Слот узла: движок и модель выбирает резолвер по назначению «узлы плана» — слот из настроек плана, роль
+   * исполнителя, тир подзадачи, назначение, основная модель (decision-74, decision-75). `null` — цель
+   * непригодна: причина уже записана в узел.
+   */
+  private async resolveNodeAgent(plan: PlanState, node: PlanNode): Promise<AgentSlotConfig | null> {
+    const base = plan.settings.agent;
+    const roleSlug = base?.roleSlug ?? NODE_ROLE;
+    const role = await this.findRole(plan.projectPath, roleSlug);
+    const resolved = await this.deps.models.resolve({
+      purpose: 'plan.node',
+      slot: targetFromSlot(base),
+      role: targetFromRole(role),
+      ...(node.modelTier ? { tierHint: node.modelTier } : {})
+    });
+    node.model = modelRouteView(resolved);
+    if (resolved.problem) {
+      node.state = 'failed';
+      node.reason = resolved.problem.message;
+      node.reasonPurpose = resolved.purpose;
+      node.finishedAt = Date.now();
+      blockDependents(plan.nodes, node.taskId, `Заблокирован: ${node.taskId} не запустился`);
+      return null;
+    }
+    const fields = slotFieldsFromResolved(resolved);
+    const providerConfig = { ...(base?.providerConfig ?? {}), ...(fields.providerConfig ?? {}) };
+    return {
+      ...(base ?? { name: node.title.slice(0, 40), roleSlug }),
+      id: `plan-${node.taskId.toLowerCase().replace(/[^a-z0-9.-]/g, '-')}`,
+      name: base?.name ?? node.title.slice(0, 40),
+      engine: fields.engine,
+      ...(Object.keys(providerConfig).length > 0 ? { providerConfig } : {}),
+      ...(fields.modelTier ? { modelTier: fields.modelTier } : {})
+    };
+  }
+
   /** Запуск узла: обычная сессия «до готовности» от интеграционной ветки. */
   private async startNode(plan: PlanState, node: PlanNode): Promise<void> {
-    const agent: AgentSlotConfig = plan.settings.agent
-      ? { ...plan.settings.agent, id: `plan-${node.taskId.toLowerCase().replace(/[^a-z0-9.-]/g, '-')}` }
-      : {
-          id: `plan-${node.taskId.toLowerCase().replace(/[^a-z0-9.-]/g, '-')}`,
-          name: node.title.slice(0, 40),
-          engine: 'api',
-          roleSlug: 'implementer'
-        };
+    node.reasonPurpose = undefined;
+    const agent = await this.resolveNodeAgent(plan, node);
+    if (!agent) return;
 
     const budgetLeft =
       plan.settings.budgetUsd !== undefined

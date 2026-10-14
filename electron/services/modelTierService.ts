@@ -5,6 +5,7 @@ import { llmProfileService } from './llmProfileService.js';
 import { llmModelCatalogService } from './llmModelCatalogService.js';
 import { aiAgentService } from './aiAgentService.js';
 import { claudeBridgeService } from './claudeBridgeService.js';
+import { mainEngineOf } from './modelTarget.js';
 import {
   emptyModelTierSettings,
   normalizeModelTierSettings,
@@ -43,7 +44,9 @@ export async function collectTierSeedInput(): Promise<TierSeedInput> {
   return {
     profiles: profiles.map((p) => ({ id: p.id, name: p.name, local: p.local })),
     catalogs,
-    ...(aiStudio ? { aiStudio: { provider: aiStudio.provider, profileId: aiStudio.profileId, model: aiStudio.model } } : {}),
+    ...(aiStudio
+      ? { aiStudio: { provider: aiStudio.provider, profileId: aiStudio.profileId, model: aiStudio.model, engine: mainEngineOf(aiStudio) } }
+      : {}),
     claudeCli: cli.available === true
   };
 }

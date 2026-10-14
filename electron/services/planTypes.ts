@@ -10,6 +10,7 @@
  */
 import type { AgentSlotConfig } from './swarmTypes.js';
 import type { ModelTier } from './modelTiers.js';
+import type { ModelRouteView } from './modelRouter.js';
 
 /** Подзадача в ответе роли `architect` до создания в Backlog.md. */
 export interface PlanSubtaskDraft {
@@ -80,6 +81,12 @@ export interface PlanNode {
   iterations?: number;
   /** Почему узел провалился, заблокирован или пропущен. */
   reason?: string;
+  /** Назначение, для которого не удалось выбрать модель: по нему интерфейс ведёт в настройки (decision-75). */
+  reasonPurpose?: string;
+  /** Тир, который подзадаче назначила роль `architect`; важнее тира назначения «узлы плана» (decision-75). */
+  modelTier?: ModelTier;
+  /** Чем узел запущен: решение резолвера на момент старта (decision-75). */
+  model?: ModelRouteView;
   startedAt?: number;
   finishedAt?: number;
 }
@@ -116,6 +123,8 @@ export interface PlanArchitectState {
   errors?: string[];
   /** Сырой ответ последней неудачной попытки — чтобы человек увидел, что пришло. */
   rawResponse?: string;
+  /** Чем строился план: решение резолвера для назначения «архитектор» (decision-75). */
+  model?: ModelRouteView;
 }
 
 /** Состояние плана целиком (`<userData>/plans/<planId>.json`). */
@@ -128,6 +137,8 @@ export interface PlanState {
   phase: PlanPhase;
   outcome?: PlanOutcome;
   reason?: string;
+  /** Назначение, для которого не удалось выбрать модель (decision-75). */
+  reasonPurpose?: string;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;

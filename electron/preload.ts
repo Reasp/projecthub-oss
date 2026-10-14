@@ -344,6 +344,7 @@ const api: IElectronAPI = {
   generatePlan: (options: unknown) => ipcRenderer.invoke('plan:generate', options),
   listPlans: (projectPath?: string) => ipcRenderer.invoke('plan:list', projectPath),
   getPlanForTask: (projectPath: string, taskId: string) => ipcRenderer.invoke('plan:getForTask', projectPath, taskId),
+  getPlanModels: (projectPath: string) => ipcRenderer.invoke('plan:models', projectPath),
   approvePlan: (planId: string) => ipcRenderer.invoke('plan:approve', planId),
   stopPlan: (planId: string) => ipcRenderer.invoke('plan:stop', planId),
   skipPlanNode: (planId: string, taskId: string, skipped: boolean) =>

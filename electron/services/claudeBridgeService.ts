@@ -26,6 +26,7 @@ import type { ApiToolContext } from './apiToolExecutor.js';
 import { getApiToolExecutor } from './apiToolExecutorDeps.js';
 import { createStudioToolCallbacks } from './studioToolAdapter.js';
 import { claudeCliEffortArgs, normalizeReasoningEffort } from './reasoningEffort.js';
+import { usesClaudeCli } from './modelTarget.js';
 import {
   applyRolePermissions,
   evaluateToolRequest,
@@ -1239,8 +1240,8 @@ class ClaudeBridgeService extends EventEmitter {
   ): Promise<void> {
     const { sessionId, projectPath } = req;
 
-    // If using Anthropic without API key, run directly via local Claude CLI subscription!
-    const useCli = req.config.provider === 'anthropic' && (!req.config.apiKey || !req.config.apiKey.trim());
+    // Движок сессии — Claude Code по подписке или API-провайдер; правило — в одном месте (decision-74).
+    const useCli = usesClaudeCli(req.config);
     this.startSession(sessionId, projectPath, useCli ? 'claude-cli' : 'api');
     this.setProjectStatus(projectPath, 'running', 'Агент анализирует задачу...');
 

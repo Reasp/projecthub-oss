@@ -325,6 +325,16 @@ export function registerAiIpc(ctx: IpcContext) {
     return plan ?? null;
   });
 
+  // Чем план будет построен и исполнен при текущих настройках (decision-75)
+  ipcMain.handle('plan:models', async (_event, projectPath: string) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    try {
+      return await planService.previewModels(safeProject);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('plan:approve', async (_event, planId: string) => planService.approvePlan(planId));
 
   ipcMain.handle('plan:stop', async (_event, planId: string) => planService.stopPlan(planId));

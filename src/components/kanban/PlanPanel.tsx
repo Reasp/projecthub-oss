@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, GitMerge, Loader2, Network, Play, RefreshCw, SkipForward, Square, Trash2 } from '../common/icons';
-import type { PlanEventPayload, PlanNode, PlanState } from '../../types/electron';
+import { AlertTriangle, GitMerge, Loader2, Network, Play, RefreshCw, Settings2, SkipForward, Square, Trash2 } from '../common/icons';
+import type { ModelRouteView, PlanEventPayload, PlanModelsPreview, PlanNode, PlanState } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { formatPlanCost, nodeTone, planActions, planCounts, planLevels, type PlanNodeTone } from '../../lib/planGraphView';
+import { describeModelRoute, requestOpenAiSettings } from '../../lib/modelRouteText';
 
 /**
  * Панель плана подзадач в карточке задачи (TASK-80.3, decision-49).
@@ -37,11 +38,29 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
   const [plan, setPlan] = useState<PlanState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Чем план будет построен и исполнен при текущих настройках (decision-75). */
+  const [models, setModels] = useState<PlanModelsPreview | null>(null);
 
   const reload = useCallback(async () => {
     const loaded = await window.api.getPlanForTask(projectPath, taskId);
     setPlan(loaded);
   }, [projectPath, taskId]);
+
+  const reloadModels = useCallback(async () => {
+    try {
+      const preview = await window.api.getPlanModels(projectPath);
+      setModels('error' in preview ? null : preview);
+    } catch {
+      setModels(null);
+    }
+  }, [projectPath]);
+
+  // Настройки моделей меняют в другом окне: по возвращении фокуса строки перечитываются.
+  useEffect(() => {
+    void reloadModels();
+    window.addEventListener('focus', reloadModels);
+    return () => window.removeEventListener('focus', reloadModels);
+  }, [reloadModels]);
 
   useEffect(() => {
     void reload();
@@ -136,6 +155,29 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
 
   const notice = phaseNotice();
 
+  // Пока план не построен, показывается текущий выбор; после — то, чем он строился на самом деле.
+  const architectModel = plan?.architect.model ?? models?.architect;
+  const failedPurpose = plan?.reasonPurpose ?? plan?.nodes.find((n) => n.reasonPurpose)?.reasonPurpose;
+  const modelsNeedAttention = Boolean(failedPurpose || architectModel?.problem || models?.node.problem);
+
+  const modelLine = (label: string, view: ModelRouteView | undefined) => {
+    if (!view) return null;
+    const text = describeModelRoute(view, t.modelRouting);
+    return (
+      <div className="flex flex-wrap items-baseline gap-x-1.5" title={text.details}>
+        <span className="text-muted-foreground/70">{label}:</span>
+        <span className={view.problem ? 'text-amber-300' : 'text-foreground/90'}>{text.target}</span>
+        <span className="text-muted-foreground/60">({text.origin})</span>
+        {text.problem && (
+          <span className="inline-flex items-center gap-1 text-amber-300">
+            <AlertTriangle className="w-3 h-3" />
+            {text.problem}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -207,6 +249,30 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
           {t.plan.error.replace('{error}', error)}
         </div>
       )}
+
+      {(architectModel || models?.node) && (
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-[11px] space-y-0.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 space-y-0.5">
+              {modelLine(t.plan.buildsWith, architectModel)}
+              {modelLine(t.plan.runsWith, models?.node)}
+            </div>
+            <button
+              type="button"
+              onClick={() => requestOpenAiSettings(failedPurpose ? { purpose: failedPurpose } : {})}
+              title={t.plan.modelsHint}
+              className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded border text-[10px] transition ${
+                modelsNeedAttention
+                  ? 'bg-amber-950/50 hover:bg-amber-900/60 text-amber-200 border-amber-700/50'
+                  : 'bg-black/30 hover:bg-black/50 text-muted-foreground border-white/10'
+              }`}
+            >
+              <Settings2 className="w-3 h-3" />
+              {t.plan.openModelSettings}
+            </button>
+          </div>
+        </div>
+      )}
       {plan?.architect.errors && plan.architect.errors.length > 0 && (
         <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-200">
           {t.plan.architectErrors.replace('{errors}', plan.architect.errors.join('; '))}
@@ -238,6 +304,11 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
 
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-80">
                   {node.dependsOn.length > 0 && <span>{t.plan.dependsOn.replace('{tasks}', node.dependsOn.join(', '))}</span>}
+                  {node.model ? (
+                    <span title={describeModelRoute(node.model, t.modelRouting).origin}>{describeModelRoute(node.model, t.modelRouting).target}</span>
+                  ) : (
+                    node.modelTier && <span>{t.plan.nodeTier.replace('{tier}', node.modelTier)}</span>
+                  )}
                   {node.iterations !== undefined && <span>{t.plan.iterations.replace('{n}', String(node.iterations))}</span>}
                   {node.costUsd !== undefined && <span>{formatPlanCost(node.costUsd)}</span>}
                   {node.mergeCommit && (
