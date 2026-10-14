@@ -4,17 +4,13 @@ import {
   Search,
   X,
   BookOpen,
-  FileText,
   CheckSquare,
   Sparkles,
-  ExternalLink,
-  FolderGit2,
   BrainCircuit,
-  ArrowRight,
-  Layers,
   GitBranch,
-  Home
-} from 'lucide-react';
+  Home,
+  CornerDownLeft
+} from '../common/icons';
 import { useProjectStore, samePath } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTimers } from '../../hooks/useTimeoutState';
@@ -151,11 +147,11 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
   return createPortal(
     <div
       onKeyDown={handleKeyDown}
-      className="fixed inset-0 z-[9999] flex items-start justify-center pt-20 p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-100 select-none"
+      className="fixed inset-0 z-[9999] flex items-start justify-center pt-20 p-4 bg-black/60 animate-in fade-in duration-100 select-none"
     >
-      <div className="bg-[#121520] border border-slate-700/80 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[75vh]">
+      <div className="bg-ph-elevated border border-slate-700 rounded-xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[75vh]">
         {/* Search Input Header */}
-        <div className="p-4 border-b border-slate-800 bg-[#151928]/80 flex items-center gap-3">
+        <div className="p-4 border-b border-slate-800 bg-ph-hover/80 flex items-center gap-3">
           <Search className="w-5 h-5 text-indigo-400 shrink-0" />
           <input
             ref={inputRef}
@@ -185,13 +181,13 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Filter Controls Bar */}
-        <div className="px-4 py-2 bg-[#0e111a] border-b border-slate-800/60 flex items-center justify-between text-xs flex-wrap gap-2">
+        <div className="px-4 py-2 border-b border-slate-800/60 flex items-center justify-between text-xs flex-wrap gap-2">
           {/* Mode switch */}
-          <div className="flex items-center gap-1 bg-[#151928] p-0.5 rounded-lg border border-slate-800">
+          <div className="flex items-center gap-1 bg-ph-hover p-0.5 rounded-lg border border-slate-800">
             <button
               onClick={() => setMode('all')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
-                mode === 'all' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                mode === 'all' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               {t.common.all}
@@ -199,7 +195,7 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
             <button
               onClick={() => setMode('vector')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition flex items-center gap-1 ${
-                mode === 'vector' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                mode === 'vector' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Sparkles className="w-3 h-3 text-amber-300" />
@@ -208,7 +204,7 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
             <button
               onClick={() => setMode('text')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
-                mode === 'text' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                mode === 'text' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               Text
@@ -248,7 +244,7 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
           {/* Активное рабочее дерево проекта (TASK-62) */}
           {worktreeMatches.length > 1 && (
             <div className="space-y-1.5">
-              <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold px-1">
+              <p className="text-[11px] text-slate-500 font-medium px-1">
                 {t.worktrees.switcherTitle}
               </p>
               {worktreeMatches.map((w) => {
@@ -261,7 +257,7 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
                     className={`w-full text-left p-2.5 rounded-xl border transition flex items-center gap-2 ${
                       isActive
                         ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200'
-                        : 'bg-[#151928]/50 border-slate-800/80 text-slate-300 hover:bg-[#181d2e] hover:border-slate-700'
+                        : 'bg-ph-hover/50 border-slate-800/80 text-slate-300 hover:bg-ph-hover hover:border-slate-700'
                     }`}
                   >
                     {w.isMain ? (
@@ -271,15 +267,15 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
                     )}
                     <span className="flex-1 min-w-0">
                       <span className="block text-xs font-semibold truncate">{w.label}</span>
-                      <span className="block text-[10px] font-mono text-slate-500 truncate">{w.hint}</span>
+                      <span className="block text-[11px] font-mono text-slate-500 truncate">{w.hint}</span>
                     </span>
                     {w.taskId && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 shrink-0">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 shrink-0">
                         {w.taskId}
                       </span>
                     )}
                     {isActive && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 shrink-0">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 shrink-0">
                         {t.worktrees.activeBadge}
                       </span>
                     )}
@@ -313,7 +309,7 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
                 className={`p-3 rounded-xl border transition cursor-pointer flex flex-col gap-1.5 ${
                   isSelected
                     ? 'bg-indigo-600/15 border-indigo-500/50 shadow-md ring-1 ring-indigo-500/30'
-                    : 'bg-[#151928]/50 border-slate-800/80 hover:bg-[#181d2e] hover:border-slate-700'
+                    : 'bg-ph-hover/50 border-slate-800/80 hover:bg-ph-hover hover:border-slate-700'
                 }`}
               >
                 {/* Result Meta Bar */}
@@ -332,23 +328,23 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
                       {item.heading || item.fileRelative}
                     </span>
 
-                    <span className="text-[10px] text-slate-500 font-mono">
+                    <span className="text-[11px] text-slate-500 font-mono">
                       • {item.fileRelative}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 font-mono">
+                    <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 font-mono">
                       {item.projectName}
                     </span>
 
                     {item.type === 'vector' ? (
-                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 text-[10px] font-mono">
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 text-[11px] font-mono">
                         <Sparkles className="w-2.5 h-2.5" />
                         {Math.round(item.score * 100)}%
                       </span>
                     ) : (
-                      <span className="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/40 text-[10px] font-mono">
+                      <span className="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/40 text-[11px] font-mono">
                         text
                       </span>
                     )}
@@ -365,10 +361,10 @@ export const OmniSearchModal: React.FC<OmniSearchModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2.5 bg-[#10131e] border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
+        <div className="px-4 py-2.5 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
           <div className="flex items-center gap-3">
             <span>↑↓ {t.search.navigate}</span>
-            <span>↵ {t.search.select}</span>
+            <span className="inline-flex items-center gap-1"><CornerDownLeft className="w-3 h-3" /> {t.search.select}</span>
           </div>
           <span>{t.search.matchesFound}: {results.length}</span>
         </div>

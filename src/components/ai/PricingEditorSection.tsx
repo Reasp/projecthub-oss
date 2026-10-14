@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, CheckCircle2, CloudDownload, Loader2, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import { Check, CheckCircle2, CloudDownload, Loader2, Pencil, Plus, RotateCcw, Search, Trash2, X } from '../common/icons';
 import type { AgentPricingState, OpenRouterImportResult, PriceOverrides } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import {
@@ -20,7 +20,7 @@ import {
 const IMPORT_VISIBLE_LIMIT = 150;
 
 const inputClass =
-  'w-full bg-[#0c0e17] border border-slate-800 rounded-md px-2 py-1 text-[11px] text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500';
+  'w-full bg-ph-panel border border-slate-800 rounded-md px-2 py-1 text-[11px] text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500';
 
 /** Enter в полях редактора не должен отправлять форму настроек AI Studio. */
 function stopEnter(e: React.KeyboardEvent) {
@@ -128,7 +128,7 @@ export const PricingEditorSection: React.FC = () => {
         : status === 'overridden'
           ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
           : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30';
-    return <span className={`px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wide ${cls}`}>{label}</span>;
+    return <span className={`px-1.5 py-0.5 rounded border text-[11px] ${cls}`}>{label}</span>;
   };
 
   const applyEdit = () => {
@@ -207,7 +207,7 @@ export const PricingEditorSection: React.FC = () => {
         <p className="text-[11px] text-slate-500">
           {l.builtinDate.replace('{date}', state.builtin.updatedAt)} · {l.overridesCount.replace('{count}', String(overridesCount))}
         </p>
-        <p className="text-[10px] text-slate-600 font-mono break-all">{l.filePath.replace('{path}', state.filePath)}</p>
+        <p className="text-[11px] text-slate-600 font-mono break-all">{l.filePath.replace('{path}', state.filePath)}</p>
         <p className="text-[11px] text-emerald-300/80">{l.localNote}</p>
         {state.loadError && <p className="text-[11px] text-amber-300">{l.loadError.replace('{error}', state.loadError)}</p>}
       </div>
@@ -238,7 +238,7 @@ export const PricingEditorSection: React.FC = () => {
           onClick={loadImport}
           disabled={importState.loading}
           title={l.importNote}
-          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition flex items-center gap-1 disabled:opacity-60"
+          className="ph-btn ph-btn-secondary disabled:opacity-60"
           data-testid="pricing-import-openrouter"
         >
           {importState.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudDownload className="w-3.5 h-3.5" />}
@@ -264,7 +264,7 @@ export const PricingEditorSection: React.FC = () => {
             <button type="button" onClick={() => setAdding(null)} className="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300">
               {l.cancelEdit}
             </button>
-            <button type="button" onClick={applyAdd} className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white">
+            <button type="button" onClick={applyAdd} className="ph-btn ph-btn-primary">
               {l.add}
             </button>
           </div>
@@ -272,7 +272,7 @@ export const PricingEditorSection: React.FC = () => {
       )}
 
       {(importState.result || importState.error) && (
-        <div className="p-2.5 rounded-lg border border-slate-700 bg-[#0f1220] space-y-2" data-testid="pricing-import-panel">
+        <div className="p-2.5 rounded-lg border border-slate-700 bg-ph-elevated space-y-2" data-testid="pricing-import-panel">
           <div className="flex items-start justify-between gap-2">
             <p className="text-[11px] text-slate-400">{l.importNote}</p>
             <button type="button" onClick={() => setImportState({ loading: false })} className="p-1 rounded text-slate-500 hover:text-white">
@@ -316,7 +316,7 @@ export const PricingEditorSection: React.FC = () => {
                   type="button"
                   onClick={addSelected}
                   disabled={selected.size === 0}
-                  className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
+                  className="ph-btn ph-btn-primary disabled:opacity-50"
                   data-testid="pricing-import-add"
                 >
                   {l.importAdd.replace('{count}', String(selected.size))}
@@ -340,13 +340,13 @@ export const PricingEditorSection: React.FC = () => {
                       {e.sourceId}
                       {draft.models[e.id] || state.builtin.models[e.id] ? <span className="text-amber-400/80"> → {e.id}</span> : null}
                     </span>
-                    <span className="font-mono text-[10px] text-slate-400 shrink-0">
+                    <span className="font-mono text-[11px] text-slate-400 shrink-0">
                       {formatPrice(e.price.input)} / {formatPrice(e.price.output)}
                     </span>
                   </label>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[11px] text-slate-500">
                 {l.importShown.replace('{shown}', String(visibleImport.length)).replace('{count}', String(importEntries.length))}
               </p>
             </>
@@ -355,7 +355,7 @@ export const PricingEditorSection: React.FC = () => {
       )}
 
       <div className="rounded-lg border border-slate-800 overflow-hidden">
-        <div className="grid grid-cols-[minmax(0,2.2fr)_repeat(4,minmax(0,1fr))_64px] gap-1.5 px-2 py-1.5 bg-slate-900/60 text-[10px] uppercase tracking-wide text-slate-500">
+        <div className="grid grid-cols-[minmax(0,2.2fr)_repeat(4,minmax(0,1fr))_64px] gap-1.5 px-2 py-1.5 bg-slate-900/60 text-[11px] text-slate-500">
           <span>{l.model}</span>
           <span>{l.input}</span>
           <span>{l.output}</span>
@@ -455,7 +455,7 @@ export const PricingEditorSection: React.FC = () => {
           type="button"
           onClick={save}
           disabled={!dirty || saving}
-          className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition flex items-center gap-1.5 disabled:opacity-50"
+          className="ph-btn ph-btn-primary disabled:opacity-50"
           data-testid="pricing-save"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}

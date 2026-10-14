@@ -1,5 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Columns, AlignJustify, Copy, Check, ChevronDown, ChevronRight, FileCode } from 'lucide-react';
+import {
+  Columns,
+  AlignJustify,
+  Copy,
+  Check,
+  FileCode
+} from '../common/icons';
 import { useTranslation } from '../../i18n';
 import { useTimeoutState } from '../../hooks/useTimeoutState';
 
@@ -169,16 +175,16 @@ export const SplitDiffViewer: React.FC<SplitDiffViewerProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#0b0d14] text-slate-300 font-mono text-[12px] select-text">
+    <div className="flex flex-col h-full bg-ph-base text-slate-300 font-mono text-[12px] select-text">
       {/* Diff Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border-b border-slate-800 text-xs shrink-0 select-none">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800 text-xs shrink-0 select-none">
         <div className="flex items-center gap-2 overflow-hidden">
           {filePath && (
             <span className="font-semibold text-slate-200 truncate" title={filePath}>
               {filePath}
             </span>
           )}
-          <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
+          <span className="text-[11px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
             {hunks.length} {hunks.length === 1 ? t.git.diffViewerHunk : t.git.diffViewerHunks}
           </span>
         </div>
@@ -190,7 +196,7 @@ export const SplitDiffViewer: React.FC<SplitDiffViewerProps> = ({
               onClick={() => setViewMode('unified')}
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition ${
                 viewMode === 'unified'
-                  ? 'bg-indigo-600 text-white shadow-sm'
+                  ? 'bg-ph-hover text-slate-100'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title={t.git.diffViewerUnifiedTooltip}
@@ -202,7 +208,7 @@ export const SplitDiffViewer: React.FC<SplitDiffViewerProps> = ({
               onClick={() => setViewMode('split')}
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition ${
                 viewMode === 'split'
-                  ? 'bg-indigo-600 text-white shadow-sm'
+                  ? 'bg-ph-hover text-slate-100'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title={t.git.diffViewerSplitTooltip}
@@ -214,7 +220,7 @@ export const SplitDiffViewer: React.FC<SplitDiffViewerProps> = ({
 
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition"
+            className="ph-btn ph-btn-secondary"
             title={t.git.diffViewerCopyTooltip}
           >
             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -233,7 +239,7 @@ export const SplitDiffViewer: React.FC<SplitDiffViewerProps> = ({
               return (
                 <div key={hIdx} className="border-b border-slate-800/80 last:border-b-0">
                   {/* Hunk Header */}
-                  <div className="bg-cyan-950/20 text-cyan-400 px-3 py-1 text-[11px] border-y border-cyan-900/30 flex items-center gap-2 font-mono select-none sticky top-0 z-10 backdrop-blur-md">
+                  <div className="bg-cyan-950/20 text-cyan-400 px-3 py-1 text-[11px] border-y border-cyan-900/30 flex items-center gap-2 font-mono select-none sticky top-0 z-10">
                     <span>{hunk.header}</span>
                   </div>
 
@@ -295,7 +301,7 @@ export const SplitDiffViewer: React.FC<SplitDiffViewerProps> = ({
             {hunks.map((hunk, hIdx) => (
               <div key={hIdx} className="border-b border-slate-800/80 last:border-b-0">
                 {/* Hunk Header */}
-                <div className="bg-cyan-950/20 text-cyan-400 px-3 py-1 text-[11px] border-y border-cyan-900/30 select-none sticky top-0 z-10 backdrop-blur-md">
+                <div className="bg-cyan-950/20 text-cyan-400 px-3 py-1 text-[11px] border-y border-cyan-900/30 select-none sticky top-0 z-10">
                   {hunk.header}
                 </div>
 

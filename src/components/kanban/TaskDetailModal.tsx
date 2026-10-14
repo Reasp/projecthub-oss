@@ -3,9 +3,6 @@ import { createPortal } from 'react-dom';
 import {
   X,
   Tag,
-  Calendar,
-  CheckCircle2,
-  Clock,
   CheckSquare,
   Square,
   Plus,
@@ -26,7 +23,7 @@ import {
   PlayCircle,
   Loader2,
   Repeat
-} from 'lucide-react';
+} from '../common/icons';
 import type { BacklogTask, TaskCriterion } from '../../types/electron';
 import { useProjectStore, samePath } from '../../store/useProjectStore';
 import { useSwarmStore } from '../../store/useSwarmStore';
@@ -374,13 +371,13 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       onClick={(e) => {
         if (e.target === e.currentTarget) void requestClose();
       }}
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150 select-text"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-150 select-text"
     >
-      <div className={`bg-[#131622] border border-slate-800 rounded-2xl w-full shadow-2xl overflow-hidden flex flex-col transition-all duration-150 select-text ${
+      <div className={`bg-ph-raised border border-slate-800 rounded-2xl w-full shadow-2xl overflow-hidden flex flex-col transition-all duration-150 select-text ${
         isDescriptionExpanded ? 'max-w-5xl h-[92vh]' : 'max-w-3xl max-h-[90vh]'
       }`}>
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-[#171b2b]/70">
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 px-2.5 py-1 rounded-md">
               {task.id}
@@ -395,11 +392,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center bg-[#10121c] p-0.5 rounded-lg border border-slate-800">
+            <div className="flex items-center bg-ph-elevated p-0.5 rounded-lg border border-slate-800">
               <button
                 onClick={() => setActiveTab('editor')}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition ${
-                  activeTab === 'editor' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  activeTab === 'editor' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {t.common.edit}
@@ -407,7 +404,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               <button
                 onClick={() => setActiveTab('raw')}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition ${
-                  activeTab === 'raw' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  activeTab === 'raw' ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 Raw Markdown
@@ -438,15 +435,15 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               {!isDescriptionExpanded && (
                 <>
                   {/* Meta Row: Status, Milestone, Assignee & Labels */}
-                  <div className="grid grid-cols-4 gap-3 p-4 rounded-xl bg-[#171b2b]/50 border border-slate-800">
+                  <div className="grid grid-cols-4 gap-3 p-4 rounded-xl bg-ph-hover/50 border border-slate-800">
                 <div>
-                  <label className="font-semibold text-slate-300 uppercase tracking-wider text-[11px] block mb-1.5">
+                  <label className="font-medium text-slate-300 text-[11px] block mb-1.5">
                     {t.taskDetail.status}
                   </label>
                   <select
                     value={status}
                     onChange={(e) => handleStatusChange(e.target.value)}
-                    className="w-full bg-[#10121d] border border-slate-700 rounded-lg px-3 py-1.5 text-slate-200 text-xs font-medium focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-ph-elevated border border-slate-700 rounded-lg px-3 py-1.5 text-slate-200 text-xs font-medium focus:outline-none focus:border-indigo-500"
                   >
                     {/* Статусы проекта из backlog/config.yml плюс текущий, если он кастомный (TASK-68). */}
                     {statusOptions(taskStatuses, status).map((option) => (
@@ -458,14 +455,14 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-300 uppercase tracking-wider text-[11px] block mb-1.5 flex items-center gap-1">
+                  <label className="font-medium text-slate-300 text-[11px] block mb-1.5 flex items-center gap-1">
                     <Target className="w-3 h-3 text-indigo-400" />
                     {t.taskDetail.milestone}
                   </label>
                   <select
                     value={milestone}
                     onChange={(e) => setMilestone(e.target.value)}
-                    className="w-full bg-[#10121d] border border-slate-700 rounded-lg px-3 py-1.5 text-slate-200 text-xs font-medium focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-ph-elevated border border-slate-700 rounded-lg px-3 py-1.5 text-slate-200 text-xs font-medium focus:outline-none focus:border-indigo-500"
                   >
                     <option value="">({t.taskDetail.noMilestone})</option>
                     {(milestones || []).map((m) => (
@@ -477,7 +474,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-300 uppercase tracking-wider text-[11px] block mb-1.5 flex items-center gap-1">
+                  <label className="font-medium text-slate-300 text-[11px] block mb-1.5 flex items-center gap-1">
                     <Bot className="w-3 h-3 text-indigo-400" />
                     {t.taskDetail.assignee}
                   </label>
@@ -487,7 +484,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     value={assignee}
                     onChange={(e) => setAssignee(e.target.value)}
                     placeholder={t.taskDetail.assigneePlaceholder}
-                    className="w-full bg-[#10121d] border border-slate-700 rounded-lg px-3 py-1.5 text-slate-200 text-xs font-medium focus:outline-none focus:border-indigo-500 select-text cursor-text"
+                    className="w-full bg-ph-elevated border border-slate-700 rounded-lg px-3 py-1.5 text-slate-200 text-xs font-medium focus:outline-none focus:border-indigo-500 select-text cursor-text"
                   />
                   <datalist id="task-assignee-roles">
                     {roles.map((r) => (
@@ -503,19 +500,19 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     )}
                   </datalist>
                   {assignedHostId && (
-                    <p className="text-[10px] mt-1 text-slate-400">
+                    <p className="text-[11px] mt-1 text-slate-400">
                       {assignedPeer
                         ? `${assignedPeer.machineName} · ${t.federation.status[assignedPeer.status]}`
                         : t.federation.notConnected}
                     </p>
                   )}
                   {assignedRoleSlug && !assignedRole && (
-                    <p className="text-[10px] text-amber-400 mt-1">{t.taskDetail.assigneeRoleNotFound}</p>
+                    <p className="text-[11px] text-amber-400 mt-1">{t.taskDetail.assigneeRoleNotFound}</p>
                   )}
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-300 uppercase tracking-wider text-[11px] block mb-1.5">
+                  <label className="font-medium text-slate-300 text-[11px] block mb-1.5">
                     {t.taskDetail.labels}
                   </label>
                   <div className="flex flex-wrap gap-1.5 mb-2">
@@ -543,12 +540,12 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       onChange={(e) => setNewLabelInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddLabel())}
                       placeholder={t.taskDetail.addLabel}
-                      className="bg-[#10121d] border border-slate-800 rounded-md px-2.5 py-1 text-xs text-slate-200 placeholder:text-slate-500 flex-1 focus:outline-none focus:border-indigo-500 select-text cursor-text"
+                      className="bg-ph-elevated border border-slate-800 rounded-md px-2.5 py-1 text-xs text-slate-200 placeholder:text-slate-500 flex-1 focus:outline-none focus:border-indigo-500 select-text cursor-text"
                     />
                     <button
                       type="button"
                       onClick={handleAddLabel}
-                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md border border-slate-700 transition"
+                      className="ph-btn ph-btn-secondary"
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
@@ -559,7 +556,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               {/* Acceptance Criteria Section */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                  <label className="font-medium text-slate-200 text-[11px] flex items-center gap-1.5">
                     <CheckSquare className="w-3.5 h-3.5 text-indigo-400" />
                     {t.taskDetail.acceptanceCriteria}
                   </label>
@@ -589,7 +586,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     criteria.map((crit, index) => (
                       <div
                         key={index}
-                        className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#161a29] border border-slate-800/80 group hover:border-slate-700 transition"
+                        className="flex items-center justify-between px-3 py-2 rounded-lg bg-ph-hover border border-slate-800/80 group hover:border-slate-700 transition"
                       >
                         <div
                           onClick={() => handleToggleCriterion(index)}
@@ -628,12 +625,12 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       onChange={(e) => setNewCriterionInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddCriterion())}
                       placeholder={t.taskDetail.criterionPlaceholder}
-                      className="w-full bg-[#10121d] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 select-text cursor-text"
+                      className="w-full bg-ph-elevated border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 select-text cursor-text"
                     />
                     <button
                       type="button"
                       onClick={handleAddCriterion}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium transition flex items-center gap-1 shrink-0"
+                      className="ph-btn ph-btn-primary shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       {t.taskDetail.addCriterion}
@@ -661,7 +658,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {/* Description & Markdown Editor */}
           <div className={`space-y-2 ${isDescriptionExpanded ? 'flex-1 flex flex-col min-h-0' : ''}`}>
             <div className="flex items-center justify-between shrink-0">
-              <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+              <label className="font-medium text-slate-200 text-[11px] flex items-center gap-1.5">
                 <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
                 {t.taskDetail.description} (Markdown)
               </label>
@@ -711,7 +708,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
             {previewMode ? (
               <div
-                className={`bg-[#0e111a] p-4 rounded-xl text-xs text-slate-300 border border-slate-800 leading-relaxed overflow-y-auto select-text selection:bg-indigo-600/40 ${
+                className={`bg-ph-panel p-4 rounded-xl text-xs text-slate-300 border border-slate-800 leading-relaxed overflow-y-auto select-text selection:bg-indigo-600/40 ${
                   isDescriptionExpanded ? 'flex-1 min-h-0' : 'min-h-[140px] max-h-[380px]'
                 }`}
               >
@@ -730,7 +727,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t.createTask.descriptionPlaceholder}
-                className={`w-full bg-[#10121d] border border-slate-800 rounded-xl p-3.5 text-xs text-slate-200 font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed transition select-text cursor-text selection:bg-indigo-600/40 ${
+                className={`w-full bg-ph-elevated border border-slate-800 rounded-xl p-3.5 text-xs text-slate-200 font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed transition select-text cursor-text selection:bg-indigo-600/40 ${
                   isDescriptionExpanded ? 'flex-1 min-h-0 resize-none' : 'resize-y'
                 }`}
               />
@@ -740,11 +737,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       ) : (
         /* Raw Markdown source viewer */
         <div className="space-y-2">
-          <label className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+          <label className="font-medium text-slate-200 text-[11px] flex items-center gap-1.5">
             <FileCode className="w-3.5 h-3.5 text-indigo-400" />
             {t.docs.markdownEditor}
           </label>
-          <pre className="bg-[#0e111a] p-4 rounded-xl text-xs text-slate-300 font-mono border border-slate-800 leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[50vh] select-text selection:bg-indigo-600/40">
+          <pre className="bg-ph-panel p-4 rounded-xl text-xs text-slate-300 font-mono border border-slate-800 leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[50vh] select-text selection:bg-indigo-600/40">
             {isRawLoading || rawContent === null ? (
               <span className="text-slate-500 italic">{t.common.loading}</span>
             ) : (
@@ -793,7 +790,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         </div>
 
         {/* Modal Footer Actions */}
-        <div className="px-6 py-3.5 border-t border-slate-800 bg-[#171b2b]/70 flex items-center justify-between gap-3">
+        <div className="px-6 py-3.5 border-t border-slate-800 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <button
               onClick={handleDelete}
@@ -833,7 +830,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   type="button"
                   onClick={handleOpenOrCreateWorktree}
                   disabled={isWorktreeLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-700/50 text-xs font-semibold shadow-sm transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ph-raised hover:bg-ph-hover text-slate-200 border border-slate-700 text-xs font-semibold shadow-sm transition"
                   title={t.taskDetail.worktreeActiveTooltip.replace('{path}', existingWorktree.path)}
                 >
                   <FolderGit2 className="w-3.5 h-3.5 text-cyan-400" />
@@ -885,7 +882,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 });
                 setMainTab('ai');
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-950/60 hover:bg-sky-900/80 text-sky-300 border border-sky-700/50 text-xs font-semibold shadow-sm transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ph-raised hover:bg-ph-hover text-slate-200 border border-slate-700 text-xs font-semibold shadow-sm transition"
               title={t.taskDetail.runDoneLoopTooltip}
             >
               <Repeat className="w-3.5 h-3.5 text-sky-400" />
@@ -938,7 +935,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-md shadow-indigo-600/20 transition flex items-center gap-1.5 text-xs disabled:opacity-50"
+              className="ph-btn ph-btn-primary disabled:opacity-50"
             >
               <Save className="w-3.5 h-3.5" />
               {isSaving ? t.taskDetail.saving : t.common.save}

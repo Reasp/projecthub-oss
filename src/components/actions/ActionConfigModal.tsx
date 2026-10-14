@@ -1,7 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useTimers } from '../../hooks/useTimeoutState';
 import { createPortal } from 'react-dom';
-import { Settings, Play, Rocket, FlaskConical, Plus, Trash2, Check, Save, Globe, Terminal, RefreshCw } from 'lucide-react';
+import {
+  Settings,
+  Play,
+  Rocket,
+  FlaskConical,
+  Check,
+  Save,
+  Globe,
+  Terminal,
+  RefreshCw,
+  X
+} from '../common/icons';
 import type { ProjectActionConfig, ActionDefinition } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 
@@ -96,9 +107,9 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
         onClick={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150 select-none"
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-150 select-none"
       >
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full shadow-2xl p-8 flex flex-col items-center justify-center gap-3">
+        <div className="bg-ph-elevated border border-slate-700 rounded-xl max-w-sm w-full shadow-2xl p-8 flex flex-col items-center justify-center gap-3">
           <RefreshCw className="w-6 h-6 text-indigo-400 animate-spin" />
           <span className="text-xs text-slate-400 font-medium">{t.actions.loadingConfig}</span>
         </div>
@@ -154,7 +165,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
             placeholder="apps/web"
             className={`w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono outline-none focus:${accent}`}
           />
-          <p className="text-[10px] text-slate-500 mt-1">{t.actions.cwdHint}</p>
+          <p className="text-[11px] text-slate-500 mt-1">{t.actions.cwdHint}</p>
         </div>
         {/* Стратегия порта (TASK-62): авто-подбор для параллельных worktree */}
         <div className="flex items-end gap-3">
@@ -188,7 +199,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
             />
           </div>
         </div>
-        <p className="text-[10px] text-slate-500 -mt-2">{t.actions.portStrategyHint}</p>
+        <p className="text-[11px] text-slate-500 -mt-2">{t.actions.portStrategyHint}</p>
 
         <div>
           <label className="block text-xs font-medium text-slate-300 mb-1">{t.actions.envLabel}</label>
@@ -204,7 +215,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
             spellCheck={false}
             className={`w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono outline-none resize-y focus:${accent}`}
           />
-          <p className="text-[10px] text-slate-500 mt-1">{t.actions.envHint}</p>
+          <p className="text-[11px] text-slate-500 mt-1">{t.actions.envHint}</p>
         </div>
       </div>
     );
@@ -215,13 +226,13 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150 select-none"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-150 select-none"
     >
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div className="bg-ph-elevated border border-slate-700 rounded-xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400">
+            <div className="p-1.5 rounded-lg bg-ph-raised text-indigo-400">
               <Settings className="w-5 h-5" />
             </div>
             <div>
@@ -233,7 +244,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
             onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition text-xs"
           >
-            ✕
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
 
@@ -241,9 +252,9 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
         <div className="flex items-center gap-1 px-6 pt-3 border-b border-slate-800 bg-slate-950/30">
           <button
             onClick={() => setActiveSubTab('run')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium border-b-2 transition ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition ${
               activeSubTab === 'run'
-                ? 'border-emerald-500 text-emerald-400 bg-emerald-950/20'
+                ? 'border-indigo-400 text-slate-100'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -253,9 +264,9 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
 
           <button
             onClick={() => setActiveSubTab('deploy')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium border-b-2 transition ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition ${
               activeSubTab === 'deploy'
-                ? 'border-indigo-500 text-indigo-400 bg-indigo-950/20'
+                ? 'border-indigo-400 text-slate-100'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -265,9 +276,9 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
 
           <button
             onClick={() => setActiveSubTab('test')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium border-b-2 transition ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition ${
               activeSubTab === 'test'
-                ? 'border-amber-500 text-amber-400 bg-amber-950/20'
+                ? 'border-indigo-400 text-slate-100'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -286,7 +297,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
                   value={config.run.name}
                   onChange={e => updateRun({ name: e.target.value })}
                   placeholder="Dev Server"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+                  className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
                 />
               </div>
 
@@ -329,9 +340,9 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
                     updateRun({ autoOpenDelayMs: Number.isFinite(num) && num >= 0 ? num : undefined });
                   }}
                   placeholder="10000"
-                  className="w-40 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono outline-none focus:border-emerald-500"
+                  className="w-40 bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-xs text-slate-200 font-mono outline-none focus:border-emerald-500"
                 />
-                <p className="text-[10px] text-slate-500 mt-1">{t.actions.autoOpenDelayHint}</p>
+                <p className="text-[11px] text-slate-500 mt-1">{t.actions.autoOpenDelayHint}</p>
               </div>
 
               {renderAdvancedFields('run', 'border-emerald-500')}
@@ -346,7 +357,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
                   value={config.deploy.name}
                   onChange={e => updateDeploy({ name: e.target.value })}
                   placeholder="Production Deploy"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
+                  className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
                 />
               </div>
 
@@ -388,7 +399,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
                   value={config.test.name}
                   onChange={e => updateTest({ name: e.target.value })}
                   placeholder="Unit Tests"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
+                  className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
                 />
               </div>
 
@@ -411,7 +422,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-950/60">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800">
           <span className="text-[11px] text-slate-500 font-mono">{t.actions.savedToConfigHint}</span>
 
           <div className="flex items-center gap-2">
@@ -424,7 +435,7 @@ export const ActionConfigModal: React.FC<ActionConfigModalProps> = ({
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition shadow-sm"
+              className="ph-btn ph-btn-primary"
             >
               {saveSuccess ? <Check className="w-4 h-4 text-emerald-400" /> : <Save className="w-4 h-4" />}
               <span>{saveSuccess ? t.common.saved : t.actions.saveConfig}</span>

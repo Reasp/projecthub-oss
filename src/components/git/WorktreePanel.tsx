@@ -12,14 +12,13 @@ import {
   RefreshCw,
   Sparkles,
   Layers,
-  AlertCircle,
-  CheckCircle,
   ExternalLink
-} from 'lucide-react';
+} from '../common/icons';
 import type { GitWorktreeInfo, BacklogTask } from '../../types/electron';
 import { useProjectStore, samePath } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
+import { openInVsCode } from '../../lib/openInVsCode';
 import { WorktreeCompleteModal } from './WorktreeCompleteModal';
 
 interface WorktreePanelProps {
@@ -133,15 +132,15 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
   };
 
   const handleOpenCode = (dirPath: string) => {
-    window.api?.openInCode?.(dirPath);
+    void openInVsCode(dirPath, () => void dialog.alert({ title: t.header.vsCode, message: t.header.vsCodeOpenFailed }));
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#0c0e17] overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 bg-ph-panel overflow-hidden">
       {/* Header Toolbar */}
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-[#111422] shrink-0">
+      <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-ph-raised shrink-0">
         <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+          <div className="p-1.5 rounded-lg bg-ph-raised text-indigo-400">
             <FolderGit2 className="w-4 h-4" />
           </div>
           <div>
@@ -210,7 +209,7 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
           className="p-4 border-b border-indigo-900/40 bg-indigo-950/20 flex flex-wrap items-end gap-3 shrink-0"
         >
           <div className="flex-1 min-w-[220px]">
-            <label className="block text-[11px] font-medium text-indigo-300 uppercase tracking-wider mb-1">
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">
               {t.worktrees.branchName}
             </label>
             <input
@@ -219,19 +218,19 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
               value={newBranchName}
               onChange={(e) => setNewBranchName(e.target.value)}
               placeholder={t.worktrees.branchPlaceholder}
-              className="w-full bg-[#0d101d] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 select-text cursor-text"
+              className="w-full bg-ph-panel border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 select-text cursor-text"
               required
             />
           </div>
 
           <div className="w-48">
-            <label className="block text-[11px] font-medium text-indigo-300 uppercase tracking-wider mb-1">
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">
               {t.worktrees.baseBranch}
             </label>
             <select
               value={baseBranch}
               onChange={(e) => setBaseBranch(e.target.value)}
-              className="w-full bg-[#0d101d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+              className="w-full bg-ph-panel border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
             >
               {gitRepoDetails?.branches?.map((b) => (
                 <option key={b} value={b}>
@@ -245,7 +244,7 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
             <button
               type="submit"
               disabled={isCreating || !newBranchName.trim()}
-              className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white transition disabled:opacity-50 flex items-center gap-1.5"
+              className="ph-btn ph-btn-primary disabled:opacity-50"
             >
               {isCreating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
               <span>{t.common.create}</span>
@@ -289,8 +288,8 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
                   samePath(wt.path, workspaceRoot)
                     ? 'bg-cyan-950/25 border-cyan-600/50 shadow-sm'
                     : wt.isMain
-                      ? 'bg-[#121626]/80 border-slate-800 hover:border-slate-700'
-                      : 'bg-[#141829] border-indigo-900/30 hover:border-indigo-700/50 shadow-sm'
+                      ? 'bg-ph-raised/80 border-slate-800 hover:border-slate-700'
+                      : 'bg-ph-hover border-indigo-900/30 hover:border-indigo-700/50 shadow-sm'
                 }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -303,25 +302,25 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
                       </span>
 
                       {wt.isMain ? (
-                        <span className="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                        <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                           {t.worktrees.mainWorktree}
                         </span>
                       ) : (
-                        <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-full">
+                        <span className="text-[11px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-full">
                           Isolated Worktree
                         </span>
                       )}
 
                       {/* Активное рабочее дерево — контекст всего приложения (TASK-62) */}
                       {samePath(wt.path, workspaceRoot) ? (
-                        <span className="text-[10px] font-semibold text-cyan-200 bg-cyan-500/20 border border-cyan-500/40 px-2 py-0.5 rounded-full">
+                        <span className="text-[11px] font-semibold text-cyan-200 bg-cyan-500/20 border border-cyan-500/40 px-2 py-0.5 rounded-full">
                           {t.worktrees.activeBadge}
                         </span>
                       ) : (
                         <button
                           type="button"
                           onClick={() => void setActiveWorktree(wt.isMain ? null : wt.path)}
-                          className="text-[10px] font-medium text-slate-300 bg-slate-800/80 border border-slate-700 hover:bg-slate-700 hover:text-white px-2 py-0.5 rounded-full transition"
+                          className="text-[11px] font-medium text-slate-300 bg-slate-800/80 border border-slate-700 hover:bg-slate-700 hover:text-white px-2 py-0.5 rounded-full transition"
                           title={t.worktrees.switchTo.replace('{branch}', wt.branch || wt.path)}
                         >
                           {t.worktrees.switcherLabel}
@@ -329,7 +328,7 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
                       )}
 
                       {wt.head && (
-                        <span className="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 rounded bg-slate-800/80">
+                        <span className="text-[11px] font-mono text-slate-400 px-1.5 py-0.5 rounded bg-slate-800/80">
                           {wt.head.substring(0, 7)}
                         </span>
                       )}
@@ -354,7 +353,7 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
                           <ExternalLink className="w-2.5 h-2.5" />
                         </button>
                         <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                          className={`text-[11px] px-1.5 py-0.5 rounded border ${
                             matchingTask.status === 'Done'
                               ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
                               : matchingTask.status === 'In Progress'

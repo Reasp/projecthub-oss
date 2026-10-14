@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Pause, Play, Square, Zap, Radio, Keyboard, X, CheckCircle2, Loader2 } from 'lucide-react';
+import { Pause, Play, Square, Zap, Radio, Keyboard, X, CheckCircle2, Loader2 } from '../common/icons';
 import { useI18n } from '../../i18n';
 import { CARD_LAYOUT, toResultCard, type VoiceResultCard } from '../../utils/voiceResultCard';
 
@@ -122,7 +122,7 @@ export const SystemVoiceOverlay: React.FC = () => {
       className="w-full h-full p-1 select-none cursor-move"
     >
       <div
-        className={`w-full h-full flex flex-col rounded-2xl bg-[#0e111bf2] border shadow-2xl backdrop-blur-2xl text-white ${
+        className={`w-full h-full flex flex-col rounded-2xl bg-ph-panel border shadow-2xl text-white ${
           mode === 'full' ? 'border-amber-500/60 px-10 py-8 gap-4' : 'border-indigo-500/50 px-5 py-3 gap-2'
         }`}
       >
@@ -227,7 +227,7 @@ const ResultCard: React.FC<ResultCardProps> = ({ card, labels, onClose }) => {
 
   return (
     <div style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} className="w-full h-full p-1 select-none cursor-move">
-      <div className="w-full h-full flex flex-col gap-2 rounded-2xl bg-[#0e111bf2] border border-indigo-500/50 shadow-2xl backdrop-blur-2xl text-white px-6 py-4">
+      <div className="w-full h-full flex flex-col gap-2 rounded-2xl bg-ph-panel border border-indigo-500/50 shadow-2xl text-white px-6 py-4">
         <div className="flex items-center justify-between gap-3 shrink-0">
           <span className="flex items-center gap-1.5 text-[13px] font-semibold text-indigo-300">
             <Radio className="w-4 h-4 text-indigo-400 shrink-0" />

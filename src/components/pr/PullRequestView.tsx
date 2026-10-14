@@ -11,11 +11,9 @@ import {
   GitBranch,
   ArrowRight,
   ShieldCheck,
-  AlertCircle,
   FileCode,
-  Check,
-  Terminal
-} from 'lucide-react';
+  Check
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { CreatePRModal } from './CreatePRModal';
@@ -56,21 +54,21 @@ export const PullRequestView: React.FC = () => {
     switch (state) {
       case 'OPEN':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
             <GitPullRequest className="w-3 h-3" />
             Open
           </span>
         );
       case 'MERGED':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20">
             <Check className="w-3 h-3" />
             Merged
           </span>
         );
       case 'CLOSED':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
             <XCircle className="w-3 h-3" />
             Closed
           </span>
@@ -83,21 +81,21 @@ export const PullRequestView: React.FC = () => {
     switch (status) {
       case 'SUCCESS':
         return (
-          <span className="flex items-center gap-1 text-[10px] text-emerald-400" title={t.pr.allChecksPassed}>
+          <span className="flex items-center gap-1 text-[11px] text-emerald-400" title={t.pr.allChecksPassed}>
             <CheckCircle2 className="w-3 h-3" />
             CI Passed
           </span>
         );
       case 'FAILURE':
         return (
-          <span className="flex items-center gap-1 text-[10px] text-rose-400" title={t.pr.checksFailed}>
+          <span className="flex items-center gap-1 text-[11px] text-rose-400" title={t.pr.checksFailed}>
             <XCircle className="w-3 h-3" />
             CI Failed
           </span>
         );
       case 'PENDING':
         return (
-          <span className="flex items-center gap-1 text-[10px] text-amber-400" title={t.pr.checksRunning}>
+          <span className="flex items-center gap-1 text-[11px] text-amber-400" title={t.pr.checksRunning}>
             <Clock className="w-3 h-3 animate-spin" />
             CI Running
           </span>
@@ -106,9 +104,9 @@ export const PullRequestView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0f1117]">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-ph-panel">
       {/* Top Header Controls */}
-      <div className="h-14 px-6 border-b border-slate-800/80 bg-[#12151f]/60 flex items-center justify-between gap-4 shrink-0 flex-nowrap overflow-hidden">
+      <div className="h-14 px-6 border-b border-slate-800/80 bg-ph-elevated/60 flex items-center justify-between gap-4 shrink-0 flex-nowrap overflow-hidden">
         <div className="flex items-center gap-4 min-w-0 flex-1 overflow-hidden">
           {/* Provider / Repo status */}
           <div className="flex items-center gap-2 text-xs shrink-0 whitespace-nowrap">
@@ -117,7 +115,7 @@ export const PullRequestView: React.FC = () => {
               <span className="truncate max-w-[160px]">{prProviderInfo?.repo || t.prs.localRepo}</span>
             </div>
             {prProviderInfo?.hasCli && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium shrink-0 whitespace-nowrap" title={t.prs.ghCliAvailable}>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium shrink-0 whitespace-nowrap" title={t.prs.ghCliAvailable}>
                 <ShieldCheck className="w-3 h-3 shrink-0" />
                 gh CLI
               </span>
@@ -125,7 +123,7 @@ export const PullRequestView: React.FC = () => {
           </div>
 
           {/* Filter Pills */}
-          <div className="flex items-center gap-1 bg-[#0b0d13] p-1 rounded-lg border border-slate-800 text-xs shrink-0 flex-nowrap">
+          <div className="flex items-center gap-1 bg-ph-base p-1 rounded-lg border border-slate-800 text-xs shrink-0 flex-nowrap">
             {(['all', 'open', 'merged', 'closed'] as const).map((filter) => (
               <button
                 key={filter}
@@ -133,7 +131,7 @@ export const PullRequestView: React.FC = () => {
                 title={`PR Filter: ${filter}`}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition capitalize whitespace-nowrap shrink-0 ${
                   prFilter === filter
-                    ? 'bg-indigo-600 text-white shadow-sm'
+                    ? 'bg-ph-hover text-slate-100'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                 }`}
               >
@@ -156,7 +154,7 @@ export const PullRequestView: React.FC = () => {
           <button
             onClick={() => setIsCreateModalOpen(true)}
             title={t.pr.newPR}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-lg shadow-indigo-600/20 transition shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-lg transition shrink-0 whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">{t.pr.newPR}</span>
@@ -167,7 +165,7 @@ export const PullRequestView: React.FC = () => {
       {/* Main PR Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Column: PR List */}
-        <div className="w-80 border-r border-slate-800/80 flex flex-col bg-[#10131c] shrink-0">
+        <div className="w-80 border-r border-slate-800/80 flex flex-col bg-ph-elevated shrink-0">
           <div className="px-4 py-2 border-b border-slate-800 text-[11px] font-medium text-slate-400 flex items-center justify-between">
             <span>{t.pr.title} ({prs.length})</span>
             {isLoadingPRs && <span className="text-indigo-400 animate-pulse">{t.common.loading}</span>}
@@ -179,7 +177,7 @@ export const PullRequestView: React.FC = () => {
                 <GitPullRequest className="w-8 h-8 mx-auto mb-2 text-slate-600" />
                 <p>{t.pr.noPRs}</p>
                 {!prProviderInfo?.hasCli && (
-                  <p className="mt-2 text-[10px] text-slate-600">
+                  <p className="mt-2 text-[11px] text-slate-600">
                     GitHub CLI (gh)
                   </p>
                 )}
@@ -210,7 +208,7 @@ export const PullRequestView: React.FC = () => {
                     </h4>
 
                     {/* Branch pills */}
-                    <div className="flex items-center gap-1 text-[10px] font-mono text-slate-400">
+                    <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400">
                       <span className="truncate max-w-[90px] px-1.5 py-0.5 rounded bg-slate-800/80 text-indigo-300">
                         {pr.sourceBranch}
                       </span>
@@ -221,7 +219,7 @@ export const PullRequestView: React.FC = () => {
                     </div>
 
                     {/* Footer metadata */}
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
                       <span>{pr.author}</span>
                       {pr.commentsCount !== undefined && pr.commentsCount > 0 && (
                         <span className="flex items-center gap-1 text-slate-400">
@@ -238,11 +236,11 @@ export const PullRequestView: React.FC = () => {
         </div>
 
         {/* Right Column: Selected PR Details */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-[#0d0f15]">
+        <div className="flex-1 flex flex-col overflow-hidden bg-ph-panel">
           {selectedPR ? (
             <>
               {/* PR Detail Header */}
-              <div className="p-6 border-b border-slate-800 bg-[#12151f]/40 flex flex-col gap-3">
+              <div className="p-6 border-b border-slate-800 bg-ph-elevated/40 flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2 mb-1.5">
@@ -290,7 +288,7 @@ export const PullRequestView: React.FC = () => {
                     onClick={() => setActiveSubTab('overview')}
                     className={`px-3 py-1 rounded-md text-xs font-medium transition ${
                       activeSubTab === 'overview'
-                        ? 'bg-indigo-600 text-white'
+                        ? 'bg-ph-hover text-slate-100'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
                     }`}
                   >
@@ -300,7 +298,7 @@ export const PullRequestView: React.FC = () => {
                     onClick={() => setActiveSubTab('diff')}
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition ${
                       activeSubTab === 'diff'
-                        ? 'bg-indigo-600 text-white'
+                        ? 'bg-ph-hover text-slate-100'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
                     }`}
                   >
@@ -311,7 +309,7 @@ export const PullRequestView: React.FC = () => {
                     onClick={() => setActiveSubTab('review')}
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition ${
                       activeSubTab === 'review'
-                        ? 'bg-indigo-600 text-white'
+                        ? 'bg-ph-hover text-slate-100'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
                     }`}
                   >
@@ -333,12 +331,12 @@ export const PullRequestView: React.FC = () => {
                 ) : activeSubTab === 'overview' ? (
                   <div className="max-w-3xl space-y-6">
                     {/* Description Box */}
-                    <div className="bg-[#141722] border border-slate-800 rounded-xl p-5 shadow-inner">
-                      <h3 className="text-xs font-semibold text-slate-300 mb-3 uppercase tracking-wider">
+                    <div className="bg-ph-raised border border-slate-800 rounded-xl p-5 shadow-inner">
+                      <h3 className="text-xs font-medium text-slate-300 mb-3">
                         {t.pr.description}
                       </h3>
                       {selectedPR.body ? (
-                        <div className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap font-mono bg-[#0b0d13] p-4 rounded-lg border border-slate-800/80">
+                        <div className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap font-mono bg-ph-base p-4 rounded-lg border border-slate-800/80">
                           {selectedPR.body}
                         </div>
                       ) : (
@@ -365,7 +363,7 @@ export const PullRequestView: React.FC = () => {
                   /* Diff View */
                   <div className="flex flex-col h-full">
                     {prDiffContent ? (
-                      <div className="bg-[#0b0d13] border border-slate-800 rounded-lg p-4 font-mono text-xs overflow-x-auto leading-relaxed text-slate-300">
+                      <div className="bg-ph-base border border-slate-800 rounded-lg p-4 font-mono text-xs overflow-x-auto leading-relaxed text-slate-300">
                         <pre className="whitespace-pre">
                           {prDiffContent.split('\n').map((line, idx) => {
                             const isAdded = line.startsWith('+') && !line.startsWith('+++');

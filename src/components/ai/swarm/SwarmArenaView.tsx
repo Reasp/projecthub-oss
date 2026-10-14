@@ -6,7 +6,6 @@ import {
   Square,
   Trophy,
   GitFork,
-  GitMerge,
   Clock,
   Code2,
   Terminal,
@@ -18,7 +17,6 @@ import {
   RefreshCw,
   Plus,
   ChevronRight,
-  ExternalLink,
   GitCommit,
   Bookmark,
   Download,
@@ -33,7 +31,7 @@ import {
   Shuffle,
   Activity,
   History
-} from 'lucide-react';
+} from '../../common/icons';
 import { useSwarmStore } from '../../../store/useSwarmStore';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useTranslation } from '../../../i18n/useTranslation';
@@ -300,7 +298,7 @@ export const SwarmArenaView: React.FC = () => {
       {/* Top Header Bar */}
       <div className="border-b border-border bg-card/60 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
+          <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-primary">
             <Zap className="w-4 h-4" />
           </div>
           <div>
@@ -310,7 +308,7 @@ export const SwarmArenaView: React.FC = () => {
               </h1>
               {currentSwarm && (
                 <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     currentSwarm.status === 'running'
                       ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20 animate-pulse'
                       : currentSwarm.status === 'completed'
@@ -552,7 +550,7 @@ export const SwarmArenaView: React.FC = () => {
                     </span>
                   )}
                   {currentSwarm.useWorktrees && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-emerald-500/10 text-emerald-500 text-[10px] font-medium border border-emerald-500/20">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-emerald-500/10 text-emerald-500 text-[11px] font-medium border border-emerald-500/20">
                       <GitFork className="w-3 h-3" /> Worktrees Active
                     </span>
                   )}
@@ -567,7 +565,7 @@ export const SwarmArenaView: React.FC = () => {
                   {t.swarm.baseBranchLabel} <span className="font-mono text-foreground font-semibold">{currentSwarm.baseBranch}</span>
                 </div>
                 {totals && (
-                  <div className="flex items-center justify-end gap-3 font-mono text-[10px]" title={t.swarm.sessionSummaryTitle}>
+                  <div className="flex items-center justify-end gap-3 font-mono text-[11px]" title={t.swarm.sessionSummaryTitle}>
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" /> {formatDuration(totals.durationMs, t.swarm.secondsUnit)}
                     </span>
@@ -595,7 +593,7 @@ export const SwarmArenaView: React.FC = () => {
                   </div>
                 )}
                 {currentSwarm.restored && (
-                  <div className="text-[10px] text-muted-foreground/70 italic">{t.swarm.restoredBadge}</div>
+                  <div className="text-[11px] text-muted-foreground/70 italic">{t.swarm.restoredBadge}</div>
                 )}
               </div>
             </div>
@@ -604,7 +602,7 @@ export const SwarmArenaView: React.FC = () => {
             {currentSwarm.mode === 'handoff' && currentSwarm.handoffStages && (
               <div className="p-4 rounded-xl border border-border/70 bg-card/30">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  <span className="text-xs font-medium text-muted-foreground">
                     {t.swarm.handoffStagesTitle}
                   </span>
                   <span className="text-xs text-primary font-medium">
@@ -640,16 +638,16 @@ export const SwarmArenaView: React.FC = () => {
                             ) : isFailed ? (
                               <AlertCircle className="w-3.5 h-3.5 text-destructive" />
                             ) : (
-                              <span className="text-[10px] text-muted-foreground">#{idx + 1}</span>
+                              <span className="text-[11px] text-muted-foreground">#{idx + 1}</span>
                             )}
                           </div>
                           {stage.durationMs && (
-                            <div className="text-[10px] text-muted-foreground mt-1">
+                            <div className="text-[11px] text-muted-foreground mt-1">
                               {(stage.durationMs / 1000).toFixed(1)} {t.swarm.secondsUnit}
                             </div>
                           )}
                           {Boolean(stage.invalidatedAt || stage.rerunCount) && (
-                            <div className="text-[10px] text-amber-300/90 mt-1" data-testid="handoff-stage-rewind">
+                            <div className="text-[11px] text-amber-300/90 mt-1" data-testid="handoff-stage-rewind">
                               {stage.invalidatedAt ? t.agentTimeline.stageInvalidated : null}
                               {stage.invalidatedAt && stage.rerunCount ? ' · ' : null}
                               {stage.rerunCount ? t.agentTimeline.stageRerun.replace('{n}', String(stage.rerunCount)) : null}
@@ -684,7 +682,7 @@ export const SwarmArenaView: React.FC = () => {
             {/* Side-by-Side Arena Grid (AC #4) */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <h3 className="text-xs font-medium text-muted-foreground">
                   {t.swarm.contestantsTitle.replace('{count}', String(currentSwarm.agents.length))}
                 </h3>
               </div>
@@ -721,7 +719,7 @@ export const SwarmArenaView: React.FC = () => {
                               {agent.config.name}
                             </span>
                             {isWinner && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-bold border border-emerald-500/30">
                                 <Trophy className="w-3 h-3 text-amber-400" /> {t.swarm.winnerBadge}
                               </span>
                             )}
@@ -729,7 +727,7 @@ export const SwarmArenaView: React.FC = () => {
                               const badge = agentStatusBadge(agent);
                               return badge ? (
                                 <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${badge.className}`}
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}
                                   title={agent.error || badge.label}
                                 >
                                   {badge.label}
@@ -738,7 +736,7 @@ export const SwarmArenaView: React.FC = () => {
                             })()}
                             {agent.rewinds && agent.rewinds.length > 0 && (
                               <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-amber-500/10 text-amber-300 border-amber-500/30"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-amber-500/10 text-amber-300 border-amber-500/30"
                                 data-testid="agent-rewound-badge"
                               >
                                 <History className="w-3 h-3" />
@@ -746,18 +744,18 @@ export const SwarmArenaView: React.FC = () => {
                               </span>
                             )}
                             {agent.worktreeMissing && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-rose-500/10 text-rose-400 border-rose-500/30">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-500/10 text-rose-400 border-rose-500/30">
                                 {t.swarm.worktreeMissingBadge}
                               </span>
                             )}
                             {currentSwarm.judge?.recommendedAgentId === agent.id && !isWinner && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-bold border border-primary/30">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[11px] font-bold border border-primary/30">
                                 <Gavel className="w-3 h-3" /> {t.judge.recommendedBadge}
                               </span>
                             )}
                             {agent.score?.blocked && (
                               <span
-                                className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-rose-500/10 text-rose-400 border-rose-500/30"
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-500/10 text-rose-400 border-rose-500/30"
                                 title={agent.score.blockedReason}
                               >
                                 {t.judge.blockedBadge}
@@ -765,12 +763,12 @@ export const SwarmArenaView: React.FC = () => {
                             )}
                           </div>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] px-1.5 py-0.2 rounded-sm bg-secondary font-mono text-muted-foreground">
+                            <span className="text-[11px] px-1.5 py-0.2 rounded-sm bg-secondary font-mono text-muted-foreground">
                               {agent.config.engine}
                             </span>
                             {agent.providerInfo && (
                               <span
-                                className="text-[10px] px-1.5 py-0.2 rounded-sm bg-secondary font-mono text-muted-foreground max-w-[220px] truncate"
+                                className="text-[11px] px-1.5 py-0.2 rounded-sm bg-secondary font-mono text-muted-foreground max-w-[220px] truncate"
                                 title={`${agent.providerInfo.profileName ?? agent.providerInfo.provider}${agent.providerInfo.model ? ` · ${agent.providerInfo.model}` : ''}`}
                               >
                                 {agent.providerInfo.profileName ?? agent.providerInfo.provider}
@@ -781,7 +779,7 @@ export const SwarmArenaView: React.FC = () => {
                             {/* Тир и фактическая модель (TASK-79, decision-44); у CLI-движков модели в providerInfo нет. */}
                             {agent.modelRouting && (
                               <span
-                                className="text-[10px] px-1.5 py-0.2 rounded-sm bg-violet-500/10 border border-violet-500/30 font-mono text-violet-300 max-w-[260px] truncate"
+                                className="text-[11px] px-1.5 py-0.2 rounded-sm bg-violet-500/10 border border-violet-500/30 font-mono text-violet-300 max-w-[260px] truncate"
                                 title={`${t.modelTiers.cardTier.replace('{tier}', agent.modelRouting.requestedTier ?? '—')} · ${t.modelTiers.source[agent.modelRouting.source]}${agent.modelRouting.current ? ` · ${chainLinkLabel(agent.modelRouting.current)}` : ''}`}
                                 data-testid="agent-model-tier"
                               >
@@ -850,7 +848,7 @@ export const SwarmArenaView: React.FC = () => {
                               </div>
                             )}
                             {agent.modelRouting.switches.map((sw, i) => (
-                              <div key={`${sw.at}-${i}`} className="font-mono text-[10px] text-violet-200/90 truncate" title={sw.message}>
+                              <div key={`${sw.at}-${i}`} className="font-mono text-[11px] text-violet-200/90 truncate" title={sw.message}>
                                 {i + 1}. {chainLinkLabel(sw.from)} → {chainLinkLabel(sw.to)}:{' '}
                                 {providerErrorTitle({ kind: sw.kind, reason: sw.reason, retryable: false, message: sw.message }, t.providerErrors)}
                                 {sw.status !== undefined ? ` (HTTP ${sw.status})` : ''}
@@ -871,7 +869,7 @@ export const SwarmArenaView: React.FC = () => {
                         <div className="flex items-center gap-2 text-muted-foreground truncate">
                           <div className="flex items-center gap-1.5 truncate">
                             <GitFork className="w-3.5 h-3.5 text-primary shrink-0" />
-                            <span className="font-mono text-[10px] truncate" title={agent.worktreeBranch}>
+                            <span className="font-mono text-[11px] truncate" title={agent.worktreeBranch}>
                               {agent.worktreeBranch || 'main'}
                             </span>
                           </div>
@@ -879,7 +877,7 @@ export const SwarmArenaView: React.FC = () => {
                           {/* Commit / Stash Badge */}
                           {agent.commitHash ? (
                             <span
-                              className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono text-[10px]"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono text-[11px]"
                               title={`${t.swarm.statusCommitted}: ${agent.commitHash}`}
                             >
                               <GitCommit className="w-3 h-3 text-emerald-400" />
@@ -887,7 +885,7 @@ export const SwarmArenaView: React.FC = () => {
                             </span>
                           ) : agent.stashHash ? (
                             <span
-                              className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono text-[10px]"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono text-[11px]"
                               title={`${t.swarm.statusStashed}: ${agent.stashHash}`}
                             >
                               <Bookmark className="w-3 h-3 text-amber-400" />
@@ -895,7 +893,7 @@ export const SwarmArenaView: React.FC = () => {
                             </span>
                           ) : agent.commitStatus === 'no_changes' ? (
                             <span
-                              className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-mono text-[10px]"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-mono text-[11px]"
                               title={t.swarm.statusNoChanges}
                             >
                               no-diff
@@ -913,7 +911,7 @@ export const SwarmArenaView: React.FC = () => {
 
                           {agent.metrics.usage ? (
                             <span
-                              className="font-mono text-[10px]"
+                              className="font-mono text-[11px]"
                               title={t.swarm.costTooltip
                                 .replace('{cost}', formatUsd(agent.metrics.usage.costUsd))
                                 .replace('{source}', costSourceLabel(agent.metrics.usage.costSource))
@@ -935,7 +933,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
 
                           {agent.metrics.usage ? (
                             <span
-                              className={`flex items-center gap-0.5 font-mono text-[10px] ${
+                              className={`flex items-center gap-0.5 font-mono text-[11px] ${
                                 agent.status === 'budget_exceeded' ? 'text-rose-400 font-semibold' : 'text-foreground'
                               }`}
                               title={
@@ -959,7 +957,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                           ) : null}
 
                           {agent.diffSummary && (
-                            <span className="font-mono text-[10px]">
+                            <span className="font-mono text-[11px]">
                               <span className="text-emerald-400">+{agent.diffSummary.insertions}</span>{' '}
                               <span className="text-rose-400">-{agent.diffSummary.deletions}</span>
                             </span>
@@ -970,7 +968,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                             if (summary.total === 0 && summary.running === 0) return null;
                             return (
                               <span
-                                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded border font-mono text-[10px] ${
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded border font-mono text-[11px] ${
                                   summary.failed > 0
                                     ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                                     : summary.running > 0
@@ -989,7 +987,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
 
                           {agent.score && (
                             <span
-                              className={`font-mono text-[10px] font-bold ${scoreClass(agent.score)}`}
+                              className={`font-mono text-[11px] font-bold ${scoreClass(agent.score)}`}
                               title={agent.score.components
                                 .map((c) => `${componentLabel(c.key, t.judge)}: ${c.points.toFixed(1)}/${c.weight} — ${c.unknown ? t.judge.componentUnknown : c.detail}`)
                                 .join('\n')}
@@ -1008,7 +1006,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                           onClick={() => setAgentTab(agent.id, 'output')}
                           className={`flex items-center gap-1.5 py-2 px-3 text-xs font-medium border-b-2 transition-colors ${
                             currentTab === 'output'
-                              ? 'border-primary text-primary'
+                              ? 'border-indigo-400 text-foreground'
                               : 'border-transparent text-muted-foreground hover:text-foreground'
                           }`}
                         >
@@ -1018,7 +1016,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                           onClick={() => setAgentTab(agent.id, 'logs')}
                           className={`flex items-center gap-1.5 py-2 px-3 text-xs font-medium border-b-2 transition-colors ${
                             currentTab === 'logs'
-                              ? 'border-primary text-primary'
+                              ? 'border-indigo-400 text-foreground'
                               : 'border-transparent text-muted-foreground hover:text-foreground'
                           }`}
                         >
@@ -1028,7 +1026,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                           onClick={() => setAgentTab(agent.id, 'diff')}
                           className={`flex items-center gap-1.5 py-2 px-3 text-xs font-medium border-b-2 transition-colors ${
                             currentTab === 'diff'
-                              ? 'border-primary text-primary'
+                              ? 'border-indigo-400 text-foreground'
                               : 'border-transparent text-muted-foreground hover:text-foreground'
                           }`}
                         >
@@ -1038,7 +1036,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                           onClick={() => setAgentTab(agent.id, 'checks')}
                           className={`flex items-center gap-1.5 py-2 px-3 text-xs font-medium border-b-2 transition-colors ${
                             currentTab === 'checks'
-                              ? 'border-primary text-primary'
+                              ? 'border-indigo-400 text-foreground'
                               : 'border-transparent text-muted-foreground hover:text-foreground'
                           }`}
                         >
@@ -1048,7 +1046,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                           onClick={() => setAgentTab(agent.id, 'review')}
                           className={`flex items-center gap-1.5 py-2 px-3 text-xs font-medium border-b-2 transition-colors ${
                             currentTab === 'review'
-                              ? 'border-primary text-primary'
+                              ? 'border-indigo-400 text-foreground'
                               : 'border-transparent text-muted-foreground hover:text-foreground'
                           }`}
                         >
@@ -1058,7 +1056,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                           onClick={() => setAgentTab(agent.id, 'timeline')}
                           className={`flex items-center gap-1.5 py-2 px-3 text-xs font-medium border-b-2 transition-colors ${
                             currentTab === 'timeline'
-                              ? 'border-primary text-primary'
+                              ? 'border-indigo-400 text-foreground'
                               : 'border-transparent text-muted-foreground hover:text-foreground'
                           }`}
                           data-testid="agent-tab-timeline"
@@ -1076,7 +1074,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                             {agent.liveOutput || agent.finalOutput ? (
                               <>
                                 {agent.liveOutputTruncated && (
-                                  <div className="mb-2 text-[10px] text-amber-400/90 italic flex items-center gap-1">
+                                  <div className="mb-2 text-[11px] text-amber-400/90 italic flex items-center gap-1">
                                     <AlertTriangle className="w-3 h-3" /> {t.swarm.outputTruncatedNote}
                                   </div>
                                 )}
@@ -1108,13 +1106,13 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                         {currentTab === 'logs' && (
                           <div className="font-mono text-[11px] space-y-1 text-muted-foreground h-full overflow-y-auto select-text">
                             <div className="flex items-center justify-between gap-2 mb-1 font-sans">
-                              <span className="text-[10px] text-muted-foreground/80">
+                              <span className="text-[11px] text-muted-foreground/80">
                                 {agent.logsDropped ? t.swarm.logsDroppedNote.replace('{count}', String(agent.logsDropped)) : ''}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => handleOpenTranscript(agent)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-secondary hover:bg-secondary/70 text-[10px] text-foreground border border-border/60 transition shrink-0"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-secondary hover:bg-secondary/70 text-[11px] text-foreground border border-border/60 transition shrink-0"
                               >
                                 <ScrollText className="w-3 h-3" /> {t.swarm.fullLog}
                               </button>
@@ -1165,13 +1163,13 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
 
                               {changedFiles.length > 0 && (
                                 <div className="mb-2 p-2 bg-secondary/30 rounded border border-border/60 flex flex-wrap items-center gap-2 shrink-0">
-                                  <span className="text-[10px] font-medium text-muted-foreground">
+                                  <span className="text-[11px] font-medium text-muted-foreground">
                                     {t.worktrees.applySelectedFiles} ({changedFiles.length}):
                                   </span>
                                   {changedFiles.map((file) => (
                                     <div
                                       key={file}
-                                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-background border border-border text-[10px] font-mono"
+                                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-background border border-border text-[11px] font-mono"
                                     >
                                       <span className="truncate max-w-[140px]" title={file}>
                                         {file}
@@ -1180,7 +1178,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                         type="button"
                                         disabled={isApplyingFile}
                                         onClick={() => handleApplyFile(agent.worktreeBranch || '', file)}
-                                        className="text-emerald-400 hover:text-emerald-300 px-1 py-0.2 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-[9px] font-sans transition disabled:opacity-50"
+                                        className="text-emerald-400 hover:text-emerald-300 px-1 py-0.2 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-[11px] font-sans transition disabled:opacity-50"
                                         title={t.swarm.applyFileTooltip}
                                       >
                                         {t.swarm.applyFile}
@@ -1238,18 +1236,18 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                     <div className="flex items-center gap-2 min-w-0">
                                       <span className="text-xs font-semibold text-foreground truncate">{check.name}</span>
                                       {check.blocking && (
-                                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground border border-border">
+                                        <span className="text-[11px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground border border-border">
                                           {t.judge.checkBlocking}
                                         </span>
                                       )}
                                     </div>
                                     <span
-                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border shrink-0 ${checkStatusClass(check.status)}`}
+                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border shrink-0 ${checkStatusClass(check.status)}`}
                                     >
                                       {checkStatusLabel(check.status, t.judge)}
                                     </span>
                                   </div>
-                                  <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground font-mono">
+                                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground font-mono">
                                     <span className="truncate max-w-full" title={check.command}>{check.command}</span>
                                     {typeof check.durationMs === 'number' && (
                                       <span>{(check.durationMs / 1000).toFixed(1)} {t.swarm.secondsUnit}</span>
@@ -1265,10 +1263,10 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                       </span>
                                     )}
                                   </div>
-                                  {check.detail && <div className="text-[10px] text-amber-400/90">{check.detail}</div>}
+                                  {check.detail && <div className="text-[11px] text-amber-400/90">{check.detail}</div>}
                                   <CheckArtifactsGallery artifacts={check.artifacts} truncated={check.artifactsTruncated} />
                                   {check.outputTail && check.status !== 'passed' && (
-                                    <details className="text-[10px]">
+                                    <details className="text-[11px]">
                                       <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                                         {t.judge.checkOutput}
                                       </summary>
@@ -1311,7 +1309,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                 )}
                                 {agent.review.summary && (
                                   <div>
-                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                                    <div className="text-[11px] font-medium text-muted-foreground mb-1">
                                       {t.judge.reviewSummary}
                                     </div>
                                     <p className="text-[11px] text-foreground leading-relaxed">{agent.review.summary}</p>
@@ -1319,14 +1317,14 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                 )}
                                 {agent.review.criteria && agent.review.criteria.length > 0 && (
                                   <div>
-                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                                    <div className="text-[11px] font-medium text-muted-foreground mb-1">
                                       {t.judge.reviewCriteria}
                                     </div>
                                     <div className="space-y-1">
                                       {agent.review.criteria.map((c) => (
                                         <div key={c.index} className="flex items-start gap-2 text-[11px]">
                                           <span
-                                            className={`shrink-0 px-1.5 py-0.2 rounded border text-[9px] font-semibold ${verdictClass(c.verdict)}`}
+                                            className={`shrink-0 px-1.5 py-0.2 rounded border text-[11px] font-semibold ${verdictClass(c.verdict)}`}
                                           >
                                             #{c.index} {verdictLabel(c.verdict, t.judge)}
                                           </span>
@@ -1341,14 +1339,14 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                 )}
                                 {agent.review.findings && agent.review.findings.length > 0 && (
                                   <div>
-                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                                    <div className="text-[11px] font-medium text-muted-foreground mb-1">
                                       {t.judge.reviewFindings}
                                     </div>
                                     <div className="space-y-1">
                                       {agent.review.findings.map((f, i) => (
                                         <div key={i} className="flex items-start gap-2 text-[11px]">
                                           <span
-                                            className={`shrink-0 px-1.5 py-0.2 rounded border text-[9px] font-semibold ${severityClass(f.severity)}`}
+                                            className={`shrink-0 px-1.5 py-0.2 rounded border text-[11px] font-semibold ${severityClass(f.severity)}`}
                                           >
                                             {severityLabel(f.severity, t.judge)}
                                           </span>
@@ -1368,7 +1366,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                 )}
                                 {agent.review.risks && agent.review.risks.length > 0 && (
                                   <div>
-                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                                    <div className="text-[11px] font-medium text-muted-foreground mb-1">
                                       {t.judge.reviewRisks}
                                     </div>
                                     <ul className="list-disc list-inside space-y-0.5 text-[11px] text-muted-foreground">
@@ -1379,7 +1377,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                   </div>
                                 )}
                                 {agent.review.raw && (
-                                  <details className="text-[10px]">
+                                  <details className="text-[11px]">
                                     <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                                       {t.judge.reviewRaw}
                                     </summary>
@@ -1389,7 +1387,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                   </details>
                                 )}
                                 {agent.review.model && (
-                                  <div className="text-[10px] text-muted-foreground/70 font-mono">
+                                  <div className="text-[11px] text-muted-foreground/70 font-mono">
                                     {t.judge.reviewModel}: {agent.review.model}
                                   </div>
                                 )}
@@ -1410,9 +1408,9 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
       {/* Full transcript modal (TASK-56) */}
       {transcript &&
         createPortal(
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => setTranscript(null)}>
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setTranscript(null)}>
           <div
-            className="relative w-full max-w-4xl h-[85vh] rounded-xl border border-border bg-card shadow-2xl flex flex-col"
+            className="relative w-full max-w-4xl h-[85vh] rounded-xl border border-slate-700 bg-ph-elevated shadow-2xl flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-3 border-b border-border">
@@ -1421,7 +1419,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                   {t.swarm.fullLogTitle.replace('{name}', transcript.agent.config.name)}
                 </h3>
                 {transcript.data && (
-                  <p className="text-[10px] text-muted-foreground font-mono truncate" title={transcript.data.path}>
+                  <p className="text-[11px] text-muted-foreground font-mono truncate" title={transcript.data.path}>
                     {transcript.data.truncated
                       ? t.swarm.fullLogTruncated
                           .replace('{size}', String(Math.round(transcript.data.sizeBytes / 1024)))

@@ -1,5 +1,5 @@
 import React from 'react';
-import { GitFork, CheckCircle2, XCircle, Loader2, Bot } from 'lucide-react';
+import { GitFork, CheckCircle2, XCircle, Loader2, Bot } from '../common/icons';
 import type { SubagentInfo } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 
@@ -12,14 +12,14 @@ export const SubagentsPanel: React.FC<SubagentsPanelProps> = ({ subagents, onClo
   const { t } = useTranslation();
 
   return (
-    <div className="bg-[#10131d] border border-slate-800 rounded-xl p-4 space-y-3 shadow-xl">
+    <div className="bg-ph-elevated border border-slate-800 rounded-xl p-4 space-y-3 shadow-xl">
       <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
         <div className="flex items-center gap-2">
           <GitFork className="w-4 h-4 text-indigo-400" />
-          <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+          <h4 className="text-xs font-medium text-slate-200">
             {t.aiStudio.subagents}
           </h4>
-          <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-mono font-medium">
+          <span className="text-[11px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-mono font-medium">
             {subagents.length}
           </span>
         </div>
@@ -45,11 +45,11 @@ export const SubagentsPanel: React.FC<SubagentsPanelProps> = ({ subagents, onClo
           {subagents.map((sub) => (
             <div
               key={sub.id}
-              className="p-3 rounded-lg bg-[#141724] border border-slate-800/90 space-y-1.5 text-xs"
+              className="p-3 rounded-lg bg-ph-raised border border-slate-800/90 space-y-1.5 text-xs"
             >
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-                  <span className="text-indigo-400 font-mono text-[10px]">[{sub.id.slice(-4)}]</span>
+                  <span className="text-indigo-400 font-mono text-[11px]">[{sub.id.slice(-4)}]</span>
                   <span>{sub.name}</span>
                 </span>
 
@@ -71,12 +71,12 @@ export const SubagentsPanel: React.FC<SubagentsPanelProps> = ({ subagents, onClo
                 )}
               </div>
 
-              <p className="text-[11px] text-slate-300 bg-[#0d0f17] p-2 rounded border border-slate-800/80 font-mono">
+              <p className="text-[11px] text-slate-300 bg-ph-panel p-2 rounded border border-slate-800/80 font-mono">
                 {sub.task}
               </p>
 
               {sub.progress && (
-                <p className="text-[10px] text-slate-400 italic">
+                <p className="text-[11px] text-slate-400 italic">
                   {t.common.status}: {sub.progress}
                 </p>
               )}

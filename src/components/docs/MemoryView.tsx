@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Brain, CheckCircle2, Edit3, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
+import { AlertCircle, Brain, CheckCircle2, Edit3, Plus, RefreshCw, Save, Search, Trash2, X } from '../common/icons';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTimeoutState } from '../../hooks/useTimeoutState';
 import { useDialogStore } from '../../store/useDialogStore';
@@ -154,8 +154,8 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
   return (
     <div className="flex-1 flex gap-5 overflow-hidden" data-testid="memory-view">
       {/* Список фактов */}
-      <div className="w-80 bg-[#141724]/70 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
-        <div className="p-3 border-b border-slate-800 space-y-2.5 bg-[#111422]">
+      <div className="w-80 bg-ph-raised/70 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
+        <div className="p-3 border-b border-slate-800 space-y-2.5 bg-ph-raised">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
@@ -164,7 +164,7 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={m.searchPlaceholder}
-                className="w-full bg-[#10121d] border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-ph-elevated border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
               />
             </div>
             <button
@@ -182,13 +182,13 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
               <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
-          <div className="flex items-center gap-1 bg-[#10121d] p-1 rounded-lg border border-slate-800 text-[11px]">
+          <div className="flex items-center gap-1 bg-ph-elevated p-1 rounded-lg border border-slate-800 text-[11px]">
             {(['all', ...TYPES] as const).map((type) => (
               <button
                 key={type}
                 onClick={() => setTypeFilter(type)}
                 className={`flex-1 py-1 rounded-md font-medium transition ${
-                  typeFilter === type ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  typeFilter === type ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {type === 'all' ? `${m.allTypes} (${facts.length})` : m.types[type]}
@@ -221,15 +221,15 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
               className={`p-3 rounded-xl border transition cursor-pointer flex flex-col gap-1 ${
                 selectedId === fact.id
                   ? 'bg-indigo-600/15 border-indigo-500/50 text-white shadow-sm'
-                  : 'bg-[#10121d]/40 border-slate-800/60 text-slate-300 hover:bg-[#181c2d]'
+                  : 'bg-ph-elevated/40 border-slate-800/60 text-slate-300 hover:bg-ph-hover'
               }`}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[10px] font-mono text-slate-500 shrink-0">{fact.id}</span>
+                <span className="text-[11px] font-mono text-slate-500 shrink-0">{fact.id}</span>
                 <span className="text-xs font-semibold truncate">{fact.title}</span>
               </div>
               <div className="text-[11px] text-slate-400 line-clamp-2">{fact.description}</div>
-              <div className="flex items-center gap-1.5 text-[10px]">
+              <div className="flex items-center gap-1.5 text-[11px]">
                 <span className={`px-1.5 py-0.5 rounded border ${TYPE_BADGE[fact.type]}`}>{m.types[fact.type]}</span>
                 {fact.source && <span className="text-slate-500 font-mono truncate">{fact.source}</span>}
                 <span className="text-slate-600 ml-auto shrink-0">{fact.updated ?? fact.created}</span>
@@ -240,8 +240,8 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
       </div>
 
       {/* Карточка факта или форма */}
-      <div className="flex-1 bg-[#141724]/70 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-800 bg-[#111422] flex items-center gap-3">
+      <div className="flex-1 bg-ph-raised/70 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-800 bg-ph-raised flex items-center gap-3">
           <Brain className="w-4 h-4 text-indigo-400 shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold text-white truncate">{m.title}</div>
@@ -270,7 +270,7 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
                   value={editing.draft.title}
                   onChange={(e) => setDraft({ title: e.target.value })}
                   maxLength={100}
-                  className="w-full bg-[#10121d] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-ph-elevated border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
               </label>
               <label className="block space-y-1">
@@ -279,7 +279,7 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
                   value={editing.draft.description}
                   onChange={(e) => setDraft({ description: e.target.value })}
                   maxLength={200}
-                  className="w-full bg-[#10121d] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-ph-elevated border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
               </label>
               <label className="block space-y-1">
@@ -287,7 +287,7 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
                 <select
                   value={editing.draft.type}
                   onChange={(e) => setDraft({ type: e.target.value as MemoryFactType })}
-                  className="w-full bg-[#10121d] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-ph-elevated border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 >
                   {TYPES.map((type) => (
                     <option key={type} value={type}>
@@ -302,7 +302,7 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
                   value={editing.draft.body}
                   onChange={(e) => setDraft({ body: e.target.value })}
                   rows={10}
-                  className="w-full bg-[#10121d] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-ph-elevated border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
                 />
                 <span className="text-[11px] text-slate-500">{m.bodyHint}</span>
               </label>
@@ -331,7 +331,7 @@ export const MemoryView: React.FC<Props> = ({ projectPath }) => {
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-mono text-slate-500">{selected.id}</span>
-                    <span className={`px-1.5 py-0.5 rounded border text-[10px] ${TYPE_BADGE[selected.type]}`}>{m.types[selected.type]}</span>
+                    <span className={`px-1.5 py-0.5 rounded border text-[11px] ${TYPE_BADGE[selected.type]}`}>{m.types[selected.type]}</span>
                   </div>
                   <h2 className="text-base font-semibold text-white">{selected.title}</h2>
                   <p className="text-xs text-slate-400">{selected.description}</p>

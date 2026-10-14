@@ -11,12 +11,10 @@ import {
   Zap,
   Bot,
   Terminal,
-  Activity,
   Calendar,
   Layers,
-  FileCode2,
-  Database
-} from 'lucide-react';
+  FileCode2
+} from '../common/icons';
 import type { ClaudeUsageData } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 
@@ -88,9 +86,9 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
   const unknownBadgeColor = 'bg-slate-800/80 text-slate-400 border-slate-700/60';
 
   const getProgressColor = (percent: number) => {
-    if (percent >= 85) return 'from-rose-500 to-red-600 shadow-rose-500/30';
-    if (percent >= 60) return 'from-amber-500 to-orange-600 shadow-amber-500/30';
-    return 'from-emerald-500 to-teal-500 shadow-emerald-500/30';
+    if (percent >= 85) return 'bg-rose-500';
+    if (percent >= 60) return 'bg-amber-500';
+    return 'bg-emerald-500';
   };
 
   const getBadgeColor = (percent: number) => {
@@ -112,11 +110,11 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150 select-none"
+      className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4 animate-in fade-in duration-150 select-none"
     >
-      <div className={`w-full ${hasFable ? 'max-w-4xl' : 'max-w-2xl'} bg-[#10131f] border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-slate-200 font-sans transition-all duration-200`}>
+      <div className={`w-full ${hasFable ? 'max-w-4xl' : 'max-w-2xl'} bg-ph-elevated border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-slate-200 font-sans transition-all duration-200`}>
         {/* Modal Header */}
-        <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-[#141827]/90">
+        <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-ph-hover/90">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 shadow-sm">
               <Gauge className="w-5 h-5" />
@@ -124,7 +122,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-white">{t.claudeUsage.modalTitle}</h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                   {usageData?.planType || 'Subscription'}
                 </span>
               </div>
@@ -154,12 +152,12 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
         </div>
 
         {/* Modal Tabs Bar */}
-        <div className="px-5 pt-3 pb-0 border-b border-slate-800/80 flex items-center gap-2 bg-[#0e111c]">
+        <div className="px-5 pt-3 pb-0 border-b border-slate-800/80 flex items-center gap-2 bg-ph-elevated">
           <button
             onClick={() => setActiveTab('limits')}
-            className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition flex items-center gap-1.5 ${
+            className={`pb-2.5 px-2 text-xs font-medium border-b-2 transition flex items-center gap-1.5 ${
               activeTab === 'limits'
-                ? 'border-amber-400 text-amber-300'
+                ? 'border-indigo-400 text-slate-100'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -168,9 +166,9 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
           </button>
           <button
             onClick={() => setActiveTab('models')}
-            className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition flex items-center gap-1.5 ${
+            className={`pb-2.5 px-2 text-xs font-medium border-b-2 transition flex items-center gap-1.5 ${
               activeTab === 'models'
-                ? 'border-amber-400 text-amber-300'
+                ? 'border-indigo-400 text-slate-100'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -179,9 +177,9 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
           </button>
           <button
             onClick={() => setActiveTab('raw')}
-            className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition flex items-center gap-1.5 ${
+            className={`pb-2.5 px-2 text-xs font-medium border-b-2 transition flex items-center gap-1.5 ${
               activeTab === 'raw'
-                ? 'border-amber-400 text-amber-300'
+                ? 'border-indigo-400 text-slate-100'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -232,14 +230,14 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
               {/* Top Row: Limit Cards (Session + Weekly + Fable) */}
               <div className={`grid grid-cols-1 ${hasFable ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-4`}>
                 {/* Session Limit Card */}
-                <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-indigo-400" />
                       {t.claudeUsage.sessionLimit}
                     </span>
                     <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${
+                      className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${
                         usageData.sessionLimit ? getBadgeColor(sessionPercent) : unknownBadgeColor
                       }`}
                     >
@@ -250,7 +248,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                   {/* Progress Bar */}
                   <div className="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden p-0.5">
                     <div
-                      className={`h-full rounded-full bg-gradient-to-r ${getProgressColor(sessionPercent)} transition-all duration-500`}
+                      className={`h-full rounded-full ${getProgressColor(sessionPercent)} transition-all duration-500`}
                       style={{ width: usageData.sessionLimit ? `${Math.min(100, Math.max(2, sessionPercent))}%` : '0%' }}
                     />
                   </div>
@@ -264,14 +262,14 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                 </div>
 
                 {/* Weekly Limit Card */}
-                <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-amber-400" />
                       {t.claudeUsage.weeklyLimit}
                     </span>
                     <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${
+                      className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${
                         usageData.weeklyLimit ? getBadgeColor(weeklyPercent) : unknownBadgeColor
                       }`}
                     >
@@ -282,7 +280,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                   {/* Progress Bar */}
                   <div className="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden p-0.5">
                     <div
-                      className={`h-full rounded-full bg-gradient-to-r ${getProgressColor(weeklyPercent)} transition-all duration-500`}
+                      className={`h-full rounded-full ${getProgressColor(weeklyPercent)} transition-all duration-500`}
                       style={{ width: usageData.weeklyLimit ? `${Math.min(100, Math.max(2, weeklyPercent))}%` : '0%' }}
                     />
                   </div>
@@ -305,7 +303,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                         {t.claudeUsage.fableLimit}
                       </span>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${getBadgeColor(
+                        className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${getBadgeColor(
                           fablePercent
                         )}`}
                       >
@@ -316,7 +314,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                     {/* Progress Bar */}
                     <div className="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden p-0.5">
                       <div
-                        className={`h-full rounded-full bg-gradient-to-r ${getProgressColor(fablePercent)} transition-all duration-500`}
+                        className={`h-full rounded-full ${getProgressColor(fablePercent)} transition-all duration-500`}
                         style={{ width: `${Math.min(100, Math.max(2, fablePercent))}%` }}
                       />
                     </div>
@@ -332,7 +330,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
               </div>
 
               {/* Contributing Factors Section */}
-              <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800 space-y-4">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
                   <div>
                     <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -376,7 +374,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                       <div className="text-lg font-bold text-white font-mono">
                         {currentBreakdown.requests ?? '—'}
                       </div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">
+                      <div className="text-[11px] text-slate-400 mt-0.5">
                         {t.claudeUsage.requests}
                       </div>
                     </div>
@@ -384,7 +382,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                       <div className="text-lg font-bold text-white font-mono">
                         {currentBreakdown.sessions ?? '—'}
                       </div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">
+                      <div className="text-[11px] text-slate-400 mt-0.5">
                         {t.claudeUsage.sessions}
                       </div>
                     </div>
@@ -392,7 +390,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                       <div className="text-lg font-bold text-amber-300 font-mono">
                         {currentBreakdown.contextAbove150kPercent ? `${currentBreakdown.contextAbove150kPercent}%` : '—'}
                       </div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">
+                      <div className="text-[11px] text-slate-400 mt-0.5">
                         {t.claudeUsage.context150k}
                       </div>
                     </div>
@@ -400,7 +398,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                       <div className="text-lg font-bold text-indigo-300 font-mono">
                         {currentBreakdown.subagentHeavyPercent ? `${currentBreakdown.subagentHeavyPercent}%` : '—'}
                       </div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">
+                      <div className="text-[11px] text-slate-400 mt-0.5">
                         {t.claudeUsage.subagents}
                       </div>
                     </div>
@@ -482,19 +480,19 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
             <div className="space-y-4">
               {/* Summary Stats Strip */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                <div className="p-3 rounded-lg bg-ph-panel border border-ph-line">
                   <div className="text-xs text-slate-400">{t.claudeUsage.totalSessions}</div>
                   <div className="text-lg font-bold text-white font-mono mt-0.5">
                     {usageData?.totalSessions ?? '—'}
                   </div>
                 </div>
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                <div className="p-3 rounded-lg bg-ph-panel border border-ph-line">
                   <div className="text-xs text-slate-400">{t.claudeUsage.totalMessages}</div>
                   <div className="text-lg font-bold text-white font-mono mt-0.5">
                     {usageData?.totalMessages?.toLocaleString() ?? '—'}
                   </div>
                 </div>
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 col-span-2">
+                <div className="p-3 rounded-lg bg-ph-panel border border-ph-line col-span-2">
                   <div className="text-xs text-slate-400">{t.claudeUsage.updated}</div>
                   <div className="text-xs font-mono text-slate-300 mt-1">
                     {usageData?.updatedAt ? new Date(usageData.updatedAt).toLocaleString() : '—'}
@@ -514,7 +512,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                     {Object.entries(usageData.modelUsage).map(([modelName, stats]) => (
                       <div
                         key={modelName}
-                        className="p-3.5 rounded-xl bg-slate-900/50 border border-slate-800/80 space-y-2"
+                        className="p-3.5 rounded-lg bg-ph-panel border border-ph-line space-y-2"
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-mono text-xs font-bold text-white">{modelName}</span>
@@ -525,19 +523,19 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
 
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
                           <div className="p-2 rounded bg-slate-950/70 border border-slate-800/50">
-                            <span className="text-slate-400 block text-[10px]">{t.claudeUsage.inputTokens}</span>
+                            <span className="text-slate-400 block text-[11px]">{t.claudeUsage.inputTokens}</span>
                             <span className="text-slate-200">{formatTokens(stats.inputTokens)}</span>
                           </div>
                           <div className="p-2 rounded bg-slate-950/70 border border-slate-800/50">
-                            <span className="text-slate-400 block text-[10px]">{t.claudeUsage.cacheRead}</span>
+                            <span className="text-slate-400 block text-[11px]">{t.claudeUsage.cacheRead}</span>
                             <span className="text-emerald-300">{formatTokens(stats.cacheReadInputTokens)}</span>
                           </div>
                           <div className="p-2 rounded bg-slate-950/70 border border-slate-800/50">
-                            <span className="text-slate-400 block text-[10px]">{t.claudeUsage.cacheCreate}</span>
+                            <span className="text-slate-400 block text-[11px]">{t.claudeUsage.cacheCreate}</span>
                             <span className="text-indigo-300">{formatTokens(stats.cacheCreationInputTokens)}</span>
                           </div>
                           <div className="p-2 rounded bg-slate-950/70 border border-slate-800/50">
-                            <span className="text-slate-400 block text-[10px]">{t.claudeUsage.cacheSavings}</span>
+                            <span className="text-slate-400 block text-[11px]">{t.claudeUsage.cacheSavings}</span>
                             <span className="text-teal-300">
                               {stats.cacheReadInputTokens > 0 ? '90%+' : '—'}
                             </span>
@@ -569,7 +567,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-slate-800/80 bg-[#121522] flex items-center justify-between text-xs">
+        <div className="p-4 border-t border-slate-800/80 bg-ph-raised flex items-center justify-between text-xs">
           <div className="text-slate-500 text-[11px] flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 rounded-full ${cliError ? 'bg-amber-400' : 'bg-emerald-400'}`} />
             {cliError ? t.claudeUsage.notSynced : t.claudeUsage.syncedWithCli}

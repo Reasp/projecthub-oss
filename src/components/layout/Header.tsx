@@ -1,360 +1,113 @@
 import React from 'react';
-import {
-  Code,
-  Terminal,
-  FolderOpen,
-  GitBranch,
-  CircleDot,
-  TerminalSquare,
-  Sparkles,
-  Play,
-  Square,
-  RefreshCw,
-  HelpCircle,
-  Bot,
-  Globe,
-  PanelLeft,
-  PanelLeftOpen,
-  PanelLeftClose,
-  FolderGit2
-} from 'lucide-react';
+import { Code, FolderOpen, TerminalSquare, ShieldAlert, Loader2 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { ActionRunnerBar } from '../actions/ActionRunnerBar';
-import { McpServerStatusBadge } from '../mcp/McpServerStatusBadge';
-import { DiagnosticsBadge } from '../diagnostics/DiagnosticsBadge';
-import { RemoteControlBadge } from '../remote/RemoteControlBadge';
-import { VoiceControlHeader } from '../voice/VoiceControlHeader';
-import { WorktreeSwitcher } from '../git/WorktreeSwitcher';
-import { ClaudeUsageButton } from '../ai/ClaudeUsageButton';
 import { VoiceBadge } from '../voice/VoiceBadge';
-import { HitlBadge } from '../hitl/HitlBadge';
-import { NotificationsBadge } from '../notifications/NotificationsBadge';
-import { AutomationsBadge } from '../automations/AutomationsBadge';
+import { ProjectTabs } from './ProjectTabsBar';
+import { useDialog } from '../../hooks/useDialog';
+import { openInVsCode } from '../../lib/openInVsCode';
 
+/**
+ * Шапка проекта (decision-73): вкладки открытых проектов (путь и метка шаблона — в их подсказке),
+ * статус агента и действия над проектом (Run/Deploy/Test, открыть в VS Code и в папке, консоль).
+ * Сервисы приложения (HITL, уведомления, MCP, голос, лимиты, язык) живут в строке состояния,
+ * навигация по вкладкам — в Activity Bar, переключатель сайдбара — там же.
+ */
 export const Header: React.FC = () => {
-  const { language, setLanguage, t } = useTranslation();
+  const { t } = useTranslation();
+  const dialog = useDialog();
   const {
     selectedProject,
-    isSidebarOpen,
-    toggleSidebar,
     isTerminalOpen,
-    setTerminalOpen,
     toggleTerminal,
-    setHotkeysHelpOpen,
-    startProcessAction,
-    stopProcessAction,
-    createPtySessionAction,
-    ptySessions,
-    setActivePtySessionId,
-    setTerminalMode,
     setActiveTab,
     projectAgentStatuses,
-    worktrees,
-    workspaceRoot,
-    gitRepoDetails
+    workspaceRoot
   } = useProjectStore();
 
   if (!selectedProject) {
     return (
-      <header className="h-14 border-b border-slate-800/80 px-4 flex items-center justify-between bg-[#12151f]/80">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            className={`p-1.5 rounded-lg border transition flex items-center gap-1.5 ${
-              !isSidebarOpen
-                ? 'bg-indigo-600/25 border-indigo-500/50 text-indigo-300 hover:bg-indigo-600/35 hover:text-white shadow-sm'
-                : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-            title={isSidebarOpen ? t.sidebar.hideSidebar : t.sidebar.showSidebar}
-          >
-            {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4 text-indigo-400" />}
-            {!isSidebarOpen && <span className="text-xs font-semibold pr-1">{t.sidebar.title}</span>}
-            <VoiceBadge command={isSidebarOpen ? t.sidebar.hideMenuCommand : t.sidebar.showMenuCommand} />
-          </button>
-          <span className="text-xs text-slate-500">{t.header.selectProjectHint}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <HitlBadge />
-          <NotificationsBadge />
-          <AutomationsBadge />
-          <RemoteControlBadge />
-          <McpServerStatusBadge />
-          <DiagnosticsBadge />
-          <VoiceControlHeader />
-          <ClaudeUsageButton />
-          {/* Language Switcher */}
-          <div className="flex items-center gap-1 bg-[#181c2b] p-1 rounded-lg border border-slate-800 text-xs">
-          <Globe className="w-3.5 h-3.5 text-indigo-400 mx-1" />
-          <button
-            onClick={() => setLanguage('en')}
-            className={`px-2 py-0.5 rounded font-semibold transition ${
-              language === 'en'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            EN
-          </button>
-          <button
-            onClick={() => setLanguage('ru')}
-            className={`px-2 py-0.5 rounded font-semibold transition ${
-              language === 'ru'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            RU
-          </button>
-          </div>
-        </div>
+      <header className="h-10 shrink-0 border-b border-ph-line px-4 flex items-center bg-ph-chrome">
+        <span className="text-xs text-slate-500">{t.header.selectProjectHint}</span>
       </header>
     );
   }
 
   const agentStatus = projectAgentStatuses[selectedProject.path];
-  // Ветка активного рабочего дерева: в worktree она своя, в основном дереве — ветка проекта.
-  const activeBranch = gitRepoDetails?.currentBranch || selectedProject.gitBranch || '';
 
   // Внешние инструменты открываются в активном рабочем дереве (TASK-62).
   const activeRoot = workspaceRoot || selectedProject.path;
 
   const handleOpenCode = () => {
-    if (window.api && selectedProject) {
-      window.api.openInCode(activeRoot);
-    }
-  };
-
-  const handleOpenTerminal = () => {
-    if (window.api && selectedProject) {
-      window.api.openTerminal(activeRoot);
-    }
+    void openInVsCode(activeRoot, () => void dialog.alert({ title: t.header.vsCode, message: t.header.vsCodeOpenFailed }));
   };
 
   const handleOpenExplorer = () => {
-    if (window.api && selectedProject) {
-      window.api.openInExplorer(activeRoot);
-    }
+    if (window.api) window.api.openInExplorer(activeRoot);
   };
 
+  const toolButton = 'flex items-center gap-1.5 h-7 px-2 rounded-md text-xs text-slate-300 hover:bg-ph-hover hover:text-white transition whitespace-nowrap shrink-0';
+
   return (
-    <header className="h-14 border-b border-slate-800/80 px-4 flex items-center justify-between bg-[#12151f]/80 backdrop-blur-md shrink-0 flex-nowrap overflow-hidden">
-      {/* Left: Sidebar toggle, Project title & Git info */}
-      <div className="flex items-center gap-3 min-w-0 flex-1 mr-3 overflow-hidden">
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className={`p-1.5 rounded-lg border transition flex items-center gap-1.5 shrink-0 ${
-            !isSidebarOpen
-              ? 'bg-indigo-600/25 border-indigo-500/50 text-indigo-300 hover:bg-indigo-600/35 hover:text-white shadow-sm'
-              : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-          }`}
-          title={isSidebarOpen ? t.sidebar.hideSidebar : t.sidebar.showSidebar}
-        >
-          {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4 text-indigo-400" />}
-          {!isSidebarOpen && <span className="text-xs font-semibold pr-1 hidden md:inline">{t.sidebar.title}</span>}
-          <VoiceBadge command={isSidebarOpen ? t.sidebar.hideMenuCommand : t.sidebar.showMenuCommand} />
-        </button>
+    <header className="h-10 shrink-0 border-b border-ph-line pr-2 flex items-stretch justify-between gap-3 bg-ph-chrome overflow-hidden">
+      {/* Слева: вкладки открытых проектов и статус агента выбранного */}
+      <div className="flex items-stretch gap-2 min-w-0 flex-1 h-full overflow-hidden">
+        <ProjectTabs />
 
-        <div className="min-w-0 truncate">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-white tracking-tight flex items-center gap-2 truncate" title={selectedProject.name}>
-              <span className="truncate">{selectedProject.name}</span>
-              {selectedProject.hasInfraConfig && (
-                <span className="text-[10px] text-emerald-400 font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1 shrink-0 whitespace-nowrap" title={t.header.standardProjectTemplate}>
-                  <Sparkles className="w-2.5 h-2.5 shrink-0" /> ProjectTemplate
-                </span>
-              )}
-            </h2>
-
-            {/* Claude Agent Live Badge */}
-            {agentStatus && agentStatus.status !== 'idle' && (
-              <div className="shrink-0">
-                {agentStatus.status === 'waiting_approval' ? (
-                  <button
-                    onClick={() => setActiveTab('ai')}
-                    className="text-[11px] text-amber-300 font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/50 flex items-center gap-1.5 shrink-0 animate-pulse hover:bg-amber-500/30 transition shadow-sm"
-                    title={t.header.requiresDecisionTooltip}
-                  >
-                    <span className="text-amber-400 font-bold">⚠️</span>
-                    <span>{t.header.requiresDecision}</span>
-                  </button>
-                ) : agentStatus.status === 'running' ? (
-                  <button
-                    onClick={() => setActiveTab('ai')}
-                    className="text-[11px] text-indigo-300 font-medium px-2.5 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 flex items-center gap-1.5 shrink-0 hover:bg-indigo-500/25 transition"
-                    title={t.header.claudeExecutingTooltip}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                    <span className="font-bold text-amber-400">✳</span>
-                    <span className="truncate max-w-[140px]">{agentStatus.lastMessage || t.header.working}</span>
-                  </button>
-                ) : null}
-              </div>
-            )}
-          </div>
-          <p className="text-[11px] text-slate-400 font-mono truncate max-w-md" title={workspaceRoot || selectedProject.path}>
-            {workspaceRoot || selectedProject.path}
-          </p>
-        </div>
-
-        {selectedProject.hasGit && selectedProject.gitBranch && (
-          <div className="flex items-center gap-2 pl-3 border-l border-slate-800 shrink-0 whitespace-nowrap">
-            <span
-              className="flex items-center gap-1.5 text-xs text-slate-300 font-mono px-2 py-1 rounded bg-[#181c2b] border border-slate-800 whitespace-nowrap"
-              title={t.header.currentGitBranch.replace('{branch}', activeBranch)}
-            >
-              <GitBranch className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              {activeBranch}
-            </span>
-
-            {/* Активное рабочее дерево проекта (TASK-62) */}
-            <WorktreeSwitcher />
-
-            {selectedProject.uncommittedCount !== undefined && (
-              <span
-                className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded border font-mono whitespace-nowrap ${
-                  selectedProject.uncommittedCount === 0
-                    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-                    : 'text-amber-400 bg-amber-500/10 border-amber-500/20'
-                }`}
-                title={
-                  selectedProject.uncommittedCount === 0
-                    ? t.git.cleanWorkingTree
-                    : `${t.git.unstagedCount.replace('{count}', String(selectedProject.uncommittedCount))}`
-                }
-              >
-                <CircleDot className="w-2.5 h-2.5 shrink-0" />
-                {selectedProject.uncommittedCount === 0 ? 'clean' : `${selectedProject.uncommittedCount} dirty`}
-              </span>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('git')}
-              title={t.header.worktreeCountTooltip.replace('{count}', String(worktrees.length))}
-              className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded border font-mono whitespace-nowrap transition ${
-                worktrees.filter((w) => !w.isMain).length > 0
-                  ? 'text-cyan-300 bg-cyan-950/40 border-cyan-600/50 hover:bg-cyan-900/50 shadow-sm'
-                  : 'text-slate-400 bg-[#181c2b] border-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <FolderGit2 className="w-3 h-3 text-cyan-400 shrink-0" />
-              <span>WT: {worktrees.filter((w) => !w.isMain).length}</span>
-            </button>
-          </div>
+        {agentStatus?.status === 'waiting_approval' && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('ai')}
+            className="self-center flex items-center gap-1.5 h-6 px-2 rounded-md bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 text-[11px] font-medium shrink-0 transition"
+            title={t.header.requiresDecisionTooltip}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+            <span>{t.header.requiresDecision}</span>
+          </button>
+        )}
+        {agentStatus?.status === 'running' && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('ai')}
+            className="self-center flex items-center gap-1.5 h-6 px-2 rounded-md text-slate-300 hover:bg-ph-hover text-[11px] min-w-0 transition"
+            title={t.header.claudeExecutingTooltip}
+          >
+            <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin shrink-0" />
+            <span className="truncate max-w-[180px]">{agentStatus.lastMessage || t.header.working}</span>
+          </button>
         )}
       </div>
 
-      {/* Right: Action Runner & System Controls */}
-      <div className="flex items-center gap-2 shrink-0 flex-nowrap">
-        {/* Configurable Action Runner (Run, Deploy, Test, Settings) */}
+      {/* Справа: действия над проектом */}
+      <div className="flex items-center gap-1 shrink-0">
         <ActionRunnerBar />
 
-        <div className="w-px h-6 bg-slate-800 mx-0.5 shrink-0" />
+        <div className="w-px h-4 bg-ph-line mx-1.5" />
 
-        <div className="w-px h-6 bg-slate-800 mx-1 shrink-0" />
-
-        <button
-          onClick={handleOpenCode}
-          title={t.header.vsCode}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700/60 transition whitespace-nowrap shrink-0"
-        >
-          <Code className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+        <button onClick={handleOpenCode} title={t.header.vsCode} className={toolButton}>
+          <Code className="w-3.5 h-3.5 text-slate-400" />
           <span className="hidden xl:inline">{t.header.vsCode}</span>
           <VoiceBadge command={t.voice.voiceBadges.code} />
         </button>
 
-        <button
-          onClick={handleOpenExplorer}
-          title={t.header.folder}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700/60 transition whitespace-nowrap shrink-0"
-        >
-          <FolderOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        <button onClick={handleOpenExplorer} title={t.header.folder} className={toolButton}>
+          <FolderOpen className="w-3.5 h-3.5 text-slate-400" />
           <span className="hidden xl:inline">{t.header.folder}</span>
           <VoiceBadge command={t.voice.voiceBadges.folder} />
         </button>
 
-        <div className="w-px h-6 bg-slate-800 mx-1 shrink-0" />
-
         <button
           onClick={toggleTerminal}
-          title={t.header.console}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition whitespace-nowrap shrink-0 ${
-            isTerminalOpen
-              ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/20'
-              : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700/60'
-          }`}
+          title={`${t.header.console} (Ctrl+\`)`}
+          aria-pressed={isTerminalOpen}
+          className={`${toolButton} ${isTerminalOpen ? 'bg-ph-hover text-white' : ''}`}
         >
-          <TerminalSquare className="w-3.5 h-3.5 shrink-0" />
+          <TerminalSquare className={`w-3.5 h-3.5 ${isTerminalOpen ? 'text-indigo-400' : 'text-slate-400'}`} />
           <span className="hidden lg:inline">{t.header.console}</span>
           <VoiceBadge command={t.voice.voiceBadges.terminal} />
         </button>
-
-        {/* Единый HITL-контур: ожидающие решения всех сессий (TASK-57) */}
-        <HitlBadge />
-
-        {/* Уведомления: трей, ОС, звук, Telegram (TASK-63) */}
-        <NotificationsBadge />
-
-        {/* Automations: правила по расписанию и событиям (TASK-74) */}
-        <AutomationsBadge />
-
-        {/* Remote Control Status Badge (TASK-51) */}
-        <RemoteControlBadge />
-
-        {/* MCP Remote Control Status Badge */}
-        <McpServerStatusBadge />
-
-        {/* Диагностика: версия, автообновление, сбор логов (TASK-58) */}
-        <DiagnosticsBadge />
-
-        {/* Global Voice Control Header Bar */}
-        <VoiceControlHeader />
-
-        {/* Claude Code Usage & Limits Inspection Button */}
-        <ClaudeUsageButton />
-
-        {/* Language Switcher */}
-        <div className="flex items-center gap-0.5 bg-[#181c2b] p-0.5 rounded-lg border border-slate-800 text-xs shrink-0">
-          <Globe className="w-3.5 h-3.5 text-indigo-400 mx-1" />
-          <button
-            onClick={() => setLanguage('en')}
-            title="English language"
-            className={`px-2 py-1 rounded text-[11px] font-semibold transition ${
-              language === 'en'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            EN
-          </button>
-          <button
-            onClick={() => setLanguage('ru')}
-            title={t.header.ruLanguageTooltip}
-            className={`px-2 py-1 rounded text-[11px] font-semibold transition ${
-              language === 'ru'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            RU
-          </button>
-        </div>
-
-        <div className="relative inline-flex items-center shrink-0">
-          <button
-            onClick={() => setHotkeysHelpOpen(true)}
-            title={t.header.hotkeysHelp}
-            className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700/60 transition"
-          >
-            <HelpCircle className="w-3.5 h-3.5 shrink-0" />
-          </button>
-          <VoiceBadge command={t.voice.voiceBadges.help} position="bottom" />
-        </div>
       </div>
     </header>
   );
 };
-

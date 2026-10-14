@@ -1,15 +1,9 @@
 import React from 'react';
 import {
-  Calendar,
   Tag,
   Target,
-  CheckCircle2,
-  Clock,
-  Activity,
-  CheckCheck,
-  CheckSquare,
-  ArrowUpDown
-} from 'lucide-react';
+  CheckSquare
+} from '../common/icons';
 import type { BacklogTask } from '../../types/electron';
 import { useTranslation } from '../../i18n';
 import {
@@ -38,10 +32,10 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div className="flex-1 overflow-y-auto rounded-xl bg-[#141724]/70 border border-slate-800/80">
+    <div className="flex-1 overflow-y-auto rounded-xl bg-ph-raised/70 border border-slate-800/80">
       <table className="w-full text-left border-collapse text-xs">
         <thead>
-          <tr className="border-b border-slate-800 bg-[#161a2b]/80 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+          <tr className="border-b border-slate-800 bg-ph-hover/80 text-[11px] font-medium text-slate-400">
             <th className="py-3 px-4 w-28">ID</th>
             <th className="py-3 px-4">{t.kanban.taskTitleCol}</th>
             <th className="py-3 px-4 w-40">{t.kanban.statusCol}</th>
@@ -66,7 +60,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                 <tr
                   key={task.id}
                   onClick={() => onSelectTask(task)}
-                  className="hover:bg-[#181d2f]/80 transition cursor-pointer group"
+                  className="hover:bg-ph-hover/80 transition cursor-pointer group"
                 >
                   <td className="py-3 px-4 font-mono font-semibold text-indigo-400">
                     {task.id}
@@ -75,7 +69,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="line-clamp-1">{task.title}</span>
                       {task.milestone && (
-                        <span className="inline-flex items-center gap-0.5 text-[9px] font-mono font-medium px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0">
+                        <span className="inline-flex items-center gap-0.5 text-[11px] font-mono font-medium px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0">
                           <Target className="w-2.5 h-2.5" />
                           {task.milestone}
                         </span>
@@ -91,14 +85,14 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                       title={
                         isKnownStatus(statuses, task.status) ? undefined : t.kanban.unknownStatusHint
                       }
-                      className={`text-[11px] font-medium rounded-lg px-2.5 py-1 border focus:outline-none bg-[#10121d] ${
+                      className={`text-[11px] font-medium rounded-lg px-2.5 py-1 border focus:outline-none bg-ph-elevated ${
                         statusVisual(task.status || DEFAULT_TASK_STATUS).badge
                       }`}
                     >
                       {statusOptions(statuses, task.status).map((status) => (
                         <option key={status} value={status}>
                           {`${statusGlyph(status)} ${statusLabel(status, t.kanban)}`}
-                          {isKnownStatus(statuses, status) ? '' : ' ⚠'}
+                          {isKnownStatus(statuses, status) ? '' : ' (?)'}
                         </option>
                       ))}
                     </select>
@@ -109,14 +103,14 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                         task.labels.map((l) => (
                           <span
                             key={l}
-                            className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/50 flex items-center gap-0.5"
+                            className="text-[11px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/50 flex items-center gap-0.5"
                           >
                             <Tag className="w-2 h-2 text-indigo-400" />
                             {l}
                           </span>
                         ))
                       ) : (
-                        <span className="text-slate-600 text-[10px]">—</span>
+                        <span className="text-slate-600 text-[11px]">—</span>
                       )}
                     </div>
                   </td>
@@ -127,7 +121,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                         {completedCount}/{criteria.length}
                       </span>
                     ) : (
-                      <span className="text-slate-600 text-[10px]">—</span>
+                      <span className="text-slate-600 text-[11px]">—</span>
                     )}
                   </td>
                   <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">

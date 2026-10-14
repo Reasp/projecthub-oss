@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, CheckCircle2, Layers, Loader2, Plus, RefreshCw, Trash2, Wand2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, Layers, Loader2, Plus, RefreshCw, Trash2, Wand2 } from '../common/icons';
 import type { ModelTier, ModelTierSettings, ModelTierState, TierEngine, TierModelEntry } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { ProviderProfileSelect, useLlmProfiles } from './ProviderProfileSelect';
@@ -20,7 +20,7 @@ import {
 } from '../../lib/modelTierEditor';
 
 const inputClass =
-  'w-full bg-[#0c0e17] border border-slate-800 rounded-md px-2 py-1 text-[11px] text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500';
+  'w-full bg-ph-panel border border-slate-800 rounded-md px-2 py-1 text-[11px] text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500';
 
 const TIER_ACCENT: Record<ModelTier, string> = {
   frontier: 'border-fuchsia-500/30 text-fuchsia-300',
@@ -167,10 +167,10 @@ export const ModelTiersSection: React.FC = () => {
         key={`${tier}-${index}`}
         data-testid={`tier-entry-${tier}-${index}`}
         className={`grid grid-cols-[1.25rem_7.5rem_minmax(0,11rem)_minmax(0,1fr)_auto] gap-2 items-center rounded-lg px-2 py-1.5 border ${
-          highlight ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800 bg-[#0c0e17]/60'
+          highlight ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800 bg-ph-panel/60'
         }`}
       >
-        <span className="text-[10px] text-slate-500 font-mono text-right">{index + 1}</span>
+        <span className="text-[11px] text-slate-500 font-mono text-right">{index + 1}</span>
         <select
           value={entry.engine}
           onChange={(e) => change(updateTierEntry(draft, tier, index, { engine: e.target.value as TierEngine }))}
@@ -192,7 +192,7 @@ export const ModelTiersSection: React.FC = () => {
             className={inputClass}
           />
         ) : (
-          <span className="text-[10px] text-slate-500 truncate">{entry.engine}</span>
+          <span className="text-[11px] text-slate-500 truncate">{entry.engine}</span>
         )}
         <div className="min-w-0">
           <input
@@ -215,11 +215,11 @@ export const ModelTiersSection: React.FC = () => {
           {(highlight || entry.source === 'auto') && (
             <div className="flex flex-wrap gap-1 mt-0.5">
               {entry.source === 'auto' && (
-                <span className="px-1 rounded border border-slate-700 text-[9px] uppercase text-slate-400">{l.auto}</span>
+                <span className="px-1 rounded border border-slate-700 text-[11px] uppercase text-slate-400">{l.auto}</span>
               )}
-              {availability === 'missing' && <span className="text-[10px] text-amber-300">{l.missing}</span>}
-              {availability === 'no_profile' && <span className="text-[10px] text-amber-300">{l.noProfile}</span>}
-              {problem && <span className="text-[10px] text-amber-300">{problem.kind === 'empty_model' ? l.emptyModel : l.duplicate}</span>}
+              {availability === 'missing' && <span className="text-[11px] text-amber-300">{l.missing}</span>}
+              {availability === 'no_profile' && <span className="text-[11px] text-amber-300">{l.noProfile}</span>}
+              {problem && <span className="text-[11px] text-amber-300">{problem.kind === 'empty_model' ? l.emptyModel : l.duplicate}</span>}
             </div>
           )}
         </div>
@@ -273,7 +273,7 @@ export const ModelTiersSection: React.FC = () => {
             type="button"
             onClick={refresh}
             disabled={busy !== null || profileIds.length === 0}
-            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] flex items-center gap-1.5 disabled:opacity-40"
+            className="ph-btn ph-btn-secondary disabled:opacity-40"
           >
             {busy === 'refresh' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
             {l.refreshCatalogs}
@@ -283,7 +283,7 @@ export const ModelTiersSection: React.FC = () => {
             onClick={seed}
             disabled={busy !== null}
             data-testid="model-tiers-seed"
-            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] flex items-center gap-1.5 disabled:opacity-40"
+            className="ph-btn ph-btn-secondary disabled:opacity-40"
           >
             {busy === 'seed' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
             {l.seed}
@@ -302,7 +302,7 @@ export const ModelTiersSection: React.FC = () => {
         </div>
       )}
       {catalogErrors.map((msg) => (
-        <div key={msg} className="p-2 rounded-lg bg-amber-950/20 border border-amber-800/40 text-amber-200 text-[10px]">
+        <div key={msg} className="p-2 rounded-lg bg-amber-950/20 border border-amber-800/40 text-amber-200 text-[11px]">
           {msg}
         </div>
       ))}
@@ -321,7 +321,7 @@ export const ModelTiersSection: React.FC = () => {
           <select
             value={draft.maxSwitches}
             onChange={(e) => change({ ...draft, maxSwitches: Number(e.target.value) })}
-            className="bg-[#0c0e17] border border-slate-800 rounded-md px-1.5 py-0.5 text-[11px] text-white"
+            className="bg-ph-panel border border-slate-800 rounded-md px-1.5 py-0.5 text-[11px] text-white"
           >
             <option value={0}>0 — {l.maxSwitchesOff}</option>
             <option value={1}>1</option>
@@ -337,7 +337,7 @@ export const ModelTiersSection: React.FC = () => {
             value={Math.round(draft.maxWaitMs / 1000)}
             onChange={(e) => change({ ...draft, maxWaitMs: Math.max(0, Math.min(120, Number(e.target.value) || 0)) * 1000 })}
             onKeyDown={stopEnter}
-            className="w-16 bg-[#0c0e17] border border-slate-800 rounded-md px-1.5 py-0.5 text-[11px] text-white"
+            className="w-16 bg-ph-panel border border-slate-800 rounded-md px-1.5 py-0.5 text-[11px] text-white"
           />
         </label>
       </div>
@@ -345,25 +345,25 @@ export const ModelTiersSection: React.FC = () => {
       {TIERS_TOP_DOWN.map((tier) => {
         const entries = draft.tiers[tier];
         return (
-          <div key={tier} className={`rounded-xl border bg-[#141726]/60 p-3 space-y-2 ${TIER_ACCENT[tier].split(' ')[0]}`} data-testid={`tier-${tier}`}>
+          <div key={tier} className={`rounded-xl border bg-ph-hover/60 p-3 space-y-2 ${TIER_ACCENT[tier].split(' ')[0]}`} data-testid={`tier-${tier}`}>
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <span className={`text-xs font-semibold ${TIER_ACCENT[tier].split(' ')[1]}`}>
-                  {l.tier[tier]} <span className="font-mono text-[10px] text-slate-500">{tier}</span>
+                  {l.tier[tier]} <span className="font-mono text-[11px] text-slate-500">{tier}</span>
                 </span>
-                <span className="ml-2 text-[10px] text-slate-500">{l.tierHint[tier]}</span>
+                <span className="ml-2 text-[11px] text-slate-500">{l.tierHint[tier]}</span>
               </div>
               <button
                 type="button"
                 onClick={() => change(addTierEntry(draft, tier, { engine: 'api', model: '' }))}
-                className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] flex items-center gap-1"
+                className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] flex items-center gap-1"
               >
                 <Plus className="w-3 h-3" />
                 {l.addEntry}
               </button>
             </div>
             {entries.length === 0 ? (
-              <p className="text-[10px] text-slate-500">{l.emptyTier}</p>
+              <p className="text-[11px] text-slate-500">{l.emptyTier}</p>
             ) : (
               entries.map((entry, index) => renderEntry(tier, entry, index, entries.length))
             )}
@@ -373,7 +373,7 @@ export const ModelTiersSection: React.FC = () => {
 
       {error && <div className="text-[11px] text-rose-300">{error}</div>}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <span className="text-[10px] text-slate-500 font-mono truncate" title={state.filePath}>
+        <span className="text-[11px] text-slate-500 font-mono truncate" title={state.filePath}>
           {l.filePath}: {state.filePath}
         </span>
         <div className="flex items-center gap-2">

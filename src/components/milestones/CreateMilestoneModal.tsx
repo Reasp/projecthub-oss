@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Target, Calendar, AlignLeft, CheckCircle } from 'lucide-react';
+import { X, Target, Calendar, AlignLeft, CheckCircle } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { Milestone, CreateMilestoneParams } from '../../types/electron';
@@ -67,12 +67,12 @@ export const CreateMilestoneModal: React.FC<Props> = ({ isOpen, onClose, milesto
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-lg bg-[#161922] border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-lg bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-[#12151e]/80">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+            <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
               <Target className="w-4 h-4" />
             </div>
             <div>
@@ -111,7 +111,7 @@ export const CreateMilestoneModal: React.FC<Props> = ({ isOpen, onClose, milesto
               placeholder={t.milestones.milestoneTitlePlaceholder}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              className="w-full px-3 py-2 bg-ph-raised border border-slate-700 rounded-md text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -126,7 +126,7 @@ export const CreateMilestoneModal: React.FC<Props> = ({ isOpen, onClose, milesto
                 type="date"
                 value={targetDate}
                 onChange={(e) => setTargetDate(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
+                className="w-full px-3 py-2 bg-ph-raised border border-slate-700 rounded-md text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
               />
             </div>
 
@@ -137,7 +137,7 @@ export const CreateMilestoneModal: React.FC<Props> = ({ isOpen, onClose, milesto
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as any)}
-                className="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                className="w-full px-3 py-2 bg-ph-raised border border-slate-700 rounded-md text-xs text-white focus:outline-none focus:border-indigo-500"
               >
                 <option value="Planning">{t.milestones.statusPlanning}</option>
                 <option value="In Progress">{t.milestones.statusInProgress}</option>
@@ -158,7 +158,7 @@ export const CreateMilestoneModal: React.FC<Props> = ({ isOpen, onClose, milesto
               placeholder={t.milestones.descriptionPlaceholder}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 resize-none font-sans"
+              className="w-full px-3 py-2 bg-ph-raised border border-slate-700 rounded-md text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 resize-none font-sans"
             />
           </div>
 
@@ -174,7 +174,7 @@ export const CreateMilestoneModal: React.FC<Props> = ({ isOpen, onClose, milesto
             <button
               type="submit"
               disabled={isSubmitting || !title.trim()}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-lg shadow-indigo-600/20"
+              className="ph-btn ph-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle className="w-3.5 h-3.5" />
               {isSubmitting ? t.common.loading : milestoneToEdit ? t.common.save : t.milestones.createMilestoneButton}

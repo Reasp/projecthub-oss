@@ -21,11 +21,13 @@ import {
   FileDiff,
   Code2,
   Check,
-  AlertCircle
-} from 'lucide-react';
+  AlertCircle,
+  X
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
+import { openInVsCode } from '../../lib/openInVsCode';
 import { useTimeoutState } from '../../hooks/useTimeoutState';
 import type { FileTreeNode } from '../../types/electron';
 import { SplitDiffViewer } from '../git/SplitDiffViewer';
@@ -320,7 +322,7 @@ export const FileExplorer: React.FC = () => {
           {/* Git Badge for File */}
           {gitInfo && (
             <span
-              className={`text-[10px] font-mono font-bold px-1 py-0.2 rounded border shrink-0 ${
+              className={`text-[11px] font-mono font-bold px-1 py-0.2 rounded border shrink-0 ${
                 statusBadgeStyles[gitInfo.status] || statusBadgeStyles['?']
               }`}
               title={gitInfo.staged ? 'Staged' : 'Unstaged'}
@@ -331,7 +333,7 @@ export const FileExplorer: React.FC = () => {
 
           {/* Changed Count Badge for Directory */}
           {node.isDirectory && changedCount > 0 && (
-            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-amber-950/80 border border-amber-700/60 text-amber-400 font-bold shrink-0">
+            <span className="text-[11px] font-mono px-1.5 py-0.2 rounded-full bg-amber-950/80 border border-amber-700/60 text-amber-400 font-bold shrink-0">
               {changedCount}
             </span>
           )}
@@ -374,13 +376,13 @@ export const FileExplorer: React.FC = () => {
   const isDirty = fileContent !== originalContent;
 
   return (
-    <div className="flex-1 flex overflow-hidden bg-[#0c0e16]">
+    <div className="flex-1 flex overflow-hidden bg-ph-panel">
       {/* ─── LEFT PANE: FILE TREE ─── */}
-      <div className="w-72 shrink-0 flex flex-col border-r border-slate-800 bg-[#0e111a] overflow-hidden">
+      <div className="w-72 shrink-0 flex flex-col border-r border-slate-800 bg-ph-panel overflow-hidden">
         {/* Tree Toolbar */}
         <div className="p-3 border-b border-slate-800/80 space-y-2 shrink-0">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+            <span className="text-xs font-medium text-slate-200 flex items-center gap-1.5">
               <Folder className="w-3.5 h-3.5 text-indigo-400" />
               {t.explorer.projectFiles}
             </span>
@@ -420,8 +422,8 @@ export const FileExplorer: React.FC = () => {
               className="bg-transparent text-xs text-slate-200 placeholder-slate-500 outline-none w-full font-mono"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="text-[10px] text-slate-500 hover:text-slate-300">
-                ✕
+              <button onClick={() => setSearchQuery('')} className="text-[11px] text-slate-500 hover:text-slate-300">
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -440,11 +442,11 @@ export const FileExplorer: React.FC = () => {
       </div>
 
       {/* ─── RIGHT PANE: EDITOR & DIFF ─── */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-[#090b11]">
+      <div className="flex-1 flex flex-col overflow-hidden bg-ph-base">
         {selectedFile ? (
           <>
             {/* Editor Header Toolbar */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/80 text-xs shrink-0 select-none">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 text-xs shrink-0 select-none">
               <div className="flex items-center gap-2 overflow-hidden">
                 {getFileIcon(selectedFile.name, false)}
                 <span className="font-mono text-slate-200 font-semibold truncate" title={selectedFile.relativePath}>
@@ -455,7 +457,7 @@ export const FileExplorer: React.FC = () => {
                 )}
                 {gitMap.has(selectedFile.relativePath) && (
                   <span
-                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                    className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
                       statusBadgeStyles[gitMap.get(selectedFile.relativePath)!.status]
                     }`}
                   >
@@ -472,7 +474,7 @@ export const FileExplorer: React.FC = () => {
                       onClick={() => setActivePaneTab('editor')}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition ${
                         activePaneTab === 'editor'
-                          ? 'bg-indigo-600 text-white shadow-sm'
+                          ? 'bg-ph-hover text-slate-100'
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
@@ -483,7 +485,7 @@ export const FileExplorer: React.FC = () => {
                       onClick={() => setActivePaneTab('diff')}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition ${
                         activePaneTab === 'diff'
-                          ? 'bg-indigo-600 text-white shadow-sm'
+                          ? 'bg-ph-hover text-slate-100'
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
@@ -509,7 +511,7 @@ export const FileExplorer: React.FC = () => {
                 <button
                   onClick={handleSave}
                   disabled={!isDirty || isSaving}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-medium transition shadow-sm"
+                  className="ph-btn ph-btn-primary disabled:opacity-40"
                 >
                   {isSaving ? (
                     <RefreshCw className="w-3 h-3 animate-spin" />
@@ -522,10 +524,14 @@ export const FileExplorer: React.FC = () => {
                 </button>
 
                 {/* Open In VS Code */}
-                {window.api?.openInCode && selectedProject && (
+                {typeof window.api?.openInCode === 'function' && selectedProject && (
                   <button
-                    onClick={() => window.api.openInCode(`${rootPath}/${selectedFile.relativePath}`)}
-                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition"
+                    onClick={() =>
+                      void openInVsCode(`${rootPath}/${selectedFile.relativePath}`, () =>
+                        void dialog.alert({ title: t.header.vsCode, message: t.header.vsCodeOpenFailed })
+                      )
+                    }
+                    className="ph-icon-button"
                     title={t.explorer.openInVsCodeTooltip}
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -547,9 +553,9 @@ export const FileExplorer: React.FC = () => {
               {activePaneTab === 'diff' && fileDiff ? (
                 <SplitDiffViewer diff={fileDiff} filePath={selectedFile.relativePath} defaultMode="split" />
               ) : (
-                <div className="flex h-full font-mono text-[12px] bg-[#090b11]">
+                <div className="flex h-full font-mono text-[12px] bg-ph-base">
                   {/* Line numbers gutter */}
-                  <div className="w-12 py-3 bg-[#0a0d14] text-slate-600 text-right pr-3 select-none border-r border-slate-800/80 overflow-hidden shrink-0">
+                  <div className="w-12 py-3 bg-ph-base text-slate-600 text-right pr-3 select-none border-r border-slate-800/80 overflow-hidden shrink-0">
                     {fileContent.split('\n').map((_, idx) => (
                       <div key={idx} className="leading-5">
                         {idx + 1}
@@ -588,8 +594,8 @@ export const FileExplorer: React.FC = () => {
       {/* ─── MODAL: NEW FILE / FOLDER ─── */}
       {showNewModal &&
         createPortal(
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-ph-elevated border border-slate-700 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               {showNewModal.isDir ? <FolderPlus className="w-4 h-4 text-amber-400" /> : <Plus className="w-4 h-4 text-indigo-400" />}
               {showNewModal.isDir ? t.explorer.createNewFolderTitle : t.explorer.createNewFileTitle}
@@ -606,7 +612,7 @@ export const FileExplorer: React.FC = () => {
               onChange={e => setNewItemName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreateNew()}
               placeholder={showNewModal.isDir ? t.explorer.newFolderPlaceholder : t.explorer.newFilePlaceholder}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-indigo-500 font-mono"
+              className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-indigo-500 font-mono"
             />
 
             <div className="flex items-center justify-end gap-2">
@@ -622,7 +628,7 @@ export const FileExplorer: React.FC = () => {
               <button
                 onClick={handleCreateNew}
                 disabled={!newItemName.trim()}
-                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-medium"
+                className="ph-btn ph-btn-primary disabled:opacity-40"
               >
                 {t.explorer.create}
               </button>

@@ -47,7 +47,7 @@ export const ReasoningEffortSelect: React.FC<{
   return (
     <div>
       {select}
-      <p className="mt-1 text-[10px] text-slate-400 leading-relaxed">{hint}</p>
+      <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">{hint}</p>
     </div>
   );
 };

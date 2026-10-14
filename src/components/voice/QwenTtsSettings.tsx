@@ -18,7 +18,7 @@ import {
   Sparkles,
   Speech,
   Trash2
-} from 'lucide-react';
+} from '../common/icons';
 import { voiceService, type VoiceConfig } from '../../services/voiceService';
 import type { QwenInstallProgressInfo, QwenTtsStatusInfo, QwenVoiceListItem } from '../../types/electron';
 import {
@@ -46,9 +46,9 @@ interface QwenTtsSettingsProps {
   notify: (message: string) => void;
 }
 
-const panel = 'p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3';
+const panel = 'p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3';
 const field =
-  'bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50';
+  'bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50';
 const input = `w-full ${field}`;
 
 export const QwenTtsSettings: React.FC<QwenTtsSettingsProps> = ({ voiceConfig, onConfigChange, notify }) => {
@@ -267,12 +267,12 @@ export const QwenTtsSettings: React.FC<QwenTtsSettingsProps> = ({ voiceConfig, o
             <span className="flex items-center gap-2">
               <span className="text-xs font-semibold text-white truncate">{voice.label}</span>
               {voice.native && (
-                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 font-mono uppercase">
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[11px] text-slate-400 font-mono uppercase">
                   {voice.native}
                 </span>
               )}
             </span>
-            <span className="block text-[10px] text-slate-500 truncate mt-0.5">
+            <span className="block text-[11px] text-slate-500 truncate mt-0.5">
               {voice.kind === 'design'
                 ? `${voice.instruct ?? ''} · seed ${voice.seed ?? ''}`
                 : `${q.gender[voice.gender ?? ''] ?? ''} · ${q.native[voice.native ?? ''] ?? voice.native ?? ''}`}
@@ -310,7 +310,7 @@ export const QwenTtsSettings: React.FC<QwenTtsSettingsProps> = ({ voiceConfig, o
       <div className={panel} data-testid="qwen-tts-install">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 font-semibold text-white">
-            <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <div className="text-indigo-400">
               <Cpu className="w-4 h-4" />
             </div>
             <span>{q.title}</span>
@@ -399,7 +399,7 @@ export const QwenTtsSettings: React.FC<QwenTtsSettingsProps> = ({ voiceConfig, o
                 style={percent === null ? undefined : { width: `${percent}%` }}
               />
             </div>
-            {progress?.lastLine && <div className="text-[10px] text-slate-500 font-mono truncate">{progress.lastLine}</div>}
+            {progress?.lastLine && <div className="text-[11px] text-slate-500 font-mono truncate">{progress.lastLine}</div>}
           </div>
         )}
 
@@ -435,7 +435,7 @@ export const QwenTtsSettings: React.FC<QwenTtsSettingsProps> = ({ voiceConfig, o
       {/* Пресет-голоса и инструкция подачи */}
       <div className={panel} data-testid="qwen-tts-presets">
         <div className="flex items-center gap-2 font-semibold text-white">
-          <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+          <div className="text-purple-400">
             <Speech className="w-4 h-4" />
           </div>
           <span>{q.presetsLabel}</span>
@@ -460,7 +460,7 @@ export const QwenTtsSettings: React.FC<QwenTtsSettingsProps> = ({ voiceConfig, o
       {/* Голоса по описанию */}
       <div className={panel} data-testid="qwen-tts-design">
         <div className="flex items-center gap-2 font-semibold text-white">
-          <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <div className="text-emerald-400">
             <Sparkles className="w-4 h-4" />
           </div>
           <span>{q.designedLabel}</span>

@@ -7,11 +7,8 @@ import {
   AlertCircle,
   Loader2,
   FileCode,
-  Terminal,
-  Clock,
-  Eye,
-  EyeOff
-} from 'lucide-react';
+  Terminal
+} from '../common/icons';
 import type { AIToolCall } from '../../types/electron';
 import { DiffReviewCard } from './DiffReviewCard';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -61,7 +58,7 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
   };
 
   return (
-    <div className="my-2 rounded-xl bg-[#111420] border border-slate-800/90 overflow-hidden shadow-sm transition-all duration-200">
+    <div className="my-2 rounded-xl bg-ph-elevated border border-slate-800/90 overflow-hidden shadow-sm transition-all duration-200">
       {/* Master Accordion Header */}
       <button
         type="button"
@@ -69,7 +66,7 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
         className="w-full px-3.5 py-2.5 flex items-center justify-between gap-3 text-left hover:bg-slate-800/40 transition select-none group"
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="p-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shrink-0">
+          <div className="text-indigo-400 shrink-0">
             <Wrench className="w-3.5 h-3.5" />
           </div>
 
@@ -77,27 +74,27 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
             <span className="text-xs font-semibold text-slate-200 font-sans">
               {t.aiStudio.steps.title}
             </span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700/60">
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono bg-slate-800 text-slate-400 border border-slate-700/60">
               {totalCount} {t.aiStudio.steps.actionsCount}
             </span>
 
             {/* Quick status chips */}
             {runningCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">
                 <Loader2 className="w-2.5 h-2.5 animate-spin" />
                 {runningCount} {t.aiStudio.steps.running}
               </span>
             )}
 
             {completedCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                 <CheckCircle2 className="w-2.5 h-2.5" />
                 {completedCount} {t.aiStudio.steps.completed}
               </span>
             )}
 
             {hasPendingDiff && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
                 <AlertCircle className="w-2.5 h-2.5" />
                 {t.aiStudio.steps.pendingDiff}
               </span>
@@ -119,7 +116,7 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
 
       {/* Collapsible Steps Content */}
       {isOpen && (
-        <div className="p-3 border-t border-slate-800/80 bg-[#0d0f17] space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+        <div className="p-3 border-t border-slate-800/80 bg-ph-panel space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
           {toolCalls.map((tool, idx) => {
             const isToolExpanded = expandedToolIds[tool.id] ?? (tool.diff ? true : false);
             const isRunning = tool.status === 'running';
@@ -129,7 +126,7 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
             return (
               <div
                 key={tool.id || idx}
-                className="rounded-xl border border-slate-800 bg-[#131624] overflow-hidden transition"
+                className="rounded-xl border border-slate-800 bg-ph-raised overflow-hidden transition"
               >
                 {/* Single Tool Item Header */}
                 <div
@@ -137,7 +134,7 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
                   className="px-3 py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-800/30 transition text-xs font-mono select-none"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-slate-500 text-[10px]">#{idx + 1}</span>
+                    <span className="text-slate-500 text-[11px]">#{idx + 1}</span>
                     {getToolIcon(tool.name)}
                     <span className="font-semibold text-slate-200 truncate">
                       {tool.name}
@@ -156,22 +153,22 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
 
                   <div className="flex items-center gap-2 shrink-0">
                     {isRunning ? (
-                      <span className="flex items-center gap-1 text-[10px] text-amber-400 font-medium">
+                      <span className="flex items-center gap-1 text-[11px] text-amber-400 font-medium">
                         <Loader2 className="w-3 h-3 animate-spin" />
                         {t.aiStudio.steps.running}
                       </span>
                     ) : isError ? (
-                      <span className="flex items-center gap-1 text-[10px] text-rose-400 font-medium">
+                      <span className="flex items-center gap-1 text-[11px] text-rose-400 font-medium">
                         <AlertCircle className="w-3 h-3" />
                         {t.common.failed}
                       </span>
                     ) : isDone || !tool.status || (!tool.diff && tool.status === 'pending') ? (
-                      <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+                      <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
                         <CheckCircle2 className="w-3 h-3" />
                         {t.common.completed}
                       </span>
                     ) : (
-                      <span className="text-[10px] text-slate-400 font-medium">
+                      <span className="text-[11px] text-slate-400 font-medium">
                         {tool.status || 'pending'}
                       </span>
                     )}
@@ -188,7 +185,7 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
 
                 {/* Sub-item Details (Args, Diffs, Console output) */}
                 {isToolExpanded && (
-                  <div className="p-3 bg-[#0a0c14] border-t border-slate-800/80 space-y-2 text-xs">
+                  <div className="p-3 bg-ph-base border-t border-slate-800/80 space-y-2 text-xs">
                     {/* Render DiffReviewCard if diff exists */}
                     {tool.diff ? (
                       <DiffReviewCard
@@ -203,10 +200,10 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
                         {/* Tool Arguments View */}
                         {tool.args && Object.keys(tool.args).length > 0 && (
                           <div className="space-y-1">
-                            <span className="text-[10px] uppercase font-mono tracking-wider text-slate-500">
+                            <span className="text-[11px] font-mono text-slate-500">
                               {t.aiStudio.steps.viewArgs}:
                             </span>
-                            <pre className="p-2 rounded-lg bg-[#121522] border border-slate-800/80 text-[11px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-40">
+                            <pre className="p-2 rounded-lg bg-ph-raised border border-slate-800/80 text-[11px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-40">
                               {JSON.stringify(tool.args, null, 2)}
                             </pre>
                           </div>
@@ -215,11 +212,11 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
                         {/* Tool Execution Result / Live Output */}
                         {tool.result && (
                           <div className="space-y-1">
-                            <span className="text-[10px] uppercase font-mono tracking-wider text-emerald-400/90 flex items-center gap-1">
+                            <span className="text-[11px] font-mono text-slate-400/90 flex items-center gap-1">
                               <Terminal className="w-3 h-3" />
                               {t.aiStudio.steps.viewResult}:
                             </span>
-                            <pre className="p-2.5 rounded-lg bg-[#07090e] border border-slate-800 font-mono text-[11px] text-emerald-300/90 overflow-x-auto whitespace-pre-wrap max-h-56">
+                            <pre className="p-2.5 rounded-lg bg-ph-base border border-slate-800 font-mono text-[11px] text-emerald-300/90 overflow-x-auto whitespace-pre-wrap max-h-56">
                               {typeof tool.result === 'string'
                                 ? tool.result
                                 : JSON.stringify(tool.result, null, 2)}

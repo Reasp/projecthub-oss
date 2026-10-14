@@ -1,5 +1,5 @@
 import React from 'react';
-import { KeyRound, Package, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { KeyRound, Package, ShieldAlert, ShieldCheck } from '../../common/icons';
 import { useTranslation } from '../../../i18n/useTranslation';
 import type { AgentSlotSecurity, DependencyChange } from '../../../types/electron';
 import { formatDateTime, secretKindLabel } from '../../../utils/securityFormat';

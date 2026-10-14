@@ -122,7 +122,7 @@ export const PtyTabTerminal: React.FC<PtyTabTerminalProps> = ({ session, isActiv
   return (
     <div
       style={{ display: isActive ? 'block' : 'none' }}
-      className="w-full h-full p-2 bg-[#0a0d14] select-text relative"
+      className="w-full h-full p-2 bg-ph-base select-text relative"
     >
       <div ref={containerRef} className="w-full h-full" />
     </div>

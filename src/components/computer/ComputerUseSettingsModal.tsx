@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, Camera, Monitor, OctagonX, Plus, Power, ShieldAlert, Trash2, Unlock, X } from 'lucide-react';
+import { Activity, Camera, Monitor, OctagonX, Plus, Power, ShieldAlert, Trash2, Unlock, X } from '../common/icons';
 import type {
   ComputerPolicySettings,
   ComputerUseDiagnostics,
@@ -101,8 +101,8 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
   const summary = diagnostics?.runtime?.summary;
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#121522] border border-slate-700/80 rounded-2xl shadow-2xl p-6 space-y-5 text-slate-200 font-sans">
+    <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl p-6 space-y-5 text-slate-200 font-sans">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-orange-500/20 text-orange-300">
@@ -137,7 +137,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
 
         {settings && (
           <>
-            <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+            <label className="flex items-start gap-3 p-3 rounded-lg bg-ph-panel border border-ph-line cursor-pointer">
               <input
                 type="checkbox"
                 className="mt-0.5 accent-orange-500"
@@ -150,7 +150,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
               </span>
             </label>
 
-            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-ph-panel border border-ph-line text-xs">
               <div className="space-y-0.5 min-w-0">
                 <div className="font-semibold text-slate-200">
                   {t.computerUse.runtime}: <span className={runtimeColor}>{t.computerUse.runtimeState[runtimeState]}</span>
@@ -209,14 +209,14 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
                   onChange={(e) => setNewApp(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addAllowlistEntry()}
                   placeholder={t.computerUse.appPlaceholder}
-                  className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-orange-500"
+                  className="flex-1 min-w-0 bg-ph-raised border border-slate-700 rounded-md px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-orange-500"
                 />
                 <input
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addAllowlistEntry()}
                   placeholder={t.computerUse.titlePlaceholder}
-                  className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500"
+                  className="flex-1 min-w-0 bg-ph-raised border border-slate-700 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500"
                 />
                 <button
                   type="button"
@@ -230,7 +230,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
+              <div className="p-3 rounded-lg bg-ph-panel border border-ph-line space-y-2">
                 <div className="font-semibold text-slate-200">{t.computerUse.outsideTitle}</div>
                 <select
                   value={settings.policy.outsideAllowlist}
@@ -241,7 +241,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
                   <option value="deny">{t.computerUse.outsideDeny}</option>
                 </select>
               </div>
-              <label className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 flex items-start gap-2 cursor-pointer">
+              <label className="p-3 rounded-lg bg-ph-panel border border-ph-line flex items-start gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   className="mt-0.5 accent-orange-500"
@@ -255,7 +255,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
               </label>
             </div>
 
-            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3 text-xs">
+            <div className="p-3 rounded-lg bg-ph-panel border border-ph-line space-y-3 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-semibold text-slate-200 flex items-center gap-1.5">
                   <ShieldAlert className="w-3.5 h-3.5 text-rose-300" />
@@ -309,7 +309,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
               </label>
             </div>
 
-            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2 text-xs">
+            <div className="p-3 rounded-lg bg-ph-panel border border-ph-line space-y-2 text-xs">
               <div className="font-semibold text-slate-200">{t.computerUse.diagnostics}</div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
@@ -356,7 +356,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
                 <div className="space-y-1">
                   {screenshot.error && <div className="text-rose-300 break-words">{screenshot.error}</div>}
                   {screenshot.dataUrl && <img src={screenshot.dataUrl} alt={t.computerUse.testScreenshot} className="w-full rounded-lg border border-slate-800" />}
-                  {screenshot.text && <pre className="text-[10px] text-slate-500 whitespace-pre-wrap">{screenshot.text}</pre>}
+                  {screenshot.text && <pre className="text-[11px] text-slate-500 whitespace-pre-wrap">{screenshot.text}</pre>}
                 </div>
               )}
             </div>

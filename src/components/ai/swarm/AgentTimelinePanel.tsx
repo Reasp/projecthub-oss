@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, History, Play, RefreshCw, RotateCcw, ShieldCheck, Shuffle, AlertTriangle } from 'lucide-react';
+import { Download, History, Play, RefreshCw, RotateCcw, ShieldCheck, Shuffle, AlertTriangle } from '../../common/icons';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { useDialog } from '../../../hooks/useDialog';
 import type { AgentSlotState, AgentTimelineView, SwarmSession, TimelineHitl } from '../../../types/electron';
@@ -137,7 +137,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
   const hitlBadge = (h: TimelineHitl, i: number) => (
     <span
       key={`${h.requestId}-${i}`}
-      className={`inline-flex items-center gap-0.5 px-1 rounded border text-[9px] ${
+      className={`inline-flex items-center gap-0.5 px-1 rounded border text-[11px] ${
         h.decision === 'allow'
           ? 'border-emerald-500/40 text-emerald-300'
           : h.decision === 'deny' || h.decision === 'expired'
@@ -241,7 +241,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
           const run = timeline.runs.find((r) => r.run === row.run);
           return (
             <div key={row.run} className="space-y-0.5" data-testid="agent-timeline-scale-row">
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                 <span className="font-semibold text-foreground">{tt.runLabel.replace('{run}', String(row.run))}</span>
                 {run?.iteration !== undefined && <span>{tt.iterationLabel.replace('{n}', String(run.iteration))}</span>}
                 {run?.afterRewind && <span className="text-amber-300">{tt.runAfterRewind}</span>}
@@ -255,7 +255,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
                     key={seg.key}
                     className={
                       seg.kind === 'turn'
-                        ? `absolute top-0 h-full border-l border-primary/40 text-[9px] leading-5 pl-0.5 text-primary/70 overflow-hidden ${
+                        ? `absolute top-0 h-full border-l border-primary/40 text-[11px] leading-5 pl-0.5 text-primary/70 overflow-hidden ${
                             seg.odd ? 'bg-primary/5' : 'bg-primary/15'
                           }`
                         : `absolute top-1 h-3 rounded-sm border ${toolStatusClass(seg.status ?? 'ok')}`
@@ -284,7 +284,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
             <Shuffle className="w-3 h-3" /> {tt.switchesTitle}
           </div>
           {timeline.switches.map((sw, i) => (
-            <div key={`${sw.at}-${i}`} className="font-mono text-[10px]">
+            <div key={`${sw.at}-${i}`} className="font-mono text-[11px]">
               {new Date(sw.at).toLocaleTimeString()} · {sw.from} → {sw.to} ({sw.kind}
               {sw.reason ? `/${sw.reason}` : ''}
               {sw.waitedMs ? `, ${span(sw.waitedMs)}` : ''})
@@ -296,7 +296,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
       {/* Таблица ходов и инструментов */}
       {rows.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-[10px] border-collapse" data-testid="agent-timeline-table">
+          <table className="w-full text-[11px] border-collapse" data-testid="agent-timeline-table">
             <thead>
               <tr className="text-muted-foreground text-left border-b border-border/60">
                 <th className="py-1 pr-2 font-medium">{tt.colTurn}</th>
@@ -316,7 +316,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
                   const run = timeline?.runs.find((r) => r.run === row.run);
                   return (
                     <tr key={row.key}>
-                      <td colSpan={9} className="pt-2 pb-0.5 text-[10px] font-semibold text-primary">
+                      <td colSpan={9} className="pt-2 pb-0.5 text-[11px] font-semibold text-primary">
                         {tt.runLabel.replace('{run}', String(row.run))}
                         {run?.afterRewind ? ` · ${tt.runAfterRewind}` : ''}
                       </td>

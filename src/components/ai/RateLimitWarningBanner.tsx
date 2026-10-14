@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Clock, ChevronDown, ChevronUp, X, Zap, Trash2 } from 'lucide-react';
+import { AlertTriangle, Clock, ChevronDown, ChevronUp, X, Zap, Trash2 } from '../common/icons';
 import type { RateLimitWarning, AIProviderConfig } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 
@@ -25,8 +25,8 @@ export const RateLimitWarningBanner: React.FC<RateLimitWarningBannerProps> = ({
   const isCritical = utilization >= 95 || warning.type === 'throttled';
 
   const getProgressColor = (val: number) => {
-    if (val >= 95) return 'bg-rose-500 shadow-rose-500/50';
-    if (val >= 85) return 'bg-amber-500 shadow-amber-500/50';
+    if (val >= 95) return 'bg-rose-500';
+    if (val >= 85) return 'bg-amber-500';
     return 'bg-yellow-400 shadow-yellow-400/50';
   };
 
@@ -49,7 +49,7 @@ export const RateLimitWarningBanner: React.FC<RateLimitWarningBannerProps> = ({
               isCritical ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'
             }`}
           >
-            <AlertTriangle className="w-4 h-4 animate-bounce" />
+            <AlertTriangle className="w-4 h-4" />
           </div>
 
           <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -57,7 +57,7 @@ export const RateLimitWarningBanner: React.FC<RateLimitWarningBannerProps> = ({
               {warning.title || t.aiStudio.rateLimit.bannerTitle}
             </span>
             <span
-              className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
+              className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-bold border ${
                 isCritical
                   ? 'bg-rose-500/30 text-rose-300 border-rose-500/40'
                   : 'bg-amber-500/30 text-amber-300 border-amber-500/40'
@@ -67,7 +67,7 @@ export const RateLimitWarningBanner: React.FC<RateLimitWarningBannerProps> = ({
             </span>
 
             {warning.resetsAt && (
-              <span className="hidden sm:flex items-center gap-1 text-[10px] text-slate-300 bg-black/30 px-2 py-0.5 rounded-md border border-slate-700/50">
+              <span className="hidden sm:flex items-center gap-1 text-[11px] text-slate-300 bg-black/30 px-2 py-0.5 rounded-md border border-slate-700/50">
                 <Clock className="w-3 h-3 text-slate-400" />
                 <span>{warning.resetsAt}</span>
               </span>
@@ -135,7 +135,7 @@ export const RateLimitWarningBanner: React.FC<RateLimitWarningBannerProps> = ({
             <button
               type="button"
               onClick={onClearSession}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition"
+              className="ph-btn ph-btn-secondary"
             >
               <Trash2 className="w-3.5 h-3.5 text-rose-400" />
               <span>{t.aiStudio.rateLimit.clearContext}</span>

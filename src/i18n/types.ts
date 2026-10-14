@@ -111,6 +111,7 @@ export interface TranslationDictionary {
     stopDev: string;
     indexRag: string;
     vsCode: string;
+    vsCodeOpenFailed: string;
     folder: string;
     console: string;
     claudeCode: string;
@@ -123,6 +124,8 @@ export interface TranslationDictionary {
     working: string;
     currentGitBranch: string;
     worktreeCountTooltip: string;
+    statusClean: string;
+    statusChanges: string;
     ruLanguageTooltip: string;
   };
   actions: {
@@ -1382,6 +1385,7 @@ export interface TranslationDictionary {
     restart: string;
     restartTitle: string;
     initializing: string;
+    notRunning: string;
   };
   aiStudio: {
     newChat: string;
@@ -1656,6 +1660,7 @@ export interface TranslationDictionary {
     noTasks: string;
     tasksCount: string;
     openProject: string;
+    start: string;
   };
   worktrees: {
     title: string;

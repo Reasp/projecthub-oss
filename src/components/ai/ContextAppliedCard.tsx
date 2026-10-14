@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Layers, ChevronDown, ChevronRight, X, CheckSquare, Square, Loader2 } from 'lucide-react';
+import { Layers, ChevronDown, ChevronRight, X, CheckSquare, Square, Loader2 } from '../common/icons';
 import type { AgentContextPreview, ContextPartKey } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 
@@ -55,7 +55,7 @@ export const ContextAppliedCard: React.FC<ContextAppliedCardProps> = ({
   const truncatedSet = new Set(preview?.truncatedKeys || []);
 
   return (
-    <div className="w-full rounded-xl bg-[#141724] border border-indigo-500/20 overflow-hidden text-xs mb-2">
+    <div className="w-full rounded-xl bg-ph-raised border border-indigo-500/20 overflow-hidden text-xs mb-2">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full px-3.5 py-2 flex items-center justify-between text-indigo-300/90 hover:text-indigo-200 hover:bg-indigo-500/5 transition font-mono text-[11px]"
@@ -95,7 +95,7 @@ export const ContextAppliedCard: React.FC<ContextAppliedCardProps> = ({
       </button>
 
       {isExpanded && (
-        <div className="px-4 py-3 bg-[#0d0f17] border-t border-slate-800/80 space-y-1.5">
+        <div className="px-4 py-3 bg-ph-panel border-t border-slate-800/80 space-y-1.5">
           {PART_KEYS.map((key) => {
             const enabled = isPartEnabled(key);
             const included = includedSet.has(key);

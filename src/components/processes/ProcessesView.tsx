@@ -15,7 +15,7 @@ import {
   FolderGit2,
   Unplug,
   Eraser
-} from 'lucide-react';
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
@@ -217,13 +217,13 @@ export const ProcessesView: React.FC = () => {
 
   const sourceBadge = (proc: ManagedProcess) =>
     proc.source === 'hub' ? (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-950/50 border border-indigo-800/50 text-indigo-300 text-[10px] font-medium">
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-950/50 border border-indigo-800/50 text-indigo-300 text-[11px] font-medium">
         <Cpu className="w-3 h-3" />
         {t.processes.sourceHub}
       </span>
     ) : (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/50 text-cyan-300 text-[10px] font-medium"
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/50 text-cyan-300 text-[11px] font-medium"
         title={t.processes.envToolsHint}
       >
         <Server className="w-3 h-3" />
@@ -232,9 +232,9 @@ export const ProcessesView: React.FC = () => {
     );
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#0b0e17]">
+    <div className="flex-1 flex flex-col overflow-hidden bg-ph-panel">
       {/* Header */}
-      <div className="px-5 py-3 border-b border-slate-800 bg-slate-950/40 flex items-start justify-between gap-4">
+      <div className="px-5 py-3 border-b border-slate-800 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-white flex items-center gap-2">
             <Cpu className="w-4 h-4 text-indigo-400" />
@@ -256,7 +256,7 @@ export const ProcessesView: React.FC = () => {
 
       {/* Quick actions from .projecthub.json */}
       <div className="px-5 py-2.5 border-b border-slate-800/80 flex items-center gap-2 flex-wrap">
-        <span className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mr-1">{t.processes.quickActions}</span>
+        <span className="text-[11px] text-slate-500 font-medium mr-1">{t.processes.quickActions}</span>
         {quickActions.map(({ key, def, icon: Icon, className }) => (
           <button
             key={key}
@@ -288,8 +288,8 @@ export const ProcessesView: React.FC = () => {
           </div>
         ) : (
           <table className="w-full text-xs border-collapse">
-            <thead className="sticky top-0 bg-[#0e121c] z-10">
-              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 bg-ph-elevated z-10">
+              <tr className="text-left text-[11px] text-slate-500">
                 <th className="px-5 py-2 font-semibold">{t.processes.colName}</th>
                 <th className="px-3 py-2 font-semibold">{t.processes.colCommand}</th>
                 <th className="px-3 py-2 font-semibold">{t.worktrees.workspaceColumn}</th>
@@ -312,7 +312,7 @@ export const ProcessesView: React.FC = () => {
                     <td className="px-5 py-2.5 align-top">
                       <div className="font-medium text-slate-200">{proc.name}</div>
                       {proc.workingDir && (
-                        <div className="text-[10px] text-slate-500 font-mono truncate max-w-[220px]" title={proc.workingDir}>
+                        <div className="text-[11px] text-slate-500 font-mono truncate max-w-[220px]" title={proc.workingDir}>
                           {t.processes.workingDir.replace('{dir}', proc.workingDir)}
                         </div>
                       )}
@@ -325,14 +325,14 @@ export const ProcessesView: React.FC = () => {
                     <td className="px-3 py-2.5 align-top">
                       {proc.workspaceRoot ? (
                         <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/50 text-cyan-300 text-[10px] font-mono max-w-[160px] truncate"
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/50 text-cyan-300 text-[11px] font-mono max-w-[160px] truncate"
                           title={proc.workspaceRoot}
                         >
                           <FolderGit2 className="w-3 h-3 shrink-0" />
                           {proc.workspaceRoot.split(/[\\/]/).pop()}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-slate-500">{t.worktrees.mainTreeOption}</span>
+                        <span className="text-[11px] text-slate-500">{t.worktrees.mainTreeOption}</span>
                       )}
                     </td>
                     <td className="px-3 py-2.5 align-top">
@@ -415,8 +415,8 @@ export const ProcessesView: React.FC = () => {
       </div>
 
       {serviceProcesses.length > 0 && (
-        <div className="border-t border-slate-800/70 bg-[#0b0e16]">
-          <div className="px-5 py-2 text-[11px] uppercase tracking-wide text-slate-500 font-semibold flex items-center gap-1.5">
+        <div className="border-t border-slate-800/70 bg-ph-panel">
+          <div className="px-5 py-2 text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
             <Server className="w-3.5 h-3.5" />
             {t.notifications.serviceProcesses}
           </div>

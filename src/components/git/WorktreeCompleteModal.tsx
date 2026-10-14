@@ -4,15 +4,13 @@ import {
   X,
   GitMerge,
   GitBranch,
-  Trash2,
   CheckCircle,
   AlertTriangle,
   RefreshCw,
   ArrowRight,
-  Sparkles,
   FileDiff,
   FolderOpen
-} from 'lucide-react';
+} from '../common/icons';
 import type { GitWorktreeInfo } from '../../types/electron';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -147,12 +145,12 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#121524] border border-slate-700/70 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+      <div className="bg-ph-elevated border border-slate-700 rounded-xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-[#15192b] shrink-0">
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+            <div className="p-1.5 rounded-lg bg-ph-raised text-emerald-400">
               <GitMerge className="w-5 h-5" />
             </div>
             <div>
@@ -181,7 +179,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
           {/* Target Branch Selector */}
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-300">{t.worktrees.mergeIntoLabel}</span>
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#0e111d] border border-slate-700">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-ph-elevated border border-slate-700">
               <GitBranch className="w-3.5 h-3.5 text-indigo-400" />
               <select
                 value={targetBranch}
@@ -191,7 +189,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
                 {gitRepoDetails?.branches
                   ?.filter((b) => b !== worktree.branch)
                   .map((b) => (
-                    <option key={b} value={b} className="bg-[#121524] text-white">
+                    <option key={b} value={b} className="bg-ph-raised text-white">
                       {b}
                     </option>
                   )) || <option value="master">master</option>}
@@ -207,7 +205,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
                   type="checkbox"
                   checked={updateTaskToReview}
                   onChange={(e) => setUpdateTaskToReview(e.target.checked)}
-                  className="rounded border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 bg-[#0e111d]"
+                  className="rounded border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 bg-ph-elevated"
                 />
                 <span>{t.worktrees.moveToReviewCheckbox.replace('{taskId}', matchingTask.id)}</span>
               </label>
@@ -218,7 +216,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
                 type="checkbox"
                 checked={deleteAfterMerge}
                 onChange={(e) => setDeleteAfterMerge(e.target.checked)}
-                className="rounded border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 bg-[#0e111d]"
+                className="rounded border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 bg-ph-elevated"
               />
               <span>{t.worktrees.deleteAfterMergeCheckbox}</span>
             </label>
@@ -276,20 +274,20 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
 
         {/* Changed Files Toolbar for partial checkout */}
         {changedFiles.length > 0 && (
-          <div className="px-6 py-2 bg-[#13172b] border-b border-slate-800 flex items-center gap-3 overflow-x-auto text-xs text-slate-300 shrink-0">
+          <div className="px-6 py-2 bg-ph-hover border-b border-slate-800 flex items-center gap-3 overflow-x-auto text-xs text-slate-300 shrink-0">
             <span className="text-slate-400 font-medium shrink-0 flex items-center gap-1">
               <FileDiff className="w-3.5 h-3.5 text-indigo-400" />
               {t.worktrees.applySelectedFiles} ({changedFiles.length}):
             </span>
             <div className="flex items-center gap-2 overflow-x-auto py-1">
               {changedFiles.map((f) => (
-                <div key={f} className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#0d1122] border border-slate-700 text-[11px] font-mono shrink-0">
+                <div key={f} className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-ph-elevated border border-slate-700 text-[11px] font-mono shrink-0">
                   <span className="text-slate-200 truncate max-w-[200px]" title={f}>{f}</span>
                   <button
                     type="button"
                     disabled={isApplyingFile}
                     onClick={() => handleApplySingleFile(f)}
-                    className="text-emerald-400 hover:text-emerald-300 ml-1 text-[10px] font-sans px-1.5 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition disabled:opacity-50"
+                    className="text-emerald-400 hover:text-emerald-300 ml-1 text-[11px] font-sans px-1.5 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition disabled:opacity-50"
                     title={t.worktrees.applyFile}
                   >
                     {t.worktrees.applyFile}
@@ -301,7 +299,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
         )}
 
         {/* Diff Content Viewport */}
-        <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-[#0c0e17]">
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-ph-panel">
           {isLoadingDiff ? (
             <div className="flex-1 flex items-center justify-center p-8 text-slate-400 gap-2">
               <RefreshCw className="w-5 h-5 animate-spin text-indigo-400" />
@@ -339,7 +337,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
         )}
 
         {/* Footer Actions */}
-        <div className="px-6 py-3.5 border-t border-slate-800 bg-[#15192b] flex items-center justify-between shrink-0">
+        <div className="px-6 py-3.5 border-t border-slate-800 flex items-center justify-between shrink-0">
           <div className="text-xs text-slate-400 flex items-center gap-1.5 font-mono">
             <span>{worktree.branch}</span>
             <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
@@ -359,7 +357,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
               type="button"
               disabled={isMerging}
               onClick={handleMerge}
-              className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5 disabled:opacity-50"
+              className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-md transition flex items-center gap-1.5 disabled:opacity-50"
             >
               {isMerging ? (
                 <>

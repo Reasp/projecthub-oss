@@ -11,7 +11,7 @@ import {
   RefreshCw,
   Repeat,
   XCircle
-} from 'lucide-react';
+} from '../../common/icons';
 import { useTranslation } from '../../../i18n/useTranslation';
 import type { CheckArtifact, CriterionScreenshot, DoneLoopIteration, SwarmSession } from '../../../types/electron';
 import { checkStatusClass, checkStatusLabel } from '../../../utils/arenaFormat';
@@ -65,9 +65,9 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Repeat className="w-4 h-4 text-primary" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{d.panelTitle}</span>
+          <span className="text-xs font-medium text-muted-foreground">{d.panelTitle}</span>
           <span
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
               active ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border'
             }`}
           >
@@ -152,12 +152,12 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                 {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                 <span className="font-semibold text-foreground">{d.iterationLabel.replace('{n}', String(it.index))}</span>
                 {it.segment ? (
-                  <span className="px-1.5 rounded border border-primary/30 text-[10px] text-primary">
+                  <span className="px-1.5 rounded border border-primary/30 text-[11px] text-primary">
                     {tt.iterationSegment.replace('{n}', String(it.segment))}
                   </span>
                 ) : null}
                 {it.rolledBack && (
-                  <span className="px-1.5 rounded border border-amber-500/40 text-[10px] text-amber-300">{tt.iterationRolledBack[it.rolledBack]}</span>
+                  <span className="px-1.5 rounded border border-amber-500/40 text-[11px] text-amber-300">{tt.iterationRolledBack[it.rolledBack]}</span>
                 )}
                 <span className={`inline-flex items-center gap-1 ${stats.checksFailed > 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>
                   <ClipboardCheck className="w-3 h-3" />
@@ -172,7 +172,7 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                   {d.criteriaCount.replace('{accepted}', String(stats.criteriaAccepted)).replace('{total}', String(stats.criteriaTotal))}
                 </span>
                 {typeof it.costUsd === 'number' && <span className="font-mono text-muted-foreground">{formatUsd(it.costUsd)}</span>}
-                <span className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span className="ml-auto text-[11px] text-muted-foreground">
                   {running
                     ? d.decisionRunning
                     : it.decision === 'finish'
@@ -198,7 +198,7 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                         return (
                           <span
                             key={c.id}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] ${checkStatusClass(c.status)}`}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] ${checkStatusClass(c.status)}`}
                             title={c.outputTail ? c.outputTail.slice(-1500) : c.detail || c.command}
                           >
                             {c.name}: {checkStatusLabel(c.status, t.judge)}
@@ -212,14 +212,14 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                     .filter((c) => (c.artifacts?.length ?? 0) > 0)
                     .map((c) => (
                       <div key={`art-${c.id}`} className="space-y-1">
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{c.name}</div>
+                        <div className="text-[11px] text-muted-foreground">{c.name}</div>
                         <CheckArtifactsGallery artifacts={c.artifacts} truncated={c.artifactsTruncated} size="sm" />
                       </div>
                     ))}
 
                   {it.reportSummary && (
                     <div>
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">{d.reportSummaryLabel}</div>
+                      <div className="text-[11px] text-muted-foreground mb-0.5">{d.reportSummaryLabel}</div>
                       <p className="text-foreground whitespace-pre-wrap">{it.reportSummary}</p>
                     </div>
                   )}
@@ -256,7 +256,7 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                             )}
                             {c.screenshots && c.screenshots.length > 0 && (
                               <div className="mt-1 space-y-0.5">
-                                <div className="text-[10px] text-muted-foreground">{d.screenshotsLabel}</div>
+                                <div className="text-[11px] text-muted-foreground">{d.screenshotsLabel}</div>
                                 <CheckArtifactsGallery artifacts={criterionArtifacts(it, c.screenshots)} size="sm" />
                               </div>
                             )}

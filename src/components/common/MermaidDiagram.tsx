@@ -85,7 +85,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
 
   if (!svg) {
     return (
-      <div className="my-4 p-6 rounded-2xl bg-[#0e111d] border border-slate-800 flex items-center justify-center text-xs text-slate-500 animate-pulse">
+      <div className="my-4 p-6 rounded-2xl bg-ph-elevated border border-slate-800 flex items-center justify-center text-xs text-slate-500 animate-pulse">
         {t.markdown.mermaidRendering}
       </div>
     );
@@ -94,7 +94,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
   return (
     <div
       ref={containerRef}
-      className="my-5 p-5 rounded-2xl bg-[#0e111d] border border-slate-800 shadow-xl overflow-x-auto flex justify-center items-center transition-all hover:border-indigo-500/40"
+      className="my-5 p-5 rounded-2xl bg-ph-elevated border border-slate-800 shadow-xl overflow-x-auto flex justify-center items-center transition-all hover:border-indigo-500/40"
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   );

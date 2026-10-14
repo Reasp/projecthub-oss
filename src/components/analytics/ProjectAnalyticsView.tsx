@@ -1,19 +1,12 @@
 import React from 'react';
 import {
   BarChart2,
-  TrendingUp,
-  CheckCircle2,
-  GitCommit,
   Tag,
   Target,
   Database,
   Activity,
-  User,
-  Calendar,
-  Layers,
-  Sparkles,
-  CheckCircle
-} from 'lucide-react';
+  User
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import {
   countStatuses,
@@ -111,123 +104,71 @@ export const ProjectAnalyticsView: React.FC = () => {
   const milestoneProgressRate = milestones.length > 0 ? Math.round((completedMilestones / milestones.length) * 100) : 0;
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-y-auto bg-[#0f1117] p-6 space-y-6 text-xs">
-      {/* Header Banner */}
-      <div className="flex items-center justify-between p-5 rounded-2xl bg-gradient-to-r from-[#161926] via-[#141724] to-[#12151e] border border-slate-800/80 shadow-lg shrink-0 flex-nowrap overflow-hidden gap-4">
-        <div className="flex items-center gap-4 min-w-0 flex-1 overflow-hidden">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner shrink-0">
-            <BarChart2 className="w-6 h-6 shrink-0" />
-          </div>
-          <div className="min-w-0 truncate">
-            <div className="flex items-center gap-2.5 truncate">
-              <h1 className="text-base font-bold text-white tracking-tight truncate">{t.analytics.title}</h1>
-              <span className="text-[11px] font-mono font-medium text-indigo-300 bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/20 flex items-center gap-1 shrink-0 whitespace-nowrap" title={selectedProject.name}>
-                <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
-                <span className="truncate max-w-[150px]">{selectedProject.name}</span>
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1 truncate">
-              {t.analytics.subtitle}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0 whitespace-nowrap">
-          <div className="text-right">
-            <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider block">{t.milestones.progress}</span>
-            <span className="text-lg font-bold text-emerald-400 font-mono">{completionRate}%</span>
-          </div>
-        </div>
+    <div className="flex-1 flex flex-col h-full overflow-y-auto bg-ph-panel text-xs">
+      {/* Заголовок вида — как у остальных вкладок (decision-73) */}
+      <div className="h-11 px-4 flex items-center gap-3 border-b border-ph-line shrink-0">
+        <h1 className="text-[13px] font-medium text-slate-100">{t.analytics.title}</h1>
+        <span className="text-xs text-slate-500 truncate">{t.analytics.subtitle}</span>
       </div>
 
-      {/* Top 4 KPI Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Task Readiness */}
-        <div className="p-4 rounded-xl bg-[#141724] border border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-700/80 transition">
-          <div className="flex items-center justify-between text-slate-400 text-[11px]">
-            <span className="font-medium">{t.analytics.taskCompletionRate}</span>
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
+      <div className="p-4 space-y-4">
+      {/*
+        Ключевые показатели одной строкой с разделителями, без «плиток» с цветными цифрами и иконками:
+        цвет у полоски прогресса, цифры нейтральные.
+      */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 rounded-lg border border-ph-line bg-ph-elevated divide-x divide-ph-line">
+        {[
+          {
+            label: t.analytics.taskCompletionRate,
+            value: `${completionRate}%`,
+            detail: `${doneTasks} / ${totalTasks} ${t.kanban.done.toLowerCase()}`,
+            bar: completionRate
+          },
+          {
+            label: t.analytics.criteriaCompleted,
+            value: `${criteriaRate}%`,
+            detail: `${completedCriteria} / ${totalCriteria} ${t.kanban.criteriaCount}`,
+            bar: criteriaRate
+          },
+          {
+            label: t.analytics.tasksByMilestone,
+            value: `${completedMilestones} / ${milestones.length}`,
+            detail: `${milestoneProgressRate}%`,
+            bar: milestoneProgressRate
+          },
+          {
+            label: t.analytics.gitActivity,
+            value: String(gitLogs.length),
+            detail: `${gitRepoDetails?.currentBranch || 'main'} · ${
+              gitRepoDetails?.isClean
+                ? t.header.statusClean
+                : t.header.statusChanges.replace('{count}', String(gitRepoDetails?.files.length ?? 0))
+            }`,
+            bar: null as number | null
+          }
+        ].map((kpi) => (
+          <div key={kpi.label} className="px-4 py-3 min-w-0">
+            <div className="text-[11px] text-slate-400 truncate">{kpi.label}</div>
+            <div className="mt-1 flex items-baseline gap-2 min-w-0">
+              <span className="text-xl font-semibold text-slate-100 tabular-nums">{kpi.value}</span>
+              <span className="text-[11px] text-slate-500 truncate">{kpi.detail}</span>
+            </div>
+            {kpi.bar !== null && (
+              <div className="w-full h-1 rounded-full bg-ph-raised mt-2 overflow-hidden">
+                <div className="h-full bg-emerald-500/80 rounded-full" style={{ width: `${kpi.bar}%` }} />
+              </div>
+            )}
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-emerald-400 tracking-tight">{completionRate}%</span>
-            <span className="text-[11px] text-slate-400 font-mono">
-              {doneTasks} / {totalTasks} {t.kanban.done.toLowerCase()}
-            </span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-slate-800 mt-3 overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-              style={{ width: `${completionRate}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Card 2: Acceptance Criteria */}
-        <div className="p-4 rounded-xl bg-[#141724] border border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-700/80 transition">
-          <div className="flex items-center justify-between text-slate-400 text-[11px]">
-            <span className="font-medium">{t.analytics.criteriaCompleted}</span>
-            <CheckCircle2 className="w-4 h-4 text-indigo-400" />
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-indigo-400 tracking-tight">{criteriaRate}%</span>
-            <span className="text-[11px] text-slate-400 font-mono">
-              {completedCriteria}/{totalCriteria} {t.kanban.criteriaCount}
-            </span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-slate-800 mt-3 overflow-hidden">
-            <div
-              className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-              style={{ width: `${criteriaRate}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Card 3: Milestones Roadmap */}
-        <div className="p-4 rounded-xl bg-[#141724] border border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-700/80 transition">
-          <div className="flex items-center justify-between text-slate-400 text-[11px]">
-            <span className="font-medium">{t.analytics.tasksByMilestone}</span>
-            <Target className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-cyan-400 tracking-tight">{completedMilestones}</span>
-            <span className="text-[11px] text-slate-400 font-mono">
-              / {milestones.length} ({milestoneProgressRate}%)
-            </span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-slate-800 mt-3 overflow-hidden">
-            <div
-              className="h-full bg-cyan-500 rounded-full transition-all duration-500"
-              style={{ width: `${milestoneProgressRate}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Card 4: Git Activity */}
-        <div className="p-4 rounded-xl bg-[#141724] border border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-700/80 transition">
-          <div className="flex items-center justify-between text-slate-400 text-[11px]">
-            <span className="font-medium">{t.analytics.gitActivity}</span>
-            <GitCommit className="w-4 h-4 text-purple-400" />
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-purple-400 tracking-tight">{gitLogs.length}</span>
-            <span className="text-[11px] text-slate-400 font-mono">commits</span>
-          </div>
-          <div className="text-[10px] text-slate-400 mt-3 truncate font-mono flex items-center justify-between">
-            <span>{t.git.branches}: <strong className="text-slate-200">{gitRepoDetails?.currentBranch || 'main'}</strong></span>
-            <span className={`px-1.5 py-0.5 rounded text-[9px] ${gitRepoDetails?.isClean ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
-              {gitRepoDetails?.isClean ? 'clean' : `${gitRepoDetails?.files.length} dirty`}
-            </span>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Main Grid: Status Breakdown, Tags, Git Contributors, RAG, Milestones */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* 1. Task Status Breakdown */}
-        <div className="p-5 rounded-2xl bg-[#141724] border border-slate-800/80 flex flex-col gap-4 shadow-sm">
+        <div className="p-4 rounded-lg bg-ph-elevated border border-ph-line flex flex-col gap-3">
           <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
-            <h3 className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
-              <Activity className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-xs font-medium text-white flex items-center gap-2">
+              <Activity className="w-4 h-4 text-slate-500" />
               {t.analytics.tasksByStatus}
             </h3>
             <span className="text-[11px] font-mono text-slate-400">{t.common.all}: {totalTasks}</span>
@@ -257,10 +198,10 @@ export const ProjectAnalyticsView: React.FC = () => {
         </div>
 
         {/* 2. Popular Tags */}
-        <div className="p-5 rounded-2xl bg-[#141724] border border-slate-800/80 flex flex-col gap-4 shadow-sm">
+        <div className="p-4 rounded-lg bg-ph-elevated border border-ph-line flex flex-col gap-3">
           <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
-            <h3 className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
-              <Tag className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-xs font-medium text-white flex items-center gap-2">
+              <Tag className="w-4 h-4 text-slate-500" />
               {t.analytics.tasksByTag}
             </h3>
             <span className="text-[11px] font-mono text-slate-400">{Object.keys(labelCounts).length} tags</span>
@@ -277,11 +218,11 @@ export const ProjectAnalyticsView: React.FC = () => {
                 return (
                   <div
                     key={label}
-                    className="flex items-center justify-between p-2.5 rounded-xl bg-[#10131e] border border-slate-800/80 text-[11px]"
+                    className="flex items-center justify-between px-2.5 py-2 rounded-md hover:bg-ph-hover/60 text-[11px]"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 font-mono text-[10px] border border-indigo-500/20 truncate">
-                        #{label}
+                      <span className="text-slate-200 truncate">
+                        {label}
                       </span>
                       <span className="text-slate-400 truncate">{count}</span>
                     </div>
@@ -294,10 +235,10 @@ export const ProjectAnalyticsView: React.FC = () => {
         </div>
 
         {/* 3. Git Authors / Contributors */}
-        <div className="p-5 rounded-2xl bg-[#141724] border border-slate-800/80 flex flex-col gap-4 shadow-sm">
+        <div className="p-4 rounded-lg bg-ph-elevated border border-ph-line flex flex-col gap-3">
           <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
-            <h3 className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
-              <User className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-xs font-medium text-white flex items-center gap-2">
+              <User className="w-4 h-4 text-slate-500" />
               {t.analytics.topContributors}
             </h3>
             <span className="text-[11px] font-mono text-slate-400">{sortedAuthors.length}</span>
@@ -312,15 +253,15 @@ export const ProjectAnalyticsView: React.FC = () => {
               {sortedAuthors.map(([author, count]) => (
                 <div
                   key={author}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-[#10131e] border border-slate-800/80 text-[11px]"
+                  className="flex items-center justify-between px-2.5 py-2 rounded-md hover:bg-ph-hover/60 text-[11px]"
                 >
                   <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                    <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
                       {author.slice(0, 1).toUpperCase()}
                     </div>
                     <div>
                       <div className="text-slate-200 font-semibold">{author}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">
+                      <div className="text-[11px] text-slate-500 font-mono">
                         {Math.round((count / (gitLogs.length || 1)) * 100)}%
                       </div>
                     </div>
@@ -335,14 +276,14 @@ export const ProjectAnalyticsView: React.FC = () => {
         </div>
 
         {/* 4. RAG Knowledge Base Stats */}
-        <div className="p-5 rounded-2xl bg-[#141724] border border-slate-800/80 flex flex-col gap-4 shadow-sm">
+        <div className="p-4 rounded-lg bg-ph-elevated border border-ph-line flex flex-col gap-3">
           <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
-            <h3 className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
-              <Database className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-xs font-medium text-white flex items-center gap-2">
+              <Database className="w-4 h-4 text-slate-500" />
               {t.rag.title}
             </h3>
             <span
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
                 selectedProject.ragStatus?.ready
                   ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
                   : 'text-amber-400 bg-amber-500/10 border-amber-500/20'
@@ -353,22 +294,22 @@ export const ProjectAnalyticsView: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
-            <div className="p-3 rounded-xl bg-[#10131e] border border-slate-800/80 flex flex-col justify-between">
-              <span className="text-slate-400 text-[10px] uppercase font-semibold">{t.rag.chunksCount}</span>
-              <span className="text-xl font-bold font-mono text-slate-100 mt-1">
+            <div className="px-2.5 py-2 rounded-md hover:bg-ph-hover/60 flex flex-col justify-between">
+              <span className="text-slate-400 text-[11px]">{t.rag.chunksCount}</span>
+              <span className="text-lg font-semibold text-slate-100 tabular-nums mt-0.5">
                 {selectedProject.ragStatus?.chunksCount ?? '—'}
               </span>
             </div>
 
-            <div className="p-3 rounded-xl bg-[#10131e] border border-slate-800/80 flex flex-col justify-between">
-              <span className="text-slate-400 text-[10px] uppercase font-semibold">Model</span>
-              <span className="text-xs font-mono text-indigo-300 truncate mt-1" title={selectedProject.ragStatus?.model || 'BAAI/bge-small-en-v1.5'}>
+            <div className="px-2.5 py-2 rounded-md hover:bg-ph-hover/60 flex flex-col justify-between">
+              <span className="text-slate-400 text-[11px]">Model</span>
+              <span className="text-xs font-mono text-slate-300 truncate mt-0.5" title={selectedProject.ragStatus?.model || 'BAAI/bge-small-en-v1.5'}>
                 {selectedProject.ragStatus?.model || 'bge-small-en-v1.5'}
               </span>
             </div>
 
-            <div className="p-3 rounded-xl bg-[#10131e] border border-slate-800/80 flex flex-col justify-between sm:col-span-2">
-              <span className="text-slate-400 text-[10px] uppercase font-semibold">{t.rag.lastIndexed}</span>
+            <div className="px-2.5 py-2 rounded-md hover:bg-ph-hover/60 flex flex-col justify-between sm:col-span-2">
+              <span className="text-slate-400 text-[11px]">{t.rag.lastIndexed}</span>
               <span className="text-xs font-mono text-slate-300 mt-1">
                 {selectedProject.ragStatus?.builtAt || t.rag.notIndexed}
               </span>
@@ -378,10 +319,10 @@ export const ProjectAnalyticsView: React.FC = () => {
 
         {/* 5. Milestones Progress Breakdown */}
         {milestones.length > 0 && (
-          <div className="p-5 rounded-2xl bg-[#141724] border border-slate-800/80 flex flex-col gap-4 shadow-sm lg:col-span-2">
+          <div className="p-4 rounded-lg bg-ph-elevated border border-ph-line flex flex-col gap-3 lg:col-span-2">
             <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
-              <h3 className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
-                <Target className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-xs font-medium text-white flex items-center gap-2">
+                <Target className="w-4 h-4 text-slate-500" />
                 {t.milestones.title}
               </h3>
               <span className="text-[11px] font-mono text-slate-400">
@@ -396,14 +337,14 @@ export const ProjectAnalyticsView: React.FC = () => {
                 const mPct = milestoneTasks.length > 0 ? Math.round((doneMTasks / milestoneTasks.length) * 100) : (m.status === 'Completed' ? 100 : 0);
 
                 return (
-                  <div key={m.id} className="p-3.5 rounded-xl bg-[#10131e] border border-slate-800/80 flex flex-col justify-between gap-2.5">
+                  <div key={m.id} className="p-3.5 rounded-xl bg-ph-elevated border border-slate-800/80 flex flex-col justify-between gap-2.5">
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <h4 className="text-xs font-semibold text-white truncate">{m.title}</h4>
-                        <span className="text-[10px] text-slate-400 font-mono">ID: {m.id}</span>
+                        <span className="text-[11px] text-slate-400 font-mono">ID: {m.id}</span>
                       </div>
                       <span
-                        className={`text-[9px] px-2 py-0.5 rounded-full font-semibold border shrink-0 ${
+                        className={`text-[11px] px-2 py-0.5 rounded-full font-semibold border shrink-0 ${
                           m.status === 'Completed'
                             ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
                             : 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20'
@@ -414,7 +355,7 @@ export const ProjectAnalyticsView: React.FC = () => {
                     </div>
 
                     <div>
-                      <div className="flex justify-between text-[10px] text-slate-400 mb-1 font-mono">
+                      <div className="flex justify-between text-[11px] text-slate-400 mb-1 font-mono">
                         <span>{doneMTasks}/{milestoneTasks.length}</span>
                         <span>{mPct}%</span>
                       </div>
@@ -433,6 +374,7 @@ export const ProjectAnalyticsView: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

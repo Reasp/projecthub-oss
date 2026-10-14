@@ -4,11 +4,9 @@ import {
   X,
   Zap,
   GitFork,
-  Bot,
   Layers,
   Sparkles,
   Play,
-  ArrowRight,
   Plus,
   Trash2,
   CheckCircle2,
@@ -16,7 +14,7 @@ import {
   DollarSign,
   TriangleAlert,
   Repeat
-} from 'lucide-react';
+} from '../../common/icons';
 import { useSwarmStore } from '../../../store/useSwarmStore';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useRolesStore } from '../../../store/useRolesStore';
@@ -384,13 +382,13 @@ export const NewSwarmModal: React.FC = () => {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="relative w-full max-w-3xl rounded-xl border border-border bg-card shadow-2xl text-card-foreground flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 overflow-y-auto">
+      <div className="relative w-full max-w-3xl rounded-xl border border-slate-700 bg-ph-elevated shadow-2xl text-card-foreground flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-secondary/20">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 text-primary border border-primary/20">
-              <Sparkles className="w-5 h-5 animate-pulse" />
+            <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-primary">
+              <Sparkles className="w-4 h-4" />
             </div>
             <div>
               <h2 className="text-lg font-semibold tracking-tight">
@@ -413,7 +411,7 @@ export const NewSwarmModal: React.FC = () => {
         <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
           {/* Режим работы */}
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">
+            <label className="text-xs font-medium text-muted-foreground block mb-2">
               {t.swarm.orchestrationMode}
             </label>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -474,7 +472,7 @@ export const NewSwarmModal: React.FC = () => {
           {/* Быстрые пресеты (не для одиночного цикла «до готовности») */}
           {mode !== 'done_loop' && (
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-2">
+            <label className="text-xs font-medium text-muted-foreground block mb-2">
               {t.swarm.readyPresets}
             </label>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
@@ -508,7 +506,7 @@ export const NewSwarmModal: React.FC = () => {
           {/* Привязка к задаче Backlog */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                 <ListTodo className="w-3.5 h-3.5" />
                 {t.swarm.linkBacklogTask}
               </label>
@@ -541,7 +539,7 @@ export const NewSwarmModal: React.FC = () => {
 
           {/* Промпт задачи */}
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1.5">
+            <label className="text-xs font-medium text-muted-foreground block mb-1.5">
               {t.swarm.taskPromptLabel}
             </label>
             <textarea
@@ -557,7 +555,7 @@ export const NewSwarmModal: React.FC = () => {
           {/* Участники состязания / этапы */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <label className="text-xs font-medium text-muted-foreground">
                 {mode === 'fan_out' ? t.swarm.arenaContenders : mode === 'done_loop' ? t.doneLoop.agentLabel : t.swarm.pipelineStages} ({agents.length})
               </label>
               {mode !== 'done_loop' && (
@@ -578,7 +576,7 @@ export const NewSwarmModal: React.FC = () => {
                   className="p-3 rounded-lg border border-border/70 bg-secondary/20 flex flex-col md:flex-row items-start md:items-center gap-3 text-xs"
                 >
                   <div className="flex items-center gap-2 min-w-44">
-                    <span className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">
+                    <span className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[11px]">
                       {idx + 1}
                     </span>
                     <input

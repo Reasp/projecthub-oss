@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ExternalLink, Play, RefreshCw, Send, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Play, RefreshCw, Send, ShieldCheck } from '../common/icons';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useRolesStore } from '../../store/useRolesStore';
 import type { PrReviewFinding, PrReviewRecord } from '../../types/electron';
@@ -131,7 +131,7 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
   const renderFinding = (f: PrReviewFinding) => {
     const verdict = f.verdict ?? 'unverified';
     return (
-      <div key={f.id} className={`rounded-md border border-slate-800 bg-[#0f121b] p-3 ${verdict === 'refuted' ? 'opacity-60' : ''}`}>
+      <div key={f.id} className={`rounded-md border border-slate-800 bg-ph-elevated p-3 ${verdict === 'refuted' ? 'opacity-60' : ''}`}>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           <span className="font-mono text-slate-500">{f.id}</span>
           <span className={`rounded border px-1.5 py-0.5 ${SEVERITY_CLS[f.severity]}`}>{p.severity[f.severity]}</span>
@@ -161,7 +161,7 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
   const renderReview = (review: PrReviewRecord) => {
     const canPublish = Boolean(review.comment) && ['none', 'declined', 'failed'].includes(review.publish.state);
     return (
-      <div key={review.id} className="rounded-xl border border-slate-800 bg-[#141722] p-4 space-y-3">
+      <div key={review.id} className="rounded-xl border border-slate-800 bg-ph-raised p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="font-semibold text-slate-200">{new Date(review.startedAt).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}</span>
           <span className="font-mono text-slate-400">{fill(p.head, { sha: review.headSha.slice(0, 7) })}</span>
@@ -194,7 +194,7 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
         </div>
         {review.findings.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{p.findings}</h4>
+            <h4 className="text-[11px] font-medium text-slate-400">{p.findings}</h4>
             {review.findings.map(renderFinding)}
           </div>
         )}
@@ -202,7 +202,7 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
         {review.comment && (
           <details className="text-xs">
             <summary className="cursor-pointer text-slate-400">{p.showComment}</summary>
-            <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-800 bg-[#0b0d13] p-3 text-slate-300 select-text">{review.comment}</pre>
+            <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-800 bg-ph-base p-3 text-slate-300 select-text">{review.comment}</pre>
           </details>
         )}
         <div className="flex items-center gap-2">
@@ -236,8 +236,8 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
         </div>
       )}
 
-      <div className="rounded-xl border border-slate-800 bg-[#141722] p-4 space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">{p.title}</h3>
+      <div className="rounded-xl border border-slate-800 bg-ph-raised p-4 space-y-3">
+        <h3 className="text-xs font-medium text-slate-300">{p.title}</h3>
         <div>
           <div className="mb-1 text-[11px] text-slate-400">
             {p.reviewers} <span className="text-slate-500">— {p.reviewersHint}</span>
@@ -259,7 +259,7 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
         <div className="grid grid-cols-3 gap-3 text-xs">
           <label className="space-y-1">
             <span className="block text-[11px] text-slate-400">{p.verifier}</span>
-            <select className="w-full rounded-md border border-slate-700 bg-[#0b0d13] px-2 py-1.5" value={prefs.verifier} onChange={(e) => update({ verifier: e.target.value })}>
+            <select className="w-full rounded-md border border-slate-700 bg-ph-base px-2 py-1.5" value={prefs.verifier} onChange={(e) => update({ verifier: e.target.value })}>
               <option value="">{p.verifierDefault}</option>
               {roles.map((r) => (
                 <option key={r.slug} value={r.slug}>
@@ -270,11 +270,11 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
           </label>
           <label className="space-y-1">
             <span className="block text-[11px] text-slate-400">{p.budget}</span>
-            <input className="w-full rounded-md border border-slate-700 bg-[#0b0d13] px-2 py-1.5" value={prefs.budget} onChange={(e) => update({ budget: e.target.value })} />
+            <input className="w-full rounded-md border border-slate-700 bg-ph-base px-2 py-1.5" value={prefs.budget} onChange={(e) => update({ budget: e.target.value })} />
           </label>
           <label className="space-y-1">
             <span className="block text-[11px] text-slate-400">{p.publishMode}</span>
-            <select className="w-full rounded-md border border-slate-700 bg-[#0b0d13] px-2 py-1.5" value={prefs.publish} onChange={(e) => update({ publish: e.target.value as 'hitl' | 'manual' })}>
+            <select className="w-full rounded-md border border-slate-700 bg-ph-base px-2 py-1.5" value={prefs.publish} onChange={(e) => update({ publish: e.target.value as 'hitl' | 'manual' })}>
               <option value="hitl">{p.publishHitl}</option>
               <option value="manual">{p.publishManual}</option>
             </select>

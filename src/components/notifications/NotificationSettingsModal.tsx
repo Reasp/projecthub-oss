@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, X, Play, Bot, Power, TriangleAlert, Trash2 } from 'lucide-react';
+import { Bell, X, Play, Bot, Power, TriangleAlert, Trash2 } from '../common/icons';
 import { useNotificationStore } from '../../store/useNotificationStore';
 import { useTranslation } from '../../i18n';
 import type { NotificationChannel, NotificationKind } from '../../types/electron';
@@ -71,8 +71,8 @@ export const NotificationSettingsModal: React.FC = () => {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-4xl h-[86vh] rounded-xl border border-border bg-card shadow-2xl text-card-foreground flex flex-col">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
+      <div className="relative w-full max-w-4xl h-[86vh] rounded-xl border border-slate-700 bg-ph-elevated shadow-2xl text-card-foreground flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-secondary/20">
           <div className="flex items-center gap-2">
             <Bell className="w-5 h-5 text-primary" />
@@ -110,7 +110,7 @@ export const NotificationSettingsModal: React.FC = () => {
 
               {/* Матрица «событие × канал» */}
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground mb-2">
                   {t.notifications.matrixTitle}
                 </h3>
                 <div className="overflow-x-auto rounded-lg border border-border">
@@ -158,7 +158,7 @@ export const NotificationSettingsModal: React.FC = () => {
 
               {/* Тихие часы */}
               <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <h3 className="text-xs font-medium text-muted-foreground">
                   {t.notifications.quietTitle}
                 </h3>
                 <label className="flex items-center gap-2 text-xs">
@@ -205,7 +205,7 @@ export const NotificationSettingsModal: React.FC = () => {
               {/* Звук, дедупликация, трей */}
               <section className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+                  <label className="text-[11px] font-medium text-muted-foreground block mb-1">
                     {t.notifications.volume}
                   </label>
                   <input
@@ -218,7 +218,7 @@ export const NotificationSettingsModal: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+                  <label className="text-[11px] font-medium text-muted-foreground block mb-1">
                     {t.notifications.dedup}
                   </label>
                   <input
@@ -243,7 +243,7 @@ export const NotificationSettingsModal: React.FC = () => {
 
               {/* Telegram */}
               <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <h3 className="text-xs font-medium text-muted-foreground">
                   {t.notifications.telegramTitle}
                 </h3>
                 <label className="flex items-center gap-2 text-xs">
@@ -283,7 +283,7 @@ export const NotificationSettingsModal: React.FC = () => {
               {/* Журнал доставок */}
               <section>
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <h3 className="text-xs font-medium text-muted-foreground">
                     {t.notifications.historyTitle}
                   </h3>
                   <div className="flex items-center gap-2">
@@ -311,7 +311,7 @@ export const NotificationSettingsModal: React.FC = () => {
                       <li key={n.id} className="px-3 py-2 rounded-lg border border-border bg-secondary/20 text-xs">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium">{n.title}</span>
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground">
                             {new Date(n.at).toLocaleTimeString()}
                           </span>
                         </div>

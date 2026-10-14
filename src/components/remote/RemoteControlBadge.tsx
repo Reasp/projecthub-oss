@@ -18,8 +18,11 @@ import {
   Bot,
   AlertCircle,
   Globe,
-  Laptop
-} from 'lucide-react';
+  Laptop,
+  Lightbulb,
+  CheckCircle2
+} from '../common/icons';
+import { BrandLogo } from '../common/BrandLogo';
 import QRCode from 'qrcode';
 import { useTranslation } from '../../i18n';
 import { useToast, useTimers } from '../../hooks/useTimeoutState';
@@ -56,6 +59,7 @@ export const RemoteControlBadge: React.FC = () => {
   const [telegramBotUsername, setTelegramBotUsername] = useState<string>('');
   const [telegramMiniAppUrl, setTelegramMiniAppUrl] = useState<string>('');
   const [testNotificationResult, setTestNotificationResult] = useState<string | null>(null);
+  const [testNotificationOk, setTestNotificationOk] = useState(false);
   const [testingNotification, setTestingNotification] = useState<boolean>(false);
 
   const fetchStatus = async () => {
@@ -206,11 +210,14 @@ export const RemoteControlBadge: React.FC = () => {
     try {
       const ok = await window.api.testTelegramNotification(t.remote.testTelegramMessageText);
       if (ok) {
+        setTestNotificationOk(true);
         setTestNotificationResult(t.remote.testMsgSuccess);
       } else {
+        setTestNotificationOk(false);
         setTestNotificationResult(t.remote.testMsgError);
       }
     } catch (e: any) {
+      setTestNotificationOk(false);
       setTestNotificationResult(t.remote.testMsgPrefixError.replace('{msg}', e?.message || String(e)));
     } finally {
       setTestingNotification(false);
@@ -284,55 +291,37 @@ export const RemoteControlBadge: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition border ${
-          status.enabled
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-            : 'bg-slate-800/40 border-slate-700/50 text-slate-400 hover:bg-slate-800 hover:text-slate-300'
-        }`}
+        className="ph-status-item"
         title={t.remote.badgeTooltip}
       >
-        <span className="relative flex h-2 w-2">
-          {status.enabled && (
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-          )}
-          <span
-            className={`relative inline-flex rounded-full h-2 w-2 ${
-              status.enabled ? 'bg-emerald-400' : 'bg-slate-500'
-            }`}
-          />
-        </span>
-        <Smartphone className="w-3.5 h-3.5" />
-        <span className="font-semibold">Remote</span>
-        {status.enabled && connectedCount > 0 && (
-          <span className="ml-0.5 px-1.5 py-0.2 bg-emerald-500/25 border border-emerald-500/40 text-[10px] text-emerald-300 rounded-full font-mono">
-            {connectedCount}
-          </span>
-        )}
+        <Smartphone className={`w-3.5 h-3.5 ${status.enabled ? 'text-emerald-400' : ''}`} />
+        <span>Remote</span>
+        {status.enabled && connectedCount > 0 && <span className="text-emerald-300">{connectedCount}</span>}
       </button>
 
       {/* Modal Dialog */}
       {isOpen &&
         createPortal(
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-150">
           <div
-            className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden"
+            className="bg-ph-elevated border border-slate-700 rounded-xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                <div className="p-1.5 rounded-lg bg-ph-raised text-indigo-400">
                   <Smartphone className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                     {t.remote.modalTitle}
                     {status.enabled ? (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono font-normal">
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono font-normal">
                         {t.remote.statusActive}
                       </span>
                     ) : (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 font-mono font-normal">
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 font-mono font-normal">
                         {t.remote.statusDisabled}
                       </span>
                     )}
@@ -373,7 +362,7 @@ export const RemoteControlBadge: React.FC = () => {
                 onClick={() => setActiveTab('connect')}
                 className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition ${
                   activeTab === 'connect'
-                    ? 'border-indigo-500 text-indigo-400'
+                    ? 'border-indigo-400 text-slate-100'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -385,11 +374,11 @@ export const RemoteControlBadge: React.FC = () => {
                 onClick={() => setActiveTab('telegram')}
                 className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition ${
                   activeTab === 'telegram'
-                    ? 'border-sky-500 text-sky-400'
+                    ? 'border-indigo-400 text-slate-100'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Send className="w-3.5 h-3.5" />
+                <BrandLogo name="telegram" className="w-3.5 h-3.5" />
                 {t.remote.tabTelegram}
               </button>
               <button
@@ -397,7 +386,7 @@ export const RemoteControlBadge: React.FC = () => {
                 onClick={() => setActiveTab('devices')}
                 className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition ${
                   activeTab === 'devices'
-                    ? 'border-indigo-500 text-indigo-400'
+                    ? 'border-indigo-400 text-slate-100'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -409,7 +398,7 @@ export const RemoteControlBadge: React.FC = () => {
                 onClick={() => setActiveTab('settings')}
                 className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition ${
                   activeTab === 'settings'
-                    ? 'border-indigo-500 text-indigo-400'
+                    ? 'border-indigo-400 text-slate-100'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -423,7 +412,7 @@ export const RemoteControlBadge: React.FC = () => {
               {/* TAB: ПОДКЛЮЧЕНИЕ */}
               {activeTab === 'connect' && (
                 <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-xl bg-slate-950/60 border border-slate-800">
+                  <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-lg bg-ph-panel border border-ph-line">
                     <div className="bg-white p-2.5 rounded-xl flex items-center justify-center shrink-0 shadow-lg">
                       {qrDataUrl ? (
                         <img src={qrDataUrl} alt="Remote QR Code" className="w-32 h-32 rounded-lg" />
@@ -442,15 +431,15 @@ export const RemoteControlBadge: React.FC = () => {
                         {t.remote.e2eeDesc}
                       </p>
                       <div className="flex flex-wrap gap-1.5 pt-1">
-                        <span className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300">
+                        <span className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-[11px] text-indigo-300">
                           {status.mode === 'relay' ? t.remote.relayBadge : t.remote.lanBadge}
                         </span>
                         {status.relayConnected && (
-                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-300">
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300">
                             {t.remote.relayOnline}
                           </span>
                         )}
-                        <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] text-slate-300">
+                        <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] text-slate-300">
                           {t.remote.portLabel}: {status.port}
                         </span>
                       </div>
@@ -475,7 +464,7 @@ export const RemoteControlBadge: React.FC = () => {
                         type="text"
                         readOnly
                         value={webClientUrl}
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-mono select-all focus:outline-none"
+                        className="ph-input flex-1 select-all"
                       />
                       <button
                         type="button"
@@ -509,7 +498,7 @@ export const RemoteControlBadge: React.FC = () => {
                         type="password"
                         readOnly
                         value={secretToken}
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-mono select-all focus:outline-none"
+                        className="ph-input flex-1 select-all"
                       />
                       <button
                         type="button"
@@ -533,7 +522,7 @@ export const RemoteControlBadge: React.FC = () => {
                       placeholder={t.remote.machineNamePlaceholder}
                       value={machineName}
                       onChange={(e) => setMachineName(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -543,19 +532,22 @@ export const RemoteControlBadge: React.FC = () => {
               {activeTab === 'telegram' && (
                 <div className="space-y-4">
                   {/* Tunnel Status & Auto-start Banner */}
-                  <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                  <div className="p-3 rounded-lg bg-ph-panel border border-ph-line space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                         <Globe className="w-3.5 h-3.5 text-sky-400" />
                         {t.remote.publicHttpsTunnel}
                       </span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                         status?.tunnelStatus === 'active'
                           ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                           : status?.tunnelStatus === 'starting'
                           ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                           : 'bg-slate-800 text-slate-400'
                       }`}>
+                        <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle ${
+                          status?.tunnelStatus === 'active' ? 'bg-emerald-400' : status?.tunnelStatus === 'starting' ? 'bg-amber-400' : 'bg-slate-500'
+                        }`} />
                         {status?.tunnelStatus === 'active' ? t.remote.tunnelActive : status?.tunnelStatus === 'starting' ? t.remote.tunnelStarting : t.remote.tunnelNotStarted}
                       </span>
                     </div>
@@ -600,7 +592,7 @@ export const RemoteControlBadge: React.FC = () => {
                         type="button"
                         disabled={startingTunnel}
                         onClick={handleRestartTunnel}
-                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-slate-200 transition disabled:opacity-50 flex items-center gap-1"
+                        className="ph-btn ph-btn-secondary disabled:opacity-50"
                       >
                         <RefreshCw className={`w-3 h-3 ${startingTunnel ? 'animate-spin' : ''}`} />
                         {status?.tunnelStatus === 'active' ? t.remote.restartTunnel : t.remote.startTunnel}
@@ -708,11 +700,11 @@ export const RemoteControlBadge: React.FC = () => {
 
                     {testNotificationResult && (
                       <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
-                        testNotificationResult.startsWith('✅')
+                        testNotificationOk
                           ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                           : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
                       }`}>
-                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        {testNotificationOk ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
                         <span>{testNotificationResult}</span>
                       </div>
                     )}
@@ -730,7 +722,7 @@ export const RemoteControlBadge: React.FC = () => {
                         type="button"
                         disabled={testingNotification || !telegramBotToken || !telegramChatId}
                         onClick={handleTestNotification}
-                        className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition disabled:opacity-40"
+                        className="ph-btn ph-btn-secondary disabled:opacity-40"
                         title={t.remote.sendTestMsgTooltip}
                       >
                         <Bot className="w-4 h-4" />
@@ -738,8 +730,11 @@ export const RemoteControlBadge: React.FC = () => {
                     </div>
 
                     {/* How to setup banner */}
-                    <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1 text-slate-400 text-[11px] leading-relaxed">
-                      <div className="font-semibold text-slate-300">{t.remote.howToConnectTitle}</div>
+                    <div className="p-3 rounded-lg bg-ph-panel border border-ph-line space-y-1 text-slate-400 text-[11px] leading-relaxed">
+                      <div className="flex items-center gap-1.5 font-medium text-slate-300">
+                        <Lightbulb className="w-3.5 h-3.5 text-amber-300" />
+                        {t.remote.howToConnectTitle}
+                      </div>
                       <ol className="list-decimal pl-4 space-y-0.5">
                         <li>{t.remote.howToStep1}</li>
                         <li>{t.remote.howToStep2}</li>
@@ -767,7 +762,7 @@ export const RemoteControlBadge: React.FC = () => {
                       {status.connectedDevices.map((dev) => (
                         <div
                           key={dev.id}
-                          className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800"
+                          className="flex items-center justify-between p-3 rounded-lg bg-ph-panel border border-ph-line"
                         >
                           <div className="flex items-center gap-3">
                             <div className="p-2 rounded-lg bg-slate-800 text-indigo-400">
@@ -776,7 +771,7 @@ export const RemoteControlBadge: React.FC = () => {
                             <div>
                               <div className="text-xs font-semibold text-white flex items-center gap-2">
                                 {dev.name}
-                                <span className="px-1.5 py-0.2 bg-slate-800 text-[10px] text-slate-400 rounded">
+                                <span className="px-1.5 py-0.2 bg-slate-800 text-[11px] text-slate-400 rounded">
                                   {dev.mode.toUpperCase()}
                                 </span>
                               </div>
@@ -834,10 +829,10 @@ export const RemoteControlBadge: React.FC = () => {
                       {offlinePairedDevices.map((paired) => (
                         <div
                           key={paired.deviceId}
-                          className="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-800/60"
+                          className="flex items-center justify-between p-3 rounded-lg bg-ph-panel border border-ph-line"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-lg bg-slate-800/60 text-slate-500">
+                            <div className="p-1.5 rounded-lg bg-ph-raised text-slate-500">
                               <Smartphone className="w-4 h-4" />
                             </div>
                             <div>
@@ -932,7 +927,7 @@ export const RemoteControlBadge: React.FC = () => {
                   {/* Федерация компьютеров (TASK-66, decision-11 п.2/п.5) */}
                   <div className="space-y-2.5 pt-2 border-t border-slate-800">
                     <div>
-                      <label className="block text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+                      <label className="block text-[11px] text-slate-500 mb-1">
                         {t.federation.federationSecret}
                       </label>
                       <input
@@ -941,11 +936,11 @@ export const RemoteControlBadge: React.FC = () => {
                         onChange={(e) => setFederationSecret(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono"
                       />
-                      <p className="mt-1 text-[10px] text-slate-500">{t.federation.federationSecretDesc}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">{t.federation.federationSecretDesc}</p>
                       {!status?.federationEnabled && (
-                        <p className="mt-1 text-[10px] text-amber-400">{t.federation.federationDisabled}</p>
+                        <p className="mt-1 text-[11px] text-amber-400">{t.federation.federationDisabled}</p>
                       )}
-                      {status?.federationError && <p className="mt-1 text-[10px] text-red-400">{status.federationError}</p>}
+                      {status?.federationError && <p className="mt-1 text-[11px] text-red-400">{status.federationError}</p>}
                     </div>
 
                     <label className="flex items-start gap-2 text-slate-300 cursor-pointer">
@@ -957,7 +952,7 @@ export const RemoteControlBadge: React.FC = () => {
                       />
                       <span>
                         {t.federation.autoStartAssigned}
-                        <span className="block text-[10px] text-slate-500">{t.federation.autoStartAssignedDesc}</span>
+                        <span className="block text-[11px] text-slate-500">{t.federation.autoStartAssignedDesc}</span>
                       </span>
                     </label>
                   </div>
@@ -967,7 +962,7 @@ export const RemoteControlBadge: React.FC = () => {
                       type="button"
                       disabled={savingSettings}
                       onClick={handleSaveConfig}
-                      className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold text-white transition disabled:opacity-50"
+                      className="ph-btn ph-btn-primary w-full disabled:opacity-50"
                     >
                       {savingSettings ? t.remote.saving : t.remote.saveSettings}
                     </button>

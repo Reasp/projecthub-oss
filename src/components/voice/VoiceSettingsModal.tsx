@@ -7,9 +7,6 @@ import {
   ShieldCheck,
   Sparkles,
   X,
-  Sliders,
-  MessageSquareQuote,
-  BookOpen,
   Plus,
   RotateCcw,
   Search,
@@ -26,7 +23,7 @@ import {
   Upload,
   Play,
   Speech
-} from 'lucide-react';
+} from '../common/icons';
 import {
   voiceService,
   type TtsEngine,
@@ -426,103 +423,89 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150 select-none"
+      className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4 animate-in fade-in duration-150 select-none"
     >
-      <div className="w-full max-w-3xl bg-[#121522] border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-slate-200 font-sans">
+      <div className="w-full max-w-3xl bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-slate-200 font-sans">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#0e111b]/80 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 text-indigo-400">
-              <Mic className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white tracking-wide">{t.voice.settingsModal.title}</h3>
-              <p className="text-[11px] text-slate-400">{t.voice.settingsModal.subtitle}</p>
-            </div>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800 shrink-0">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-100">{t.voice.settingsModal.title}</h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">{t.voice.settingsModal.subtitle}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          >
+          <button onClick={onClose} className="ph-icon-button" title={t.common.close}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center justify-between px-6 border-b border-slate-800 bg-[#151929]/50 shrink-0">
-          <div className="flex gap-2">
+        <div className="flex items-center justify-between gap-3 px-4 border-b border-slate-800 shrink-0">
+          <div className="flex overflow-x-auto no-scrollbar">
             <button
               onClick={() => setActiveTab('devices')}
-              className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all ${
+              className={`flex items-center gap-1.5 h-9 px-3 -mb-px text-xs whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === 'devices'
-                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  ? 'border-indigo-400 text-slate-100'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Headphones className="w-4 h-4" />
               <span>{t.voice.settingsModal.tabDevices}</span>
             </button>
 
             <button
               onClick={() => setActiveTab('phrases')}
-              className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all ${
+              className={`flex items-center gap-1.5 h-9 px-3 -mb-px text-xs whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === 'phrases'
-                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  ? 'border-indigo-400 text-slate-100'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
-              <MessageSquareQuote className="w-4 h-4" />
               <span>{t.voice.settingsModal.tabPhrases}</span>
-              <span className="px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-[10px] text-indigo-300 font-mono">
+              <span className="text-[11px] text-slate-500 tabular-nums">
                 {CONFIGURABLE_COMMANDS.length}
               </span>
             </button>
 
             <button
               onClick={() => setActiveTab('recognition')}
-              className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all ${
+              className={`flex items-center gap-1.5 h-9 px-3 -mb-px text-xs whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === 'recognition'
-                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  ? 'border-indigo-400 text-slate-100'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Sliders className="w-4 h-4" />
               <span>{t.voice.settingsModal.tabRecognition}</span>
             </button>
 
             <button
               onClick={() => setActiveTab('tts')}
-              className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all ${
+              className={`flex items-center gap-1.5 h-9 px-3 -mb-px text-xs whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === 'tts'
-                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  ? 'border-indigo-400 text-slate-100'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Speech className="w-4 h-4" />
               <span>{t.voice.settingsModal.tabTts}</span>
             </button>
 
             <button
               onClick={() => setActiveTab('dialog')}
-              className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all ${
+              className={`flex items-center gap-1.5 h-9 px-3 -mb-px text-xs whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === 'dialog'
-                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  ? 'border-indigo-400 text-slate-100'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Keyboard className="w-4 h-4" />
               <span>{t.voice.settingsModal.tabDialog}</span>
             </button>
 
             <button
               onClick={() => setActiveTab('cheatsheet')}
-              className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all ${
+              className={`flex items-center gap-1.5 h-9 px-3 -mb-px text-xs whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === 'cheatsheet'
-                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  ? 'border-indigo-400 text-slate-100'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
-              <BookOpen className="w-4 h-4" />
               <span>{t.voice.settingsModal.tabCheatSheet}</span>
             </button>
           </div>
@@ -531,7 +514,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
             <button
               type="button"
               onClick={handleResetDefaults}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-medium border border-slate-700 transition"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-ph-hover text-slate-300 hover:text-white text-[11px] whitespace-nowrap transition shrink-0"
               title={t.voice.settingsModal.resetDefaults}
             >
               <RotateCcw className="w-3 h-3 text-slate-400" />
@@ -556,10 +539,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               )}
 
               {/* 1. Input Device (Microphone) */}
-              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 font-semibold text-white">
-                    <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                    <div className="text-indigo-400">
                       <Mic className="w-4 h-4" />
                     </div>
                     <span>{t.voice.settingsModal.deviceInputTitle}</span>
@@ -580,7 +563,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                   <select
                     value={voiceConfig.audioInputDeviceId || ''}
                     onChange={(e) => handleSelectInputDevice(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
                   >
                     <option value="">{t.voice.settingsModal.deviceDefault}</option>
                     {devices.inputs.map((dev) => (
@@ -602,7 +585,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
 
                   {/* VU-meter */}
                   <div className="flex items-center gap-1.5 shrink-0 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
-                    <span className="text-[10px] text-slate-500 font-mono">VU</span>
+                    <span className="text-[11px] text-slate-500 font-mono">VU</span>
                     <div className="flex items-center gap-0.5 h-3">
                       {[1, 2, 3, 4, 5].map((barIdx) => {
                         const threshold = barIdx * 0.15;
@@ -626,10 +609,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               </div>
 
               {/* 2. Output Device (Headphones / Speakers) */}
-              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 font-semibold text-white">
-                    <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                    <div className="text-purple-400">
                       <Headphones className="w-4 h-4" />
                     </div>
                     <span>{t.voice.settingsModal.deviceOutputTitle}</span>
@@ -638,7 +621,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                     type="button"
                     onClick={handlePlayTestSound}
                     disabled={isPlayingTest}
-                    className="flex items-center gap-1.5 text-[11px] font-semibold text-purple-300 hover:text-white px-2.5 py-1 rounded-lg bg-purple-950/40 border border-purple-500/30 hover:bg-purple-900/50 transition disabled:opacity-50"
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-200 hover:text-white px-2.5 py-1 rounded-lg bg-ph-raised border border-slate-700 hover:bg-ph-hover transition disabled:opacity-50"
                   >
                     <Volume2 className={`w-3.5 h-3.5 ${isPlayingTest ? 'animate-bounce text-purple-400' : ''}`} />
                     <span>{isPlayingTest ? t.voice.settingsModal.playingSignal : t.voice.settingsModal.deviceTestSound}</span>
@@ -649,7 +632,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                   <select
                     value={voiceConfig.audioOutputDeviceId || ''}
                     onChange={(e) => handleSelectOutputDevice(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
                   >
                     <option value="">{t.voice.settingsModal.deviceDefault}</option>
                     {devices.outputs.map((dev) => (
@@ -695,7 +678,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
           {activeTab === 'phrases' && (
             <div className="space-y-4">
               {/* Informational Hint Banner */}
-              <div className="p-3.5 rounded-xl bg-gradient-to-r from-indigo-950/40 via-purple-950/30 to-slate-900 border border-indigo-500/30 text-xs text-indigo-200 flex items-start gap-3">
+              <div className="p-3.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-xs text-indigo-200 flex items-start gap-3">
                 <Sparkles className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <p className="font-semibold text-white leading-relaxed">
@@ -726,7 +709,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                       onClick={() => setCategoryFilter(cat.id)}
                       className={`px-3 py-1 rounded-lg transition text-[11px] font-medium whitespace-nowrap ${
                         categoryFilter === cat.id
-                          ? 'bg-indigo-600 text-white shadow-sm'
+                          ? 'bg-ph-hover text-slate-100'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                       }`}
                     >
@@ -743,7 +726,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder={t.voice.settingsModal.searchCommandsPlaceholder}
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-md bg-ph-raised border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                   />
                   {searchQuery && (
                     <button
@@ -771,19 +754,19 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                     return (
                       <div
                         key={cmd.intent}
-                        className="p-4 rounded-xl bg-[#151929]/70 border border-slate-800 hover:border-slate-700/80 transition space-y-3"
+                        className="p-4 rounded-xl bg-ph-hover/70 border border-slate-800 hover:border-slate-700/80 transition space-y-3"
                       >
                         <div className="flex items-center justify-between">
                           <div>
                             <span className="text-xs font-semibold text-white tracking-wide">
                               {getCommandTitle(cmd)}
                             </span>
-                            <span className="ml-2 font-mono text-[10px] text-indigo-400/80">
+                            <span className="ml-2 font-mono text-[11px] text-indigo-400/80">
                               ({cmd.intent})
                             </span>
                             <p className="text-[11px] text-slate-400 mt-0.5">{cmd.feedbackText}</p>
                           </div>
-                          <span className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-400 border border-slate-700/50">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-slate-400 border border-slate-700/50">
                             {phrases.length} {t.voice.settingsModal.phrasesCount}
                           </span>
                         </div>
@@ -832,7 +815,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                                 }
                               }}
                               placeholder={t.voice.settingsModal.addPhrasePlaceholder}
-                              className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700/80 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-44"
+                              className="px-2.5 py-1 rounded-md bg-ph-raised border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-44"
                             />
                             <button
                               type="button"
@@ -885,7 +868,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               </div>
 
               {/* VAD Silence Threshold Slider */}
-              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-2">
                 <div className="flex items-center justify-between text-slate-300 font-semibold">
                   <span>{t.voice.settingsModal.vadSilenceThreshold}</span>
                   <span className="font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
@@ -905,7 +888,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                   }}
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-slate-500">
+                <div className="flex justify-between text-[11px] text-slate-500">
                   <span>{t.voice.settingsModal.vadFast}</span>
                   <span>{t.voice.settingsModal.vadBalanced}</span>
                   <span>{t.voice.settingsModal.vadLong}</span>
@@ -913,7 +896,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               </div>
 
               {/* Recognition Engine: Whisper pipeline vs browser Web Speech API */}
-              <div className="space-y-2 p-4 rounded-xl bg-slate-950/60 border border-slate-800">
+              <div className="space-y-2 p-4 rounded-lg bg-ph-panel border border-ph-line">
                 <label className="block text-slate-300 font-semibold mb-1.5">
                   {t.voice.settingsModal.recognitionEngine}
                 </label>
@@ -927,7 +910,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                     setVoiceConfig((c) => ({ ...c, engine }));
                     if (wasListening) void voiceService.startHandsFreeListening();
                   }}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 >
                   <option value="whisper">
                     {t.voice.settingsModal.engineWhisperOption}
@@ -947,7 +930,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               </div>
 
               {/* Язык распознавания отдельно от языка интерфейса (TASK-117) */}
-              <div className="space-y-2 p-4 rounded-xl bg-slate-950/60 border border-slate-800">
+              <div className="space-y-2 p-4 rounded-lg bg-ph-panel border border-ph-line">
                 <label htmlFor="voice-recognition-language" className="block text-slate-300 font-semibold mb-1.5">
                   {t.voice.settingsModal.recognitionLanguageLabel}
                 </label>
@@ -959,7 +942,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                     voiceService.saveConfig({ recognitionLanguage });
                     setVoiceConfig((c) => ({ ...c, recognitionLanguage }));
                   }}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 >
                   <option value="ui">{t.voice.settingsModal.recognitionLanguageUi}</option>
                   <option value="ru">{t.voice.settingsModal.recognitionLanguageRu}</option>
@@ -981,7 +964,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
 
               {/* Whisper Provider */}
               {voiceConfig.engine === 'whisper' && (
-              <div className="space-y-3 p-4 rounded-xl bg-slate-950/60 border border-slate-800">
+              <div className="space-y-3 p-4 rounded-lg bg-ph-panel border border-ph-line">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1.5">
                     {t.voice.settingsModal.whisperProviderLabel}
@@ -999,7 +982,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                       voiceService.saveConfig({ whisperProvider: prov, whisperModel: model });
                       setVoiceConfig((c) => ({ ...c, whisperProvider: prov, whisperModel: model }));
                     }}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value="local">
                       {t.voice.settingsModal.whisperLocalWorkerOption}
@@ -1073,9 +1056,9 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                         setVoiceConfig((c) => ({ ...c, whisperApiKey: val }));
                       }}
                       placeholder={t.voice.settingsModal.apiKeyPlaceholder}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                     />
-                    <div className="mt-1 flex items-center gap-1.5 text-[10px] text-emerald-400 font-medium">
+                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
                       <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                       <span>{t.voice.settingsModal.apiKeySafeNotice}</span>
                     </div>
@@ -1099,7 +1082,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               )}
 
               {/* Выбор движка озвучки */}
-              <div className="space-y-2 p-4 rounded-xl bg-slate-950/60 border border-slate-800">
+              <div className="space-y-2 p-4 rounded-lg bg-ph-panel border border-ph-line">
                 <label className="block text-slate-300 font-semibold mb-1.5">
                   {t.voice.settingsModal.ttsEngineLabel}
                 </label>
@@ -1111,7 +1094,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                     voiceService.saveConfig({ ttsEngine });
                     setVoiceConfig((c) => ({ ...c, ttsEngine }));
                   }}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 >
                   <option value="system">{t.voice.settingsModal.ttsEngineSystem}</option>
                   <option value="piper">{t.voice.settingsModal.ttsEnginePiper}</option>
@@ -1169,10 +1152,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
 
               {/* Каталог голосов */}
               {voiceConfig.ttsEngine === 'piper' && (
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 font-semibold text-white">
-                      <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                      <div className="text-purple-400">
                         <Speech className="w-4 h-4" />
                       </div>
                       <span>{t.voice.settingsModal.ttsVoiceLabel}</span>
@@ -1181,7 +1164,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                       type="button"
                       onClick={() => void handleImportVoice()}
                       disabled={isImportingVoice}
-                      className="flex items-center gap-1.5 text-[11px] font-semibold text-purple-300 hover:text-white px-2.5 py-1 rounded-lg bg-purple-950/40 border border-purple-500/30 hover:bg-purple-900/50 transition disabled:opacity-50"
+                      className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-200 hover:text-white px-2.5 py-1 rounded-lg bg-ph-raised border border-slate-700 hover:bg-ph-hover transition disabled:opacity-50"
                     >
                       <Upload className="w-3.5 h-3.5" />
                       <span>{t.voice.settingsModal.ttsImport}</span>
@@ -1231,16 +1214,16 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                             <span className="min-w-0">
                               <span className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-white truncate">{voice.label}</span>
-                                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 font-mono uppercase">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[11px] text-slate-400 font-mono uppercase">
                                   {voice.language}
                                 </span>
                                 {voice.source === 'imported' && (
-                                  <span className="px-1.5 py-0.5 rounded bg-purple-500/15 text-[10px] text-purple-300 border border-purple-500/30">
+                                  <span className="px-1.5 py-0.5 rounded bg-purple-500/15 text-[11px] text-purple-300 border border-purple-500/30">
                                     {t.voice.settingsModal.ttsSourceImported}
                                   </span>
                                 )}
                               </span>
-                              <span className="block text-[10px] text-slate-500 truncate mt-0.5">
+                              <span className="block text-[11px] text-slate-500 truncate mt-0.5">
                                 {isBusy
                                   ? progress?.phase === 'verify'
                                     ? t.voice.settingsModal.ttsDownloadVerify
@@ -1308,7 +1291,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
 
               {/* Скорость, громкость и прослушивание */}
               {(voiceConfig.ttsEngine === 'piper' || voiceConfig.ttsEngine === 'qwen') && (
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-4">
+                <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-4">
                   {voiceConfig.ttsEngine === 'piper' && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-slate-300 font-semibold">
@@ -1382,16 +1365,16 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
           {activeTab === 'dialog' && (
             <div className="space-y-4 text-xs">
               {/* Глобальный push-to-talk */}
-              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3">
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
                     <div className="font-semibold text-white flex items-center gap-2">
-                      <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                      <div className="text-indigo-400">
                         <Keyboard className="w-4 h-4" />
                       </div>
                       <span>{t.voice.settingsModal.pttTitle}</span>
                       {pttStatus?.recording && (
-                        <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-[10px] text-rose-300 border border-rose-500/40 animate-pulse">
+                        <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-[11px] text-rose-300 border border-rose-500/40 animate-pulse">
                           {t.voice.settingsModal.pttRecordingNow}
                         </span>
                       )}
@@ -1428,7 +1411,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                         setCustomKeyMode(false);
                         void savePushToTalk({ accelerator: e.target.value });
                       }}
-                      className="w-56 shrink-0 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                      className="w-56 shrink-0 bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                     >
                       {pttNativeKeys.map((key) => (
                         <option key={key} value={key}>
@@ -1451,11 +1434,11 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                           }
                         }}
                         placeholder={t.voice.settingsModal.pttHotkeyHint}
-                        className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        className="flex-1 min-w-0 bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white font-mono placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                       />
                     )}
                   </div>
-                  <div className="mt-1.5 flex items-center gap-1.5 text-[10px]">
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
                     {acceleratorRejected ? (
                       <span className="text-rose-400 flex items-center gap-1">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -1496,7 +1479,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                     )}
                   </div>
                   {pttKeyChoice !== 'custom' && (
-                    <div className="mt-1.5 text-[10px] text-slate-500 leading-relaxed">
+                    <div className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
                       {t.voice.settingsModal.pttHookNote}
                     </div>
                   )}
@@ -1507,7 +1490,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                   <select
                     value={pttStatus?.settings.mode ?? 'toggle'}
                     onChange={(e) => void savePushToTalk({ mode: e.target.value as PushToTalkSettings['mode'] })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value="hold" disabled={pttStatus ? !pttStatus.supportsHold : false}>
                       {t.voice.settingsModal.pttModeHold}
@@ -1515,7 +1498,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                     <option value="toggle">{t.voice.settingsModal.pttModeToggle}</option>
                   </select>
                   {pttStatus && !pttStatus.supportsHold && (
-                    <div className="mt-1.5 text-[10px] text-slate-500">
+                    <div className="mt-1.5 text-[11px] text-slate-500">
                       {t.voice.settingsModal.pttModeHoldUnavailable}
                     </div>
                   )}
@@ -1536,11 +1519,11 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               </div>
 
               {/* Ключевое слово */}
-              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3">
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
                     <div className="font-semibold text-white flex items-center gap-2">
-                      <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                      <div className="text-purple-400">
                         <Radio className="w-4 h-4" />
                       </div>
                       <span>{t.voice.settingsModal.wakeWordTitle}</span>
@@ -1597,7 +1580,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                           }
                         }}
                         placeholder={t.voice.settingsModal.wakeWordAddPlaceholder}
-                        className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700/80 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 w-44"
+                        className="px-2.5 py-1 rounded-md bg-ph-raised border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 w-44"
                       />
                       <button
                         type="button"
@@ -1614,7 +1597,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               </div>
 
               {/* Диалог: озвучка ответов, вопросов и перебивание */}
-              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-4">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-4">
                 {(
                   [
                     {
@@ -1663,10 +1646,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
               </div>
 
               {/* Системная диктовка */}
-              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-3">
                 <div className="space-y-1">
                   <div className="font-semibold text-white flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <div className="text-amber-400">
                       <Keyboard className="w-4 h-4" />
                     </div>
                     <span>{t.voice.settingsModal.dictationTitle}</span>
@@ -1771,14 +1754,14 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-3 border-t border-slate-800 bg-[#0e111b]/80 shrink-0">
+        <div className="flex items-center justify-between px-6 py-3 border-t border-slate-800 shrink-0">
           <div className="text-[11px] text-slate-500">
             {t.voice.settingsModal.instantSaveHint}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition flex items-center gap-1.5"
+            className="ph-btn ph-btn-primary"
           >
             <Check className="w-3.5 h-3.5" />
             <span>{t.voice.settingsModal.doneButton}</span>

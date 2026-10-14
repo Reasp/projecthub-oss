@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Monitor, OctagonX, Settings, Unlock } from 'lucide-react';
+import { Monitor, OctagonX, Settings, Unlock } from '../common/icons';
 import type { ComputerUseStatus } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { ComputerUseSettingsModal } from './ComputerUseSettingsModal';

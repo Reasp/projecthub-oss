@@ -2,20 +2,14 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Plus,
-  Tag,
   Target,
-  Calendar,
-  CheckCircle2,
-  Clock,
   LayoutGrid,
   List,
   Search,
-  SlidersHorizontal,
   CheckSquare,
-  Sparkles,
   AlertCircle,
   X
-} from 'lucide-react';
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
@@ -225,157 +219,126 @@ export const KanbanBoard: React.FC = () => {
     }
   };
 
+  const segment = (active: boolean) =>
+    `flex items-center gap-1.5 h-6 px-2 rounded text-xs transition whitespace-nowrap ${
+      active ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
+    }`;
+  const filterSelect =
+    'h-7 bg-ph-raised border border-transparent rounded-md px-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 w-36 min-w-[96px] shrink';
+
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 select-none">
-      {/* Top Header Controls */}
-      <div className="flex flex-col gap-4 mb-5 shrink-0">
-        <div className="flex items-center justify-between flex-nowrap gap-4">
-          <div className="min-w-0">
-            <h3 className="text-base font-semibold text-white tracking-tight flex items-center gap-2 truncate">
-              <span>{t.tabs.tasks}</span>
-              <span className="text-xs font-normal text-slate-400 font-mono shrink-0 whitespace-nowrap">
-                ({doneCount} / {tasks.length} {t.analytics.taskCompletionRate.toLowerCase()} • {progressPercent}%)
-              </span>
-            </h3>
-            {/* Progress bar */}
-            <div className="w-64 max-w-full h-1.5 bg-slate-800 rounded-full mt-1.5 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-300"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
+      {/*
+        Панель вида (decision-73): одна строка вместо «дашбордного» заголовка с прогресс-баром.
+        Метки — выпадающим списком: 20+ чипов в ряд не читались и уезжали за край.
+      */}
+      <div className="h-11 px-4 flex items-center gap-2.5 border-b border-ph-line shrink-0 min-w-0">
+        <h3 className="text-[13px] font-medium text-slate-100 shrink-0">{t.tabs.tasks}</h3>
+        <span
+          className="flex items-center gap-2 text-xs text-slate-500 tabular-nums shrink-0"
+          title={`${t.analytics.taskCompletionRate}: ${doneCount} / ${tasks.length}`}
+        >
+          <span className="w-16 h-1 rounded-full bg-ph-raised overflow-hidden">
+            <span className="block h-full bg-emerald-500/80" style={{ width: `${progressPercent}%` }} />
+          </span>
+          {doneCount}/{tasks.length}
+        </span>
 
-          <div className="flex items-center gap-3 shrink-0 flex-nowrap">
-            {/* View Mode Toggle */}
-            <div className="flex items-center bg-[#141724] p-1 rounded-lg border border-slate-800 shrink-0">
-              <button
-                onClick={() => setTaskViewMode('kanban')}
-                title={t.kanban.viewKanban}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition whitespace-nowrap ${
-                  taskViewMode === 'kanban'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">{t.kanban.viewKanban}</span>
-              </button>
-              <button
-                onClick={() => setTaskViewMode('list')}
-                title={t.kanban.viewList}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition whitespace-nowrap ${
-                  taskViewMode === 'list'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <List className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">{t.kanban.viewList}</span>
-              </button>
-            </div>
+        <div className="w-px h-4 bg-ph-line shrink-0" />
 
-            <button
-              onClick={() => setIsCreateOpen(true)}
-              title={t.kanban.newTask}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-md shadow-indigo-600/20 transition shrink-0 whitespace-nowrap"
-            >
-              <Plus className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">{t.kanban.newTask}</span>
-            </button>
-          </div>
+        <div className="relative w-48 shrink min-w-[120px]">
+          <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+          <input
+            type="text"
+            value={searchTaskQuery}
+            onChange={(e) => setSearchTaskQuery(e.target.value)}
+            placeholder={t.kanban.searchTasks}
+            className="w-full h-7 bg-ph-raised border border-transparent rounded-md pl-7 pr-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition"
+          />
         </div>
 
-        {/* Filter & Search Bar */}
-        <div className="flex items-center gap-3 flex-nowrap overflow-x-auto no-scrollbar shrink-0 py-0.5">
-          <div className="relative w-64 shrink-0">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
-            <input
-              type="text"
-              value={searchTaskQuery}
-              onChange={(e) => setSearchTaskQuery(e.target.value)}
-              placeholder={t.kanban.searchTasks}
-              className="w-full bg-[#141724] border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition"
-            />
-          </div>
-
-          {/* Tag Chips */}
-          <div className="flex items-center gap-1.5 shrink-0 flex-nowrap overflow-x-auto no-scrollbar">
-            <button
-              onClick={() => setSelectedLabelFilter(null)}
-              title={t.kanban.allLabels}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition whitespace-nowrap shrink-0 ${
-                selectedLabelFilter === null
-                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                  : 'bg-[#141724] text-slate-400 hover:text-slate-200 border border-slate-800'
-              }`}
-            >
-              {t.kanban.allLabels}
-            </button>
-
+        {allLabels.length > 0 && (
+          <select
+            value={selectedLabelFilter || ''}
+            onChange={(e) => setSelectedLabelFilter(e.target.value || null)}
+            className={`${filterSelect} ${selectedLabelFilter ? 'text-indigo-300' : ''}`}
+            title={selectedLabelFilter ? t.kanban.filterByTag.replace('{tag}', selectedLabelFilter) : t.kanban.allLabels}
+          >
+            <option value="">{t.kanban.allLabels}</option>
             {allLabels.map((label) => (
-              <button
-                key={label}
-                onClick={() =>
-                  setSelectedLabelFilter(selectedLabelFilter === label ? null : label)
-                }
-                title={t.kanban.filterByTag.replace('{tag}', label)}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition whitespace-nowrap shrink-0 ${
-                  selectedLabelFilter === label
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'bg-[#141724] text-slate-400 hover:text-slate-200 border border-slate-800'
-                }`}
-              >
-                <Tag className="w-2.5 h-2.5 shrink-0" />
+              <option key={label} value={label}>
                 {label}
-              </button>
+              </option>
             ))}
+          </select>
+        )}
+
+        {milestones.length > 0 && (
+          <select
+            value={selectedMilestoneFilter || ''}
+            onChange={(e) => setSelectedMilestoneFilter(e.target.value || null)}
+            className={`${filterSelect} ${selectedMilestoneFilter ? 'text-indigo-300' : ''}`}
+            title={t.kanban.filterByMilestone}
+          >
+            <option value="">{t.kanban.allStages}</option>
+            {milestones.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id}: {m.title}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {(selectedLabelFilter || selectedMilestoneFilter) && (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedLabelFilter(null);
+              setSelectedMilestoneFilter(null);
+            }}
+            className="ph-icon-button shrink-0"
+            title={t.kanban.resetMilestoneFilter}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <div className="flex items-center p-0.5 rounded-md bg-ph-raised">
+            <button onClick={() => setTaskViewMode('kanban')} title={t.kanban.viewKanban} className={segment(taskViewMode === 'kanban')}>
+              <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden 2xl:inline">{t.kanban.viewKanban}</span>
+            </button>
+            <button onClick={() => setTaskViewMode('list')} title={t.kanban.viewList} className={segment(taskViewMode === 'list')}>
+              <List className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden 2xl:inline">{t.kanban.viewList}</span>
+            </button>
           </div>
 
-          {/* Milestone Filter Dropdown */}
-          {milestones.length > 0 && (
-            <div className="flex items-center gap-1.5 ml-auto shrink-0 whitespace-nowrap" title={t.kanban.filterByMilestone}>
-              <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1 shrink-0">
-                <Target className="w-3 h-3 text-indigo-400 shrink-0" />
-                {t.kanban.milestoneStage}
-              </span>
-              <select
-                value={selectedMilestoneFilter || ''}
-                onChange={(e) => setSelectedMilestoneFilter(e.target.value || null)}
-                className="bg-[#141724] border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-slate-300 focus:outline-none focus:border-indigo-500"
-              >
-                <option value="">{t.kanban.allStages}</option>
-                {milestones.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.id}: {m.title}
-                  </option>
-                ))}
-              </select>
-              {selectedMilestoneFilter && (
-                <button
-                  onClick={() => setSelectedMilestoneFilter(null)}
-                  className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                  title={t.kanban.resetMilestoneFilter}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          )}
+          <button
+            onClick={() => setIsCreateOpen(true)}
+            title={t.kanban.newTask}
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-xs text-white transition whitespace-nowrap"
+          >
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xl:inline">{t.kanban.newTask}</span>
+          </button>
         </div>
       </div>
 
       {/* Main Content Area: Kanban Board or List View */}
       {taskViewMode === 'list' ? (
-        <TaskListView
-          tasks={filteredTasks}
-          statuses={statuses}
-          onSelectTask={setSelectedTask}
-          onUpdateStatus={updateTaskStatusLocal}
-        />
+        <div className="flex-1 flex flex-col overflow-hidden p-4">
+          <TaskListView
+            tasks={filteredTasks}
+            statuses={statuses}
+            onSelectTask={setSelectedTask}
+            onUpdateStatus={updateTaskStatusLocal}
+          />
+        </div>
       ) : (
         <div
-          className="flex-1 grid gap-4 overflow-x-auto overflow-y-hidden"
+          className="flex-1 grid gap-3 p-4 overflow-x-auto overflow-y-hidden"
           style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(240px, 1fr))` }}
         >
           {columns.map((col) => {
@@ -388,39 +351,30 @@ export const KanbanBoard: React.FC = () => {
                 onDragOver={(e) => handleDragOver(e, col.status)}
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, col.status)}
-                className={`flex flex-col h-full rounded-xl bg-[#141724]/70 border transition-all duration-150 overflow-hidden ${
-                  isTarget
-                    ? 'border-indigo-500 ring-2 ring-indigo-500/30 bg-[#171b2d]'
-                    : 'border-slate-800/80'
+                className={`flex flex-col h-full min-h-0 rounded-lg transition-colors ${
+                  isTarget ? 'bg-indigo-500/10 ring-1 ring-indigo-500/50' : 'bg-ph-base/50'
                 }`}
               >
-                {/* Column Header */}
-                <div
-                  className={`p-3 border-b border-slate-800 flex items-center justify-between ${col.border}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${col.dot}`} />
-                    <span className={`text-xs font-semibold ${col.text}`} title={col.status}>
-                      {col.label}
-                    </span>
-                  </div>
-                  <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
-                    {colTasks.length}
+                {/* Заголовок колонки: цвет только у точки статуса */}
+                <div className="h-9 px-3 flex items-center gap-2 shrink-0">
+                  <span className={`w-2 h-2 rounded-full ${col.dot}`} />
+                  <span className="text-xs font-medium text-slate-200 truncate" title={col.status}>
+                    {col.label}
                   </span>
+                  <span className="text-xs text-slate-500 tabular-nums">{colTasks.length}</span>
                 </div>
 
                 {/* Column Task Cards with DnD */}
-                <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
+                <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1.5" title={colTasks.length === 0 ? t.kanban.moveTaskHint : undefined}>
                   {colTasks.length === 0 && (
-                    <div className="h-28 flex items-center justify-center text-xs text-slate-500 border border-dashed border-slate-800/80 rounded-lg text-center px-3">
-                      {t.kanban.moveTaskHint}
-                    </div>
+                    <div className="py-6 text-center text-xs text-slate-600">{t.kanban.noTasks}</div>
                   )}
 
                   {colTasks.map((task) => {
                     const criteria = task.acceptanceCriteria || [];
                     const completedCriteria = criteria.filter((c) => c.completed).length;
                     const isDraggingThis = draggingTaskId === task.id;
+                    const labels = task.labels || [];
 
                     return (
                       <div
@@ -428,78 +382,58 @@ export const KanbanBoard: React.FC = () => {
                         draggable
                         onDragStart={(e) => handleDragStart(e, task.id)}
                         onClick={() => setSelectedTask(task)}
-                        className={`p-3 rounded-xl glass-card cursor-grab active:cursor-grabbing transition group relative flex flex-col gap-2 border border-slate-800/80 hover:border-slate-700 ${
-                          isDraggingThis ? 'opacity-40 scale-95' : 'hover:shadow-lg'
+                        title={labels.length > 0 ? labels.join(', ') : undefined}
+                        className={`px-3 py-2.5 rounded-md bg-ph-elevated border border-ph-line hover:border-slate-600 cursor-grab active:cursor-grabbing transition-colors flex flex-col gap-1.5 ${
+                          isDraggingThis ? 'opacity-40' : ''
                         }`}
                       >
-                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                          <span className="text-indigo-400 font-bold tracking-tight">
-                            {task.id}
-                          </span>
-                          {task.created && (
-                            <span className="flex items-center gap-1 text-[10px] text-slate-500">
-                              <Calendar className="w-2.5 h-2.5" />
-                              {task.created}
-                            </span>
-                          )}
+                        <div className="flex items-center justify-between text-[11px] text-slate-500">
+                          <span className="font-mono">{task.id}</span>
+                          {task.created && <span className="tabular-nums">{task.created.slice(0, 10)}</span>}
                         </div>
 
-                        <h4 className="text-xs font-semibold text-slate-100 group-hover:text-white line-clamp-2 leading-relaxed">
-                          {task.title}
-                        </h4>
+                        <h4 className="text-[13px] text-slate-100 line-clamp-2 leading-snug">{task.title}</h4>
 
                         {/* Статус вне statuses конфига: задача показана в колонке по умолчанию,
                             но её собственный статус не теряется и виден на карточке (TASK-68). */}
                         {!isKnownStatus(statuses, task.status) && (
                           <div
                             title={t.kanban.unknownStatusHint}
-                            className="flex items-center gap-1 text-[9px] font-mono text-amber-300 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded w-fit"
+                            className="flex items-center gap-1 text-[11px] text-amber-300 w-fit"
                           >
-                            <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                            <AlertCircle className="w-3 h-3 shrink-0" />
                             <span>{task.status || '—'}</span>
                           </div>
                         )}
 
-                        {/* Acceptance Criteria Progress Badge */}
-                        {criteria.length > 0 && (
-                          <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono pt-1">
-                            <CheckSquare className="w-3 h-3 text-indigo-400" />
-                            <span>
-                              {completedCriteria}/{criteria.length} {t.kanban.criteriaCount}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Milestone Badge */}
-                        {task.milestone && (
-                          <div className="flex items-center gap-1 text-[9px] font-mono text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded w-fit">
-                            <Target className="w-2.5 h-2.5 text-indigo-400" />
-                            <span>{task.milestone}</span>
-                          </div>
-                        )}
-
-                        {/* Labels */}
-                        {task.labels && task.labels.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-0.5">
-                            {task.labels.map((l) => (
+                        {/* Одна строка метаданных: критерии, этап, метки */}
+                        {(criteria.length > 0 || task.milestone || labels.length > 0) && (
+                          <div className="flex items-center gap-2.5 text-[11px] text-slate-500 min-w-0">
+                            {criteria.length > 0 && (
                               <span
-                                key={l}
-                                className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 flex items-center gap-0.5 border border-slate-700/50"
+                                className={`flex items-center gap-1 tabular-nums shrink-0 ${
+                                  completedCriteria === criteria.length ? 'text-emerald-400/80' : ''
+                                }`}
+                                title={`${completedCriteria}/${criteria.length} ${t.kanban.criteriaCount}`}
                               >
-                                <Tag className="w-2 h-2 text-indigo-400" />
-                                {l}
+                                <CheckSquare className="w-3 h-3" />
+                                {completedCriteria}/{criteria.length}
                               </span>
-                            ))}
+                            )}
+                            {task.milestone && (
+                              <span className="flex items-center gap-1 shrink-0">
+                                <Target className="w-3 h-3" />
+                                {task.milestone}
+                              </span>
+                            )}
+                            {labels.length > 0 && (
+                              <span className="truncate min-w-0">
+                                {labels.slice(0, 2).join(' · ')}
+                                {labels.length > 2 && ` +${labels.length - 2}`}
+                              </span>
+                            )}
                           </div>
                         )}
-
-                        {/* Card Footer Info */}
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 mt-1">
-                          <span className="text-[10px] text-slate-500">{t.common.status}:</span>
-                          <span className="text-[9px] font-mono text-slate-400 truncate max-w-[100px]">
-                            {task.status}
-                          </span>
-                        </div>
                       </div>
                     );
                   })}
@@ -529,13 +463,13 @@ export const KanbanBoard: React.FC = () => {
             onClick={(e) => {
               if (e.target === e.currentTarget) setIsCreateOpen(false);
             }}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-6 animate-in fade-in duration-150 select-text"
+            className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-6 animate-in fade-in duration-150 select-text"
           >
             <form
               onSubmit={handleCreateTask}
-              className="w-full max-w-lg bg-[#141724] border border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-text"
+              className="w-full max-w-lg bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl flex flex-col overflow-hidden select-text"
             >
-              <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-[#161a2b]/70">
+              <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-ph-hover/70">
                 <h3 className="text-sm font-semibold text-white">{t.createTask.title}</h3>
                 <button
                   type="button"
@@ -557,7 +491,7 @@ export const KanbanBoard: React.FC = () => {
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
                     placeholder={t.createTask.taskTitlePlaceholder}
-                    className="w-full bg-[#10121d] border border-slate-800 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition select-text cursor-text selection:bg-indigo-600/40"
+                    className="w-full bg-ph-elevated border border-slate-800 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition select-text cursor-text selection:bg-indigo-600/40"
                   />
                 </div>
 
@@ -570,7 +504,7 @@ export const KanbanBoard: React.FC = () => {
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
                     placeholder={t.createTask.descriptionPlaceholder}
-                    className="w-full bg-[#10121d] border border-slate-800 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition select-text cursor-text selection:bg-indigo-600/40"
+                    className="w-full bg-ph-elevated border border-slate-800 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition select-text cursor-text selection:bg-indigo-600/40"
                   />
                 </div>
 
@@ -583,12 +517,12 @@ export const KanbanBoard: React.FC = () => {
                     value={newLabels}
                     onChange={(e) => setNewLabels(e.target.value)}
                     placeholder={t.createTask.labelsPlaceholder}
-                    className="w-full bg-[#10121d] border border-slate-800 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition select-text cursor-text selection:bg-indigo-600/40"
+                    className="w-full bg-ph-elevated border border-slate-800 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition select-text cursor-text selection:bg-indigo-600/40"
                   />
                 </div>
               </div>
 
-              <div className="p-4 border-t border-slate-800 flex items-center justify-end gap-2 bg-[#10121d]">
+              <div className="p-4 border-t border-slate-800 flex items-center justify-end gap-2 bg-ph-elevated">
                 <button
                   type="button"
                   onClick={() => setIsCreateOpen(false)}
@@ -598,7 +532,7 @@ export const KanbanBoard: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-md shadow-indigo-600/20 transition"
+                  className="ph-btn ph-btn-primary"
                 >
                   {t.createTask.createButton}
                 </button>

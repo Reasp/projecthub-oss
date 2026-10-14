@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, BookOpen, ShieldCheck, Tag, FileText, Sparkles, CheckCircle2, AlertCircle, FolderTree } from 'lucide-react';
+import {
+  X,
+  ShieldCheck,
+  Tag,
+  FileText,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  FolderTree
+} from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { listSections } from '../../utils/docTree';
@@ -67,13 +76,13 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
 
   // Модальное окно — только через портал (decision-17): предки с backdrop-filter запирают fixed-слой.
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-[#121522] border border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-200">
+      <div className="bg-ph-elevated border border-slate-700 w-full max-w-lg rounded-xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-gradient-to-r from-[#171b2d] to-[#141828]">
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-              <Sparkles className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-lg bg-ph-raised flex items-center justify-center text-indigo-400">
+              <Sparkles className="w-4 h-4" />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-white">{t.docs.createDocTitle}</h2>
@@ -107,14 +116,14 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
                 className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition ${
                   type === 'decision'
                     ? 'bg-indigo-600/15 border-indigo-500/50 text-white'
-                    : 'bg-[#10121d] border-slate-800 text-slate-400 hover:text-slate-200'
+                    : 'bg-ph-elevated border-slate-800 text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-indigo-400" />
                   <span className="text-xs font-semibold">{t.docs.typeDecision}</span>
                 </div>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[11px] text-slate-500">
                   <code className="font-mono text-indigo-300/80">backlog/decisions/</code>
                 </span>
               </button>
@@ -125,14 +134,14 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
                 className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition ${
                   type === 'doc'
                     ? 'bg-indigo-600/15 border-indigo-500/50 text-white'
-                    : 'bg-[#10121d] border-slate-800 text-slate-400 hover:text-slate-200'
+                    : 'bg-ph-elevated border-slate-800 text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-indigo-400" />
                   <span className="text-xs font-semibold">{t.docs.typeDoc}</span>
                 </div>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[11px] text-slate-500">
                   <code className="font-mono text-indigo-300/80">backlog/docs/</code>
                 </span>
               </button>
@@ -150,7 +159,7 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t.docs.docTitlePlaceholder}
-              className="w-full bg-[#10121d] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-ph-elevated border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -171,7 +180,7 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
                           : st === 'Proposed'
                           ? 'bg-amber-600/20 border-amber-500/40 text-amber-300'
                           : 'bg-rose-600/20 border-rose-500/40 text-rose-300'
-                        : 'bg-[#10121d] border-slate-800 text-slate-400 hover:text-slate-200'
+                        : 'bg-ph-elevated border-slate-800 text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     {st}
@@ -194,14 +203,14 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
                     className={`py-1.5 px-2 rounded-lg text-xs font-mono border transition ${
                       docType === dt
                         ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-200'
-                        : 'bg-[#10121d] border-slate-800 text-slate-400 hover:text-slate-200'
+                        : 'bg-ph-elevated border-slate-800 text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     {dt}
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-500">{t.docs.docTypeHint}</p>
+              <p className="text-[11px] text-slate-500">{t.docs.docTypeHint}</p>
             </div>
           )}
 
@@ -217,14 +226,14 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
               value={section}
               onChange={(e) => setSection(e.target.value)}
               placeholder={t.docs.sectionPlaceholder}
-              className="w-full bg-[#10121d] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-ph-elevated border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
             />
             <datalist id="create-doc-sections">
               {listSections(docsList, type).map((name) => (
                 <option key={name} value={name} />
               ))}
             </datalist>
-            <p className="text-[10px] text-slate-500">{t.docs.sectionHint}</p>
+            <p className="text-[11px] text-slate-500">{t.docs.sectionHint}</p>
           </div>
 
           {/* Tags */}
@@ -238,7 +247,7 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               placeholder="architecture, electron, storage, api"
-              className="w-full bg-[#10121d] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-ph-elevated border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -254,7 +263,7 @@ export const CreateDocModal: React.FC<CreateDocModalProps> = ({ isOpen, onClose 
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-lg shadow-indigo-600/20 transition disabled:opacity-50"
+              className="ph-btn ph-btn-primary disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               {isSubmitting ? t.common.loading : t.docs.createDocButton}
