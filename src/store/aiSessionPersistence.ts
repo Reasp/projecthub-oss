@@ -144,6 +144,10 @@ export class SessionPersister {
   private owner = new Map<string, string>(); // sessionId -> projectPath
   private dirty = new Map<string, string>(); // sessionId -> projectPath
   private toDelete = new Map<string, string>(); // sessionId -> projectPath
+  /** Закрываемые сессии, которые уходят в историю: ждут, пока стор уберёт их из вкладок. */
+  private archiving = new Map<string, { projectPath: string; session: AISession }>();
+  /** Копии с `archivedAt`, которые нужно записать. */
+  private toArchive = new Map<string, { projectPath: string; session: AISession }>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Promise<void> | null = null;
 
@@ -178,15 +182,38 @@ export class SessionPersister {
         }
       }
       for (const old of prev[projectPath] || []) {
-        if (!seen.has(old.id)) this.scheduleDelete(projectPath, old.id);
+        if (!seen.has(old.id)) this.scheduleRemoval(projectPath, old.id);
       }
     }
     for (const [projectPath, list] of Object.entries(prev)) {
       if (!(projectPath in next)) {
-        for (const old of list) this.scheduleDelete(projectPath, old.id);
+        for (const old of list) this.scheduleRemoval(projectPath, old.id);
       }
     }
-    if (this.dirty.size || this.toDelete.size) this.schedule();
+    if (this.dirty.size || this.toDelete.size || this.toArchive.size) this.schedule();
+  }
+
+  /**
+   * Сессию закрывают, но она уходит в историю (TASK-140.10): вызвать до того, как стор уберёт её из вкладок.
+   * Тогда вместо удаления файла записывается её копия с `archivedAt`.
+   */
+  public archive(projectPath: string, session: AISession): void {
+    this.archiving.set(session.id, { projectPath, session });
+  }
+
+  /** Сессия ушла из вкладок: в историю, если её архивируют, иначе — удалить файл. */
+  private scheduleRemoval(projectPath: string, sessionId: string): void {
+    const archived = this.archiving.get(sessionId);
+    if (!archived) {
+      this.scheduleDelete(projectPath, sessionId);
+      return;
+    }
+    this.archiving.delete(sessionId);
+    this.dirty.delete(sessionId);
+    this.lastSaved.delete(sessionId);
+    this.owner.delete(sessionId);
+    this.toDelete.delete(sessionId);
+    this.toArchive.set(sessionId, archived);
   }
 
   private scheduleDelete(projectPath: string, sessionId: string): void {
@@ -214,17 +241,20 @@ export class SessionPersister {
       // Дождаться текущей записи и повторить: между ними могли появиться новые изменения.
       return this.inFlight.then(() => this.flushNow(resolveSessions));
     }
-    if (!this.dirty.size && !this.toDelete.size) return Promise.resolve();
+    if (!this.dirty.size && !this.toDelete.size && !this.toArchive.size) return Promise.resolve();
 
     const api = typeof window !== 'undefined' ? window.api : undefined;
     if (!api?.saveAISession) {
       this.dirty.clear();
       this.toDelete.clear();
+      this.toArchive.clear();
       return Promise.resolve();
     }
 
     const deletes = [...this.toDelete];
     this.toDelete.clear();
+    const archives = [...this.toArchive.values()];
+    this.toArchive.clear();
     const saves: Array<[string, AISession]> = [];
     for (const [sessionId, projectPath] of this.dirty) {
       const session = this.resolve(projectPath, sessionId, resolveSessions);
@@ -246,6 +276,13 @@ export class SessionPersister {
           if (ok) this.lastSaved.set(session.id, session);
         } catch (e) {
           console.warn('[AIStudio] Не удалось сохранить сессию:', e);
+        }
+      }
+      for (const { projectPath, session } of archives) {
+        try {
+          await api.saveAISession(projectPath, session);
+        } catch (e) {
+          console.warn('[AIStudio] Не удалось перенести сессию в историю:', e);
         }
       }
     })().finally(() => {
@@ -271,6 +308,6 @@ export class SessionPersister {
 
   /** Есть ли несброшенные изменения (для тестов и диагностики). */
   public hasPending(): boolean {
-    return this.dirty.size > 0 || this.toDelete.size > 0;
+    return this.dirty.size > 0 || this.toDelete.size > 0 || this.toArchive.size > 0;
   }
 }

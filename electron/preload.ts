@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 /** Полезная нагрузка события pty:removed — автоудаление завершившейся сессии (TASK-50). */
 type PtyRemovedPayload = { sessionId: string; title: string; reason: 'ttl' };
 import type {
+  StudioRemoteRequestPayload,
   ArenaSettings,
   ProviderErrorInfo,
   CheckDefinition,
@@ -324,6 +325,16 @@ const api: IElectronAPI = {
   deleteAISession: (projectPath: string, sessionId: string) =>
     ipcRenderer.invoke('aiSessions:delete', projectPath, sessionId),
   importAISessions: (sessionsByProject: any) => ipcRenderer.invoke('aiSessions:import', sessionsByProject),
+  // AI Studio с телефона (TASK-140.10): запросы хоста к стору и ответы на них
+  onStudioRemoteRequest: (callback: (req: StudioRemoteRequestPayload) => void) => {
+    const handler = (_event: IpcRendererEvent, req: StudioRemoteRequestPayload) => callback(req);
+    ipcRenderer.on('aiStudio:remoteRequest', handler);
+    return () => {
+      ipcRenderer.removeListener('aiStudio:remoteRequest', handler);
+    };
+  },
+  replyStudioRemote: (requestId: string, reply: { ok: boolean; sessionId?: string; error?: string }) =>
+    ipcRenderer.invoke('aiStudio:remoteReply', requestId, reply),
 
   // Claude Bridge Approvals & Statuses
   getAllProjectStatuses: () => ipcRenderer.invoke('claudeBridge:getAllProjectStatuses'),

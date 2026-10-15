@@ -1042,6 +1042,9 @@ export interface IElectronAPI {
   deleteAISession: (projectPath: string, sessionId: string) => Promise<boolean>;
   /** Одноразовая миграция сессий из localStorage; возвращает число импортированных. */
   importAISessions: (sessionsByProject: Record<string, AISession[]>) => Promise<number>;
+  /** Запросы телефона к AI Studio (TASK-140.10, decision-83): промпт или остановка в сессии стора. */
+  onStudioRemoteRequest: (callback: (req: StudioRemoteRequestPayload) => void) => () => void;
+  replyStudioRemote: (requestId: string, reply: { ok: boolean; sessionId?: string; error?: string }) => Promise<boolean>;
 
   // Claude Bridge Approvals & Statuses
   getAllProjectStatuses: () => Promise<ProjectAgentStatus[]>;
@@ -2255,7 +2258,29 @@ export interface AISession {
   activeTaskId?: string;
   /** Какие части контекста включены; по умолчанию (без поля) — все. */
   contextParts?: Partial<Record<ContextPartKey, boolean>>;
+  /** Вкладку закрыли — сессия в истории, а не удалена (TASK-140.10, decision-83). */
+  archivedAt?: number;
+  /** Откуда начата сессия: с телефона — пометка во вкладке. */
+  origin?: 'desktop' | 'phone';
+  originDevice?: string;
+  /** Модель и режим последнего промпта — для истории и продолжения с телефона. */
+  lastSelection?: { provider: string; profileId?: string; model: string };
+  lastMode?: 'chat' | 'agent' | 'architect';
 }
+
+/** Запрос хоста к стору AI Studio от имени телефона (`aiStudio:remoteRequest`). */
+export type StudioRemoteRequestPayload =
+  | {
+      requestId: string;
+      kind: 'send';
+      projectPath: string;
+      sessionId?: string;
+      text: string;
+      selection?: { provider: string; profileId?: string; model: string };
+      mode?: 'chat' | 'agent' | 'architect';
+      deviceName: string;
+    }
+  | { requestId: string; kind: 'abort'; projectPath: string; sessionId: string };
 
 export interface AIStreamRequest {
   sessionId: string;

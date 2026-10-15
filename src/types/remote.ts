@@ -232,7 +232,13 @@ export type RemoteRpcMethod =
   | 'start_assigned_agent'
   | 'stop_swarm'
   // Мобильный клиент (TASK-140.1, decision-79 п. 8): хвост вывода агента роя
-  | 'get_agent_output';
+  | 'get_agent_output'
+  // AI Studio с телефона (TASK-140.10, decision-83): сессии те же, что во вкладках ПК
+  | 'studio_get_options'
+  | 'studio_list_sessions'
+  | 'studio_get_session'
+  | 'studio_send'
+  | 'studio_abort';
 
 /**
  * Ответы RPC в том виде, в каком их отдаёт `dispatchRpc` хоста. Общие для хоста и мобильного
@@ -318,6 +324,72 @@ export interface RemoteAgentOutput {
   status: string;
   text: string;
   truncated: boolean;
+}
+
+// ── AI Studio с телефона (TASK-140.10, decision-83) ──
+
+export type StudioMode = 'agent' | 'chat' | 'architect';
+
+/** Выбор модели — та же форма, что у `ModelSelectorDropdown` AI Studio на ПК. */
+export interface StudioModelSelection {
+  provider: string;
+  profileId?: string;
+  model: string;
+}
+
+/** Что можно выбрать на телефоне: модели Claude Code и профили LLM без ключей и заголовков. */
+export interface RemoteStudioOptions {
+  /** Текущий выбор AI Studio на ПК — по умолчанию для новой сессии. */
+  current: StudioModelSelection;
+  currentLabel: string;
+  modes: StudioMode[];
+  claudeModels: Array<{ id: string; name: string; description: string }>;
+  profiles: Array<{ id: string; name: string; local: boolean; models: string[]; modelsError?: string }>;
+}
+
+export interface RemoteStudioSessionSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  /** Время последнего сообщения. */
+  updatedAt: number;
+  messageCount: number;
+  /** Вкладка закрыта на ПК — сессия в истории. */
+  archived: boolean;
+  /** Сессию начали с телефона. */
+  origin?: 'desktop' | 'phone';
+  originDevice?: string;
+  modelLabel?: string;
+  /** Агент сейчас отвечает в этой сессии. */
+  running: boolean;
+  /** Начало последнего промпта пользователя. */
+  preview: string;
+}
+
+export interface RemoteStudioToolCall {
+  id: string;
+  name: string;
+  status?: string;
+  /** Короткая подпись: команда или путь файла, без содержимого и диффов. */
+  summary?: string;
+}
+
+export interface RemoteStudioMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'error';
+  text: string;
+  tools?: RemoteStudioToolCall[];
+  /** Текст обрезан для телефона. */
+  truncated?: boolean;
+}
+
+export interface RemoteStudioSession extends RemoteStudioSessionSummary {
+  messages: RemoteStudioMessage[];
+  /** Ранние сообщения не переданы: на телефон уходит хвост истории. */
+  olderOmitted: number;
+  /** Выбор модели последнего промпта — по умолчанию для продолжения. */
+  lastSelection?: StudioModelSelection;
+  lastMode?: StudioMode;
 }
 
 export interface RemotePendingApproval {

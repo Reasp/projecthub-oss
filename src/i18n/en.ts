@@ -1517,6 +1517,17 @@ export const en: TranslationDictionary = {
     notRunning: 'Claude Code is not running. Make sure the `claude` command is installed, then press Restart.'
   },
   aiStudio: {
+    historyTitle: 'Session history',
+    historyButton: 'Project session history',
+    historySearch: 'Search titles and prompts',
+    historyEmpty: 'Closed tabs appear here: closing a chat moves it to history instead of deleting it.',
+    historyNothingFound: 'Nothing found',
+    historyOpen: 'Open in a tab',
+    historyDelete: 'Delete',
+    historyDeleteTitle: 'Delete session',
+    historyDeleteMessage: 'Delete “{title}” from history? It cannot be restored.',
+    historyPrompts: 'prompts',
+    fromPhone: 'Started from the phone',
     newChat: 'New Chat',
     newSession: 'New Session',
     closeSession: 'Close session',

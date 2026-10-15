@@ -13,6 +13,7 @@ import { claudeBridgeService } from '../services/claudeBridgeService';
 import { federationClientService } from '../services/federationClientService';
 import { remoteControlService } from '../services/remoteControlService';
 import { aiSessionStore } from '../services/aiSessionStore';
+import { studioRemoteBridge } from '../services/studioRemoteBridge';
 import { claudeUsageService } from '../services/claudeUsageService';
 import {
   agentFleetService,
@@ -195,6 +196,9 @@ export function registerAiIpc(ctx: IpcContext) {
     }
   });
 
+  // Запросы телефона к AI Studio идут в главное окно: сессиями владеет его стор (TASK-140.10, decision-83).
+  studioRemoteBridge.setWindowGetter(() => ctx.getMainWindow());
+
   // AI Stream Chat
   ipcMain.handle('ai:streamChat', async (_event, req: AIStreamRequest) => {
     const targetWin = ctx.getMainWindow();
@@ -206,13 +210,24 @@ export function registerAiIpc(ctx: IpcContext) {
       }
     };
 
+    // Поток любой сессии Studio дублируется сопряжённым телефонам в сокращённом виде (TASK-140.10, decision-83).
+    studioRemoteBridge.streamStarted(req.projectPath, req.sessionId);
     try {
       await claudeBridgeService.runAgentTask(
         req,
-        (chunk) => send(`ai:chunk:${req.sessionId}`, chunk),
-        (fullMsg) => send(`ai:complete:${req.sessionId}`, fullMsg),
+        (chunk) => {
+          send(`ai:chunk:${req.sessionId}`, chunk);
+          studioRemoteBridge.streamChunk(req.projectPath, req.sessionId, chunk);
+        },
+        (fullMsg) => {
+          send(`ai:complete:${req.sessionId}`, fullMsg);
+          studioRemoteBridge.streamEnded(req.projectPath, req.sessionId);
+        },
         // Второй аргумент — снимок ошибки провайдера (decision-43): renderer строит по нему локализованную карточку.
-        (err, info) => send(`ai:error:${req.sessionId}`, err, info)
+        (err, info) => {
+          send(`ai:error:${req.sessionId}`, err, info);
+          studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, info?.message || err);
+        }
       );
     } catch (err: any) {
       const info = providerErrorInfoOf(err);
@@ -220,8 +235,14 @@ export function registerAiIpc(ctx: IpcContext) {
       console.error(`[Main] ai:streamChat failed for session ${req.sessionId}: ${message}`);
       claudeBridgeService.setProjectStatus(req.projectPath, 'error', message);
       send(`ai:error:${req.sessionId}`, message, info);
+      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message);
     }
+    // `finally` здесь нельзя: путь Claude CLI возвращается сразу после запуска процесса, конец ответа —
+    // только `onComplete`/`onError` (они же срабатывают при отмене).
   });
+
+  // Ответ окна на запрос телефона (TASK-140.10): промпт или остановка в сессии AI Studio.
+  ipcMain.handle('aiStudio:remoteReply', (_event, requestId: unknown, reply: unknown) => studioRemoteBridge.resolve(requestId, reply));
 
   // Предпросмотр контекста агента для карточки в AI Studio (TASK-64) — без запуска стрима.
   ipcMain.handle(

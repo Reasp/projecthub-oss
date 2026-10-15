@@ -6,9 +6,15 @@ import type {
   RemoteProcessSummary,
   RemoteProjectSummary,
   RemoteRoleSummary,
+  RemoteStudioOptions,
+  RemoteStudioSession,
+  RemoteStudioSessionSummary,
   RemoteSwarmSummary,
-  RemoteTaskSummary
+  RemoteTaskSummary,
+  StudioMode,
+  StudioModelSelection
 } from '../../../src/types/remote';
+import { applyStudioChunk, emptyStudio, markRunning, type StudioMessage, type StudioState } from './studioState';
 import {
   addHitl,
   appendLog,
@@ -35,11 +41,7 @@ export interface RpcPort {
   getSnapshot(): ClientSnapshot;
 }
 
-export interface StudioMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'error';
-  text: string;
-}
+export type { StudioMessage } from './studioState';
 
 export interface Toast {
   id: number;
@@ -62,7 +64,7 @@ export interface AppState {
   swarms: RemoteSwarmSummary[];
   roles: RemoteRoleSummary[];
   hitl: HitlItem[];
-  studio: { sessionId: string | null; messages: StudioMessage[]; busy: boolean };
+  studio: StudioState;
   toast: Toast | null;
 }
 
@@ -83,6 +85,12 @@ export class AppStore {
   private toastSeq = 0;
   private refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private unsubscribers: Array<() => void> = [];
+  /**
+   * Чанки сессий, id которых телефон ещё не знает: промпт в новую сессию — окно начинает отвечать раньше,
+   * чем хост вернёт её id. По ответу `studio_send` чанки своей сессии проигрываются.
+   */
+  private studioBuffer = new Map<string, Array<{ text?: unknown; tool?: unknown }>>();
+  private awaitingNewSession = false;
 
   constructor(
     private readonly client: RpcPort,
@@ -103,7 +111,7 @@ export class AppStore {
       swarms: [],
       roles: [],
       hitl: [],
-      studio: { sessionId: null, messages: [], busy: false },
+      studio: emptyStudio(),
       toast: null
     };
     this.unsubscribers.push(
@@ -187,15 +195,26 @@ export class AppStore {
       this.refreshTasks(),
       this.refreshProcesses(),
       this.refreshSwarms(),
-      this.refreshGit()
+      this.refreshGit(),
+      this.refreshStudio()
     ]);
   }
 
   async selectProject(projectPath: string): Promise<void> {
     if (projectPath === this.state.projectPath) return;
-    this.set({ projectPath, tasks: [], tasksLoaded: false, processes: [], logs: {}, swarms: [], roles: [], gitBranch: null });
+    this.set({
+      projectPath,
+      tasks: [],
+      tasksLoaded: false,
+      processes: [],
+      logs: {},
+      swarms: [],
+      roles: [],
+      gitBranch: null,
+      studio: { ...emptyStudio(this.state.studio), sessions: [], sessionsLoaded: false }
+    });
     if (this.state.status) this.prefs.set(`project:${this.state.status.hostId}`, projectPath);
-    await Promise.all([this.refreshTasks(), this.refreshProcesses(), this.refreshSwarms(), this.refreshGit()]);
+    await Promise.all([this.refreshTasks(), this.refreshProcesses(), this.refreshSwarms(), this.refreshGit(), this.refreshStudio()]);
   }
 
   async refreshHosts(): Promise<void> {
@@ -345,41 +364,146 @@ export class AppStore {
     return this.call<RemoteAgentOutput>('get_agent_output', { swarmId, agentId }, true);
   }
 
-  // ── AI Studio ──
+  // ── AI Studio (TASK-140.10, decision-83) ──
 
-  async sendPrompt(prompt: string): Promise<boolean> {
-    const text = prompt.trim();
-    if (!text || !this.state.projectPath) return false;
-    const studio = this.state.studio;
-    const userMsg: StudioMessage = { id: `u${Date.now()}`, role: 'user', text };
-    this.set({ studio: { ...studio, messages: [...studio.messages, userMsg], busy: true } });
-    const res = await this.call<{ sessionId: string; accepted: boolean }>(
-      'send_ai_prompt',
-      this.withProject({ prompt: text, ...(studio.sessionId ? { sessionId: studio.sessionId } : {}) })
-    );
-    if (!res) {
-      this.set({ studio: { ...this.state.studio, busy: false } });
+  private setStudio(patch: Partial<StudioState>): void {
+    this.set({ studio: { ...this.state.studio, ...patch } });
+  }
+
+  /** Список сессий и выбор моделей; открытая сессия перечитывается (после разрыва — догнать ответ). */
+  async refreshStudio(): Promise<void> {
+    if (!this.state.projectPath) return;
+    await Promise.all([this.refreshStudioSessions(), this.state.studio.options ? Promise.resolve() : this.loadStudioOptions()]);
+    if (this.state.studio.sessionId) await this.openStudioSession(this.state.studio.sessionId, true);
+  }
+
+  async refreshStudioSessions(): Promise<void> {
+    const path = this.state.projectPath;
+    if (!path) return;
+    const list = await this.call<RemoteStudioSessionSummary[]>('studio_list_sessions', { projectPath: path }, true);
+    if (this.state.projectPath !== path || !Array.isArray(list)) return;
+    this.setStudio({ sessions: list, sessionsLoaded: true });
+  }
+
+  async loadStudioOptions(): Promise<void> {
+    const options = await this.call<RemoteStudioOptions>('studio_get_options', {}, true);
+    if (!options) return;
+    this.setStudio({ options, selection: this.state.studio.selection ?? options.current });
+  }
+
+  /** Открыть сессию (вкладку ПК или из истории): история и модель её последнего промпта. */
+  async openStudioSession(sessionId: string, quiet = false): Promise<boolean> {
+    const path = this.state.projectPath;
+    if (!path) return false;
+    if (!quiet) this.setStudio({ loading: true });
+    const s = await this.call<RemoteStudioSession>('studio_get_session', { projectPath: path, sessionId }, quiet);
+    if (this.state.projectPath !== path) return false;
+    if (!s) {
+      this.setStudio({ loading: false });
       return false;
     }
-    this.set({ studio: { ...this.state.studio, sessionId: res.sessionId } });
+    this.setStudio({
+      sessionId: s.id,
+      title: s.title,
+      messages: s.messages,
+      olderOmitted: s.olderOmitted,
+      busy: s.running,
+      loading: false,
+      selection: s.lastSelection ?? this.state.studio.selection,
+      mode: s.lastMode ?? this.state.studio.mode
+    });
     return true;
   }
 
   newStudioSession(): void {
-    this.set({ studio: { sessionId: null, messages: [], busy: false } });
+    this.setStudio({ ...emptyStudio(this.state.studio) });
   }
 
-  private appendAssistant(text: string): void {
+  setStudioSelection(selection: StudioModelSelection): void {
+    this.setStudio({ selection });
+  }
+
+  setStudioMode(mode: StudioMode): void {
+    this.setStudio({ mode });
+  }
+
+  async sendPrompt(prompt: string): Promise<boolean> {
+    const text = prompt.trim();
+    if (!text || !this.state.projectPath || this.state.studio.busy) return false;
     const studio = this.state.studio;
-    const last = studio.messages[studio.messages.length - 1];
-    const messages =
-      last && last.role === 'assistant'
-        ? [...studio.messages.slice(0, -1), { ...last, text: last.text + text }]
-        : [...studio.messages, { id: `a${Date.now()}`, role: 'assistant' as const, text }];
-    this.set({ studio: { ...studio, messages } });
+    const userMsg: StudioMessage = { id: `u${Date.now()}`, role: 'user', text };
+    const isNew = !studio.sessionId;
+    this.setStudio({ messages: [...studio.messages, userMsg], busy: true, ...(isNew ? { title: text.slice(0, 40) } : {}) });
+    if (isNew) {
+      this.awaitingNewSession = true;
+      this.studioBuffer.clear();
+    }
+    const res = await this.call<{ sessionId: string; accepted: boolean }>(
+      'studio_send',
+      this.withProject({
+        prompt: text,
+        ...(studio.sessionId ? { sessionId: studio.sessionId } : {}),
+        ...(studio.selection ? { selection: studio.selection } : {}),
+        mode: studio.mode
+      })
+    );
+    this.awaitingNewSession = false;
+    if (!res) {
+      this.studioBuffer.clear();
+      // Промпт не принят (занято, нет окна): возвращаем текст в поле ввода, сообщение убираем.
+      this.setStudio({ busy: false, messages: this.state.studio.messages.filter((m) => m.id !== userMsg.id) });
+      return false;
+    }
+    let messages = this.state.studio.messages;
+    for (const chunk of this.studioBuffer.get(res.sessionId) ?? []) messages = applyStudioChunk(messages, chunk);
+    this.studioBuffer.clear();
+    this.setStudio({ sessionId: res.sessionId, messages });
+    this.debounced('studioSessions', () => void this.refreshStudioSessions());
+    return true;
+  }
+
+  async abortStudio(): Promise<void> {
+    const { sessionId } = this.state.studio;
+    if (!sessionId) return;
+    if (await this.call('studio_abort', this.withProject({ sessionId }))) this.showToast('Ответ остановлен', 'info');
   }
 
   // ── события хоста ──
+
+  /** Поток AI Studio любой сессии проекта: с ПК или с телефона (TASK-140.10). */
+  private handleStudioEvent(event: string, d: Record<string, unknown>): void {
+    if (d.projectPath !== this.state.projectPath || typeof d.sessionId !== 'string') return;
+    const id = d.sessionId;
+    const current = this.state.studio.sessionId === id;
+
+    if (event === 'studio:started') {
+      this.setStudio({ sessions: markRunning(this.state.studio.sessions, id, true), ...(current ? { busy: true } : {}) });
+      if (!this.state.studio.sessions.some((s) => s.id === id)) this.debounced('studioSessions', () => void this.refreshStudioSessions());
+      return;
+    }
+    if (event === 'studio:chunk') {
+      if (current) this.setStudio({ messages: applyStudioChunk(this.state.studio.messages, d) });
+      else if (this.awaitingNewSession) {
+        const list = this.studioBuffer.get(id) ?? [];
+        if (list.length < 500) list.push({ text: d.text, tool: d.tool });
+        this.studioBuffer.set(id, list);
+      }
+      return;
+    }
+    // Конец ответа: окно уже записало сессию на диск — перечитываем, чтобы текст совпал с ПК.
+    const sessions = markRunning(this.state.studio.sessions, id, false);
+    if (current) {
+      const messages =
+        event === 'studio:error'
+          ? [...this.state.studio.messages, { id: `e${Date.now()}`, role: 'error' as const, text: String(d.error || 'Ошибка агента') }]
+          : this.state.studio.messages;
+      this.setStudio({ sessions, busy: false, messages });
+      this.debounced('studioReload', () => {
+        if (this.state.studio.sessionId === id) void this.openStudioSession(id, true);
+      });
+    } else this.setStudio({ sessions });
+    this.debounced('studioSessions', () => void this.refreshStudioSessions());
+  }
 
   handleEvent(event: string, data: unknown): void {
     const d = (data || {}) as Record<string, unknown>;
@@ -410,28 +534,11 @@ export class AppStore {
       case 'projects:changed':
         this.debounced('all', () => void this.refreshAll());
         return;
-      case 'ai:chunk':
-        if (d.sessionId === this.state.studio.sessionId && typeof d.text === 'string' && d.text) this.appendAssistant(d.text);
-        return;
-      case 'ai:complete': {
-        if (d.sessionId !== this.state.studio.sessionId) return;
-        const studio = this.state.studio;
-        const last = studio.messages[studio.messages.length - 1];
-        const content = (d.message as { content?: unknown } | undefined)?.content;
-        // Движок без потоковых кусков — текст приходит целиком в итоговом сообщении.
-        if ((!last || last.role !== 'assistant') && typeof content === 'string' && content) this.appendAssistant(content);
-        this.set({ studio: { ...this.state.studio, busy: false } });
-        return;
-      }
-      case 'ai:error':
-        if (d.sessionId !== this.state.studio.sessionId) return;
-        this.set({
-          studio: {
-            ...this.state.studio,
-            busy: false,
-            messages: [...this.state.studio.messages, { id: `e${Date.now()}`, role: 'error', text: String(d.error || 'Ошибка агента') }]
-          }
-        });
+      case 'studio:started':
+      case 'studio:chunk':
+      case 'studio:complete':
+      case 'studio:error':
+        this.handleStudioEvent(event, d);
         return;
       default:
         if (event.startsWith('agent:')) this.debounced('swarms', () => void this.refreshSwarms());

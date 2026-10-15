@@ -63,7 +63,12 @@ interface AIStudioState {
   setIsSettingsOpen: (open: boolean) => void;
   /** Прочитать историю диалогов проекта с диска (один раз на проект); мигрирует старый localStorage. */
   loadSessions: (projectPath: string) => Promise<void>;
-  createSession: (projectPath: string, initialTitle?: string) => string;
+  createSession: (projectPath: string, initialTitle?: string, opts?: CreateSessionOptions) => string;
+  /**
+   * Вернуть сессию из истории во вкладки (TASK-140.10): с ПК из окна истории или по промпту с телефона.
+   * `activate` — сделать вкладку активной.
+   */
+  reopenSession: (projectPath: string, session: AISession, activate?: boolean) => void;
   switchSession: (projectPath: string, sessionId: string) => void;
   switchSessionByIndex: (projectPath: string, index: number) => void;
   switchToNextSession: (projectPath: string) => void;
@@ -77,7 +82,7 @@ interface AIStudioState {
   /** Включает/выключает часть контекста (задача/RAG/GitNexus/git) на сессию. */
   toggleContextPart: (projectPath: string, sessionId: string, key: ContextPartKey, enabled: boolean) => void;
   clearSession: (projectPath: string, sessionId?: string) => void;
-  sendMessage: (projectPath: string, text: string) => Promise<void>;
+  sendMessage: (projectPath: string, text: string, opts?: SendMessageOptions) => Promise<void>;
   /**
    * Повтор ответа, упавшего с ошибкой (TASK-70.6): сообщение пользователя и ответ с ошибкой убираются
    * из диалога, и сообщение отправляется заново — с текущими настройками провайдера и модели.
@@ -111,6 +116,21 @@ const DEFAULT_CONFIG: AIProviderConfig = {
  * Сообщает main-процессу, что сессия закрыта/очищена: там отклоняются ожидающие одобрения,
  * убиваются процессы сессии и забывается resume-id Claude CLI (TASK-33).
  */
+export interface CreateSessionOptions {
+  /** Сделать новую вкладку активной (по умолчанию да; сессия с телефона не переключает вкладку на ПК). */
+  activate?: boolean;
+  origin?: 'desktop' | 'phone';
+  originDevice?: string;
+}
+
+export interface SendMessageOptions {
+  /** Сессия, в которую идёт сообщение; по умолчанию — активная вкладка. */
+  sessionId?: string;
+  /** Конфиг этого запроса (модель с телефона); глобальный выбор AI Studio не меняется. */
+  config?: AIProviderConfig;
+  mode?: 'chat' | 'agent' | 'architect';
+}
+
 function releaseSessionInMain(sessionId: string): void {
   window.api?.clearAISession?.(sessionId).catch((err: unknown) => {
     console.error('Failed to clear AI session in main:', err);
@@ -331,6 +351,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           if (fromDisk.length === 0 && migrated[projectPath]?.length) {
             fromDisk = migrated[projectPath];
           }
+          // Закрытые вкладки живут в истории (TASK-140.10) — во вкладки их не возвращаем.
+          fromDisk = fromDisk.filter((s) => typeof s.archivedAt !== 'number');
           sessionPersister.markLoaded(projectPath, fromDisk);
 
           set((state) => {
@@ -353,14 +375,17 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
       },
 
-      createSession: (projectPath: string, initialTitle?: string) => {
+      createSession: (projectPath: string, initialTitle?: string, opts: CreateSessionOptions = {}) => {
         const existing = get().sessions[projectPath] || [];
         const newSession: AISession = {
           id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           title: initialTitle || `Диалог ${existing.length + 1}`,
           createdAt: Date.now(),
-          messages: []
+          messages: [],
+          ...(opts.origin ? { origin: opts.origin } : {}),
+          ...(opts.originDevice ? { originDevice: opts.originDevice } : {})
         };
+        const activate = opts.activate !== false || !get().activeSessionId[projectPath];
 
         set((state) => {
           const current = state.sessions[projectPath] || [];
@@ -369,14 +394,25 @@ export const useAIStudioStore = create<AIStudioState>()(
               ...state.sessions,
               [projectPath]: [...current, newSession]
             },
-            activeSessionId: {
-              ...state.activeSessionId,
-              [projectPath]: newSession.id
-            }
+            ...(activate ? { activeSessionId: { ...state.activeSessionId, [projectPath]: newSession.id } } : {})
           };
         });
 
         return newSession.id;
+      },
+
+      reopenSession: (projectPath: string, session: AISession, activate = true) => {
+        const { archivedAt: _archivedAt, ...open } = session;
+        set((state) => {
+          const current = state.sessions[projectPath] || [];
+          if (current.some((s) => s.id === session.id)) {
+            return activate ? { activeSessionId: { ...state.activeSessionId, [projectPath]: session.id } } : {};
+          }
+          return {
+            sessions: { ...state.sessions, [projectPath]: [...current, open] },
+            ...(activate ? { activeSessionId: { ...state.activeSessionId, [projectPath]: session.id } } : {})
+          };
+        });
       },
 
       switchSession: (projectPath: string, sessionId: string) => {
@@ -480,6 +516,9 @@ export const useAIStudioStore = create<AIStudioState>()(
 
       closeSession: (projectPath: string, sessionId: string) => {
         releaseSessionInMain(sessionId);
+        // Диалог с сообщениями уходит в историю (файл остаётся с `archivedAt`), пустой — удаляется (TASK-140.10).
+        const closing = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (closing && closing.messages.length > 0) sessionPersister.archive(projectPath, { ...closing, archivedAt: Date.now() });
         set((state) => {
           const existing = state.sessions[projectPath] || [];
           const filtered = existing.filter((s) => s.id !== sessionId);
@@ -547,16 +586,24 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
       },
 
-      sendMessage: async (projectPath: string, text: string) => {
+      sendMessage: async (projectPath: string, text: string, opts: SendMessageOptions = {}) => {
         if (!text.trim() || get().isStreaming || !window.api?.streamAIChat) return;
 
-        let activeSessionId = get().activeSessionId[projectPath];
+        let activeSessionId = opts.sessionId || get().activeSessionId[projectPath];
         let projectSessions = get().sessions[projectPath] || [];
 
         if (!activeSessionId || !projectSessions.some((s) => s.id === activeSessionId)) {
+          if (opts.sessionId) return; // сессию для телефона готовит обработчик запроса — сюда не доходит
           activeSessionId = get().createSession(projectPath);
           projectSessions = get().sessions[projectPath] || [];
         }
+        const requestConfig = opts.config ?? get().config;
+        const requestMode = opts.mode ?? get().mode;
+        const lastSelection = {
+          provider: requestConfig.provider,
+          ...(requestConfig.profileId ? { profileId: requestConfig.profileId } : {}),
+          model: requestConfig.model
+        };
 
         const currentSession = projectSessions.find((s) => s.id === activeSessionId)!;
         const currentMessages = currentSession.messages || [];
@@ -591,7 +638,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           const pSessions = state.sessions[projectPath] || [];
           const updated = pSessions.map((s) =>
             s.id === activeSessionId
-              ? { ...s, title: sessionTitle, messages: updatedMessages }
+              ? { ...s, title: sessionTitle, messages: updatedMessages, lastSelection, lastMode: requestMode }
               : s
           );
 
@@ -794,8 +841,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           sessionId: streamId,
           projectPath,
           messages: messagesForModel([...currentMessages, userMsg]),
-          config: get().config,
-          mode: get().mode,
+          config: requestConfig,
+          mode: requestMode,
           claudeCliSessionId: currentSession.claudeCliSessionId,
           taskId: currentSession.activeTaskId,
           contextParts: currentSession.contextParts,

@@ -1517,6 +1517,17 @@ export const ru: TranslationDictionary = {
     notRunning: 'Claude Code не запущен. Проверьте, что установлена команда `claude`, и нажмите «Перезапустить».'
   },
   aiStudio: {
+    historyTitle: 'История сессий',
+    historyButton: 'История сессий проекта',
+    historySearch: 'Поиск по названию и промптам',
+    historyEmpty: 'Здесь появятся закрытые вкладки: при закрытии диалог не удаляется, а уходит в историю.',
+    historyNothingFound: 'Ничего не найдено',
+    historyOpen: 'Открыть во вкладке',
+    historyDelete: 'Удалить',
+    historyDeleteTitle: 'Удалить сессию',
+    historyDeleteMessage: 'Удалить «{title}» из истории? Восстановить её будет нельзя.',
+    historyPrompts: 'промпт.',
+    fromPhone: 'Начата с телефона',
     newChat: 'Новый чат',
     newSession: 'Новая сессия',
     closeSession: 'Закрыть сессию',

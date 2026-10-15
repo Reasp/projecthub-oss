@@ -116,8 +116,27 @@ export function compactSessionForStorage(session: AISession): AISession {
     title: typeof session.title === 'string' ? session.title.slice(0, 500) : '',
     createdAt: typeof session.createdAt === 'number' ? session.createdAt : Date.now(),
     messages: Array.isArray(session.messages) ? session.messages.map(compactMessage) : [],
-    ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {})
+    ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),
+    // История, источник и модель (TASK-140.10, decision-83): закрытая вкладка остаётся на диске в истории.
+    ...(typeof session.archivedAt === 'number' ? { archivedAt: session.archivedAt } : {}),
+    ...(session.origin === 'phone' || session.origin === 'desktop' ? { origin: session.origin } : {}),
+    ...(typeof session.originDevice === 'string' && session.originDevice ? { originDevice: session.originDevice.slice(0, 80) } : {}),
+    ...(isSelection(session.lastSelection)
+      ? {
+          lastSelection: {
+            provider: session.lastSelection.provider.slice(0, 40),
+            ...(session.lastSelection.profileId ? { profileId: String(session.lastSelection.profileId).slice(0, 120) } : {}),
+            model: session.lastSelection.model.slice(0, 200)
+          }
+        }
+      : {}),
+    ...(session.lastMode === 'agent' || session.lastMode === 'chat' || session.lastMode === 'architect' ? { lastMode: session.lastMode } : {})
   };
+}
+
+function isSelection(value: unknown): value is { provider: string; profileId?: string; model: string } {
+  const v = value as { provider?: unknown; model?: unknown } | undefined;
+  return !!v && typeof v.provider === 'string' && typeof v.model === 'string';
 }
 
 function isSessionLike(value: unknown): value is AISession {
@@ -177,6 +196,17 @@ export class AISessionStore {
     }
     sessions.sort((a, b) => a.createdAt - b.createdAt);
     return sessions;
+  }
+
+  /** Одна сессия проекта или `null` (нет файла, битый JSON, чужой id). */
+  public async get(projectPath: string, sessionId: string): Promise<AISession | null> {
+    if (!isValidSessionId(sessionId)) return null;
+    try {
+      const parsed = JSON.parse(await fs.readFile(this.sessionFile(projectPath, sessionId), 'utf8'));
+      return isSessionLike(parsed) && parsed.id === sessionId ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Атомарная запись (tmp + rename), чтобы падение посреди записи не оставило половину JSON. */

@@ -18,6 +18,7 @@ import { useAutomationsStore } from './store/useAutomationsStore';
 import { RemoteHostsModal } from './components/federation/RemoteHostsModal';
 import { useProjectStore } from './store/useProjectStore';
 import { useAIStudioStore } from './store/useAIStudioStore';
+import { handleStudioRemoteRequest } from './store/studioRemoteHandler';
 import { useHitlStore } from './store/useHitlStore';
 import { useNotificationStore } from './store/useNotificationStore';
 import { useFederationStore } from './store/useFederationStore';
@@ -137,6 +138,19 @@ export const App: React.FC = () => {
       });
     }
   }, [selectedProject, activeTab]);
+
+  // AI Studio с телефона (TASK-140.10, decision-83): промпт и остановка идут через стор, как с вкладки на ПК.
+  useEffect(() => {
+    if (!window.api?.onStudioRemoteRequest) return;
+    return window.api.onStudioRemoteRequest((req) => {
+      void handleStudioRemoteRequest(req, {
+        getState: () => useAIStudioStore.getState(),
+        listFromDisk: (projectPath) => window.api.listAISessions(projectPath)
+      })
+        .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+        .then((reply) => window.api.replyStudioRemote(req.requestId, reply));
+    });
+  }, []);
 
   // Handle remote actions from external MCP clients (Claude Code, Cursor, Antigravity)
   useEffect(() => {

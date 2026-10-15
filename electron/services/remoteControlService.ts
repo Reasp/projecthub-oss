@@ -22,7 +22,20 @@ import type {
 } from '../../src/types/remote.js';
 import { generateSecretKey, generatePairingPin, encryptPayload, decryptPayload } from '../../src/utils/remoteCryptoNode.js';
 import { projectRegistry } from './projectRegistry.js';
-import { assertWorkspaceRoot } from './projectPathGuard.js';
+import { assertRegisteredProject, assertWorkspaceRoot } from './projectPathGuard.js';
+import { studioRemoteBridge } from './studioRemoteBridge.js';
+import { aiSessionStore } from './aiSessionStore.js';
+import { llmProfileService } from './llmProfileService.js';
+import { llmModelCatalogService } from './llmModelCatalogService.js';
+import {
+  parseStudioMode,
+  parseStudioSelection,
+  selectionLabel,
+  selectionOf,
+  studioSessionForPhone,
+  studioSessionList,
+  STUDIO_MODES
+} from '../../src/utils/studioRemote.js';
 import { processManager } from './processManager.js';
 import { gitService } from './gitService.js';
 import { guardedCommit } from './commitSecretGuard.js';
@@ -219,6 +232,10 @@ class RemoteControlService {
 
     // Подписка на стриминг логов фоновых процессов
     this.setupProcessLogStreaming();
+
+    // Поток AI Studio (любой сессии) — сопряжённым телефонам, мимо буфера догона: чанков много, а после
+    // разрыва телефон всё равно перечитывает сессию целиком (TASK-140.10, decision-83).
+    studioRemoteBridge.onEvent((event, data) => this.broadcastEvent(event, data, { transient: true }));
   }
 
   /**
@@ -2022,7 +2039,9 @@ class RemoteControlService {
       'hitl_decision',
       'run_action',
       'start_assigned_agent',
-      'stop_swarm'
+      'stop_swarm',
+      'studio_send',
+      'studio_abort'
     ]);
 
     if (this.readOnly && writeMethods.has(method)) {
@@ -2220,38 +2239,82 @@ class RemoteControlService {
         });
       }
 
-      case 'send_ai_prompt': {
-        if (!activePath) throw new Error('No active project specified');
-        const prompt = typeof params.prompt === 'string' ? params.prompt : '';
-        if (!prompt.trim()) throw new Error('prompt is required');
-        const sessionId = typeof params.sessionId === 'string' && params.sessionId ? params.sessionId : `remote_${crypto.randomBytes(6).toString('hex')}`;
+      // ── AI Studio с телефона (TASK-140.10, decision-83): те же сессии, что во вкладках на ПК ──
+
+      case 'studio_get_options': {
         const config = await aiAgentService.getConfig();
-        const message = {
-          id: `msg_${crypto.randomBytes(6).toString('hex')}`,
-          role: 'user' as const,
-          content: prompt,
-          timestamp: new Date().toISOString()
+        const profiles = await llmProfileService.listProfiles().catch(() => []);
+        // Каталог профиля может идти в сеть (локальный сервер моделей) — не дольше 4 с на профиль.
+        const withModels = await Promise.all(
+          profiles.map(async (p) => {
+            try {
+              const res = await Promise.race([
+                llmModelCatalogService.listModels(p.id),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Список моделей не загрузился за 4 с')), 4000))
+              ]);
+              return { id: p.id, name: p.name, local: p.local, models: res.models.slice(0, 200), ...(res.error ? { modelsError: res.error } : {}) };
+            } catch (err: any) {
+              return { id: p.id, name: p.name, local: p.local, models: [], modelsError: err?.message || String(err) };
+            }
+          })
+        );
+        const current = selectionOf(config);
+        return {
+          current,
+          currentLabel: selectionLabel(current, new Map(profiles.map((p) => [p.id, p.name]))) || config.model,
+          modes: STUDIO_MODES,
+          claudeModels: claudeBridgeService.getAvailableModels().map((m) => ({ id: m.id, name: m.name, description: m.description })),
+          // Наружу — только id, имя и признак локального сервера: ни ключей, ни адресов, ни заголовков.
+          profiles: withModels
         };
+      }
 
-        claudeBridgeService
-          .runAgentTask(
-            {
-              sessionId,
-              projectPath: activePath,
-              messages: [message],
-              config,
-              mode: params.mode === 'chat' || params.mode === 'architect' ? params.mode : 'agent',
-              taskId: params.taskId ? String(params.taskId) : undefined
-            },
-            (chunk) => this.broadcastEvent('ai:chunk', { sessionId, ...chunk }),
-            (fullMsg) => this.broadcastEvent('ai:complete', { sessionId, message: fullMsg }),
-            (err, info) => this.broadcastEvent('ai:error', { sessionId, error: err, ...(info ? { errorKind: info.kind } : {}) })
-          )
-          .catch((err: any) => {
-            this.broadcastEvent('ai:error', { sessionId, error: err?.message || String(err) });
-          });
+      case 'studio_list_sessions': {
+        const projectPath = String(params.projectPath || '');
+        await assertRegisteredProject(projectPath);
+        const [sessions, profiles] = await Promise.all([aiSessionStore.list(projectPath), llmProfileService.listProfiles().catch(() => [])]);
+        return studioSessionList(sessions, (id) => studioRemoteBridge.isRunning(id), new Map(profiles.map((p) => [p.id, p.name])));
+      }
 
-        return { sessionId, accepted: true };
+      case 'studio_get_session': {
+        const projectPath = String(params.projectPath || '');
+        await assertRegisteredProject(projectPath);
+        const session = await aiSessionStore.get(projectPath, String(params.sessionId || ''));
+        if (!session) throw new Error('Сессия не найдена');
+        const profiles = await llmProfileService.listProfiles().catch(() => []);
+        return studioSessionForPhone(session, {
+          running: studioRemoteBridge.isRunning(session.id),
+          profileNames: new Map(profiles.map((p) => [p.id, p.name]))
+        });
+      }
+
+      case 'send_ai_prompt': // прежнее имя — для приложений до TASK-140.10
+      case 'studio_send': {
+        const projectPath = String(params.projectPath || activePath || '');
+        await assertRegisteredProject(projectPath);
+        const text = typeof params.prompt === 'string' ? params.prompt.trim() : '';
+        if (!text) throw new Error('prompt is required');
+        if (text.length > 100_000) throw new Error('Промпт слишком длинный');
+        const sessionId = typeof params.sessionId === 'string' && params.sessionId ? params.sessionId : undefined;
+        const reply = await studioRemoteBridge.request({
+          kind: 'send',
+          projectPath,
+          ...(sessionId ? { sessionId } : {}),
+          text,
+          ...(parseStudioSelection(params.selection) ? { selection: parseStudioSelection(params.selection) } : {}),
+          ...(parseStudioMode(params.mode) ? { mode: parseStudioMode(params.mode) } : {}),
+          deviceName: device.name
+        });
+        if (!reply.ok || !reply.sessionId) throw new Error(reply.error || 'AI Studio не приняла промпт');
+        return { sessionId: reply.sessionId, accepted: true };
+      }
+
+      case 'studio_abort': {
+        const projectPath = String(params.projectPath || '');
+        await assertRegisteredProject(projectPath);
+        const reply = await studioRemoteBridge.request({ kind: 'abort', projectPath, sessionId: String(params.sessionId || '') });
+        if (!reply.ok) throw new Error(reply.error || 'Не удалось остановить');
+        return { ok: true };
       }
 
       // ── Hub-режим федерации (TASK-66, decision-11 п.4): те же RPC, что и у телефона ──
@@ -2481,8 +2544,31 @@ class RemoteControlService {
   /**
    * Отправка push-события всем подключенным клиентам.
    */
-  public broadcastEvent(event: string, data: any) {
+  public broadcastEvent(event: string, data: any, opts: { transient?: boolean } = {}) {
     if (!this.enabled) return;
+
+    // Транзитные события (поток AI Studio) не занимают буфер догона и идут без eventId: иначе один ответ агента
+    // вытеснил бы из буфера запросы HITL, которые телефон должен догнать после разрыва.
+    if (opts.transient) {
+      const packet: PlainPacket = { type: 'event', event, data };
+      for (const client of this.localClients.values()) {
+        if (client.ws.readyState === WebSocket.OPEN && client.device.isApproved && client.isEncrypted) {
+          try {
+            client.ws.send(JSON.stringify(encryptPayload(packet, this.secretKey)));
+          } catch {
+            // ignore
+          }
+        }
+      }
+      if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) {
+        try {
+          this.relayWs.send(JSON.stringify(encryptPayload(packet, this.secretKey)));
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
 
     // Догон пропущенных во время разрыва событий (TASK-65, decision-11 п.6): кольцевой буфер,
     // клиент запоминает `eventId` последнего полученного события и после переподключения

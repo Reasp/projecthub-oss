@@ -1388,6 +1388,17 @@ export interface TranslationDictionary {
     notRunning: string;
   };
   aiStudio: {
+    historyTitle: string;
+    historyButton: string;
+    historySearch: string;
+    historyEmpty: string;
+    historyNothingFound: string;
+    historyOpen: string;
+    historyDelete: string;
+    historyDeleteTitle: string;
+    historyDeleteMessage: string;
+    historyPrompts: string;
+    fromPhone: string;
     newChat: string;
     newSession: string;
     closeSession: string;

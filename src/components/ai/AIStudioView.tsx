@@ -20,7 +20,9 @@ import {
   Users,
   FolderGit2,
   MessageSquare,
-  Landmark
+  Landmark,
+  History,
+  Smartphone
 } from '../common/icons';
 import { ClaudeLogo } from '../common/BrandLogo';
 import { useAIStudioStore, type AISession } from '../../store/useAIStudioStore';
@@ -42,6 +44,7 @@ import { MarkdownViewer } from '../common/MarkdownViewer';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { SwarmArenaView } from './swarm/SwarmArenaView';
 import { ProviderErrorCard } from './ProviderErrorCard';
+import { SessionHistoryModal } from './SessionHistoryModal';
 
 export const AIStudioView: React.FC = () => {
   const { t, language } = useTranslation();
@@ -94,6 +97,7 @@ export const AIStudioView: React.FC = () => {
   const [expandedThoughts, setExpandedThoughts] = useState<Record<string, boolean>>({});
   const [aiViewMode, setAiViewMode] = useState<'studio' | 'swarm'>('studio');
   const [isRolesModalOpen, setIsRolesModalOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const projectPath = selectedProject?.path || '';
@@ -221,9 +225,13 @@ export const AIStudioView: React.FC = () => {
                   {tabNumber}
                 </span>
 
-                {/* Claude Anthropic Orange Spark Icon */}
+                {/* Claude Anthropic Orange Spark Icon; сессия с телефона — значок телефона (TASK-140.10) */}
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
-                  <ClaudeLogo className="w-3.5 h-3.5" />
+                  {session.origin === 'phone' ? (
+                    <Smartphone className="w-3.5 h-3.5 text-sky-300" aria-label={t.aiStudio.fromPhone} />
+                  ) : (
+                    <ClaudeLogo className="w-3.5 h-3.5" />
+                  )}
                 </div>
 
                 <span
@@ -297,6 +305,16 @@ export const AIStudioView: React.FC = () => {
           >
             <Plus className="w-4 h-4" />
             <VoiceBadge command={t.voice.voiceBadges.newChat} variant="amber" />
+          </button>
+          {/* История: закрытые вкладки уходят туда, а не удаляются (TASK-140.10) */}
+          <button
+            type="button"
+            onClick={() => setIsHistoryOpen(true)}
+            title={t.aiStudio.historyButton}
+            aria-label={t.aiStudio.historyButton}
+            className="ph-icon-button shrink-0"
+          >
+            <History className="w-4 h-4" />
           </button>
         </div>
 
@@ -736,6 +754,7 @@ export const AIStudioView: React.FC = () => {
       <AISettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       {/* Roles Registry (decision-9, TASK-60) */}
       <RolesSettingsModal isOpen={isRolesModalOpen} onClose={() => setIsRolesModalOpen(false)} />
+      {isHistoryOpen && <SessionHistoryModal projectPath={projectPath} onClose={() => setIsHistoryOpen(false)} />}
     </div>
   );
 };
