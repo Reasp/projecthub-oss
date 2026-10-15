@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Токен ph-chrome из src/styles/tokens.css (TASK-127). -->
+    <color name="ph_chrome">#18181B</color>
+</resources>

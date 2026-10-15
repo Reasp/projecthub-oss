@@ -1,0 +1,17 @@
+{
+  "appId": "com.projecthub.mobile",
+  "appName": "ProjectHub",
+  "webDir": "dist/capacitor",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    }
+  }
+}
