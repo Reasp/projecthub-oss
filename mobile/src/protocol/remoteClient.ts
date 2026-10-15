@@ -82,6 +82,8 @@ export interface RemoteClientOptions {
   timers?: Timers;
   rpcTimeoutMs?: number;
   heartbeatMs?: number;
+  /** Сколько ждать открытия сокета, прежде чем считать попытку неудачной. */
+  connectTimeoutMs?: number;
 }
 
 /** Экспоненциальная задержка переподключения, как у хоста и прежних клиентов: 1с, 2с, 4с … ≤ 30с. */
@@ -126,6 +128,9 @@ export async function frameText(raw: unknown): Promise<string> {
   return String(raw);
 }
 
+export const CONNECT_TIMEOUT_ERROR =
+  'Компьютер не отвечает. Проверьте, что в ProjectHub включён Remote Control и телефон в той же сети Wi-Fi (или включите туннель).';
+
 export const WRONG_KEY_ERROR = 'Ключ не подходит к этому компьютеру. Отсканируйте QR-код заново.';
 
 export const STALE_KEY_ERROR = 'Ключ шифрования устарел: хост отвечает без шифрования. Сопрягите устройство заново.';
@@ -164,6 +169,7 @@ export class RemoteClient {
       timers: defaultTimers,
       rpcTimeoutMs: 15_000,
       heartbeatMs: 25_000,
+      connectTimeoutMs: 12_000,
       ...options
     };
   }
@@ -281,7 +287,21 @@ export class RemoteClient {
     }
     this.socket = socket;
 
+    // Брандмауэр или выключенный Remote Control часто не отвечают вовсе — без таймаута клиент
+    // висел бы в «Подключение…» без объяснения.
+    const connectTimer = this.opts.timers.setTimeout(() => {
+      if (this.socket !== socket || socket.readyState === OPEN) return;
+      this.update({ error: CONNECT_TIMEOUT_ERROR });
+      socket.onclose?.({ code: 4000, reason: 'connect timeout' });
+      try {
+        socket.close();
+      } catch {
+        // уже закрыт
+      }
+    }, this.opts.connectTimeoutMs);
+
     socket.onopen = () => {
+      this.opts.timers.clearTimeout(connectTimer);
       if (this.socket !== socket) return;
       // В LAN хост сам присылает handshake_ack после проверки query; через релей ждём relay_ack.
       this.update({ state: 'pairing', error: null });
@@ -294,6 +314,7 @@ export class RemoteClient {
       // Подробностей браузер не даёт; закрытие придёт отдельно.
     };
     socket.onclose = (ev) => {
+      this.opts.timers.clearTimeout(connectTimer);
       if (this.socket !== socket) return;
       this.socket = null;
       this.stopHeartbeat();

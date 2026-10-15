@@ -40,7 +40,9 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
       <SectionTitle>Проект</SectionTitle>
       {projects.length === 0 ? (
-        <div className="text-[13px] text-slate-400">На этом компьютере нет проектов.</div>
+        <div className="text-[13px] text-slate-400">
+          {conn.state === 'ready' ? 'В ProjectHub на этом компьютере нет проектов.' : 'Нет связи с компьютером — список проектов появится после подключения.'}
+        </div>
       ) : (
         <ul className="space-y-1">
           {projects.map((p) => (

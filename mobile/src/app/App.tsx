@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { CaretDownIcon, KanbanIcon, RobotIcon, SparkleIcon, TerminalWindowIcon, TrayIcon } from '@phosphor-icons/react';
+import { CaretDownIcon, KanbanIcon, RobotIcon, ShieldCheckIcon, SparkleIcon, TerminalWindowIcon, TrayIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { HostSheet } from '../components/HostSheet';
 import { useTabSwipe } from '../components/gestures';
-import { Button } from '../components/ui';
+import { Button, Spinner } from '../components/ui';
 import { profileProblems, type HostProfile } from '../protocol/pairing';
 import { AgentsScreen } from '../screens/AgentsScreen';
 import { InboxScreen } from '../screens/InboxScreen';
@@ -53,6 +53,31 @@ function ConnectionBanner() {
   );
 }
 
+function AwaitingApproval() {
+  const { client, forget, platform } = useServices();
+  return (
+    <div className="flex h-full flex-col items-center justify-center bg-ph-chrome px-6 pt-safe text-center">
+      <ShieldCheckIcon size={48} className="text-amber-400" />
+      <div className="mt-4 text-[20px] font-semibold">Подтвердите устройство на ПК</div>
+      <div className="mt-2 max-w-sm text-[14px] leading-relaxed text-slate-300">
+        В ProjectHub на компьютере откройте <b>Remote</b> в строке состояния и одобрите «{platform.deviceName}» в списке
+        подключённых устройств. Приложение продолжит само.
+      </div>
+      <div className="mt-6 flex items-center gap-2 text-[13px] text-slate-400">
+        <Spinner className="h-3 w-3" /> Ждём подтверждения…
+      </div>
+      <div className="mt-8 flex gap-2">
+        <Button size="sm" onClick={() => client.retryNow()}>
+          Повторить
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void forget()}>
+          Другой компьютер
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function Shell() {
   const { platform } = useServices();
   const status = useAppState((s) => s.status);
@@ -75,6 +100,9 @@ function Shell() {
     const next = TABS[dir === 'left' ? Math.min(TABS.length - 1, idx + 1) : Math.max(0, idx - 1)];
     go(next.id);
   });
+
+  // Хост не отдаёт данные неодобренному устройству — вместо пустых экранов объясняем, что сделать на ПК.
+  if (conn.state === 'awaiting_approval') return <AwaitingApproval />;
 
   return (
     <div className="flex h-full flex-col bg-ph-chrome">
