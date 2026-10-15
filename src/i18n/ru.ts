@@ -1753,6 +1753,7 @@ export const ru: TranslationDictionary = {
     templateMissing: 'Каталог шаблона не найден. Выберите папку ProjectTemplate через «Обзор».',
     templateNotSet: 'Путь к шаблону не задан. Выберите каталог ProjectTemplate — он будет сохранён в настройках ProjectHub.',
     templateHint: 'Путь хранится в ~/.projecthub/projects.json и используется при каждом создании проекта.',
+    templateBuiltinHint: 'Встроенный шаблон ProjectHub. Другой каталог можно выбрать через «Обзор».',
     templateNameRequired: 'Введите название проекта.',
     step: 'Шаг',
     projectName: 'Название проекта',

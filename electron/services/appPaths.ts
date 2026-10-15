@@ -80,6 +80,18 @@ export function getDevRepoRoot(): string | null {
   return existsSync(path.join(root, 'package.json')) ? root : null;
 }
 
+/**
+ * Встроенный базовый шаблон проекта (decision-78, TASK-136.3): в упакованном приложении —
+ * `resources/template` (extraResources), в dev-режиме — `template/` репозитория.
+ */
+export function getBuiltinTemplateDir(): string | null {
+  if (isPackagedApp()) {
+    return process.resourcesPath ? path.join(process.resourcesPath, 'template') : null;
+  }
+  const devRoot = getDevRepoRoot();
+  return devRoot ? path.join(devRoot, 'template') : null;
+}
+
 /** Единый кэш моделей (RAG-эмбеддинги и Whisper): userData/models. */
 export function getModelsCacheDir(): string {
   return path.join(getUserDataDir(), 'models');

@@ -1,0 +1,89 @@
+#!/bin/sh
+# Git post-commit hook: автоматическая переиндексация GitNexus (правила 3, 20 infra-dev.md).
+#
+# Почему здесь есть обработка падения (перенесено из WorldSim, TASK-291 того проекта):
+# инкрементальный проход регулярно роняет полнотекстовый индекс — «COPY failed for File: FTS
+# index 'file_fts' is inconsistent». Прежняя версия хука просто печатала стек и выходила,
+# оставляя индекс сломанным: коммит проходил, а следующая сессия получала молча неверные ответы
+# impact/context и начинала работу с ручной починки. Поэтому падение не игнорируется — хук
+# добивает полной пересборкой (clean --force + analyze).
+#
+# Хук работает только в проиндексированном проекте (есть каталог .gitnexus/ в корне
+# репозитория) — первую индексацию делает человек/скилл init-dev-project (`gitnexus analyze`).
+#
+# GITNEXUS_HOOK_CMD — переопределение команды (ей передаются analyze / clean --force). Нужно, если
+# gitnexus зовётся нестандартно, и через него же проверяется сам хук: scripts/git-hooks/hooks.test.mjs.
+# INFRA_HOOKS_SKIP=1 или GITNEXUS_HOOK_SKIP=1 — пропустить (деплой-скрипты, CI).
+
+if [ "$INFRA_HOOKS_SKIP" = "1" ] || [ "$GITNEXUS_HOOK_SKIP" = "1" ]; then
+  exit 0
+fi
+
+if [ ! -d ".gitnexus" ]; then
+  # Не проиндексировано — молчим, чтобы не шуметь в проектах без GitNexus.
+  exit 0
+fi
+
+NODE_BIN=""
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="node"
+elif [ -f "/mnt/c/Program Files/nodejs/node.exe" ]; then
+  NODE_BIN="/mnt/c/Program Files/nodejs/node.exe"
+elif [ -f "/c/Program Files/nodejs/node.exe" ]; then
+  NODE_BIN="/c/Program Files/nodejs/node.exe"
+elif [ -f "C:/Program Files/nodejs/node.exe" ]; then
+  NODE_BIN="C:/Program Files/nodejs/node.exe"
+fi
+
+RUNNER=""
+
+# $1 = yes|no — можно ли брать локальный .gitnexus/run.cjs. После clean --force его уже нет:
+# очистка удаляет каталог .gitnexus целиком, поэтому второй заход идёт только глобальным бинарём.
+resolve_runner() {
+  if [ -n "$GITNEXUS_HOOK_CMD" ]; then RUNNER="cmd"; return 0; fi
+  if [ "$1" = "yes" ] && [ -n "$NODE_BIN" ] && [ -f ".gitnexus/run.cjs" ]; then RUNNER="local"; return 0; fi
+  if command -v gitnexus >/dev/null 2>&1; then RUNNER="global"; return 0; fi
+  if command -v npx >/dev/null 2>&1; then RUNNER="npx"; return 0; fi
+  RUNNER=""
+  return 1
+}
+
+run_gitnexus() {
+  case "$RUNNER" in
+    # Без кавычек намеренно: в переменной лежит команда с аргументами («node stub.cjs»).
+    cmd) $GITNEXUS_HOOK_CMD "$@" ;;
+    local) "$NODE_BIN" .gitnexus/run.cjs "$@" ;;
+    global) gitnexus "$@" ;;
+    npx) npx gitnexus "$@" ;;
+    *) return 127 ;;
+  esac
+}
+
+if ! resolve_runner yes; then
+  echo "[GitNexus Hook] Предупреждение: не найдено ни node с .gitnexus/run.cjs, ни gitnexus, ни npx. Переиндексация пропущена."
+  exit 0
+fi
+
+echo "[GitNexus Hook] Запуск автоматической переиндексации GitNexus после коммита..."
+if run_gitnexus analyze; then
+  exit 0
+fi
+
+echo "[GitNexus Hook] Переиндексация не удалась — обычно это порча FTS-индекса."
+echo "[GitNexus Hook] Добиваю полной пересборкой: clean --force + analyze."
+run_gitnexus clean --force
+
+if ! resolve_runner no; then
+  echo "[GitNexus Hook] ВНИМАНИЕ: пересобирать индекс нечем (нет gitnexus на PATH и нет npx)."
+  echo "[GitNexus Hook] Индекс СЛОМАН. Почини вручную: gitnexus analyze"
+  exit 0
+fi
+
+if run_gitnexus analyze; then
+  echo "[GitNexus Hook] Индекс пересобран начисто."
+  exit 0
+fi
+
+echo "[GitNexus Hook] ВНИМАНИЕ: индекс остался сломанным — impact/context будут отвечать неверно."
+echo "[GitNexus Hook] Почини вручную: gitnexus clean --force && gitnexus analyze"
+exit 0

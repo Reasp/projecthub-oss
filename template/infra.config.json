@@ -1,0 +1,13 @@
+{
+  "projectRoot": ".",
+  "features": {
+    "docsRag": true,
+    "envTools": true,
+    "backlogMcp": true,
+    "bootstrap": true,
+    "gitnexus": true,
+    "lightrag": false,
+    "computerUse": false,
+    "playwright": false
+  }
+}

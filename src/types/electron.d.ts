@@ -189,7 +189,7 @@ export interface RegistrySettings {
   templatePath?: string;
 }
 
-export type TemplateSource = 'custom' | 'registry' | 'env' | 'dev-default' | 'none';
+export type TemplateSource = 'custom' | 'registry' | 'env' | 'builtin' | 'none';
 
 export interface TemplateAvailability {
   available: boolean;

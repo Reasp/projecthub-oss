@@ -1753,6 +1753,7 @@ export const en: TranslationDictionary = {
     templateMissing: 'Template directory not found. Pick the ProjectTemplate folder via "Browse".',
     templateNotSet: 'Template path is not set. Pick the ProjectTemplate folder — it will be saved in ProjectHub settings.',
     templateHint: 'Stored in ~/.projecthub/projects.json and used for every new project.',
+    templateBuiltinHint: 'Built-in template shipped with ProjectHub. Pick another folder via "Browse" to override it.',
     templateNameRequired: 'Please enter a project name.',
     step: 'Step',
     projectName: 'Project Name',

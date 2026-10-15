@@ -50,7 +50,7 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
   const [currentCreationStep, setCurrentCreationStep] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Путь к шаблону ProjectTemplate разрешается в main-процессе (реестр → env → dev-fallback), TASK-43
+  // Путь к шаблону ProjectTemplate разрешается в main-процессе (реестр → env → встроенный шаблон), TASK-43, decision-78
   const [template, setTemplate] = useState<TemplateAvailability | null>(null);
   const [isCheckingTemplate, setIsCheckingTemplate] = useState(false);
 
@@ -270,7 +270,9 @@ export const NewProjectWizardModal: React.FC<NewProjectWizardModalProps> = ({
                           ? t.wizard.templateMissing
                           : t.wizard.templateNotSet}
                       {' '}
-                      <span className="text-slate-500">{t.wizard.templateHint}</span>
+                      <span className="text-slate-500">
+                        {template.source === 'builtin' ? t.wizard.templateBuiltinHint : t.wizard.templateHint}
+                      </span>
                     </span>
                   </div>
                 )}

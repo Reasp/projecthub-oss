@@ -1,0 +1,249 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import readline from 'node:readline/promises';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { INFRA_ROOT, CONFIG_PATH_EXPORTED } from './config.mjs';
+
+function parseArgs(argv) {
+  const args = { features: null, projectRoot: null, interactive: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--project-root') args.projectRoot = argv[++i];
+    else if (a === '--features') args.features = argv[++i].split(',').map((s) => s.trim());
+    else if (a === '--no-interactive') args.interactive = false;
+  }
+  return args;
+}
+
+// Реестр фич шаблона. Проект может расширять его своими (MCP-серверы движка и т.п.): фича =
+// запись здесь + описание в FEATURE_LABELS + запись в buildDesiredMcpServers + скрипт в
+// scripts/<фича>/ (образцы: blender/godot в ProxiHorror, computerUse в ProjectHub).
+export const ALL_FEATURES = ['docsRag', 'envTools', 'backlogMcp', 'bootstrap', 'gitnexus', 'lightrag', 'computerUse', 'playwright'];
+// lightrag, computerUse и playwright — опционально, по умолчанию выключены: LightRAG — Python + Ollama, тяжело;
+// управление компьютером — самый опасный инструмент (decision-27 ProjectHub); браузер для визуальной проверки
+// включается только по явному запросу (decision-55 ProjectHub).
+export const DEFAULT_ON = ['docsRag', 'envTools', 'backlogMcp', 'bootstrap', 'gitnexus'];
+
+// Playwright MCP: версия закреплена (0.0.x меняется каждые 1–2 недели), браузер headless и с профилем в памяти —
+// окна не мешают человеку, параллельные агенты не делят профиль.
+export const PLAYWRIGHT_MCP_PACKAGE = '@playwright/mcp@0.0.82';
+// Каталог вывода Playwright MCP по умолчанию: снимки .yml и скриншоты агента. В git не нужен.
+export const PLAYWRIGHT_OUTPUT_IGNORE = '.playwright-mcp/';
+
+const FEATURE_LABELS = {
+  docsRag: 'Векторный RAG по документации (docs-rag, MCP)',
+  envTools: 'MCP-инструменты работы с окружением (env-tools)',
+  backlogMcp: 'Нативный MCP-сервер Backlog.md (backlog mcp start)',
+  bootstrap: 'Кросс-платформенный bootstrap окружения (git/node/…)',
+  gitnexus: 'GitNexus — граф кода для impact-анализа и рефакторинга (MCP; нужен глобальный gitnexus CLI: npm i -g gitnexus)',
+  lightrag: 'LightRAG — граф технической документации (Python + локальная LLM через Ollama, тяжело)',
+  computerUse:
+    'Управление компьютером (computer_*) через прокси ProjectHub — HITL, allowlist, kill-switch; нужен запущенный ProjectHub и PROJECTHUB_MCP_TOKEN',
+  playwright: 'Playwright MCP — браузер для визуальной проверки UI агентом (headless, профиль в памяти, системный Chrome)',
+};
+
+async function ask(rl, question, fallback) {
+  const answer = (await rl.question(`${question} `)).trim();
+  return answer === '' ? fallback : answer;
+}
+
+async function resolveInteractively(args) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    let projectRoot = args.projectRoot;
+    if (projectRoot === null) {
+      const mode = await ask(
+        rl,
+        'Эта папка — корень проекта (1) или подключена как подпапка в существующий проект (2)? [1]',
+        '1',
+      );
+      if (mode === '2') {
+        projectRoot = await ask(rl, 'Путь от этой папки до корня проекта [..]:', '..');
+      } else {
+        projectRoot = '.';
+      }
+    }
+
+    let features = args.features;
+    if (features === null) {
+      features = [];
+      for (const f of ALL_FEATURES) {
+        const def = DEFAULT_ON.includes(f) ? 'Y/n' : 'y/N';
+        const defAnswer = DEFAULT_ON.includes(f) ? 'y' : 'n';
+        const answer = (await ask(rl, `${FEATURE_LABELS[f]}? [${def}]`, defAnswer)).toLowerCase();
+        if (answer === 'y' || answer === 'yes' || answer === 'д' || answer === 'да') features.push(f);
+      }
+    }
+
+    return { projectRoot, features };
+  } finally {
+    rl.close();
+  }
+}
+
+export const MCP_KEYS = ['docs-rag', 'env-tools', 'backlog', 'docs-graph', 'gitnexus', 'projecthub-computer', 'playwright'];
+
+export function buildDesiredMcpServers(prefix, features) {
+  const desired = {};
+  if (features.includes('docsRag')) {
+    desired['docs-rag'] = { command: 'node', args: [`${prefix}scripts/rag/rag-server.mjs`] };
+  }
+  if (features.includes('envTools')) {
+    desired['env-tools'] = { command: 'node', args: [`${prefix}scripts/env/env-server.mjs`] };
+  }
+  if (features.includes('backlogMcp')) {
+    desired['backlog'] = { command: 'npx', args: ['--yes', 'backlog.md', 'mcp', 'start'] };
+  }
+  if (features.includes('gitnexus')) {
+    // GitNexus — отдельно устанавливаемый глобальный CLI (npm i -g gitnexus), не скрипт репозитория.
+    desired['gitnexus'] = { command: 'gitnexus', args: ['mcp'] };
+  }
+  if (features.includes('lightrag')) {
+    desired['docs-graph'] = { command: 'node', args: [`${prefix}scripts/lightrag/lightrag-server.mjs`] };
+  }
+  if (features.includes('computerUse')) {
+    // stdio-мост к MCP-прокси ProjectHub: политику, HITL, аудит и kill-switch применяет приложение,
+    // а не движок. Токен берётся из PROJECTHUB_MCP_TOKEN и в коммитящийся конфиг не пишется.
+    desired['projecthub-computer'] = { command: 'node', args: [`${prefix}scripts/computer-use/computer-use-bridge.mjs`] };
+  }
+  if (features.includes('playwright')) {
+    // Без --extension (реальный браузер пользователя), --allow-unrestricted-file-access и --caps: выход за браузер
+    // (browser_run_code_unsafe, файлы вне рабочего каталога) ProjectHub отправляет человеку.
+    desired['playwright'] = { command: 'npx', args: ['--yes', PLAYWRIGHT_MCP_PACKAGE, '--headless', '--isolated'] };
+  }
+  return desired;
+}
+
+/** Дописывает строку в .gitignore проекта, если её там нет (идемпотентно). true — файл изменён. */
+export function ensureGitignoreEntry(projectRootAbs, entry) {
+  const file = path.join(projectRootAbs, '.gitignore');
+  const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '';
+  const bare = entry.replace(/\/$/, '');
+  const present = text.split(/\r?\n/).some((line) => {
+    const l = line.trim().replace(/^\//, '').replace(/\/$/, '');
+    return l === bare;
+  });
+  if (present) return false;
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const prefix = text.length > 0 && !text.endsWith('\n') ? eol : '';
+  fs.writeFileSync(file, `${text}${prefix}${entry}${eol}`);
+  return true;
+}
+
+// Пишем один и тот же набор mcpServers в оба формата конфига: `.mcp.json` читает Claude
+// Code, `.agents/mcp_config.json` (тот же ключ mcpServers/command/args) — Google Antigravity.
+// Чужие записи mcpServers не трогаем — синхронизируем только свои ключи из MCP_KEYS.
+export function writeMcpConfig(configPath, desired) {
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const existing = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf-8')) : { mcpServers: {} };
+  existing.mcpServers ??= {};
+
+  for (const key of MCP_KEYS) {
+    if (desired[key]) existing.mcpServers[key] = desired[key];
+    else delete existing.mcpServers[key];
+  }
+
+  fs.writeFileSync(configPath, JSON.stringify(existing, null, 2) + '\n');
+  return configPath;
+}
+
+export function mergeMcpConfig(projectRootAbs, features) {
+  const relInfra = path.relative(projectRootAbs, INFRA_ROOT).split(path.sep).join('/');
+  const prefix = relInfra ? `${relInfra}/` : '';
+  const desired = buildDesiredMcpServers(prefix, features);
+
+  const mcpPath = writeMcpConfig(path.join(projectRootAbs, '.mcp.json'), desired);
+  const antigravityMcpPath = writeMcpConfig(path.join(projectRootAbs, '.agents', 'mcp_config.json'), desired);
+  return [mcpPath, antigravityMcpPath];
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const interactive = args.interactive !== false && (args.projectRoot === null || args.features === null) && process.stdin.isTTY;
+
+  const resolved = interactive
+    ? await resolveInteractively(args)
+    : {
+        projectRoot: args.projectRoot ?? '.',
+        features: args.features ?? DEFAULT_ON,
+      };
+
+  for (const f of resolved.features) {
+    if (!ALL_FEATURES.includes(f)) throw new Error(`Неизвестная фича: "${f}". Допустимые: ${ALL_FEATURES.join(', ')}`);
+  }
+
+  // Переконфигурация не должна стирать ручные настройки, которые setup не спрашивает
+  // (например, путь к нестандартно установленному инструменту) — переносим их как есть.
+  const previous = fs.existsSync(CONFIG_PATH_EXPORTED)
+    ? JSON.parse(fs.readFileSync(CONFIG_PATH_EXPORTED, 'utf-8'))
+    : {};
+  const { projectRoot: _pr, features: _f, ...preserved } = previous;
+
+  const config = {
+    projectRoot: resolved.projectRoot,
+    ...preserved,
+    features: Object.fromEntries(ALL_FEATURES.map((f) => [f, resolved.features.includes(f)])),
+  };
+  fs.writeFileSync(CONFIG_PATH_EXPORTED, JSON.stringify(config, null, 2) + '\n');
+  console.log(`Записан ${path.relative(INFRA_ROOT, CONFIG_PATH_EXPORTED)}:`);
+  console.log(JSON.stringify(config, null, 2));
+
+  const projectRootAbs = path.resolve(INFRA_ROOT, resolved.projectRoot);
+  fs.mkdirSync(projectRootAbs, { recursive: true });
+  const mcpPaths = mergeMcpConfig(projectRootAbs, resolved.features);
+  console.log(
+    `\nОбновлены ${mcpPaths.map((p) => path.relative(INFRA_ROOT, p)).join(', ')} ` +
+      `(записи ${MCP_KEYS.join('/')} синхронизированы с включёнными фичами).`,
+  );
+
+  // Git-хуки (pre-commit: lint:docs, commit-msg: без AI-атрибуции, post-commit: GitNexus) —
+  // через core.hooksPath. Молчит, если корень проекта ещё не git-репозиторий.
+  const hooks = spawnSync(process.execPath, [path.join(INFRA_ROOT, 'scripts', 'git-hooks', 'install.mjs')], {
+    stdio: 'inherit',
+  });
+  if (hooks.status !== 0) console.warn('Не удалось установить git-хуки — повторите позже: npm run install-hooks');
+
+  if (config.features.gitnexus) {
+    const probe = spawnSync('gitnexus', ['--version'], { shell: true, stdio: 'ignore' });
+    if (probe.status !== 0) {
+      console.log('\ngitnexus: CLI не найден в PATH — установите глобально: npm i -g gitnexus, затем в корне проекта: gitnexus analyze');
+    }
+  }
+
+  if (config.features.playwright) {
+    const added = ensureGitignoreEntry(projectRootAbs, PLAYWRIGHT_OUTPUT_IGNORE);
+    console.log(
+      `\nplaywright: Playwright MCP (${PLAYWRIGHT_MCP_PACKAGE}, headless, профиль в памяти) использует установленный Chrome; ` +
+        'страницы проекта открывайте по http (file: заблокирован). ' +
+        (added ? `В .gitignore добавлен ${PLAYWRIGHT_OUTPUT_IGNORE}.` : `${PLAYWRIGHT_OUTPUT_IGNORE} уже в .gitignore.`),
+    );
+  }
+  if (config.features.computerUse) {
+    console.log(
+      '\ncomputerUse: включите «Управление компьютером» в ProjectHub (бейдж MCP) и задайте PROJECTHUB_MCP_TOKEN ' +
+        '(токен из того же окна) в окружении агента — в конфиг MCP токен не пишется.',
+    );
+  }
+
+  // Роли ProjectHub как субагенты и хуки терминала (decision-54 ProjectHub): эти файлы генерирует ProjectHub,
+  // setup.mjs их не трогает — .claude/agents, .codex/, .projecthub/hooks и чужие ключи .claude/settings.json.
+  console.log(
+    '\nРоли ProjectHub как субагенты Claude Code/Codex и хуки терминала (HITL, аудит): ProjectHub → Роли → ' +
+      '«Синхронизация в проект». Файлы .claude/agents, .codex/agents, .projecthub/hooks и записи хуков в ' +
+      '.claude/settings.json / .codex/hooks.json генерирует ProjectHub; этот скрипт их не меняет.',
+  );
+
+  console.log('\nДальше:');
+  if (config.features.docsRag) console.log('  npm run index-docs     # собрать векторный индекс документации');
+  if (config.features.gitnexus) console.log('  gitnexus analyze        # проиндексировать код (в корне проекта); post-commit хук будет обновлять сам');
+  if (config.features.bootstrap) console.log('  npm run bootstrap       # поставить git/node/… под текущую ОС');
+  if (config.features.lightrag) {
+    console.log('  npm run lightrag-setup  # ОДНОРАЗОВО: venv, lightrag-hku, модели Ollama (несколько ГБ, отдельный шаг)');
+    console.log('  npm run lightrag-index  # построить граф документации');
+  }
+  console.log('  npm run sync-rules      # разослать infra-dev.md в CLAUDE.md/GEMINI.md/AGENTS.md целевого проекта');
+}
+
+// Импорт из теста не запускает настройку: main() — только при запуске файла напрямую.
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main();

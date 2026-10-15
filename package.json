@@ -50,6 +50,15 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "template",
+        "to": "template",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "npmRebuild": false,
     "publish": {
       "provider": "github",

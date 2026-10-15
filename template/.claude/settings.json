@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm test)",
+      "Bash(npx backlog.md *)",
+      "Bash(npx backlog *)",
+      "Bash(node scripts/*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "mcp__backlog__*",
+      "mcp__docs-rag__*",
+      "mcp__env-tools__list_processes",
+      "mcp__env-tools__tail_log",
+      "mcp__gitnexus__impact",
+      "mcp__gitnexus__context",
+      "mcp__gitnexus__query",
+      "mcp__gitnexus__explain",
+      "mcp__gitnexus__detect_changes"
+    ]
+  }
+}

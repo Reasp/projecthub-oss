@@ -1,0 +1,40 @@
+# Концы строк. У разработчика на Windows с core.autocrlf=true свежий клон получает CRLF во всём
+# текстовом. Всё, что исполняется или парсится shell'ом/Linux-сервером/git'ом, принудительно
+# держим в LF независимо от настроек машины: CRLF в sh-скрипте — это `$'\r': command not found`,
+# в git-хуке — молча не работающий хук, в systemd-юните — кривой unit-файл.
+* text=auto
+
+*.sh                   text eol=lf
+*.mjs                  text eol=lf
+*.js                   text eol=lf
+*.cjs                  text eol=lf
+*.py                   text eol=lf
+*.json                 text eol=lf
+*.md                   text eol=lf
+*.yml                  text eol=lf
+*.yaml                 text eol=lf
+*.service              text eol=lf
+*.timer                text eol=lf
+*.conf                 text eol=lf
+*.inc                  text eol=lf
+scripts/git-hooks/*    text eol=lf
+
+# Windows-лаунчеры, наоборот, должны оставаться в CRLF: cmd.exe с LF-батниками ведёт себя
+# непредсказуемо (обрывает команды с длинными строками, ломает goto/метки).
+*.bat                  text eol=crlf
+*.cmd                  text eol=crlf
+*.ps1                  text eol=crlf
+
+# Бинарники — git определяет сам, но самые частые фиксируем явно, чтобы autocrlf их не тронул.
+*.png                  binary
+*.jpg                  binary
+*.jpeg                 binary
+*.webp                 binary
+*.gif                  binary
+*.ico                  binary
+*.ogg                  binary
+*.wav                  binary
+*.mp3                  binary
+*.woff                 binary
+*.woff2                binary
+*.lance                binary

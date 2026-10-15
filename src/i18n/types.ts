@@ -1622,6 +1622,7 @@ export interface TranslationDictionary {
     templateMissing: string;
     templateNotSet: string;
     templateHint: string;
+    templateBuiltinHint: string;
     templateNameRequired: string;
     step: string;
     projectName: string;

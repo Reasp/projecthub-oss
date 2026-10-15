@@ -6,41 +6,35 @@ import { simpleGit } from 'simple-git';
 import type { CreateProjectOptions, ProjectInfo } from '../../src/types/electron';
 import { projectRegistry } from './projectRegistry';
 import { inspectProject } from './projectScanner';
-import { getDevRepoRoot } from './appPaths';
+import { getBuiltinTemplateDir } from './appPaths';
+import { pickTemplatePath, type TemplateSource } from './templateSource';
 
-export type TemplateSource = 'custom' | 'registry' | 'env' | 'dev-default' | 'none';
+export type { TemplateSource } from './templateSource';
 
 export interface TemplateAvailability {
   available: boolean;
   /** Путь, который будет использован (пустая строка, если источник не определён). */
   path: string;
-  /** Откуда взят путь: явный аргумент, реестр, переменная окружения, dev-соседний каталог. */
+  /** Откуда взят путь: явный аргумент, реестр, переменная окружения, встроенный шаблон. */
   source: TemplateSource;
 }
 
 /**
- * Разрешение пути к шаблону ProjectTemplate (TASK-43). `process.cwd()` не используется:
+ * Разрешение пути к шаблону (TASK-43, decision-78). `process.cwd()` не используется:
  * в упакованном приложении он произволен. Приоритет: явный путь → настройка реестра
  * (`settings.templatePath`, задаётся в UI мастера) → `PROJECT_TEMPLATE_PATH` →
- * в dev-режиме соседний с репозиторием каталог `../ProjectTemplate`.
+ * встроенный шаблон (`resources/template`, в dev-режиме `template/` репозитория).
  */
 export async function resolveTemplatePath(customSource?: string): Promise<{ path: string; source: TemplateSource }> {
-  const custom = customSource?.trim();
-  if (custom) return { path: path.normalize(custom), source: 'custom' };
-
-  const fromRegistry = (await projectRegistry.getTemplatePath())?.trim();
-  if (fromRegistry) return { path: fromRegistry, source: 'registry' };
-
-  const fromEnv = process.env.PROJECT_TEMPLATE_PATH?.trim();
-  if (fromEnv) return { path: path.normalize(fromEnv), source: 'env' };
-
-  const devRoot = getDevRepoRoot();
-  if (devRoot) {
-    const sibling = path.resolve(devRoot, '..', 'ProjectTemplate');
-    if (existsSync(sibling)) return { path: sibling, source: 'dev-default' };
-  }
-
-  return { path: '', source: 'none' };
+  return pickTemplatePath(
+    {
+      custom: customSource,
+      registry: await projectRegistry.getTemplatePath(),
+      env: process.env.PROJECT_TEMPLATE_PATH,
+      builtin: getBuiltinTemplateDir()
+    },
+    existsSync
+  );
 }
 
 const IGNORED_COPY_NAMES = new Set([
