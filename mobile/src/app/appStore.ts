@@ -433,8 +433,9 @@ export class AppStore {
     }
     const res = await this.call('studio_clear', this.withProject({ sessionId }));
     if (!res) return false;
+    // Не перечитываем с диска: окно пишет сессию с задержкой (1,5 с), и телефон получил бы старую историю.
+    if (this.state.studio.sessionId === sessionId) this.setStudio({ messages: [], olderOmitted: 0, title: 'Новый диалог', sessionUsage: null });
     this.showToast('Сессия очищена', 'success');
-    await this.openStudioSession(sessionId, true);
     this.debounced('studioSessions', () => void this.refreshStudioSessions());
     return true;
   }

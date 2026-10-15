@@ -96,21 +96,42 @@ export function StudioScreen() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-ph-line px-3 py-2">
-        <button
-          type="button"
-          onClick={() => {
-            platform.haptic('selection');
-            setSessionsOpen(true);
-            void store.refreshStudioSessions();
-          }}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 py-1 text-left active:bg-ph-hover"
-          aria-label="Сессии и история"
-        >
-          <ClockCounterClockwiseIcon size={18} className="shrink-0 text-slate-400" />
-          <span className="truncate text-[15px] font-medium">{studio.sessionId ? studio.title || 'Сессия' : 'Новая сессия'}</span>
-          <CaretDownIcon size={14} className="shrink-0 text-slate-500" />
-        </button>
+      <div className="shrink-0 border-b border-ph-line px-3 pb-1.5 pt-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              platform.haptic('selection');
+              setSessionsOpen(true);
+              void store.refreshStudioSessions();
+            }}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 py-1 text-left active:bg-ph-hover"
+            aria-label="Сессии и история"
+          >
+            <ClockCounterClockwiseIcon size={18} className="shrink-0 text-slate-400" />
+            <span className="truncate text-[15px] font-medium">{studio.sessionId ? studio.title || 'Сессия' : 'Новая сессия'}</span>
+            <CaretDownIcon size={14} className="shrink-0 text-slate-500" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void runCommand('usage')}
+            className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-1 text-[12px] text-slate-300 active:bg-ph-hover"
+            aria-label="Usage"
+          >
+            <ChartBarIcon size={18} />
+            {studio.usage?.sessionLimit && (
+              <span className={clsx(studio.usage.sessionLimit.percent >= 85 ? 'text-red-300' : studio.usage.sessionLimit.percent >= 60 ? 'text-amber-300' : 'text-slate-400')}>
+                {studio.usage.sessionLimit.percent}%
+              </span>
+            )}
+          </button>
+          {canWrite && studio.sessionId && (
+            <button type="button" aria-label="Новая сессия" onClick={() => store.newStudioSession()} className="shrink-0 rounded-full p-1.5 text-slate-300 active:bg-ph-hover">
+              <PlusIcon size={20} />
+            </button>
+          )}
+        </div>
+        {/* Модель — второй строкой: в одной строке с ней название сессии сжималось до одной буквы. */}
         {canWrite && (
           <button
             type="button"
@@ -119,28 +140,10 @@ export function StudioScreen() {
               setModelOpen(true);
               if (!studio.options) void store.loadStudioOptions();
             }}
-            className="max-w-[45%] shrink-0 truncate rounded-full border border-ph-line bg-ph-raised px-2.5 py-1 text-[12px] text-slate-300 active:bg-ph-hover"
+            className="mt-1 max-w-full truncate rounded-full border border-ph-line bg-ph-raised px-2.5 py-1 text-[12px] text-slate-300 active:bg-ph-hover"
             aria-label="Модель и режим"
           >
             {selectionTitle(studio.selection, studio.options)} · {MODE_LABEL[studio.mode]}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void runCommand('usage')}
-          className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-1 text-[12px] text-slate-300 active:bg-ph-hover"
-          aria-label="Usage"
-        >
-          <ChartBarIcon size={18} />
-          {studio.usage?.sessionLimit && (
-            <span className={clsx(studio.usage.sessionLimit.percent >= 85 ? 'text-red-300' : studio.usage.sessionLimit.percent >= 60 ? 'text-amber-300' : 'text-slate-400')}>
-              {studio.usage.sessionLimit.percent}%
-            </span>
-          )}
-        </button>
-        {canWrite && studio.sessionId && (
-          <button type="button" aria-label="Новая сессия" onClick={() => store.newStudioSession()} className="shrink-0 rounded-full p-1.5 text-slate-300 active:bg-ph-hover">
-            <PlusIcon size={20} />
           </button>
         )}
       </div>
@@ -348,7 +351,7 @@ function UsageSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
               <SectionTitle>Эта сессия</SectionTitle>
               <div className="text-[13px] text-slate-300">
                 Вход {formatTokens(su.inputTokens)} · выход {formatTokens(su.outputTokens)}
-                {su.costUsd !== undefined ? ` · ${su.costUsd.toFixed(4)}` : ''}
+                {su.costUsd ? ` · $${su.costUsd.toFixed(4)}` : ''}
                 {su.estimated ? ' (оценка)' : ''}
               </div>
             </>
@@ -362,7 +365,8 @@ function UsageSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
                     <span className="min-w-0 truncate font-mono text-[12px]">{m.model}</span>
                     <span className="shrink-0 text-slate-400">
                       {formatTokens(m.inputTokens)} / {formatTokens(m.outputTokens)}
-                      {m.costUSD !== undefined ? ` · ${m.costUSD.toFixed(2)}` : ''}
+                      {/* У подписки стоимость 0 — не показываем «$0.00». */}
+                      {m.costUSD ? ` · $${m.costUSD.toFixed(2)}` : ''}
                     </span>
                   </div>
                 ))}
