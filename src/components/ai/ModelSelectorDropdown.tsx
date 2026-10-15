@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Check, Sparkles, Zap, Cpu, Flame, Layers, Search, HardDrive, Server,
 } from '../common/icons';
 import { ClaudeLogo } from '../common/BrandLogo';
@@ -93,7 +94,29 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
   const [profiles, setProfiles] = useState<LlmProfileView[]>([]);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogState>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Меню рендерится порталом в body с fixed-позицией: шапка AI Studio прокручивается по горизонтали
+  // (overflow-x-auto), а такой предок обрезает абсолютное меню по своей высоте (decision-17).
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+
+  const updateMenuPos = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setMenuPos({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    updateMenuPos();
+    window.addEventListener('resize', updateMenuPos);
+    window.addEventListener('scroll', updateMenuPos, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPos);
+      window.removeEventListener('scroll', updateMenuPos, true);
+    };
+  }, [isOpen, updateMenuPos]);
 
   useEffect(() => {
     if (window.api?.getAvailableModels) {
@@ -153,7 +176,8 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (dropdownRef.current && !dropdownRef.current.contains(target) && !menuRef.current?.contains(target)) {
         setIsOpen(false);
       }
     };
@@ -252,6 +276,7 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
     <div className="relative inline-block text-left" ref={dropdownRef}>
       {/* Trigger Button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation();
@@ -268,9 +293,11 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
       </button>
 
       {/* Dropdown Menu */}
-      {isOpen && (
+      {isOpen && menuPos && createPortal(
         <div
-          className="absolute right-0 top-full mt-1.5 w-96 bg-ph-raised border border-slate-800 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/50"
+          ref={menuRef}
+          style={{ top: menuPos.top, right: menuPos.right }}
+          className="fixed w-96 max-w-[calc(100vw-16px)] bg-ph-raised border border-slate-800 rounded-xl shadow-2xl z-[10000] overflow-hidden animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/50"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="p-2 border-b border-slate-800/80 bg-ph-hover/90 space-y-1.5">
@@ -353,7 +380,8 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
