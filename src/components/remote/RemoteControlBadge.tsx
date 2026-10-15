@@ -24,6 +24,20 @@ import {
 } from '../common/icons';
 import { BrandLogo } from '../common/BrandLogo';
 import QRCode from 'qrcode';
+import { buildEmbeddedPairingUrl, buildTelegramPairingUrl, type PairingSource } from '../../utils/remotePairingLink';
+
+/** Данные статуса Remote Control для ссылок сопряжения (QR). */
+function toPairingSource(status: RemoteControlStatus): PairingSource {
+  return {
+    hostId: status.hostId,
+    key: status.secretToken ?? '',
+    relayServerUrl: status.relayServerUrl,
+    mode: status.mode,
+    port: status.port,
+    localIp: status.localAddresses?.[0],
+    tunnelUrl: status.tunnelStatus === 'active' ? status.tunnelUrl : undefined
+  };
+}
 import { useTranslation } from '../../i18n';
 import { useToast, useTimers } from '../../hooks/useTimeoutState';
 import type { RemoteControlStatus, DeviceRights } from '../../types/electron';
@@ -109,12 +123,10 @@ export const RemoteControlBadge: React.FC = () => {
   useEffect(() => {
     if (!status || !isOpen) return;
 
-    const localIp = status.localAddresses?.[0] || 'localhost';
-    const secretTokenForQr = status.secretToken ?? '';
-    // `hostId` — идентификатор машины (нужен для подключения через relay), `host` — сетевой адрес
-    // прямого LAN-подключения. Раньше в `host` уезжал hostId, и клиент пытался коннектиться к
-    // `ph_host_...` как к хосту сети (TASK-65).
-    const pairingUrl = `http://${localIp}:${status.port}/remote#hostId=${status.hostId}&key=${secretTokenForQr}&relay=${encodeURIComponent(status.relayServerUrl)}&mode=${status.mode}`;
+    // Ссылки строит общий модуль, тот же формат разбирает мобильный клиент (TASK-140.1). При
+    // запущенном HTTPS-туннеле QR ведёт на него: на http://<IP> браузер не даёт WebCrypto.
+    const pairingSource = toPairingSource(status);
+    const pairingUrl = buildEmbeddedPairingUrl(pairingSource);
 
     QRCode.toDataURL(pairingUrl, {
       margin: 2,
@@ -124,12 +136,9 @@ export const RemoteControlBadge: React.FC = () => {
       .then((url) => setQrDataUrl(url))
       .catch((err) => console.error('QR code generation error:', err));
 
-    // QR код для Telegram Mini App (приоритет публичному HTTPS туннелю)
-    const effectiveTgUrl = status.tunnelUrl
-      ? `${status.tunnelUrl}/telegram`
-      : telegramBotUsername
-      ? `https://t.me/${telegramBotUsername}?startapp=k_${secretTokenForQr.slice(0, 32)}`
-      : `http://${localIp}:${status.port}/telegram#hostId=${status.hostId}&host=${localIp}:${status.port}&key=${secretTokenForQr}&relay=${encodeURIComponent(status.relayServerUrl)}&mode=${status.mode}`;
+    // QR для Telegram Mini App: через бота ключ едет целиком в `startapp=kb_…` (раньше — только
+    // половина hex-ключа: `start_param` не длиннее 64 символов), без бота — страница с hash.
+    const effectiveTgUrl = buildTelegramPairingUrl(pairingSource, telegramBotUsername || undefined);
 
     QRCode.toDataURL(effectiveTgUrl, {
       margin: 2,
@@ -278,9 +287,8 @@ export const RemoteControlBadge: React.FC = () => {
   // Спаренные, но сейчас не подключённые устройства: их права/токен тоже должны быть управляемы.
   const offlinePairedDevices = (status.pairedDevices || []).filter((p) => !p.connected);
   const approvedCount = status.connectedDevices?.filter((d) => d.isApproved).length || 0;
-  const primaryIp = status.localAddresses?.[0] || 'localhost';
-  const webClientUrl = `http://${primaryIp}:${status.port}/remote#hostId=${status.hostId}&key=${secretToken}&relay=${encodeURIComponent(status.relayServerUrl)}&mode=${status.mode}`;
-  const telegramDirectUrl = `http://${primaryIp}:${status.port}/telegram#hostId=${status.hostId}&host=${primaryIp}:${status.port}&key=${secretToken}&relay=${encodeURIComponent(status.relayServerUrl)}&mode=${status.mode}`;
+  const webClientUrl = buildEmbeddedPairingUrl(toPairingSource(status));
+  const telegramDirectUrl = buildTelegramPairingUrl(toPairingSource(status));
   const telegramBotDeepLink = telegramBotUsername
     ? `https://t.me/${telegramBotUsername}?startapp=host_${status.hostId}`
     : '';

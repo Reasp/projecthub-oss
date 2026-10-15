@@ -226,7 +226,124 @@ export type RemoteRpcMethod =
   | 'get_roles'
   | 'get_swarms'
   | 'start_assigned_agent'
-  | 'stop_swarm';
+  | 'stop_swarm'
+  // Мобильный клиент (TASK-140.1, decision-79 п. 8): хвост вывода агента роя
+  | 'get_agent_output';
+
+/**
+ * Ответы RPC в том виде, в каком их отдаёт `dispatchRpc` хоста. Общие для хоста и мобильного
+ * клиента (`mobile/`, TASK-140.1): клиент не держит своих копий форм.
+ */
+export interface RemoteHostStatus {
+  hostId: string;
+  machineName: string;
+  platform: string;
+  tunnelUrl?: string;
+  activeProjectPath: string | null;
+  projectsCount: number;
+  runningProcesses: number;
+  readOnly: boolean;
+}
+
+export interface RemoteProjectSummary {
+  path: string;
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface RemoteTaskCriterion {
+  text: string;
+  completed: boolean;
+}
+
+export interface RemoteTaskSummary {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  filePath: string;
+  criteria: RemoteTaskCriterion[];
+}
+
+export interface RemoteProcessSummary {
+  id: string;
+  name: string;
+  command: string;
+  status: 'running' | 'stopped' | 'failed' | 'unknown';
+  pid?: number;
+  port?: number;
+  source?: 'hub' | 'env-tools';
+  startedAt?: string;
+  exitCode?: number;
+}
+
+export interface RemoteSwarmAgentSummary {
+  id: string;
+  name: string;
+  roleSlug?: string;
+  engine?: string;
+  status: string;
+  error?: string;
+}
+
+export interface RemoteSwarmSummary {
+  id: string;
+  mode: string;
+  status: string;
+  projectPath: string;
+  taskId?: string;
+  taskTitle?: string;
+  origin?: string;
+  createdAt?: number | string;
+  completedAt?: number | string;
+  agents: RemoteSwarmAgentSummary[];
+}
+
+export interface RemoteRoleSummary {
+  slug: string;
+  name: string;
+  engine?: string;
+  model?: string;
+  source?: string;
+}
+
+/** Хвост вывода агента (`get_agent_output`): только конец, полный транскрипт с телефона не читается. */
+export interface RemoteAgentOutput {
+  swarmId: string;
+  agentId: string;
+  status: string;
+  text: string;
+  truncated: boolean;
+}
+
+export interface RemotePendingApproval {
+  requestId: string;
+  sessionId: string;
+  projectPath: string;
+  origin?: string;
+  agentName?: string;
+  role?: string;
+  tool?: string;
+  type?: string;
+  title?: string;
+  details?: string;
+  command?: string;
+  filePath?: string;
+  createdAt?: number;
+  expiresAt?: number;
+  orphaned?: boolean;
+}
+
+/** Ответ хоста на сопряжение/переподключение (`handshake_ack`). */
+export interface RemoteHandshakeAck {
+  approved: boolean;
+  readOnly: boolean;
+  hostId: string;
+  protocolVersion: number;
+  rights?: DeviceRights;
+  lastEventId?: number;
+  deviceToken?: string;
+}
 
 export interface RemoteEventPayloads {
   'process:logChunk': { processId: string; text: string };

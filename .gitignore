@@ -46,3 +46,6 @@ release_tmp*/
 
 # Самопроверка UI (TASK-78): кадры, diff и отчёт локального прогона; база — в tests/visual/baseline
 .visual-output/
+
+# Скриншоты проверок UI (Playwright MCP и живые проверки агентов, decision-55) — не для коммита
+.playwright-mcp/

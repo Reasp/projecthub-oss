@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#18181b" />
+    <link rel="icon" href="data:," />
+    <!--
+      Приложение не загружает код с ПК (п. 2.5.2 App Store Review Guidelines, decision-79 п. 10):
+      скрипты только из пакета приложения, с хоста по сокету приходят данные.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ws: wss:; object-src 'none'; base-uri 'none'"
+    />
+    <title>ProjectHub</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="../../src/entries/capacitor.tsx"></script>
+  </body>
+</html>

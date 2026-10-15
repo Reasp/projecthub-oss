@@ -41,6 +41,17 @@ import { appEventBus } from './eventBus.js';
 import { logger } from './logger.js';
 import { getUserDataDir, getDevRepoRoot, getAppRootDir } from './appPaths.js';
 import matter from 'gray-matter';
+import {
+  MOBILE_CLIENT_DIST,
+  MOBILE_CLIENT_MISSING_HTML,
+  MOBILE_PAGE_FILES,
+  assetHeaders,
+  injectHostDefaults,
+  pageHeaders,
+  resolveInside,
+  resolveMobileClientRoute,
+  type MobileClientRoute
+} from './remoteStaticClient.js';
 
 /**
  * Получение списка локальных IPv4 адресов машины для прямого подключения (LAN).
@@ -85,6 +96,8 @@ const PIN_MAX_ATTEMPTS = 5;
 const PIN_LOCKOUT_MS = 5 * 60 * 1000;
 const EVENT_LOG_MAX = 200;
 const RPC_IDEMPOTENCY_TTL_MS = 60 * 1000;
+/** Хвост вывода агента для `get_agent_output` (экран агентов телефона). */
+const AGENT_OUTPUT_TAIL_CHARS = 8000;
 /** Период heartbeat/метаданных в каталог релея (TASK-66): релей считает хост протухшим через 90с. */
 const FEDERATION_HEARTBEAT_MS = 30 * 1000;
 
@@ -1263,36 +1276,70 @@ class RemoteControlService {
       return;
     }
 
-    // GET /remote-crypto.js - канонический браузерный E2EE-модуль (TASK-65, decision-11 п.3),
-    // общий для Mini App и встроенного веб-клиента (оба без сборщика).
-    if (url.pathname === '/remote-crypto.js') {
-      const script = await this.readStaticAsset('remote-crypto.js');
-      if (!script) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Not Found' }));
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
-      res.end(script);
-      return;
-    }
-
-    // GET /telegram или GET /telegram/ - отдача Telegram Mini App
-    if (url.pathname === '/telegram' || url.pathname === '/telegram/' || url.pathname.startsWith('/telegram/')) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(await this.getTelegramMiniAppHtml());
-      return;
-    }
-
-    // GET /remote или GET / - отдача встроенного HTML веб-клиента
-    if (url.pathname === '/remote' || url.pathname === '/' || url.pathname.startsWith('/remote/')) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(this.getEmbeddedWebClientHtml());
+    // Встроенный клиент (`/`, `/remote`), Telegram Mini App (`/telegram`) и их ассеты (`/m/…`) —
+    // одна сборка `mobile/` (TASK-140.1, decision-79 п. 1).
+    const route = resolveMobileClientRoute(url.pathname);
+    if (route && (req.method === 'GET' || req.method === 'HEAD')) {
+      await this.serveMobileClient(route, req, res);
       return;
     }
 
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not Found' }));
+  }
+
+  /**
+   * Каталог сборки мобильного клиента `dist/mobile`: в dev — в репозитории, в packaged — внутри
+   * app.asar (`dist/**` в `build.files`).
+   */
+  private mobileClientRoot(): string | null {
+    const roots = [getDevRepoRoot(), getAppRootDir()].filter((r): r is string => Boolean(r));
+    for (const root of roots) {
+      const dir = path.join(root, MOBILE_CLIENT_DIST);
+      if (existsSync(path.join(dir, MOBILE_PAGE_FILES.embedded))) return dir;
+    }
+    return null;
+  }
+
+  private async serveMobileClient(route: MobileClientRoute, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (route.kind === 'forbidden') {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+    const root = this.mobileClientRoot();
+    if (!root) {
+      res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(MOBILE_CLIENT_MISSING_HTML);
+      return;
+    }
+
+    if (route.kind === 'page') {
+      try {
+        const html = await fs.readFile(path.join(root, route.file), 'utf8');
+        res.writeHead(200, pageHeaders(route.target));
+        res.end(req.method === 'HEAD' ? undefined : injectHostDefaults(html, { hostId: this.hostId, relayUrl: this.relayServerUrl, mode: this.mode }));
+      } catch {
+        res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(MOBILE_CLIENT_MISSING_HTML);
+      }
+      return;
+    }
+
+    const file = resolveInside(root, route.relPath);
+    if (!file) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+    try {
+      const body = await fs.readFile(file);
+      res.writeHead(200, assetHeaders(file));
+      res.end(req.method === 'HEAD' ? undefined : body);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+    }
   }
 
   /**
@@ -1879,7 +1926,8 @@ class RemoteControlService {
           name: path.basename(p.path),
           path: p.path
         }));
-        return projects;
+        // В реестре имени проекта нет — без него клиенты показывали пустые строки (TASK-140.1).
+        return projects.map((p) => ({ ...p, name: path.basename(p.path) }));
       }
 
       case 'select_project': {
@@ -2130,6 +2178,25 @@ class RemoteControlService {
         return { stopped: agentFleetService.stopSwarm(swarmId) };
       }
 
+      case 'get_agent_output': {
+        // Экран агентов телефона (TASK-140.1, decision-79 п. 8): только хвост вывода, не транскрипт
+        // и не логи слота — с телефона читают «что агент сейчас пишет», а не всю историю.
+        const swarmId = typeof params.swarmId === 'string' ? params.swarmId : '';
+        const agentId = typeof params.agentId === 'string' ? params.agentId : '';
+        if (!swarmId || !agentId) throw new Error('swarmId and agentId are required');
+        const agent = agentFleetService.getSwarm(swarmId)?.agents.find((a) => a.id === agentId);
+        if (!agent) throw new Error('Агент не найден');
+        const full = agent.finalOutput || agent.liveOutput || '';
+        const text = full.length > AGENT_OUTPUT_TAIL_CHARS ? full.slice(full.length - AGENT_OUTPUT_TAIL_CHARS) : full;
+        return {
+          swarmId,
+          agentId,
+          status: agent.status,
+          text,
+          truncated: full.length > text.length || Boolean(agent.liveOutputTruncated)
+        };
+      }
+
       case 'get_events_since': {
         const sinceId = Number(params.sinceId) || 0;
         return { events: this.eventLog.filter((e) => e.id > sinceId), lastEventId: this.eventLogNextId - 1 };
@@ -2347,547 +2414,6 @@ class RemoteControlService {
         w.webContents.send(channel, data);
       }
     }
-  }
-
-  /**
-   * Встроенный легковесный адаптивный HTML веб-клиент для смартфонов.
-   */
-  private getEmbeddedWebClientHtml(): string {
-    return `<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>ProjectHub Remote</title>
-  <meta name="theme-color" content="#0d1117">
-  <script src="/remote-crypto.js"></script>
-  <style>
-    :root {
-      --bg: #0b0f19;
-      --card-bg: #131b2e;
-      --border: #1f293d;
-      --text: #f1f5f9;
-      --muted: #94a3b8;
-      --primary: #6366f1;
-      --primary-hover: #4f46e5;
-      --success: #10b981;
-      --danger: #ef4444;
-      --warning: #f59e0b;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    body { background: var(--bg); color: var(--text); padding-bottom: 70px; min-height: 100vh; }
-    header { background: #0f172a; border-bottom: 1px solid var(--border); padding: 12px 16px; position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; }
-    .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; color: #818cf8; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); display: inline-block; }
-    .status-dot.connected { background: var(--success); box-shadow: 0 0 8px var(--success); }
-    .container { padding: 16px; max-width: 600px; margin: 0 auto; }
-    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
-    .card-title { font-size: 14px; font-weight: 600; color: #cbd5e1; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-    button { background: var(--primary); color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; }
-    button:active { transform: scale(0.98); }
-    button.secondary { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
-    button.danger { background: var(--danger); }
-    button.success { background: var(--success); }
-    select, input { width: 100%; background: #090d16; border: 1px solid #334155; color: white; padding: 10px; border-radius: 8px; font-size: 14px; margin-top: 6px; }
-    .nav-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #0f172a; border-top: 1px solid var(--border); display: flex; justify-content: space-around; padding: 8px 0; z-index: 50; }
-    .nav-btn { background: none; border: none; color: #64748b; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px; }
-    .nav-btn.active { color: #818cf8; font-weight: bold; }
-    .terminal { background: #05070c; border: 1px solid #1e293b; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 11px; color: #38bdf8; height: 260px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
-    .badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #1e293b; color: #94a3b8; }
-    .badge.todo { background: #1e293b; color: #94a3b8; }
-    .badge.progress { background: #312e81; color: #a5b4fc; }
-    .badge.done { background: #064e3b; color: #6ee7b7; }
-    .task-item { border-bottom: 1px solid #1e293b; padding: 8px 0; font-size: 13px; }
-    .task-item:last-child { border-bottom: none; }
-    .hitl-box { background: #2d1810; border: 1px solid #b45309; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-  </style>
-</head>
-<body>
-  <header>
-    <div class="logo">
-      <div id="statusDot" class="status-dot"></div>
-      <span>ProjectHub Remote</span>
-    </div>
-    <div id="modeBadge" class="badge">LAN</div>
-  </header>
-
-  <div class="container">
-    <!-- Секция сопряжения (если не подключено) -->
-    <div id="pairingSection" class="card">
-      <div class="card-title">Сопряжение с ProjectHub</div>
-      <p style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">
-        Введите 6-значный PIN-код или откройте ссылку из QR-кода на десктопе.
-      </p>
-      <input type="text" id="pinInput" placeholder="PIN код (например, 123456)" maxlength="6">
-      <input type="password" id="keyInput" placeholder="Секретный ключ (hex, опционально)">
-      <button id="connectBtn" style="width: 100%; margin-top: 10px;">Подключиться</button>
-    </div>
-
-    <!-- Основной контент (при активном подключении) -->
-    <div id="mainContent" style="display: none;">
-      <!-- Вкладка: Обзор -->
-      <div id="tabDashboard">
-        <div class="card">
-          <div class="card-title">Активный проект</div>
-          <select id="projectSelect"></select>
-        </div>
-
-        <div id="hitlAlert" class="hitl-box" style="display: none;">
-          <div style="font-weight: bold; color: #f59e0b; margin-bottom: 6px;">⚠️ Запрос разрешения (AI Studio)</div>
-          <div id="hitlDescription" style="font-size: 12px; margin-bottom: 10px; color: #fde68a;"></div>
-          <div style="display: flex; gap: 8px;">
-            <button id="hitlApproveBtn" class="success" style="flex: 1;">Разрешить</button>
-            <button id="hitlDenyBtn" class="danger" style="flex: 1;">Отклонить</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">Фоновые процессы</div>
-          <div id="processList" style="font-size: 13px; color: var(--muted);">Загрузка...</div>
-        </div>
-      </div>
-
-      <!-- Вкладка: Процессы и Терминал -->
-      <div id="tabTerminal" style="display: none;">
-        <div class="card">
-          <div class="card-title">Живые логи процессов</div>
-          <div id="terminalLogs" class="terminal">Ожидание логов...</div>
-          <button id="clearLogsBtn" class="secondary" style="margin-top: 8px; width: 100%;">Очистить терминал</button>
-        </div>
-      </div>
-
-      <!-- Вкладка: Задачи Backlog -->
-      <div id="tabTasks" style="display: none;">
-        <div class="card">
-          <div class="card-title">
-            <span>Задачи проекта</span>
-            <button id="refreshTasksBtn" class="secondary" style="padding: 4px 8px; font-size: 11px;">Обновить</button>
-          </div>
-          <div id="taskList">Загрузка задач...</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Нижняя навигация -->
-  <nav id="navBar" class="nav-bar" style="display: none;">
-    <button class="nav-btn active" onclick="switchTab('dashboard')">
-      <span>📊</span>
-      <span>Сводка</span>
-    </button>
-    <button class="nav-btn" onclick="switchTab('terminal')">
-      <span>💻</span>
-      <span>Терминал</span>
-    </button>
-    <button class="nav-btn" onclick="switchTab('tasks')">
-      <span>📋</span>
-      <span>Задачи</span>
-    </button>
-  </nav>
-
-  <script>
-    let ws = null;
-    let currentTab = 'dashboard';
-    let activeSessionId = null;
-    let projects = [];
-
-    // Значения самого хоста, отдавшего эту страницу: клиент умеет подключаться и напрямую, и через
-    // relay к тому же hostId, не спрашивая их у пользователя (TASK-65, decision-11 п.2).
-    const HOST_DEFAULTS = ${JSON.stringify({ hostId: this.hostId, relayUrl: this.relayServerUrl, mode: this.mode })};
-
-    // Чтение параметров из URL hash (#pin=...&key=...&hostId=...&relay=...&mode=...)
-    const hashParams = new URLSearchParams(window.location.hash.slice(1));
-    const pinParam = hashParams.get('pin');
-    const keyParam = hashParams.get('key');
-    const modeParam = hashParams.get('mode') || HOST_DEFAULTS.mode || 'lan';
-    const hostIdParam = hashParams.get('hostId') || hashParams.get('host') || HOST_DEFAULTS.hostId;
-    const relayParam = hashParams.get('relay') || HOST_DEFAULTS.relayUrl || '';
-    const useRelay = modeParam === 'relay' && Boolean(relayParam) && Boolean(hostIdParam);
-
-    if (pinParam) document.getElementById('pinInput').value = pinParam;
-    if (keyParam) document.getElementById('keyInput').value = keyParam;
-    document.getElementById('modeBadge').textContent = useRelay ? 'RELAY' : 'LAN';
-
-    document.getElementById('connectBtn').addEventListener('click', () => { reconnectAttempt = 0; connect(); });
-
-    let currentKey = '';
-    let reconnectAttempt = 0;
-    let reconnectTimer = null;
-    let isReady = false;
-    let awaitingApproval = false;
-
-    // Идентичность и per-device токен переживают перезагрузку страницы: переподключение идёт по
-    // токену, а не по PIN (TASK-65, decision-5 п.5).
-    function storageGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
-    function storageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
-    let deviceId = storageGet('ph_remote_device_id');
-    if (!deviceId) {
-      deviceId = 'web_' + Math.random().toString(36).slice(2, 10);
-      storageSet('ph_remote_device_id', deviceId);
-    }
-    let deviceToken = storageGet('ph_remote_device_token');
-    // Последнее увиденное событие: после разрыва клиент догоняет пропущенное (decision-11 п.6).
-    let lastEventId = 0;
-
-    // E2EE через общий канонический модуль (window.RemoteCrypto из /remote-crypto.js);
-    // формат {e2ee:true, iv, tag, data} в hex (decision-11 п.3). Без ключа — plain JSON.
-    async function encryptOut(data) {
-      if (!currentKey) return data;
-      return await RemoteCrypto.encryptPayloadWeb(data, currentKey);
-    }
-    async function decryptIn(packet) {
-      if (!packet || !packet.e2ee || !currentKey) return packet;
-      return await RemoteCrypto.decryptPayloadWeb(packet, currentKey);
-    }
-
-    function scheduleReconnect() {
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      const delay = Math.min(30000, 1000 * Math.pow(2, reconnectAttempt));
-      reconnectAttempt++;
-      reconnectTimer = setTimeout(connect, delay);
-    }
-
-    /**
-     * LAN: сокет открывается прямо к хосту, аутентификация — в query (PIN/ключ/токен).
-     * Relay: сокет открывается к relay-серверу (?role=client&hostId=...), а PIN/ключ/токен уезжают
-     * хосту отдельным зашифрованным пакетом handshake после relay_ack — сам relay ничего не
-     * аутентифицирует и содержимого пакетов не видит (decision-11 п.2, п.3).
-     */
-    function buildWsUrl(pin, key) {
-      if (useRelay) {
-        const u = new URL(relayParam.replace(/^http/, 'ws'));
-        u.searchParams.set('role', 'client');
-        u.searchParams.set('hostId', hostIdParam);
-        u.searchParams.set('clientId', deviceId);
-        u.searchParams.set('name', 'Mobile Browser');
-        return u.toString();
-      }
-      const loc = window.location;
-      const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-      const q = new URLSearchParams({ pin: pin, key: key, deviceId: deviceId, name: 'Mobile Browser' });
-      if (deviceToken) q.set('token', deviceToken);
-      return \`\${wsProto}//\${loc.host}/?\${q.toString()}\`;
-    }
-
-    function connect() {
-      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-      const pin = document.getElementById('pinInput').value.trim();
-      const key = document.getElementById('keyInput').value.trim();
-      currentKey = key;
-      isReady = false;
-
-      ws = new WebSocket(buildWsUrl(pin, key));
-
-      ws.onopen = () => {
-        reconnectAttempt = 0;
-        document.getElementById('statusDot').classList.add('connected');
-        // В LAN хост присылает handshake_ack сам по факту апгрейда сокета (в нём права и точка в
-        // потоке событий); через relay сначала нужно дождаться relay_ack и предъявить PIN/ключ/
-        // токен пакетом handshake. Фолбэк на случай хоста без handshake_ack — только для LAN, где
-        // сокет открылся лишь после успешной проверки PIN/ключа в query.
-        if (!useRelay) setTimeout(() => { if (!awaitingApproval) onConnectionReady(); }, 2000);
-      };
-
-      ws.onmessage = async (event) => {
-        try {
-          const raw = JSON.parse(event.data);
-
-          // Служебные сообщения самого relay идут открытым текстом — он не знает ключа.
-          if (raw && raw.type === 'relay_ack' && raw.role === 'client') {
-            await sendHandshake();
-            return;
-          }
-          if (raw && (raw.type === 'error' || raw.type === 'host_disconnected')) {
-            appendLog('\\n[Relay] ' + (raw.error || 'Хост отключился') + '\\n');
-            return;
-          }
-
-          const msg = await decryptIn(raw);
-          handleMessage(msg);
-        } catch (e) {
-          console.error(e);
-        }
-      };
-
-      ws.onclose = () => {
-        isReady = false;
-        document.getElementById('statusDot').classList.remove('connected');
-        appendLog('\\n[Соединение разорвано. Переподключение через ' + Math.round(Math.min(30000, 1000 * Math.pow(2, reconnectAttempt)) / 1000) + 'с...]\\n');
-        scheduleReconnect();
-      };
-
-      ws.onerror = (err) => {
-        console.error('WS Error:', err);
-      };
-    }
-
-    async function sendHandshake() {
-      const data = { pin: document.getElementById('pinInput').value.trim(), key: currentKey };
-      if (deviceToken) data.token = deviceToken;
-      const packet = await encryptOut({ type: 'handshake', data: data });
-      ws.send(JSON.stringify(packet));
-    }
-
-    function onConnectionReady() {
-      if (isReady) return;
-      isReady = true;
-      document.getElementById('pairingSection').style.display = 'none';
-      document.getElementById('mainContent').style.display = 'block';
-      document.getElementById('navBar').style.display = 'flex';
-      catchUpEvents().then(fetchProjects, fetchProjects);
-    }
-
-    /** Догон событий, пропущенных за время разрыва (кольцевой буфер хоста, decision-11 п.6). */
-    async function catchUpEvents() {
-      if (!lastEventId) return;
-      try {
-        const res = await sendRpc('get_events_since', { sinceId: lastEventId });
-        if (!res) return;
-        (res.events || []).forEach((e) => {
-          if (e.id > lastEventId) lastEventId = e.id;
-          applyEvent(e.event, e.data);
-        });
-        if (typeof res.lastEventId === 'number' && res.lastEventId > lastEventId) lastEventId = res.lastEventId;
-      } catch (e) {
-        console.error('Events catch-up failed:', e);
-      }
-    }
-
-    function sendRpc(method, params = {}) {
-      return new Promise((resolve) => {
-        const id = 'req_' + Math.random().toString(36).slice(2, 9);
-        // Хост может ответить не rpc_res, а ошибкой уровня соединения (например, устройство ещё не
-        // одобрено) — без таймаута такой вызов повис бы навсегда и заблокировал загрузку UI.
-        const timer = setTimeout(() => {
-          ws.removeEventListener('message', listener);
-          resolve(null);
-        }, 15000);
-        const listener = async (event) => {
-          try {
-            const raw = JSON.parse(event.data);
-            const msg = await decryptIn(raw);
-            if (msg.type === 'rpc_res' && msg.id === id) {
-              clearTimeout(timer);
-              ws.removeEventListener('message', listener);
-              resolve(msg.result);
-            }
-          } catch {}
-        };
-        ws.addEventListener('message', listener);
-        encryptOut({ type: 'rpc_req', id, method, params }).then((packet) => ws.send(JSON.stringify(packet)));
-      });
-    }
-
-    function handleMessage(msg) {
-      if (msg.type === 'handshake_ack') {
-        const result = msg.result || {};
-        if (result.deviceToken) {
-          deviceToken = result.deviceToken;
-          storageSet('ph_remote_device_token', deviceToken);
-        }
-        // Первое подключение — просто запоминаем точку в потоке событий (проигрывать историю
-        // незачем); при последующих с неё догоняем пропущенное в onConnectionReady().
-        if (!lastEventId && typeof result.lastEventId === 'number') lastEventId = result.lastEventId;
-        if (result.approved === false) {
-          awaitingApproval = true;
-          appendLog('\\n[Ожидание подтверждения устройства на десктопе...]\\n');
-          return;
-        }
-        awaitingApproval = false;
-        onConnectionReady();
-        return;
-      }
-      if (msg.type === 'event') {
-        if (typeof msg.eventId === 'number' && msg.eventId > lastEventId) lastEventId = msg.eventId;
-        applyEvent(msg.event, msg.data);
-      }
-    }
-
-    function applyEvent(event, data) {
-      if (event === 'process:logChunk') {
-        appendLog(data.text);
-      } else if (event === 'ai:hitl') {
-        showHitlRequest(data);
-      } else if (event === 'ai:hitlDecided') {
-        dropHitl(data && data.requestId);
-      } else if (event === 'backlog:changed') {
-        fetchTasks();
-      }
-    }
-
-    async function fetchProjects() {
-      projects = await sendRpc('get_projects');
-      const select = document.getElementById('projectSelect');
-      select.innerHTML = '';
-      projects.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.path;
-        opt.textContent = p.name;
-        select.appendChild(opt);
-      });
-
-      if (projects.length > 0) {
-        select.value = projects[0].path;
-        fetchProcesses();
-        fetchTasks();
-      }
-
-      select.onchange = () => {
-        sendRpc('select_project', { projectPath: select.value });
-        fetchProcesses();
-        fetchTasks();
-      };
-    }
-
-    async function fetchProcesses() {
-      const select = document.getElementById('projectSelect');
-      const procs = await sendRpc('get_processes', { projectPath: select.value });
-      const container = document.getElementById('processList');
-      if (!procs || procs.length === 0) {
-        container.innerHTML = '<div>Нет активных процессов</div>';
-        return;
-      }
-      container.innerHTML = procs.map(pr => \`
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #1e293b;">
-          <div>
-            <div style="font-weight: 600; color: white;">\${pr.name}</div>
-            <div style="font-size: 11px; color: #64748b;">PID: \${pr.pid}</div>
-          </div>
-          <button class="danger" style="padding: 4px 8px; font-size: 11px;" onclick="stopProcess('\${pr.id}')">Стоп</button>
-        </div>
-      \`).join('');
-    }
-
-    async function stopProcess(id) {
-      await sendRpc('stop_process', { processId: id });
-      fetchProcesses();
-    }
-
-    async function fetchTasks() {
-      const select = document.getElementById('projectSelect');
-      const tasks = await sendRpc('get_tasks', { projectPath: select.value });
-      const container = document.getElementById('taskList');
-      if (!tasks || tasks.length === 0) {
-        container.innerHTML = '<div style="color: var(--muted); font-size: 13px;">Задачи не найдены</div>';
-        return;
-      }
-      container.innerHTML = tasks.map(t => \`
-        <div class="task-item">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-            <span style="font-weight: 600; color: white;">\${t.title}</span>
-            <span class="badge \${t.status === 'Done' ? 'done' : t.status === 'In Progress' ? 'progress' : 'todo'}">\${t.status}</span>
-          </div>
-          <div style="font-size: 11px; color: #64748b;">Критерии приемки: \${t.criteria.filter(c => c.completed).length}/\${t.criteria.length}</div>
-        </div>
-      \`).join('');
-    }
-
-    document.getElementById('refreshTasksBtn').onclick = fetchTasks;
-
-    function appendLog(text) {
-      const el = document.getElementById('terminalLogs');
-      el.textContent += text;
-      el.scrollTop = el.scrollHeight;
-    }
-
-    document.getElementById('clearLogsBtn').onclick = () => {
-      document.getElementById('terminalLogs').textContent = '';
-    };
-
-    // Очередь запросов HITL (TASK-57): решение отправляется строго по requestId.
-    const hitlQueue = [];
-    function renderHitl() {
-      const box = document.getElementById('hitlAlert');
-      const current = hitlQueue[0];
-      if (!current) { box.style.display = 'none'; return; }
-      const who = current.agentName ? \` [\${current.agentName}\${current.role ? ' / ' + current.role : ''}]\` : '';
-      const extra = current.command ? '\\n$ ' + current.command : current.filePath ? '\\n' + current.filePath : '';
-      const rest = hitlQueue.length > 1 ? \` (+\${hitlQueue.length - 1} в очереди)\` : '';
-      document.getElementById('hitlDescription').textContent = (current.description || 'Требуется подтверждение') + who + extra + rest;
-      box.style.display = 'block';
-    }
-    function showHitlRequest(data) {
-      if (!data || !data.requestId) return;
-      activeSessionId = data.sessionId;
-      if (!hitlQueue.some((r) => r.requestId === data.requestId)) hitlQueue.push(data);
-      renderHitl();
-    }
-    function dropHitl(requestId) {
-      const idx = hitlQueue.findIndex((r) => r.requestId === requestId);
-      if (idx >= 0) hitlQueue.splice(idx, 1);
-      renderHitl();
-    }
-    async function decideHitl(decision) {
-      const current = hitlQueue[0];
-      if (!current) return;
-      dropHitl(current.requestId);
-      try {
-        const res = await sendRpc('hitl_decision', { requestId: current.requestId, sessionId: current.sessionId, decision });
-        if (res && res.ok === false) appendLog('\\n[HITL] Запрос ' + current.requestId + ': ' + (res.reason === 'already_decided' ? 'уже решён' : 'не найден') + '\\n');
-      } catch (e) {
-        appendLog('\\n[HITL] Ошибка отправки решения: ' + (e && e.message ? e.message : e) + '\\n');
-      }
-    }
-
-    document.getElementById('hitlApproveBtn').onclick = () => decideHitl('allow');
-    document.getElementById('hitlDenyBtn').onclick = () => decideHitl('deny');
-
-    window.switchTab = function(tab) {
-      currentTab = tab;
-      document.getElementById('tabDashboard').style.display = tab === 'dashboard' ? 'block' : 'none';
-      document.getElementById('tabTerminal').style.display = tab === 'terminal' ? 'block' : 'none';
-      document.getElementById('tabTasks').style.display = tab === 'tasks' ? 'block' : 'none';
-
-      const btns = document.querySelectorAll('.nav-btn');
-      btns.forEach((b, idx) => {
-        b.classList.toggle('active', (idx === 0 && tab === 'dashboard') || (idx === 1 && tab === 'terminal') || (idx === 2 && tab === 'tasks'));
-      });
-    };
-
-    // Автоподключение, если в URL уже есть pin
-    if (pinParam) {
-      connect();
-    }
-  </script>
-</body>
-</html>`;
-  }
-
-  /**
-   * Кандидаты пути статического ассета Remote Control под именем `relPath`. Источник в
-   * репозитории — `public/<relPath>` (Vite копирует `public/**` в `dist/` без изменений при
-   * сборке, так ассет доезжает до packaged-приложения как `dist/<relPath>`, см. `files` в
-   * `package.json`). Dev-режим (без сборки) и packaged — оба покрыты.
-   */
-  private staticAssetCandidates(relPath: string): string[] {
-    const root = getDevRepoRoot() || getAppRootDir();
-    return [
-      path.join(root, 'public', relPath),
-      path.join(root, 'dist', relPath),
-      path.join(__dirname, relPath)
-    ];
-  }
-
-  private async readStaticAsset(relPath: string): Promise<string | null> {
-    for (const p of this.staticAssetCandidates(relPath)) {
-      try {
-        if (existsSync(p)) {
-          return await fs.readFile(p, 'utf8');
-        }
-      } catch {
-        // ignore
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Получение HTML для Telegram Mini App (из `public/telegram-mini-app/index.html` или fallback).
-   */
-  private async getTelegramMiniAppHtml(): Promise<string> {
-    const html = await this.readStaticAsset(path.join('telegram-mini-app', 'index.html'));
-    // Fallback: встроенный веб-клиент
-    return html ?? this.getEmbeddedWebClientHtml();
   }
 }
 
