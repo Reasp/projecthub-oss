@@ -2470,7 +2470,7 @@ export const ru: TranslationDictionary = {
     lanBadge: 'Direct LAN',
     relayOnline: 'Relay онлайн',
     qrAddressesLabel: 'Адреса в QR',
-    qrLanOnlyHint: 'Только локальная сеть: для связи вне дома запустите туннель, VPN (Tailscale) или релей — приложение получит адрес само.',
+    qrLanOnlyHint: 'Только локальная сеть: для связи вне дома запустите туннель или подключите релей — приложение получит адрес само.',
     endpointLan: 'LAN',
     endpointVpn: 'VPN',
     endpointTunnel: 'Туннель',

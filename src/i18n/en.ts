@@ -2468,7 +2468,7 @@ export const en: TranslationDictionary = {
     lanBadge: 'Direct LAN',
     relayOnline: 'Relay Online',
     qrAddressesLabel: 'Addresses in QR',
-    qrLanOnlyHint: 'Local network only: to connect away from home, start a tunnel, VPN (Tailscale) or relay — the app picks up the address itself.',
+    qrLanOnlyHint: 'Local network only: to connect away from home, start a tunnel or connect a relay — the app picks up the address itself.',
     endpointLan: 'LAN',
     endpointVpn: 'VPN',
     endpointTunnel: 'Tunnel',
