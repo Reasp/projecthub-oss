@@ -2449,6 +2449,8 @@ export const en: TranslationDictionary = {
     tabDevices: 'Devices',
     tabSettings: 'Network Settings',
     generatingQr: 'Generating QR...',
+    qrDisabledTitle: 'Remote Control is off',
+    qrDisabledHint: 'Turn it on with the button above to get a QR code and a link for your phone.',
     e2eeTitle: 'End-to-End Encryption E2EE (AES-256-GCM)',
     e2eeDesc: 'Scan with smartphone camera on same local network or use Telegram Mini App for mobile access.',
     relayBadge: 'Server Relay',

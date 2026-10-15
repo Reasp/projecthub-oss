@@ -40,6 +40,7 @@ import { secretStorageService } from './secretStorageService.js';
 import { appEventBus } from './eventBus.js';
 import { logger } from './logger.js';
 import { getUserDataDir, getDevRepoRoot, getAppRootDir } from './appPaths.js';
+import { rankLanAddresses } from './lanAddresses.js';
 import matter from 'gray-matter';
 import {
   MOBILE_CLIENT_DIST,
@@ -54,19 +55,11 @@ import {
 } from './remoteStaticClient.js';
 
 /**
- * Получение списка локальных IPv4 адресов машины для прямого подключения (LAN).
+ * Локальные IPv4-адреса машины для прямого подключения (LAN), лучший — первым: QR и hub-режим
+ * берут `[0]`. Link-local и виртуальные адаптеры уходят в конец или отбрасываются (TASK-140.8).
  */
 export function getLocalIpAddresses(): string[] {
-  const interfaces = os.networkInterfaces();
-  const addresses: string[] = [];
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name] || []) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        addresses.push(iface.address);
-      }
-    }
-  }
-  return addresses;
+  return rankLanAddresses(os.networkInterfaces());
 }
 
 /**

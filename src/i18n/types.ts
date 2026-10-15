@@ -2238,6 +2238,9 @@ export interface TranslationDictionary {
     tabDevices: string;
     tabSettings: string;
     generatingQr: string;
+    /** QR и ссылка не показываются, пока Remote Control выключен (TASK-140.8). */
+    qrDisabledTitle: string;
+    qrDisabledHint: string;
     e2eeTitle: string;
     e2eeDesc: string;
     relayBadge: string;

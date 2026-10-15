@@ -122,6 +122,12 @@ export const RemoteControlBadge: React.FC = () => {
   // Генерация QR-кода при открытии модального окна или изменении статуса
   useEffect(() => {
     if (!status || !isOpen) return;
+    // Выключенный Remote Control ничего не слушает — QR вёл бы в никуда (TASK-140.8).
+    if (!status.enabled) {
+      setQrDataUrl('');
+      setQrTelegramDataUrl('');
+      return;
+    }
 
     // Ссылки строит общий модуль, тот же формат разбирает мобильный клиент (TASK-140.1). При
     // запущенном HTTPS-туннеле QR ведёт на него: на http://<IP> браузер не даёт WebCrypto.
@@ -420,6 +426,9 @@ export const RemoteControlBadge: React.FC = () => {
               {/* TAB: ПОДКЛЮЧЕНИЕ */}
               {activeTab === 'connect' && (
                 <div className="space-y-4">
+                  {/* QR и ссылка ведут на сервер, который поднят только при включённом Remote Control. */}
+                  {status.enabled ? (
+                  <>
                   <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-lg bg-ph-panel border border-ph-line">
                     <div className="bg-white p-2.5 rounded-xl flex items-center justify-center shrink-0 shadow-lg">
                       {qrDataUrl ? (
@@ -484,6 +493,16 @@ export const RemoteControlBadge: React.FC = () => {
                       </button>
                     </div>
                   </div>
+                  </>
+                  ) : (
+                    <div className="flex items-center gap-3 p-4 rounded-lg bg-ph-panel border border-ph-line">
+                      <Power className="w-5 h-5 text-slate-500 shrink-0" />
+                      <div>
+                        <div className="text-xs font-semibold text-slate-200">{t.remote.qrDisabledTitle}</div>
+                        <p className="text-xs text-slate-400 leading-relaxed">{t.remote.qrDisabledHint}</p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Секретный ключ шифрования */}
                   <div className="space-y-1.5">
@@ -614,8 +633,8 @@ export const RemoteControlBadge: React.FC = () => {
                       {qrTelegramDataUrl ? (
                         <img src={qrTelegramDataUrl} alt="Telegram Mini App QR" className="w-32 h-32 rounded-lg" />
                       ) : (
-                        <div className="w-32 h-32 flex items-center justify-center text-slate-400 text-xs">
-                          {t.remote.generatingQr}
+                        <div className="w-32 h-32 flex items-center justify-center text-center text-slate-400 text-xs">
+                          {status.enabled ? t.remote.generatingQr : t.remote.qrDisabledTitle}
                         </div>
                       )}
                     </div>

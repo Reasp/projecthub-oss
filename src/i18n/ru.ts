@@ -2449,6 +2449,8 @@ export const ru: TranslationDictionary = {
     tabDevices: 'Устройства',
     tabSettings: 'Настройки сети',
     generatingQr: 'Генерация QR...',
+    qrDisabledTitle: 'Remote Control выключен',
+    qrDisabledHint: 'Включите его кнопкой «Включить» выше — тогда появятся QR-код и ссылка для телефона.',
     e2eeTitle: 'Сквозное шифрование E2EE (AES-256-GCM)',
     e2eeDesc: 'Отсканируйте камерой смартфона в одной локальной сети или используйте Telegram Mini App для мобильного доступа.',
     relayBadge: 'Server Relay',
