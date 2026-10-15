@@ -5,7 +5,16 @@ import type {
   RemoteHandshakeAck,
   RemoteRpcMethod
 } from '../../../src/types/remote';
-import { buildWsTarget, profileProblems, type HostProfile } from './pairing';
+import {
+  ENDPOINT_KIND_LABEL,
+  ENDPOINT_KIND_ORDER,
+  describeEndpoint,
+  endpointFromAddress,
+  sanitizeEndpoints,
+  type EndpointKind,
+  type RemoteEndpoint
+} from '../../../src/utils/remoteEndpoints';
+import { buildWsTarget, connectionCandidates, profileProblems, type HostProfile } from './pairing';
 
 /**
  * Клиент Remote Control для телефона (TASK-140.1): соединение, сопряжение, RPC и события по
@@ -65,6 +74,10 @@ export interface ClientSnapshot {
   rights: DeviceRights | null;
   readOnly: boolean;
   viaRelay: boolean;
+  /** Путь текущего (или пробуемого) подключения: локальная сеть, VPN, туннель, релей (TASK-140.9). */
+  route: EndpointKind | null;
+  /** Подпись адреса для экрана: `туннель abc.trycloudflare.com`. */
+  endpoint: string | null;
   lastEventId: number;
   /** Через сколько миллисекунд будет следующая попытка (только в `reconnecting`). */
   retryInMs: number | null;
@@ -82,9 +95,25 @@ export interface RemoteClientOptions {
   timers?: Timers;
   rpcTimeoutMs?: number;
   heartbeatMs?: number;
-  /** Сколько ждать открытия сокета, прежде чем считать попытку неудачной. */
+  /**
+   * Сколько ждать открытия сокета, прежде чем перейти к следующему адресу. По умолчанию зависит от вида
+   * адреса (`CONNECT_TIMEOUT_BY_KIND`): адрес в LAN из мобильной сети молчит, ждать его долго незачем.
+   */
   connectTimeoutMs?: number;
+  /** Страница открыта по HTTPS: адреса `ws://` браузер не откроет (mixed content). */
+  secureOnly?: boolean;
+  /**
+   * Как часто, будучи на связи через VPN, туннель или релей, проверять адреса лучше (TASK-140.9): телефон
+   * вернулся домой — связь переходит на локальную сеть. 0 — не проверять.
+   */
+  upgradeProbeMs?: number;
 }
+
+/** После неудачного перехода на адрес лучше не пробовать его снова столько, мс. */
+const UPGRADE_COOLDOWN_MS = 5 * 60_000;
+
+/** Ожидание открытия сокета по видам адресов, мс. */
+export const CONNECT_TIMEOUT_BY_KIND: Record<EndpointKind, number> = { lan: 5000, vpn: 8000, tunnel: 12_000, relay: 12_000 };
 
 /** Экспоненциальная задержка переподключения, как у хоста и прежних клиентов: 1с, 2с, 4с … ≤ 30с. */
 export function reconnectDelayMs(attempt: number): number {
@@ -115,6 +144,50 @@ type SnapshotListener = (snapshot: ClientSnapshot) => void;
 
 const OPEN = 1;
 
+/** Сокет, от которого отказались (таймаут, сторож): его события больше не обрабатываются. */
+function abandonSocket(socket: SocketLike): void {
+  socket.onopen = null;
+  socket.onmessage = null;
+  socket.onclose = null;
+  socket.onerror = null;
+  try {
+    socket.close();
+  } catch {
+    // уже закрыт
+  }
+}
+
+/**
+ * Свежие адреса хоста в профиль (TASK-140.9): список хоста заменяет прежний, адрес старой ссылки,
+ * которого в нём нет (например, туннель прошлого запуска), убирается. Релей меняется, только если хост
+ * его назвал. `true` — профиль изменился.
+ */
+export function mergeHostEndpoints(profile: HostProfile, info: { endpoints?: unknown; relayUrl?: unknown }): boolean {
+  let changed = false;
+  if (Array.isArray(info.endpoints)) {
+    const next = sanitizeEndpoints(info.endpoints);
+    if (JSON.stringify(next) !== JSON.stringify(profile.endpoints ?? [])) {
+      profile.endpoints = next;
+      changed = true;
+    }
+    const legacy = endpointFromAddress(profile.lanAddress);
+    if (legacy && !next.some((ep) => ep.url === legacy.url)) {
+      profile.lanAddress = undefined;
+      changed = true;
+    }
+  }
+  if (typeof info.relayUrl === 'string' && info.relayUrl && info.relayUrl !== profile.relayUrl) {
+    profile.relayUrl = info.relayUrl;
+    changed = true;
+  }
+  return changed;
+}
+
+/** Подпись пути для экрана: «локальная сеть», «VPN», «туннель», «релей». */
+export function routeLabel(route: EndpointKind | null): string {
+  return route ? ENDPOINT_KIND_LABEL[route] : '';
+}
+
 /**
  * Текст кадра WebSocket. Релей до TASK-140.1 пересылал сообщения хоста бинарными кадрами
  * (`Buffer` из `ws`), и браузер отдавал их как `Blob` — старые клиенты молча не понимали ответов
@@ -129,7 +202,28 @@ export async function frameText(raw: unknown): Promise<string> {
 }
 
 export const CONNECT_TIMEOUT_ERROR =
-  'Компьютер не отвечает. Проверьте, что в ProjectHub включён Remote Control и телефон в той же сети Wi-Fi (или включите туннель).';
+  'Компьютер не отвечает в локальной сети. Проверьте, что в ProjectHub включён Remote Control и телефон в той же сети Wi-Fi. '
+  + 'Вне дома нужен адрес через интернет: включите на ПК туннель, VPN или релей — телефон получит адрес сам, '
+  + 'как только подключится к ПК (например, дома по Wi-Fi), или отсканируйте QR заново.';
+
+export const NO_SECURE_ENDPOINT_ERROR =
+  'На этой HTTPS-странице нет адреса, по которому можно подключиться: адреса локальной сети браузер здесь не откроет. '
+  + 'Включите в ProjectHub туннель и откройте его ссылку или используйте приложение.';
+
+/**
+ * Понятная причина, когда ни один адрес не ответил (TASK-140.9). Если в профиле только адреса локальной
+ * сети — почти наверняка телефон не дома, а путей через интернет нет.
+ */
+export function unreachableMessage(tried: RemoteEndpoint[], failures: string[]): string {
+  if (tried.length > 0 && tried.every((ep) => ep.kind === 'lan')) return CONNECT_TIMEOUT_ERROR;
+  const parts = [`Компьютер недоступен ни по одному адресу: ${failures.join('; ')}.`];
+  parts.push('Проверьте, что ProjectHub запущен и Remote Control включён.');
+  if (tried.some((ep) => ep.kind === 'tunnel')) {
+    parts.push('Адрес быстрого туннеля меняется при перезапуске ProjectHub: новый телефон получит, когда подключится к ПК другим путём.');
+  }
+  if (tried.some((ep) => ep.kind === 'vpn')) parts.push('Для адреса VPN на телефоне должен быть включён тот же VPN (Tailscale).');
+  return parts.join(' ');
+}
 
 export const WRONG_KEY_ERROR = 'Ключ не подходит к этому компьютеру. Отсканируйте QR-код заново.';
 
@@ -160,16 +254,37 @@ export class RemoteClient {
     rights: null,
     readOnly: false,
     viaRelay: false,
+    route: null,
+    endpoint: null,
     lastEventId: 0,
     retryInMs: null
   };
+  /** Адреса текущего цикла перебора и номер пробуемого. */
+  private candidates: RemoteEndpoint[] = [];
+  private candidateIdx = 0;
+  private cycleFailures: string[] = [];
+  private current: RemoteEndpoint | null = null;
+  /** Причина неудачи текущей попытки (ответ релея), если её назвал хост или релей. */
+  private attemptError: string | null = null;
+  /** Сокет, дошедший до `ready`: его разрыв — потеря сессии, а не неудачная попытка адреса. */
+  private readySocket: SocketLike | null = null;
+  /** Когда пришёл последний кадр: молчащий дольше двух пингов сокет считаем мёртвым. */
+  private lastFrameAt = 0;
+  private upgradeTimer: unknown = null;
+  /** Адрес, с которого начать следующий цикл (проверка нашла путь лучше); действует один цикл. */
+  private preferUrl: string | null = null;
+  private upgradeBusy = false;
+  /** Адреса, переход на которые не удался: url → до какого времени их не пробовать. */
+  private upgradeCooldown = new Map<string, number>();
 
   constructor(options: RemoteClientOptions) {
     this.opts = {
       timers: defaultTimers,
       rpcTimeoutMs: 15_000,
       heartbeatMs: 25_000,
-      connectTimeoutMs: 12_000,
+      connectTimeoutMs: 0,
+      secureOnly: false,
+      upgradeProbeMs: 30_000,
       ...options
     };
   }
@@ -205,11 +320,12 @@ export class RemoteClient {
       this.hadSession = false;
     }
     this.closeSocket();
+    this.clearReconnect();
     this.profile = { ...profile };
     this.codec = this.opts.codecFactory(profile.key);
     this.stopped = false;
     this.reconnectAttempt = 0;
-    this.open();
+    this.openCycle();
   }
 
   disconnect(): void {
@@ -226,7 +342,7 @@ export class RemoteClient {
     this.clearReconnect();
     this.closeSocket();
     this.reconnectAttempt = 0;
-    this.open();
+    this.openCycle();
   }
 
   /**
@@ -266,13 +382,34 @@ export class RemoteClient {
     if (socket.readyState === OPEN) socket.send(JSON.stringify(encrypted));
   }
 
-  private open(): void {
+  /** Новый цикл перебора: адреса профиля по порядку, последний удачный — первым (TASK-140.9). */
+  private openCycle(): void {
     const profile = this.profile;
     if (!profile) return;
-    const target = buildWsTarget(profile, this.opts.deviceName);
+    this.candidates = connectionCandidates(profile, { secureOnly: this.opts.secureOnly, firstUrl: this.preferUrl ?? undefined });
+    this.preferUrl = null;
+    this.candidateIdx = 0;
+    this.cycleFailures = [];
+    if (this.candidates.length === 0) {
+      this.stopped = true;
+      this.update({ state: 'failed', error: NO_SECURE_ENDPOINT_ERROR, route: null, endpoint: null, retryInMs: null });
+      return;
+    }
+    this.openCandidate();
+  }
+
+  private openCandidate(): void {
+    const profile = this.profile;
+    const endpoint = this.candidates[this.candidateIdx];
+    if (!profile || !endpoint) return;
+    this.current = endpoint;
+    this.attemptError = null;
+    const target = buildWsTarget(profile, endpoint, this.opts.deviceName);
     this.update({
       state: this.hadSession ? 'reconnecting' : 'connecting',
       viaRelay: target.viaRelay,
+      route: endpoint.kind,
+      endpoint: describeEndpoint(endpoint),
       hostId: profile.hostId,
       retryInMs: null
     });
@@ -281,33 +418,32 @@ export class RemoteClient {
     try {
       socket = this.opts.socketFactory(target.url);
     } catch (err) {
-      this.update({ error: err instanceof Error ? err.message : String(err) });
-      this.scheduleReconnect();
+      this.candidateFailed(err instanceof Error ? err.message : String(err));
       return;
     }
     this.socket = socket;
 
-    // Брандмауэр или выключенный Remote Control часто не отвечают вовсе — без таймаута клиент
-    // висел бы в «Подключение…» без объяснения.
+    // Брандмауэр, выключенный Remote Control или адрес LAN из мобильной сети часто не отвечают вовсе —
+    // без таймаута клиент висел бы на одном адресе.
+    const timeoutMs = this.opts.connectTimeoutMs || CONNECT_TIMEOUT_BY_KIND[endpoint.kind];
     const connectTimer = this.opts.timers.setTimeout(() => {
       if (this.socket !== socket || socket.readyState === OPEN) return;
-      this.update({ error: CONNECT_TIMEOUT_ERROR });
-      socket.onclose?.({ code: 4000, reason: 'connect timeout' });
-      try {
-        socket.close();
-      } catch {
-        // уже закрыт
-      }
-    }, this.opts.connectTimeoutMs);
+      this.socket = null;
+      abandonSocket(socket);
+      this.candidateFailed('не отвечает');
+    }, timeoutMs);
 
     socket.onopen = () => {
       this.opts.timers.clearTimeout(connectTimer);
       if (this.socket !== socket) return;
-      // В LAN хост сам присылает handshake_ack после проверки query; через релей ждём relay_ack.
-      this.update({ state: 'pairing', error: null });
+      this.lastFrameAt = Date.now();
+      this.update({ state: 'pairing' });
+      // Напрямую секреты не едут в URL: первым пакетом идёт зашифрованный handshake. Через релей — после relay_ack.
+      if (!target.viaRelay) void this.sendHandshake(socket);
     };
     socket.onmessage = (ev) => {
       if (this.socket !== socket) return;
+      this.lastFrameAt = Date.now();
       void this.handleRaw(socket, ev.data);
     };
     socket.onerror = () => {
@@ -315,19 +451,42 @@ export class RemoteClient {
     };
     socket.onclose = (ev) => {
       this.opts.timers.clearTimeout(connectTimer);
-      if (this.socket !== socket) return;
-      this.socket = null;
-      this.stopHeartbeat();
-      this.rejectAllPending(new Error('Соединение разорвано'));
-      if (isRevokedClose(ev.code, ev.reason)) {
-        this.forgetToken();
-        this.stopped = true;
-        this.update({ state: 'failed', error: 'Устройство отключено на ПК. Сопрягите его заново.' });
-        return;
-      }
-      if (this.stopped) return;
-      this.scheduleReconnect();
+      this.onSocketClosed(socket, ev);
     };
+  }
+
+  private onSocketClosed(socket: SocketLike, ev: { code?: number; reason?: string }): void {
+    if (this.socket !== socket) return;
+    this.socket = null;
+    this.stopHeartbeat();
+    this.rejectAllPending(new Error('Соединение разорвано'));
+    if (isRevokedClose(ev.code, ev.reason)) {
+      this.forgetToken();
+      this.stopped = true;
+      this.update({ state: 'failed', error: 'Устройство отключено на ПК. Сопрягите его заново.' });
+      return;
+    }
+    if (this.stopped) return;
+    if (this.readySocket === socket) {
+      // Сессия была — после паузы начинаем новый цикл с того же (последнего удачного) адреса.
+      this.readySocket = null;
+      this.scheduleReconnect();
+      return;
+    }
+    this.candidateFailed(this.attemptError || 'недоступен');
+  }
+
+  /** Адрес не сработал: сразу пробуем следующий, а когда кончились — пауза и новый цикл. */
+  private candidateFailed(reason: string): void {
+    if (this.stopped) return;
+    if (this.current) this.cycleFailures.push(`${describeEndpoint(this.current)} — ${reason}`);
+    this.candidateIdx++;
+    if (this.candidateIdx < this.candidates.length) {
+      this.openCandidate();
+      return;
+    }
+    this.update({ error: unreachableMessage(this.candidates, this.cycleFailures) });
+    this.scheduleReconnect();
   }
 
   private async handleRaw(socket: SocketLike, raw: unknown): Promise<void> {
@@ -344,7 +503,7 @@ export class RemoteClient {
       return;
     }
     if (parsed.type === 'host_disconnected') {
-      this.update({ error: 'Хост отключился от релея' });
+      this.attemptError = 'ПК отключился от релея';
       socket.close();
       return;
     }
@@ -396,13 +555,14 @@ export class RemoteClient {
       this.update({ state: 'awaiting_approval', error: null });
       return;
     }
-    // Например, «Host offline or not found» от релея: сокет закроется, сработает backoff.
-    this.update({ error: message });
+    // Например, «Host offline or not found» от релея: сокет закроется, клиент перейдёт к следующему адресу.
+    if (this.snapshot.state === 'ready') this.update({ error: message });
+    else this.attemptError = /offline or not found/i.test(message) ? 'ПК не подключён к релею' : message;
   }
 
   private async sendHandshake(socket: SocketLike): Promise<void> {
     const profile = this.profile!;
-    const data: Record<string, string> = { key: profile.key };
+    const data: Record<string, string> = { key: profile.key, name: this.opts.deviceName };
     if (profile.pin) data.pin = profile.pin;
     if (profile.deviceToken) data.token = profile.deviceToken;
     try {
@@ -433,6 +593,7 @@ export class RemoteClient {
         this.lastEventId = packet.eventId;
         this.update({ lastEventId: this.lastEventId });
       }
+      if (packet.event === 'host:endpoints') this.applyHostEndpoints(packet.data);
       this.emit(packet.event, packet.data);
     }
   }
@@ -457,6 +618,12 @@ export class RemoteClient {
       profile.pin = undefined;
       changed = true;
     }
+    if (mergeHostEndpoints(profile, ack)) changed = true;
+    // Адрес, через который хост ответил и одобрил устройство, становится первым в следующем переборе.
+    if (ack.approved !== false && this.current && profile.lastEndpoint !== this.current.url) {
+      profile.lastEndpoint = this.current.url;
+      changed = true;
+    }
     if (changed) this.opts.onProfileChange?.({ ...profile });
 
     this.update({
@@ -478,8 +645,11 @@ export class RemoteClient {
     }
     this.reconnectAttempt = 0;
     this.hadSession = true;
+    this.readySocket = socket;
+    if (this.current) this.upgradeCooldown.delete(this.current.url);
     this.update({ state: 'ready', error: null, lastEventId: this.lastEventId, retryInMs: null });
     this.startHeartbeat(socket);
+    this.startUpgradeProbe(socket);
     if (catchUp) await this.catchUpEvents(socket);
     this.emit('client:ready', { catchUp });
   }
@@ -508,7 +678,14 @@ export class RemoteClient {
     this.stopHeartbeat();
     // Туннели и прокси рвут молчащие сокеты (Cloudflare — около 100 с).
     this.heartbeatTimer = this.opts.timers.setInterval(() => {
-      if (this.socket === socket && socket.readyState === OPEN) {
+      if (this.socket !== socket) return;
+      // Сеть сменилась (Wi-Fi → мобильная), а сокет не закрылся: хост молчит дольше двух пингов — сессия мертва.
+      if (Date.now() - this.lastFrameAt > this.opts.heartbeatMs * 2 + 10_000) {
+        abandonSocket(socket);
+        this.onSocketClosed(socket, { code: 4002, reason: 'heartbeat timeout' });
+        return;
+      }
+      if (socket.readyState === OPEN) {
         void this.sendEncrypted(socket, { type: 'ping', id: `p${Date.now().toString(36)}` }).catch(() => undefined);
       }
     }, this.opts.heartbeatMs);
@@ -519,6 +696,74 @@ export class RemoteClient {
       this.opts.timers.clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    if (this.upgradeTimer !== null) {
+      this.opts.timers.clearInterval(this.upgradeTimer);
+      this.upgradeTimer = null;
+    }
+  }
+
+  /**
+   * Пока связь идёт через путь хуже лучшего из известных (VPN, туннель, релей), раз в `upgradeProbeMs`
+   * проверяем адреса лучше. Ответил — переподключаемся на него: дома связь возвращается на LAN, хотя после
+   * разрыва клиент начинал с последнего удачного туннеля.
+   */
+  private startUpgradeProbe(socket: SocketLike): void {
+    if (!this.opts.upgradeProbeMs || !this.current || this.current.kind === 'lan') return;
+    this.upgradeTimer = this.opts.timers.setInterval(() => void this.tryUpgrade(socket), this.opts.upgradeProbeMs);
+  }
+
+  private async tryUpgrade(socket: SocketLike): Promise<void> {
+    const profile = this.profile;
+    const current = this.current;
+    if (this.upgradeBusy || !profile || !current || this.socket !== socket || this.snapshot.state !== 'ready') return;
+    const rank = (kind: EndpointKind) => ENDPOINT_KIND_ORDER.indexOf(kind);
+    const now = Date.now();
+    const better = connectionCandidates(profile, { secureOnly: this.opts.secureOnly }).filter(
+      (ep) => ep.kind !== 'relay' && rank(ep.kind) < rank(current.kind) && (this.upgradeCooldown.get(ep.url) ?? 0) <= now
+    );
+    if (better.length === 0) return;
+    this.upgradeBusy = true;
+    try {
+      for (const ep of better) {
+        if (!(await this.probe(ep))) continue;
+        if (this.socket !== socket || this.snapshot.state !== 'ready') return;
+        // Если переход не удастся, этот адрес не пробуем ещё 5 минут — иначе связь дёргалась бы каждые 30 с.
+        this.upgradeCooldown.set(ep.url, Date.now() + UPGRADE_COOLDOWN_MS);
+        this.preferUrl = ep.url;
+        this.closeSocket();
+        this.reconnectAttempt = 0;
+        this.openCycle();
+        return;
+      }
+    } finally {
+      this.upgradeBusy = false;
+    }
+  }
+
+  /** Сокет к адресу открывается — адрес рабочий. Хост закрывает `?probe=1` сразу, ничего не регистрируя. */
+  private probe(ep: RemoteEndpoint): Promise<boolean> {
+    return new Promise((resolve) => {
+      let done = false;
+      let socket: SocketLike | null = null;
+      const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
+        this.opts.timers.clearTimeout(timer);
+        if (socket) abandonSocket(socket);
+        resolve(ok);
+      };
+      const timer = this.opts.timers.setTimeout(() => finish(false), CONNECT_TIMEOUT_BY_KIND[ep.kind]);
+      try {
+        socket = this.opts.socketFactory(`${ep.url}/?probe=1`);
+      } catch {
+        finish(false);
+        return;
+      }
+      socket.onopen = () => finish(true);
+      socket.onclose = () => finish(false);
+      socket.onerror = () => undefined;
+      socket.onmessage = () => undefined;
+    });
   }
 
   private scheduleReconnect(): void {
@@ -528,7 +773,7 @@ export class RemoteClient {
     this.update({ state: 'reconnecting', retryInMs: delay });
     this.reconnectTimer = this.opts.timers.setTimeout(() => {
       this.reconnectTimer = null;
-      if (!this.stopped) this.open();
+      if (!this.stopped) this.openCycle();
     }, delay);
   }
 
@@ -542,6 +787,7 @@ export class RemoteClient {
   private closeSocket(): void {
     const socket = this.socket;
     this.socket = null;
+    this.readySocket = null;
     this.stopHeartbeat();
     this.rejectAllPending(new Error('Соединение закрыто'));
     if (socket) {
@@ -551,6 +797,12 @@ export class RemoteClient {
         // уже закрыт
       }
     }
+  }
+
+  /** Хост прислал свежий список адресов (событие `host:endpoints`) — сохраняем без нового QR. */
+  private applyHostEndpoints(data: unknown): void {
+    if (!this.profile || !data || typeof data !== 'object') return;
+    if (mergeHostEndpoints(this.profile, data as { endpoints?: unknown; relayUrl?: unknown })) this.opts.onProfileChange?.({ ...this.profile });
   }
 
   private forgetToken(): void {

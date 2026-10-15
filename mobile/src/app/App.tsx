@@ -5,6 +5,7 @@ import { HostSheet } from '../components/HostSheet';
 import { useTabSwipe } from '../components/gestures';
 import { Button, Spinner } from '../components/ui';
 import { profileProblems, type HostProfile } from '../protocol/pairing';
+import { routeLabel } from '../protocol/remoteClient';
 import { AgentsScreen } from '../screens/AgentsScreen';
 import { InboxScreen } from '../screens/InboxScreen';
 import { PairingScreen } from '../screens/PairingScreen';
@@ -41,6 +42,10 @@ function ConnectionBanner() {
     <div className={clsx('flex items-center gap-2 px-3 py-2 text-[13px]', tone)}>
       <span className="min-w-0 flex-1">
         {STATE_TEXT[conn.state] ?? conn.state}
+        {/* Какой адрес пробуем сейчас: при переборе видно, что клиент не завис (TASK-140.9). */}
+        {(conn.state === 'connecting' || conn.state === 'pairing' || (conn.state === 'reconnecting' && !conn.retryInMs)) && conn.endpoint
+          ? ` (${conn.endpoint})`
+          : ''}
         {conn.retryInMs ? ` через ${Math.round(conn.retryInMs / 1000)} с` : ''}
         {conn.error ? ` — ${conn.error}` : ''}
       </span>
@@ -111,7 +116,10 @@ function Shell() {
           <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', conn.state === 'ready' ? 'bg-emerald-400' : conn.state === 'failed' ? 'bg-red-400' : 'bg-amber-400')} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[15px] font-semibold">{project?.name || 'Проект не выбран'}</span>
-            <span className="block truncate text-[12px] text-slate-400">{status?.machineName || 'ProjectHub'}</span>
+            <span className="block truncate text-[12px] text-slate-400">
+              {status?.machineName || 'ProjectHub'}
+              {conn.state === 'ready' && conn.route ? ` · ${routeLabel(conn.route)}` : ''}
+            </span>
           </span>
           <CaretDownIcon size={18} className="text-slate-400" />
         </button>

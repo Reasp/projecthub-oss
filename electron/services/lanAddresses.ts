@@ -44,6 +44,33 @@ function score(name: string, address: string): number {
   return 4;
 }
 
+/** Оверлейные сети: через них телефон достаёт ПК из любой сети (TASK-140.9). */
+const VPN_ADAPTER = /tailscale|headscale|zerotier|wireguard|^wg\d|netbird|nebula|openvpn|vpn|^utun|^tun/i;
+/** Гипервизоры и контейнеры: адрес живёт только внутри ПК, телефону он бесполезен. */
+const HOST_ONLY_ADAPTER = /vmware|virtualbox|vbox|hyper-v|vethernet|wsl|docker|virbr|veth|br-|bridge|loopback|bluetooth/i;
+
+/**
+ * Адреса ПК для списка адресов телефона (TASK-140.9): `lan` — частные сети физических адаптеров,
+ * `vpn` — CGNAT Tailscale/Headscale и адаптеры WireGuard/ZeroTier. Адреса гипервизоров, WSL и Docker
+ * отбрасываются: с телефона до них не дойти. Порядок внутри вида — как у `rankLanAddresses`.
+ */
+export function classifyLanAddresses(interfaces: Record<string, InterfaceAddress[] | undefined>): Array<{ address: string; kind: 'lan' | 'vpn' }> {
+  const kindByAddress = new Map<string, 'lan' | 'vpn' | null>();
+  for (const [name, list] of Object.entries(interfaces)) {
+    for (const iface of list ?? []) {
+      if (kindByAddress.has(iface.address)) continue;
+      let kind: 'lan' | 'vpn' | null;
+      if (isCgnat(iface.address) || VPN_ADAPTER.test(name)) kind = 'vpn';
+      else if (HOST_ONLY_ADAPTER.test(name)) kind = null;
+      else kind = isPrivateLan(iface.address) ? 'lan' : null;
+      kindByAddress.set(iface.address, kind);
+    }
+  }
+  return rankLanAddresses(interfaces)
+    .map((address) => ({ address, kind: kindByAddress.get(address) ?? null }))
+    .filter((a): a is { address: string; kind: 'lan' | 'vpn' } => a.kind !== null);
+}
+
 /** IPv4-адреса без loopback и link-local, лучший для телефона в той же Wi-Fi — первым. */
 export function rankLanAddresses(interfaces: Record<string, InterfaceAddress[] | undefined>): string[] {
   const found: Array<{ address: string; score: number; order: number }> = [];

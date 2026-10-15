@@ -5,7 +5,13 @@
  * Ключ едет только в hash (`#key=…`): браузер не отправляет hash на сервер, поэтому ни туннель,
  * ни прокси его не видят. В `start_param` Telegram (≤ 64 символов `[A-Za-z0-9_-]`) hex-ключ из
  * 64 символов не помещается — туда кладётся base64url (`kb_` + 43 символа).
+ *
+ * Адреса хоста (TASK-140.9, decision-82) едут повторяемым параметром `ep` (`ep=l:192.168.1.5:42050`,
+ * `ep=v:100.70.1.2:42050`, `ep=t:abc.trycloudflare.com`). Протокол v2 ([[TASK-140.2]]) добавит к тем же
+ * параметрам ключ хоста и версию, список адресов остаётся тем же.
  */
+
+import { encodeEndpointParam, relayEndpoint, type RemoteEndpoint } from './remoteEndpoints';
 
 /** hex → base64url без `=`. */
 export function hexToBase64Url(hex: string, encodeBase64: (s: string) => string = btoa): string {
@@ -38,11 +44,26 @@ export interface PairingSource {
   localIp?: string;
   /** Публичный HTTPS-туннель, если запущен. */
   tunnelUrl?: string;
+  /** Все адреса хоста для телефона (`getStatus().endpoints`). */
+  endpoints?: RemoteEndpoint[];
 }
 
+/**
+ * Hash ссылки. Релей с адресом loopback (по умолчанию `ws://127.0.0.1:42055`) с телефона недостижим —
+ * в ссылку он попадает, только если хост явно в режиме релея. Адрес страницы клиент берёт из самой
+ * ссылки, поэтому повторять его в `ep` незачем.
+ */
 export function buildPairingHash(src: PairingSource, extra: Record<string, string> = {}): string {
-  const params = new URLSearchParams({ hostId: src.hostId, key: src.key, relay: src.relayServerUrl, mode: src.mode, ...extra });
-  return params.toString();
+  const params = new URLSearchParams({ hostId: src.hostId, key: src.key });
+  if (src.mode === 'relay' || relayEndpoint(src.relayServerUrl)) params.set('relay', src.relayServerUrl);
+  params.set('mode', src.mode);
+  for (const [k, v] of Object.entries(extra)) params.set(k, v);
+  const pageHost = clientPageOrigin(src).replace(/^https?:\/\//, '');
+  const eps = (src.endpoints ?? [])
+    .map(encodeEndpointParam)
+    .filter((v): v is string => typeof v === 'string' && v.slice(2) !== pageHost);
+  // `:` в hash допустим (RFC 3986), не кодируем его — QR остаётся меньше.
+  return [params.toString(), ...eps.map((v) => `ep=${v}`)].join('&');
 }
 
 /** `start_param` Mini App с полным ключом. */

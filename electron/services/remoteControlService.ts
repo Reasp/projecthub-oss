@@ -40,7 +40,10 @@ import { secretStorageService } from './secretStorageService.js';
 import { appEventBus } from './eventBus.js';
 import { logger } from './logger.js';
 import { getUserDataDir, getDevRepoRoot, getAppRootDir } from './appPaths.js';
-import { rankLanAddresses } from './lanAddresses.js';
+import { classifyLanAddresses, rankLanAddresses } from './lanAddresses.js';
+import { resolveTunnelCommand } from './tunnelCommand.js';
+import treeKill from 'tree-kill';
+import { buildHostEndpoints, relayEndpoint, type RemoteEndpoint } from '../../src/utils/remoteEndpoints.js';
 import matter from 'gray-matter';
 import {
   MOBILE_CLIENT_DIST,
@@ -69,6 +72,19 @@ export function getLocalIpAddresses(): string[] {
  */
 export const REMOTE_FEDERATION_PROTOCOL_VERSION = 1;
 
+/**
+ * Адрес клиента для лимита попыток PIN и списка устройств. За туннелем cloudflared подключение приходит
+ * с loopback, настоящий адрес — в `CF-Connecting-IP`. Заголовку верим только с loopback: из LAN его
+ * подделал бы кто угодно.
+ */
+function clientIpOf(req: IncomingMessage): string {
+  const remote = req.socket.remoteAddress || '127.0.0.1';
+  const loopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+  const forwarded = req.headers['cf-connecting-ip'];
+  if (loopback && typeof forwarded === 'string' && forwarded.trim()) return forwarded.trim().slice(0, 64);
+  return remote;
+}
+
 interface ClientConnection {
   id: string;
   ws: WebSocket;
@@ -83,6 +99,12 @@ interface DeviceTokenRecord {
   createdAt: number;
   /** Права назначены вручную из UI: пересопряжение по PIN их не сбрасывает (TASK-65). */
   rightsExplicit?: boolean;
+  /**
+   * Владелец одобрил устройство на ПК (TASK-140.9). `false` — токен выдан, но одобрения ещё не было:
+   * переподключение с таким токеном снова ждёт одобрения. Записи без поля (до TASK-140.9) считаются
+   * одобренными — так работали прежние переподключения в LAN.
+   */
+  approved?: boolean;
 }
 
 const PIN_MAX_ATTEMPTS = 5;
@@ -135,6 +157,8 @@ class RemoteControlService {
   private telegramMiniAppUrl = '';
 
   private tunnelProcess: ChildProcess | null = null;
+  /** Туннель запущен через shell (`npx`): останавливать деревом процессов. */
+  private tunnelViaShell = false;
   private tunnelUrl = '';
   private tunnelStatus: 'idle' | 'starting' | 'active' | 'error' = 'idle';
   private tunnelError: string | null = null;
@@ -179,6 +203,8 @@ class RemoteControlService {
   private activeAgentSessions = new Set<string>();
   /** Понятная ошибка несовместимости версии протокола с релеем (AC #5), показывается в UI. */
   private federationProtocolError: string | null = null;
+  /** Последние адреса, о которых узнали телефоны (`host:endpoints`), — чтобы слать событие только при смене. */
+  private announcedEndpointsKey = '';
 
   constructor() {
     this.hostId = `ph_host_${crypto.randomBytes(6).toString('hex')}`;
@@ -332,11 +358,19 @@ class RemoteControlService {
       rights,
       deviceName,
       createdAt: Date.now(),
+      // Новый токен не наследует одобрение: `deviceId` выбирает клиент, и знающий ключ мог бы назваться
+      // уже одобренным устройством.
+      approved: !this.requireApproval,
       ...(previous?.rightsExplicit ? { rightsExplicit: true } : {})
     };
     this.deviceTokens.set(deviceId, record);
     this.persistDeviceTokens().catch(() => {});
     return record;
+  }
+
+  /** Переподключение по токену одобрено, если владелец одобрял это устройство или одобрение выключено. */
+  private isTokenApproved(record: DeviceTokenRecord): boolean {
+    return !this.requireApproval || record.approved !== false;
   }
 
   private validateDeviceToken(deviceId: string, token: string): DeviceTokenRecord | null {
@@ -565,6 +599,26 @@ class RemoteControlService {
     );
   }
 
+  /**
+   * Адреса хоста для телефона (TASK-140.9, decision-82): LAN и VPN этого ПК, постоянный публичный адрес,
+   * заданный владельцем (поле «Публичный URL» — именованный туннель или свой прокси), и работающий туннель.
+   */
+  public getPhoneEndpoints(): RemoteEndpoint[] {
+    const publicUrl = this.telegramMiniAppUrl.startsWith('https://') ? this.telegramMiniAppUrl.replace(/\/telegram\/?$/, '') : '';
+    return buildHostEndpoints({
+      addresses: classifyLanAddresses(os.networkInterfaces()),
+      port: this.port,
+      publicUrl,
+      tunnelUrl: this.tunnelStatus === 'active' ? this.tunnelUrl : ''
+    });
+  }
+
+  /** Адреса для `handshake_ack` и события `host:endpoints`; релей — только если он достижим с телефона. */
+  private endpointsAnnouncement(): { endpoints: RemoteEndpoint[]; relayUrl?: string } {
+    const relayUrl = relayEndpoint(this.relayServerUrl) ? this.relayServerUrl : '';
+    return { endpoints: this.getPhoneEndpoints(), ...(relayUrl ? { relayUrl } : {}) };
+  }
+
   public getStatus(): RemoteControlStatus {
     const localIps = getLocalIpAddresses();
     return {
@@ -599,7 +653,8 @@ class RemoteControlService {
       telegramBotToken: this.telegramBotToken,
       telegramChatId: this.telegramChatId,
       telegramBotUsername: this.telegramBotUsername,
-      telegramMiniAppUrl: this.telegramMiniAppUrl || (this.tunnelUrl ? `${this.tunnelUrl}/telegram` : '')
+      telegramMiniAppUrl: this.telegramMiniAppUrl || (this.tunnelUrl ? `${this.tunnelUrl}/telegram` : ''),
+      endpoints: this.getPhoneEndpoints()
     };
   }
 
@@ -754,6 +809,11 @@ class RemoteControlService {
   }
 
   public approveDevice(deviceId: string): RemoteControlStatus {
+    const record = this.deviceTokens.get(deviceId);
+    if (record && record.approved === false) {
+      record.approved = true;
+      this.persistDeviceTokens().catch(() => {});
+    }
     const dev = this.connectedDevices.get(deviceId);
     if (dev) {
       dev.isApproved = true;
@@ -919,16 +979,26 @@ class RemoteControlService {
 
     return new Promise((resolve) => {
       let resolved = false;
-      const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-      const args = ['--yes', 'cloudflared', 'tunnel', '--url', `http://127.0.0.1:${this.port}`];
+      // Установленный cloudflared — напрямую; npx — через shell: Node запрещает запуск .cmd без shell (TASK-140.9).
+      const tunnel = resolveTunnelCommand(this.port, {
+        platform: process.platform,
+        pathEnv: process.env.PATH || process.env.Path || '',
+        programFiles: [process.env['ProgramFiles(x86)'] || '', process.env.ProgramFiles || ''],
+        exists: (file) => existsSync(file),
+        delimiter: path.delimiter,
+        join: path.join
+      });
+      logger.info(`[RemoteControl] Tunnel command: ${tunnel.shell ? 'npx cloudflared (shell)' : tunnel.command}`);
 
       try {
-        const child = spawn(cmd, args, {
+        const child = spawn(tunnel.command, tunnel.args, {
           stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true
+          windowsHide: true,
+          shell: tunnel.shell
         });
 
         this.tunnelProcess = child;
+        this.tunnelViaShell = tunnel.shell;
 
         const onOutput = (data: Buffer) => {
           const text = data.toString();
@@ -987,6 +1057,7 @@ class RemoteControlService {
       } catch (err: any) {
         this.tunnelStatus = 'error';
         this.tunnelError = err?.message || String(err);
+        logger.warn(`[RemoteControl] Failed to start Cloudflare tunnel: ${this.tunnelError}`);
         this.notifyStatusChanged();
         if (!resolved) {
           resolved = true;
@@ -999,7 +1070,9 @@ class RemoteControlService {
   public stopTunnel() {
     if (this.tunnelProcess) {
       try {
-        this.tunnelProcess.kill('SIGTERM');
+        // Через shell убить нужно всё дерево, иначе cloudflared останется жить без родителя.
+        if (this.tunnelViaShell && this.tunnelProcess.pid) treeKill(this.tunnelProcess.pid);
+        else this.tunnelProcess.kill('SIGTERM');
       } catch {
         // ignore
       }
@@ -1341,13 +1414,27 @@ class RemoteControlService {
   private setupLocalWebSocketServer(wss: WebSocketServer) {
     wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
       const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+      // Проверка доступности адреса телефоном (TASK-140.9): сокет открылся — адрес рабочий. Ни устройства, ни
+      // попытки PIN — сразу закрываем, как публичный `/api/status`.
+      if (url.searchParams.get('probe') === '1') {
+        ws.close(1000, 'probe');
+        return;
+      }
       const pin = url.searchParams.get('pin');
       const key = url.searchParams.get('key');
       const token = url.searchParams.get('token');
       const deviceId = url.searchParams.get('deviceId') || `dev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const deviceName = url.searchParams.get('name') || 'Mobile Client';
       const userAgent = req.headers['user-agent'] || 'Unknown Device';
-      const ip = req.socket.remoteAddress || '127.0.0.1';
+      const ip = clientIpOf(req);
+
+      // Запечатанное подключение (TASK-140.9, decision-82): в URL только `deviceId`, а ключ, PIN и токен
+      // приходят первым E2EE-пакетом `handshake`, как через релей. Через туннель TLS заканчивается у
+      // посредника (Cloudflare), и query-строка с ключом и `handshake_ack` с токеном были бы ему видны.
+      if (url.searchParams.get('auth') === 'e2ee') {
+        this.acceptSealedClient(ws, deviceId, deviceName, userAgent, ip);
+        return;
+      }
 
       // Переподключение уже спаренного устройства — по его собственному токену, без PIN/ключа
       // (decision-5 п.5: per-device токены с отзывом вместо одного общего секрета навсегда).
@@ -1382,7 +1469,7 @@ class RemoteControlService {
       // per-device токен — отдельный фактор аутентификации/прав, не участвует в шифровании.
       const isKeyValid = key === this.secretKey;
 
-      const isApproved = !this.requireApproval || Boolean(existingRecord);
+      const isApproved = !this.requireApproval || Boolean(existingRecord && this.isTokenApproved(existingRecord));
       const device: RemoteDevice = {
         id: deviceId,
         name: deviceName,
@@ -1443,6 +1530,59 @@ class RemoteControlService {
         this.notifyStatusChanged();
         this.notifyRenderer('remote:deviceDisconnected', { deviceId });
       });
+    });
+  }
+
+  /**
+   * Прямое подключение без секретов в URL (TASK-140.9): устройство ждёт E2EE-пакета `handshake`, всё,
+   * что хост ему отвечает, зашифровано. Подбор PIN ограничивается по адресу клиента, а не по `deviceId`,
+   * который выбирает сам клиент.
+   */
+  private acceptSealedClient(ws: WebSocket, deviceId: string, deviceName: string, userAgent: string, ip: string): void {
+    const device: RemoteDevice = {
+      id: deviceId,
+      name: deviceName,
+      ip,
+      mode: 'lan',
+      connectedAt: Date.now(),
+      lastSeenAt: Date.now(),
+      userAgent,
+      isApproved: false
+    };
+    // Повторное подключение того же устройства вытесняет прежний сокет, иначе события ушли бы в мёртвый.
+    const previous = this.localClients.get(deviceId);
+    if (previous && previous.ws !== ws) {
+      try {
+        previous.ws.close(4001, 'Replaced by a new connection');
+      } catch {
+        // уже закрыт
+      }
+    }
+    this.connectedDevices.set(deviceId, device);
+    this.localClients.set(deviceId, { id: deviceId, ws, device, isEncrypted: true });
+    this.notifyStatusChanged();
+    this.notifyRenderer('remote:deviceConnected', device);
+    this.publishDeviceConnected(device);
+
+    ws.on('message', async (raw: WebSocket.RawData) => {
+      device.lastSeenAt = Date.now();
+      await this.handleIncomingClientMessage(
+        deviceId,
+        raw,
+        (resp) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(typeof resp === 'string' ? resp : JSON.stringify(resp));
+        },
+        `ip:${ip}`
+      );
+    });
+
+    ws.on('close', () => {
+      // Сокет мог быть уже вытеснен новым подключением того же устройства — его запись не трогаем.
+      if (this.localClients.get(deviceId)?.ws !== ws) return;
+      this.localClients.delete(deviceId);
+      this.connectedDevices.delete(deviceId);
+      this.notifyStatusChanged();
+      this.notifyRenderer('remote:deviceDisconnected', { deviceId });
     });
   }
 
@@ -1712,7 +1852,9 @@ class RemoteControlService {
   private async handleIncomingClientMessage(
     deviceId: string,
     raw: any,
-    reply: (resp: any) => void
+    reply: (resp: any) => void,
+    /** Ключ лимита подбора PIN: адрес клиента для прямых подключений; через релей адреса нет. */
+    pinRateKey = `relay:${deviceId}`
   ): Promise<void> {
     let packet: PlainPacket;
     let isEncrypted = false;
@@ -1742,12 +1884,18 @@ class RemoteControlService {
     // сокета (`setupLocalWebSocketServer`), но повторный handshake через пакет здесь тоже
     // поддерживается им (идемпотентно выдаёт новый токен).
     if (packet.type === 'handshake') {
-      const data = (packet.data || {}) as { pin?: string; key?: string; token?: string };
-      const rateKey = `relay:${deviceId}`;
+      const data = (packet.data || {}) as { pin?: string; key?: string; token?: string; name?: string };
+      const rateKey = pinRateKey;
       const existingRecord = data.token ? this.validateDeviceToken(deviceId, data.token) : null;
+      // Имя устройства едет внутри шифра: через туннель и релей посредник его не видит (TASK-140.9).
+      if (typeof data.name === 'string' && data.name.trim()) device.name = data.name.trim().slice(0, 80);
+      // Адреса хоста — только в зашифрованном ответе: открытым текстом через посредника они не идут.
+      const endpointsInfo = isEncrypted ? this.endpointsAnnouncement() : {};
 
       if (existingRecord) {
-        device.isApproved = !this.requireApproval || device.isApproved;
+        // Переподключение одобренного устройства не ждёт нового одобрения — и через релей тоже: раньше
+        // через релей каждое переподключение снова ждало кнопки на ПК.
+        device.isApproved = device.isApproved || this.isTokenApproved(existingRecord);
         device.rights = existingRecord.rights;
         this.replyMaybeEncrypted(reply, isEncrypted, {
           type: 'handshake_ack',
@@ -1757,7 +1905,8 @@ class RemoteControlService {
             hostId: this.hostId,
             protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
             rights: device.rights,
-            lastEventId: this.eventLogNextId - 1
+            lastEventId: this.eventLogNextId - 1,
+            ...endpointsInfo
           }
         });
         this.notifyStatusChanged();
@@ -1790,7 +1939,8 @@ class RemoteControlService {
           protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
           rights: issued.rights,
           deviceToken: issued.token,
-          lastEventId: this.eventLogNextId - 1
+          lastEventId: this.eventLogNextId - 1,
+          ...endpointsInfo
         }
       });
       this.notifyStatusChanged();
@@ -2398,6 +2548,21 @@ class RemoteControlService {
 
   private notifyStatusChanged() {
     this.notifyRenderer('remote:statusChanged', this.getStatus());
+    this.announceEndpointsIfChanged();
+  }
+
+  /**
+   * Новый адрес туннеля (или смена сети ПК) доходит до сопряжённых телефонов без нового QR (TASK-140.9):
+   * событие идёт зашифрованным, как любое другое, и попадает в буфер догона — телефон, который был
+   * не на связи, получит его через `get_events_since`, а при новом подключении — в `handshake_ack`.
+   */
+  private announceEndpointsIfChanged(): void {
+    if (!this.enabled) return;
+    const announcement = this.endpointsAnnouncement();
+    const key = JSON.stringify(announcement);
+    if (key === this.announcedEndpointsKey) return;
+    this.announcedEndpointsKey = key;
+    this.broadcastEvent('host:endpoints', announcement);
   }
 
   private notifyRenderer(channel: string, data: any) {

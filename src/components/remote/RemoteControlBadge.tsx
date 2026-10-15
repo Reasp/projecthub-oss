@@ -25,6 +25,7 @@ import {
 import { BrandLogo } from '../common/BrandLogo';
 import QRCode from 'qrcode';
 import { buildEmbeddedPairingUrl, buildTelegramPairingUrl, type PairingSource } from '../../utils/remotePairingLink';
+import { relayEndpoint, type EndpointKind } from '../../utils/remoteEndpoints';
 
 /** Данные статуса Remote Control для ссылок сопряжения (QR). */
 function toPairingSource(status: RemoteControlStatus): PairingSource {
@@ -35,8 +36,17 @@ function toPairingSource(status: RemoteControlStatus): PairingSource {
     mode: status.mode,
     port: status.port,
     localIp: status.localAddresses?.[0],
-    tunnelUrl: status.tunnelStatus === 'active' ? status.tunnelUrl : undefined
+    tunnelUrl: status.tunnelStatus === 'active' ? status.tunnelUrl : undefined,
+    endpoints: status.endpoints
   };
+}
+
+/** Адреса, которые увидит телефон в QR (TASK-140.9): LAN, VPN, туннель и релей, если он достижим. */
+function qrAddresses(status: RemoteControlStatus): Array<{ kind: EndpointKind; host: string }> {
+  const list = (status.endpoints ?? []).map((ep) => ({ kind: ep.kind, host: ep.url.replace(/^wss?:\/\//, '') }));
+  const relay = relayEndpoint(status.relayServerUrl);
+  if (relay) list.push({ kind: 'relay', host: relay.url.replace(/^wss?:\/\//, '') });
+  return list;
 }
 import { useTranslation } from '../../i18n';
 import { useToast, useTimers } from '../../hooks/useTimeoutState';
@@ -136,7 +146,7 @@ export const RemoteControlBadge: React.FC = () => {
 
     QRCode.toDataURL(pairingUrl, {
       margin: 2,
-      width: 240,
+      width: 320,
       color: { dark: '#0f172a', light: '#f8fafc' }
     })
       .then((url) => setQrDataUrl(url))
@@ -148,7 +158,7 @@ export const RemoteControlBadge: React.FC = () => {
 
     QRCode.toDataURL(effectiveTgUrl, {
       margin: 2,
-      width: 240,
+      width: 320,
       color: { dark: '#0f172a', light: '#f8fafc' }
     })
       .then((url) => setQrTelegramDataUrl(url))
@@ -431,10 +441,11 @@ export const RemoteControlBadge: React.FC = () => {
                   <>
                   <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-lg bg-ph-panel border border-ph-line">
                     <div className="bg-white p-2.5 rounded-xl flex items-center justify-center shrink-0 shadow-lg">
+                      {/* QR несёт список адресов и стал плотнее — показываем крупнее, чтобы камера его брала. */}
                       {qrDataUrl ? (
-                        <img src={qrDataUrl} alt="Remote QR Code" className="w-32 h-32 rounded-lg" />
+                        <img src={qrDataUrl} alt="Remote QR Code" className="w-44 h-44 rounded-lg" />
                       ) : (
-                        <div className="w-32 h-32 flex items-center justify-center text-slate-400 text-xs">
+                        <div className="w-44 h-44 flex items-center justify-center text-slate-400 text-xs">
                           {t.remote.generatingQr}
                         </div>
                       )}
@@ -459,6 +470,34 @@ export const RemoteControlBadge: React.FC = () => {
                         <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] text-slate-300">
                           {t.remote.portLabel}: {status.port}
                         </span>
+                      </div>
+                      {/* Какие адреса получит телефон (TASK-140.9): без туннеля, VPN и релея — только дома. */}
+                      <div className="pt-1 text-[11px] text-slate-400">
+                        <div className="font-medium text-slate-300">{t.remote.qrAddressesLabel}</div>
+                        <ul className="mt-0.5 space-y-0.5 font-mono">
+                          {qrAddresses(status).map((a) => (
+                            <li key={`${a.kind}:${a.host}`} className="truncate">
+                              <span className="text-indigo-300">
+                                {a.kind === 'lan' ? t.remote.endpointLan : a.kind === 'vpn' ? t.remote.endpointVpn : a.kind === 'tunnel' ? t.remote.endpointTunnel : t.remote.endpointRelay}
+                              </span>{' '}
+                              {a.host}
+                            </li>
+                          ))}
+                        </ul>
+                        {qrAddresses(status).every((a) => a.kind === 'lan') && (
+                          <div className="mt-1 text-amber-300/90">
+                            {t.remote.qrLanOnlyHint}
+                            {/* Туннель включает только владелец — кнопкой здесь же, а не только на вкладке Telegram. */}
+                            <button
+                              type="button"
+                              onClick={handleRestartTunnel}
+                              disabled={startingTunnel || status.tunnelStatus === 'starting'}
+                              className="mt-1.5 block px-2.5 py-1 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 hover:bg-indigo-500/25 disabled:opacity-50"
+                            >
+                              {startingTunnel || status.tunnelStatus === 'starting' ? t.remote.tunnelStarting : t.remote.startTunnel}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

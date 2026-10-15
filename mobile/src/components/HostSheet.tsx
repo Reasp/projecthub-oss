@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { DesktopIcon, FolderIcon, GitBranchIcon, GlobeIcon, SignOutIcon, WifiHighIcon } from '@phosphor-icons/react';
+import { DesktopIcon, FolderIcon, GitBranchIcon, SignOutIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { useAppState, useServices } from '../app/context';
 import { rightsLabel } from '../protocol/models';
+import { RouteBadge } from './RouteBadge';
 import { Badge, Button, Confirm, SectionTitle, Sheet } from './ui';
 
 function platformIcon(platform?: string) {
@@ -25,10 +26,7 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
     <Sheet open={open} onClose={onClose} title={status?.machineName || 'Компьютер'}>
       <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
         <Badge tone={conn.state === 'ready' ? 'success' : 'warning'}>{conn.state === 'ready' ? 'на связи' : 'нет связи'}</Badge>
-        <Badge>
-          {conn.viaRelay ? <GlobeIcon size={12} className="mr-1" /> : <WifiHighIcon size={12} className="mr-1" />}
-          {conn.viaRelay ? 'релей' : 'локальная сеть'} · E2EE
-        </Badge>
+        <RouteBadge route={conn.route} />
         <Badge tone="accent">{rightsLabel(conn.rights, conn.readOnly)}</Badge>
         {branch && (
           <Badge>
@@ -37,6 +35,7 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
           </Badge>
         )}
       </div>
+      {conn.endpoint && <div className="mt-1.5 truncate text-[12px] text-slate-500">Адрес: {conn.endpoint}</div>}
 
       <SectionTitle>Проект</SectionTitle>
       {projects.length === 0 ? (

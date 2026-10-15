@@ -1,5 +1,14 @@
 import type { DeviceRights, RemoteConnectionMode } from '../../../src/types/remote';
 import { base64UrlToHex } from '../../../src/utils/remotePairingLink';
+import {
+  decodeEndpointParam,
+  endpointFromAddress,
+  normalizeEndpoint,
+  orderCandidates,
+  relayEndpoint,
+  sanitizeEndpoints,
+  type RemoteEndpoint
+} from '../../../src/utils/remoteEndpoints';
 
 /**
  * Профиль сопряжённого хоста (TASK-140.1). Хранится в защищённом хранилище платформы
@@ -18,6 +27,13 @@ export interface HostProfile {
   /** Адрес для LAN Direct: `host:port` или `http(s)://host[:port]`. */
   lanAddress?: string;
   relayUrl?: string;
+  /**
+   * Все адреса хоста (TASK-140.9): из QR и от самого хоста (`handshake_ack`, событие `host:endpoints`).
+   * Хост присылает свежий список при каждом подключении, поэтому новый адрес туннеля доходит без QR.
+   */
+  endpoints?: RemoteEndpoint[];
+  /** URL адреса, через который клиент последний раз дошёл до `ready`: с него начинается перебор. */
+  lastEndpoint?: string;
   deviceId: string;
   /** Per-device токен, выданный хостом при сопряжении. */
   deviceToken?: string;
@@ -32,6 +48,8 @@ export interface PairingLink {
   relayUrl?: string;
   mode?: RemoteConnectionMode;
   lanAddress?: string;
+  /** Адреса из параметров `ep` (TASK-140.9). */
+  endpoints?: RemoteEndpoint[];
 }
 
 const KEY_RE = /^[0-9a-f]{64}$/i;
@@ -62,6 +80,9 @@ export function parsePairingHash(hash: string): PairingLink {
   setIf(link, 'hostId', params.get('hostId')?.trim());
   setIf(link, 'relayUrl', params.get('relay')?.trim());
   setIf(link, 'mode', normalizeMode(params.get('mode')));
+
+  const endpoints = sanitizeEndpoints(params.getAll('ep').map(decodeEndpointParam));
+  if (endpoints.length > 0) link.endpoints = endpoints;
 
   const host = params.get('host')?.trim();
   if (host) {
@@ -141,13 +162,61 @@ export function applyPairingLink(profile: HostProfile, link: PairingLink): HostP
   if (link.relayUrl) next.relayUrl = link.relayUrl;
   if (link.lanAddress) next.lanAddress = link.lanAddress;
   if (link.mode) next.mode = link.mode;
-  // Ключ другого хоста — старый токен этому хосту не принадлежит.
+  if (link.endpoints?.length) next.endpoints = link.endpoints;
+  // Ключ другого хоста — старый токен и адреса этому хосту не принадлежат.
   if (link.hostId && profile.hostId && link.hostId !== profile.hostId) {
     next.deviceToken = undefined;
     next.rights = undefined;
     next.machineName = undefined;
+    next.lastEndpoint = undefined;
+    if (!link.endpoints?.length) next.endpoints = undefined;
   }
   return next;
+}
+
+/**
+ * Релей как кандидат: нужен `hostId`. Явный режим релея (старые ссылки, ручной ввод) принимает любой
+ * адрес, иначе релей с loopback-адресом (`ws://127.0.0.1:42055` по умолчанию) отбрасывается.
+ */
+function relayCandidate(profile: HostProfile): RemoteEndpoint | null {
+  if (!profile.relayUrl || !profile.hostId) return null;
+  if (profile.mode !== 'relay') return relayEndpoint(profile.relayUrl);
+  try {
+    const url = new URL(profile.relayUrl.trim().replace(/^http/i, 'ws'));
+    if (url.protocol !== 'ws:' && url.protocol !== 'wss:') return null;
+    url.search = '';
+    url.hash = '';
+    return { kind: 'relay', url: url.toString().replace(/\/$/, '') };
+  } catch {
+    return null;
+  }
+}
+
+/** Все адреса профиля без повторов: адрес страницы или старой ссылки, список хоста, релей. */
+export function profileEndpoints(profile: HostProfile): RemoteEndpoint[] {
+  const list: RemoteEndpoint[] = [];
+  const seen = new Set<string>();
+  const push = (ep: RemoteEndpoint | null) => {
+    if (!ep || seen.has(ep.url)) return;
+    seen.add(ep.url);
+    list.push(ep);
+  };
+  push(endpointFromAddress(profile.lanAddress));
+  for (const ep of profile.endpoints ?? []) push(normalizeEndpoint(ep));
+  push(relayCandidate(profile));
+  return list;
+}
+
+/**
+ * Порядок перебора адресов (TASK-140.9): последний удачный, затем LAN → VPN → туннель → релей. На
+ * HTTPS-странице (встроенный клиент через туннель) `ws://` браузер заблокирует — такие адреса пропускаем.
+ */
+export function connectionCandidates(profile: HostProfile, opts: { secureOnly?: boolean; firstUrl?: string } = {}): RemoteEndpoint[] {
+  return orderCandidates(profileEndpoints(profile), {
+    lastUrl: opts.firstUrl || profile.lastEndpoint,
+    preferRelay: profile.mode === 'relay',
+    secureOnly: opts.secureOnly
+  });
 }
 
 export type ProfileProblem = 'no_key' | 'bad_key' | 'no_relay' | 'no_host_id' | 'no_lan_address';
@@ -160,7 +229,7 @@ export function profileProblems(profile: HostProfile): ProfileProblem[] {
   if (profile.mode === 'relay') {
     if (!profile.relayUrl) problems.push('no_relay');
     if (!profile.hostId) problems.push('no_host_id');
-  } else if (!profile.lanAddress) {
+  } else if (profileEndpoints(profile).length === 0) {
     problems.push('no_lan_address');
   }
   return problems;
@@ -172,39 +241,25 @@ export interface WsTarget {
 }
 
 /**
- * URL сокета по текущему протоколу (v1).
+ * URL сокета для одного адреса хоста. В URL нет ни ключа, ни PIN, ни токена (TASK-140.9): через туннель
+ * TLS заканчивается у посредника, и query-строку он видит. Секреты уезжают хосту первым E2EE-пакетом
+ * `handshake`.
  *
- * - LAN: сокет прямо к хосту, аутентификация в query (`pin`/`key`/`token`), как у прежних
- *   клиентов. Хост по `key` в query решает, что сессия зашифрована.
- * - Relay: сокет к релею `?role=client&hostId=…&clientId=…`, а ключ/PIN/токен уезжают хосту
- *   зашифрованным пакетом `handshake` после `relay_ack` — релей ничего не аутентифицирует.
+ * - Прямой адрес (LAN, VPN, туннель): `?deviceId=…&auth=e2ee`, `handshake` — сразу после открытия сокета.
+ *   Имя устройства тоже едет в `handshake`.
+ * - Релей: `?role=client&hostId=…&clientId=…`, `handshake` — после `relay_ack`.
  */
-export function buildWsTarget(profile: HostProfile, deviceName: string): WsTarget {
-  if (profile.mode === 'relay') {
-    const url = new URL((profile.relayUrl || '').replace(/^http/i, 'ws'));
+export function buildWsTarget(profile: HostProfile, endpoint: RemoteEndpoint, deviceName: string): WsTarget {
+  if (endpoint.kind === 'relay') {
+    const url = new URL(endpoint.url);
     url.searchParams.set('role', 'client');
     url.searchParams.set('hostId', profile.hostId);
     url.searchParams.set('clientId', profile.deviceId);
     url.searchParams.set('name', deviceName);
     return { url: url.toString(), viaRelay: true };
   }
-
-  const address = (profile.lanAddress || '').trim();
-  let origin: string;
-  if (/^https?:\/\//i.test(address)) {
-    const url = new URL(address);
-    origin = `${url.protocol === 'https:' ? 'wss:' : 'ws:'}//${url.host}`;
-  } else if (/^wss?:\/\//i.test(address)) {
-    origin = `${new URL(address).protocol}//${new URL(address).host}`;
-  } else {
-    // У LAN Direct нет TLS: голый адрес — всегда ws://.
-    origin = `ws://${address}`;
-  }
-
-  const query = new URLSearchParams({ key: profile.key, deviceId: profile.deviceId, name: deviceName });
-  if (profile.pin) query.set('pin', profile.pin);
-  if (profile.deviceToken) query.set('token', profile.deviceToken);
-  return { url: `${origin}/?${query.toString()}`, viaRelay: false };
+  const query = new URLSearchParams({ deviceId: profile.deviceId, auth: 'e2ee' });
+  return { url: `${endpoint.url}/?${query.toString()}`, viaRelay: false };
 }
 
 /** Идентификатор устройства: префикс платформы + случайная часть. */

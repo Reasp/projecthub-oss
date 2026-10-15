@@ -1,3 +1,5 @@
+import type { RemoteEndpoint } from '../utils/remoteEndpoints';
+
 /** LAN Direct и Relay (decision-11 п.2) — WebRTC выведен из scope, `RTCPeerConnection` в коде не было. */
 export type RemoteConnectionMode = 'lan' | 'relay';
 
@@ -171,6 +173,8 @@ export interface RemoteControlStatus {
   telegramChatId?: string;
   telegramBotUsername?: string;
   telegramMiniAppUrl?: string;
+  /** Адреса хоста для телефона: LAN, VPN, туннель (TASK-140.9). Релей — в `relayServerUrl`. */
+  endpoints?: RemoteEndpoint[];
 }
 
 export interface EncryptedPacket {
@@ -343,6 +347,10 @@ export interface RemoteHandshakeAck {
   rights?: DeviceRights;
   lastEventId?: number;
   deviceToken?: string;
+  /** Текущие адреса хоста (TASK-140.9): телефон обновляет по ним профиль без нового QR. */
+  endpoints?: RemoteEndpoint[];
+  /** Релей хоста, если он достижим с телефона. */
+  relayUrl?: string;
 }
 
 export interface RemoteEventPayloads {

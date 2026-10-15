@@ -2246,6 +2246,12 @@ export interface TranslationDictionary {
     relayBadge: string;
     lanBadge: string;
     relayOnline: string;
+    qrAddressesLabel: string;
+    qrLanOnlyHint: string;
+    endpointLan: string;
+    endpointVpn: string;
+    endpointTunnel: string;
+    endpointRelay: string;
     portLabel: string;
     directWebLink: string;
     openInBrowser: string;

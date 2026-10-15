@@ -41,6 +41,8 @@ function Root({ platform, initial }: { platform: Platform; initial: HostProfile 
         socketFactory: (url) => new WebSocket(url) as unknown as SocketLike,
         codecFactory: createWebCodec,
         deviceName: platform.deviceName,
+        // На HTTPS-странице (встроенный клиент через туннель, Mini App) ws:// в LAN — mixed content.
+        secureOnly: typeof location !== 'undefined' && location.protocol === 'https:',
         onProfileChange: (p) => void platform.store.save(p)
       })
   );
