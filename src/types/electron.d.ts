@@ -2280,7 +2280,7 @@ export type StudioRemoteRequestPayload =
       mode?: 'chat' | 'agent' | 'architect';
       deviceName: string;
     }
-  | { requestId: string; kind: 'abort'; projectPath: string; sessionId: string };
+  | { requestId: string; kind: 'abort' | 'clear'; projectPath: string; sessionId: string };
 
 export interface AIStreamRequest {
   sessionId: string;

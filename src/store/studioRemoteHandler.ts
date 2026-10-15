@@ -19,6 +19,7 @@ export interface StudioStorePort {
   reopenSession(projectPath: string, session: AISession, activate?: boolean): void;
   sendMessage(projectPath: string, text: string, opts?: SendMessageOptions): Promise<void>;
   abortStream(): Promise<void>;
+  clearSession(projectPath: string, sessionId?: string): void;
 }
 
 export interface StudioRemoteDeps {
@@ -49,6 +50,16 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
     await state.abortStream();
     return { ok: true, sessionId: req.sessionId };
   }
+
+  if (req.kind === 'clear') {
+    // /clear с телефона: та же очистка, что кнопкой на ПК — история и сессия Claude CLI сбрасываются.
+    const state = deps.getState();
+    if (state.isStreaming && state.activeStreamSessionId === req.sessionId) return { ok: false, error: 'Агент ещё отвечает — сначала остановите ответ' };
+    if (!(state.sessions[projectPath] || []).some((s) => s.id === req.sessionId)) return { ok: false, error: 'Очистить можно только сессию, открытую во вкладке на ПК' };
+    state.clearSession(projectPath, req.sessionId);
+    return { ok: true, sessionId: req.sessionId };
+  }
+  if (req.kind !== 'send') return { ok: false, error: 'Неизвестный запрос' };
 
   const text = typeof req.text === 'string' ? req.text.trim() : '';
   if (!text) return { ok: false, error: 'Пустой промпт' };

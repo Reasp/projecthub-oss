@@ -25,7 +25,7 @@ export type StudioRemoteRequest =
       mode?: StudioMode;
       deviceName: string;
     }
-  | { kind: 'abort'; projectPath: string; sessionId: string };
+  | { kind: 'abort' | 'clear'; projectPath: string; sessionId: string };
 
 export interface StudioRemoteReply {
   ok: boolean;

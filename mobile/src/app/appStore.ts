@@ -9,6 +9,7 @@ import type {
   RemoteStudioOptions,
   RemoteStudioSession,
   RemoteStudioSessionSummary,
+  RemoteStudioUsage,
   RemoteSwarmSummary,
   RemoteTaskSummary,
   StudioMode,
@@ -410,8 +411,31 @@ export class AppStore {
       busy: s.running,
       loading: false,
       selection: s.lastSelection ?? this.state.studio.selection,
-      mode: s.lastMode ?? this.state.studio.mode
+      mode: s.lastMode ?? this.state.studio.mode,
+      sessionUsage: s.usage ?? null
     });
+    return true;
+  }
+
+  /** Окно Usage: лимиты Claude Code с ПК. `force` — не из кэша (запускает `claude -p /usage`, до 20 с). */
+  async loadUsage(force = false): Promise<void> {
+    this.setStudio({ usageLoading: true });
+    const usage = await this.call<RemoteStudioUsage>('studio_get_usage', { forceRefresh: force }, !force);
+    this.setStudio({ usageLoading: false, ...(usage ? { usage } : {}) });
+  }
+
+  /** /clear: очистить открытую сессию так же, как кнопкой на ПК (история и сессия Claude CLI сбрасываются). */
+  async clearStudioSession(): Promise<boolean> {
+    const { sessionId } = this.state.studio;
+    if (!sessionId) {
+      this.newStudioSession();
+      return true;
+    }
+    const res = await this.call('studio_clear', this.withProject({ sessionId }));
+    if (!res) return false;
+    this.showToast('Сессия очищена', 'success');
+    await this.openStudioSession(sessionId, true);
+    this.debounced('studioSessions', () => void this.refreshStudioSessions());
     return true;
   }
 

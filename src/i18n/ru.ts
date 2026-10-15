@@ -1,4 +1,5 @@
 import type { TranslationDictionary } from './types';
+import { STUDIO_QUICK_PROMPTS_RU } from '../utils/studioQuickPrompts';
 
 export const ru: TranslationDictionary = {
   common: {
@@ -1579,13 +1580,14 @@ export const ru: TranslationDictionary = {
       gitCommit: 'Аудит изменений Git',
       gitCommitDesc: 'Генерация сообщения по стандартам'
     },
+    // Тексты — общие с меню быстрых команд телефона (TASK-140.10).
     quickActions: {
-      nextTask: 'Следующая задача',
-      commit: 'Комить',
-      deploy: 'Деплой',
-      nextTaskPrompt: 'Возьми следующую задачу из Backlog.md (проверь статус To Do / In Progress), прочитай её требования и начни реализацию по правилам проекта.',
-      commitPrompt: 'Проверь git status и diff изменений, запусти npm run lint:docs, сформируй краткое конвенциональное сообщение для коммита по правилам проекта и предложи команду git commit.',
-      deployPrompt: 'Проверь готовность проекта к релизу, запусти тесты и валидацию документации, после чего выполни сборку десктопного приложения (npm run pack:win / pack:mac).'
+      nextTask: STUDIO_QUICK_PROMPTS_RU.nextTask.label,
+      commit: STUDIO_QUICK_PROMPTS_RU.commit.label,
+      deploy: STUDIO_QUICK_PROMPTS_RU.deploy.label,
+      nextTaskPrompt: STUDIO_QUICK_PROMPTS_RU.nextTask.prompt,
+      commitPrompt: STUDIO_QUICK_PROMPTS_RU.commit.prompt,
+      deployPrompt: STUDIO_QUICK_PROMPTS_RU.deploy.prompt
     },
     input: {
       placeholder: 'Задайте вопрос или опишите задачу (напр. Реализовать авторизацию, Рефакторинг стора)...',

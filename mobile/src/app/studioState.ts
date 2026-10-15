@@ -2,6 +2,8 @@ import type {
   RemoteStudioMessage,
   RemoteStudioOptions,
   RemoteStudioSessionSummary,
+  RemoteStudioSessionUsage,
+  RemoteStudioUsage,
   RemoteStudioToolCall,
   StudioMode,
   StudioModelSelection
@@ -31,6 +33,11 @@ export interface StudioState {
   /** Модель и режим следующего промпта. */
   selection: StudioModelSelection | null;
   mode: StudioMode;
+  /** Расход открытой сессии (токены и стоимость ответов). */
+  sessionUsage: RemoteStudioSessionUsage | null;
+  /** Лимиты Claude Code с ПК (окно Usage). */
+  usage: RemoteStudioUsage | null;
+  usageLoading: boolean;
 }
 
 export const emptyStudio = (prev?: Pick<StudioState, 'options' | 'selection' | 'mode' | 'sessions' | 'sessionsLoaded'>): StudioState => ({
@@ -44,7 +51,10 @@ export const emptyStudio = (prev?: Pick<StudioState, 'options' | 'selection' | '
   loading: false,
   options: prev?.options ?? null,
   selection: prev?.options?.current ?? prev?.selection ?? null,
-  mode: 'agent'
+  mode: 'agent',
+  sessionUsage: null,
+  usage: prev && 'usage' in prev ? (prev as StudioState).usage : null,
+  usageLoading: false
 });
 
 /** Ответ агента: текст дописывается в последнее сообщение ассистента, иначе начинается новое. */
@@ -115,3 +125,30 @@ export function selectionTitle(sel: StudioModelSelection | null, options: Remote
 }
 
 export const MODE_LABEL: Record<StudioMode, string> = { agent: 'Агент', chat: 'Чат', architect: 'Архитектор' };
+
+/** Быстрые команды Studio на телефоне (меню и ввод «/»): действия над сессией, не промпты агенту. */
+export type StudioCommandId = 'clear' | 'new' | 'usage' | 'model' | 'sessions' | 'stop';
+
+export const STUDIO_COMMANDS: Array<{ id: StudioCommandId; command: string; title: string; hint: string }> = [
+  { id: 'clear', command: '/clear', title: 'Очистить сессию', hint: 'Стереть историю диалога, как кнопкой на ПК' },
+  { id: 'new', command: '/new', title: 'Новая сессия', hint: 'Начать новый диалог (появится вкладкой на ПК)' },
+  { id: 'usage', command: '/usage', title: 'Usage', hint: 'Лимиты и расход Claude Code' },
+  { id: 'model', command: '/model', title: 'Модель и режим', hint: 'Claude Code, профили LLM, агент / чат / архитектор' },
+  { id: 'sessions', command: '/sessions', title: 'Сессии и история', hint: 'Вкладки ПК и закрытые сессии' },
+  { id: 'stop', command: '/stop', title: 'Остановить ответ', hint: 'Прервать ответ агента' }
+];
+
+/** Подсказки при вводе «/»: команды, начинающиеся с набранного; пробел после команды — уже промпт. */
+export function matchStudioCommands(text: string): typeof STUDIO_COMMANDS {
+  const value = text.trimStart();
+  if (!value.startsWith('/') || /\s/.test(value)) return [];
+  const q = value.toLowerCase();
+  return STUDIO_COMMANDS.filter((c) => c.command.startsWith(q));
+}
+
+/** «12,3 тыс.», «1,2 млн» — токены в окне Usage. */
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',')} млн`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace('.', ',')} тыс.`;
+  return String(n);
+}

@@ -238,7 +238,9 @@ export type RemoteRpcMethod =
   | 'studio_list_sessions'
   | 'studio_get_session'
   | 'studio_send'
-  | 'studio_abort';
+  | 'studio_abort'
+  | 'studio_clear'
+  | 'studio_get_usage';
 
 /**
  * Ответы RPC в том виде, в каком их отдаёт `dispatchRpc` хоста. Общие для хоста и мобильного
@@ -345,6 +347,40 @@ export interface RemoteStudioOptions {
   modes: StudioMode[];
   claudeModels: Array<{ id: string; name: string; description: string }>;
   profiles: Array<{ id: string; name: string; local: boolean; models: string[]; modelsError?: string }>;
+  /** Быстрые промпты AI Studio («Следующая задача», «Коммит», «Деплой»). */
+  quickPrompts?: Array<{ id: string; label: string; prompt: string }>;
+}
+
+/** Окно лимита Claude Code: процент и когда сбросится (текст CLI или ISO). */
+export interface RemoteUsageWindow {
+  percent: number;
+  resetsAt?: string;
+}
+
+/** Лимиты и расход Claude Code с ПК — то же, что окно Usage в ProjectHub (без сырого вывода CLI). */
+export interface RemoteStudioUsage {
+  planType: string;
+  sessionLimit?: RemoteUsageWindow;
+  weeklyLimit?: RemoteUsageWindow;
+  fableLimit?: RemoteUsageWindow;
+  last24h?: { requests?: number; sessions?: number };
+  last7d?: { requests?: number; sessions?: number };
+  totalSessions?: number;
+  totalMessages?: number;
+  models: Array<{ model: string; inputTokens: number; outputTokens: number; costUSD?: number }>;
+  updatedAt: number;
+  /** Лимиты не прочитаны из CLI: показаны данные из статистики. */
+  isFallback?: boolean;
+  error?: { kind: string; message: string };
+}
+
+/** Расход токенов в одной сессии AI Studio (сумма по ответам). */
+export interface RemoteStudioSessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd?: number;
+  /** Часть ответов без точного расхода — оценка. */
+  estimated?: boolean;
 }
 
 export interface RemoteStudioSessionSummary {
@@ -390,6 +426,7 @@ export interface RemoteStudioSession extends RemoteStudioSessionSummary {
   /** Выбор модели последнего промпта — по умолчанию для продолжения. */
   lastSelection?: StudioModelSelection;
   lastMode?: StudioMode;
+  usage?: RemoteStudioSessionUsage;
 }
 
 export interface RemotePendingApproval {

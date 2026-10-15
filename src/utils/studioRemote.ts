@@ -7,12 +7,14 @@
  * инструментов не уходят — они остаются на ПК.
  */
 
-import type { AIMessage, AIProviderConfig, AISession, AIToolCall } from '../types/electron';
+import type { AIMessage, AIProviderConfig, AISession, AIToolCall, ClaudeUsageData } from '../types/electron';
 import type {
   RemoteStudioMessage,
   RemoteStudioSession,
   RemoteStudioSessionSummary,
+  RemoteStudioSessionUsage,
   RemoteStudioToolCall,
+  RemoteStudioUsage,
   StudioMode,
   StudioModelSelection
 } from '../types/remote';
@@ -119,13 +121,86 @@ export function studioSessionList(sessions: AISession[], isRunning: (id: string)
 export function studioSessionForPhone(s: AISession, ctx: SummaryContext): RemoteStudioSession {
   const all = s.messages.map(messageForPhone).filter((m): m is RemoteStudioMessage => m !== null);
   const messages = all.slice(-STUDIO_PHONE_LIMITS.messages);
+  const usage = sessionUsage(s);
   return {
     ...summarizeStudioSession(s, ctx),
     messages,
     olderOmitted: all.length - messages.length,
     ...(s.lastSelection ? { lastSelection: s.lastSelection } : {}),
-    ...(s.lastMode ? { lastMode: s.lastMode } : {})
+    ...(s.lastMode ? { lastMode: s.lastMode } : {}),
+    ...(usage ? { usage } : {})
   };
+}
+
+/** Расход сессии: сумма `usage` ответов; `undefined`, если движок расход не сообщал. */
+export function sessionUsage(s: Pick<AISession, 'messages'>): RemoteStudioSessionUsage | undefined {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cost = 0;
+  let hasCost = false;
+  let estimated = false;
+  let any = false;
+  for (const m of s.messages) {
+    const u = m.usage;
+    if (!u) continue;
+    any = true;
+    inputTokens += (u.inputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheCreationTokens || 0);
+    outputTokens += u.outputTokens || 0;
+    if (typeof u.costUsd === 'number') {
+      cost += u.costUsd;
+      hasCost = true;
+    }
+    if (u.estimated) estimated = true;
+  }
+  if (!any) return undefined;
+  return { inputTokens, outputTokens, ...(hasCost ? { costUsd: Math.round(cost * 10_000) / 10_000 } : {}), ...(estimated ? { estimated } : {}) };
+}
+
+/** Окно Usage для телефона: лимиты, запросы и токены по моделям. Без сырого вывода CLI. */
+export function usageForPhone(d: ClaudeUsageData): RemoteStudioUsage {
+  const win = (w?: { percent: number; resetsAt?: string }) =>
+    w && Number.isFinite(w.percent) ? { percent: Math.max(0, Math.min(100, Math.round(w.percent))), ...(w.resetsAt ? { resetsAt: String(w.resetsAt).slice(0, 80) } : {}) } : undefined;
+  const breakdown = (b?: { requests?: number; sessions?: number }) =>
+    b && (b.requests !== undefined || b.sessions !== undefined) ? { ...(b.requests !== undefined ? { requests: b.requests } : {}), ...(b.sessions !== undefined ? { sessions: b.sessions } : {}) } : undefined;
+  const models = Object.entries(d.modelUsage ?? {})
+    .map(([model, t]) => ({
+      model,
+      inputTokens: (t.inputTokens || 0) + (t.cacheReadInputTokens || 0) + (t.cacheCreationInputTokens || 0),
+      outputTokens: t.outputTokens || 0,
+      ...(typeof t.costUSD === 'number' ? { costUSD: t.costUSD } : {})
+    }))
+    .sort((a, b) => b.outputTokens + b.inputTokens - (a.outputTokens + a.inputTokens))
+    .slice(0, 12);
+  const out: RemoteStudioUsage = { planType: d.planType || '', models, updatedAt: d.updatedAt };
+  const session = win(d.sessionLimit);
+  const weekly = win(d.weeklyLimit);
+  const fable = win(d.fableLimit);
+  if (session) out.sessionLimit = session;
+  if (weekly) out.weeklyLimit = weekly;
+  if (fable) out.fableLimit = fable;
+  const l24 = breakdown(d.last24h);
+  const l7 = breakdown(d.last7d);
+  if (l24) out.last24h = l24;
+  if (l7) out.last7d = l7;
+  if (d.totalSessions !== undefined) out.totalSessions = d.totalSessions;
+  if (d.totalMessages !== undefined) out.totalMessages = d.totalMessages;
+  if (d.isFallback) out.isFallback = true;
+  if (d.cliError) out.error = { kind: d.cliError.kind, message: usageErrorText(d.cliError.kind) };
+  return out;
+}
+
+/** Понятная причина, почему лимиты не прочитаны (как в окне Usage на ПК). */
+export function usageErrorText(kind: string): string {
+  switch (kind) {
+    case 'auth':
+      return 'Claude Code на ПК не вошёл в аккаунт — войдите в окне Usage на компьютере.';
+    case 'timeout':
+      return 'Claude Code не ответил вовремя — показана статистика из кэша.';
+    case 'unrecognized':
+      return 'Ответ Claude Code не распознан — показана статистика из кэша.';
+    default:
+      return 'Не удалось получить лимиты Claude Code — показана статистика из кэша.';
+  }
 }
 
 /** Чанк потока AI Studio для телефона: текст и строка инструмента. Мысли, диффы и вывод — нет. */

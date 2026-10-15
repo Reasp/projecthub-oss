@@ -34,8 +34,11 @@ import {
   selectionOf,
   studioSessionForPhone,
   studioSessionList,
-  STUDIO_MODES
+  STUDIO_MODES,
+  usageForPhone
 } from '../../src/utils/studioRemote.js';
+import { studioQuickPromptList } from '../../src/utils/studioQuickPrompts.js';
+import { claudeUsageService } from './claudeUsageService.js';
 import { processManager } from './processManager.js';
 import { gitService } from './gitService.js';
 import { guardedCommit } from './commitSecretGuard.js';
@@ -2041,7 +2044,8 @@ class RemoteControlService {
       'start_assigned_agent',
       'stop_swarm',
       'studio_send',
-      'studio_abort'
+      'studio_abort',
+      'studio_clear'
     ]);
 
     if (this.readOnly && writeMethods.has(method)) {
@@ -2265,8 +2269,22 @@ class RemoteControlService {
           modes: STUDIO_MODES,
           claudeModels: claudeBridgeService.getAvailableModels().map((m) => ({ id: m.id, name: m.name, description: m.description })),
           // Наружу — только id, имя и признак локального сервера: ни ключей, ни адресов, ни заголовков.
-          profiles: withModels
+          profiles: withModels,
+          quickPrompts: studioQuickPromptList()
         };
+      }
+
+      case 'studio_get_usage': {
+        // Кэш сервиса — 45 с; принудительное обновление запускает `claude -p /usage` (до 20 с).
+        return usageForPhone(await claudeUsageService.getUsage(params.forceRefresh === true));
+      }
+
+      case 'studio_clear': {
+        const projectPath = String(params.projectPath || '');
+        await assertRegisteredProject(projectPath);
+        const reply = await studioRemoteBridge.request({ kind: 'clear', projectPath, sessionId: String(params.sessionId || '') });
+        if (!reply.ok) throw new Error(reply.error || 'Не удалось очистить сессию');
+        return { ok: true };
       }
 
       case 'studio_list_sessions': {
