@@ -8,6 +8,8 @@ import { projectRegistry } from './projectRegistry';
 import { envToolsEntryStatuses } from './processSweep';
 import { isFilesystemRoot } from './appPaths';
 import { readBacklogConfig } from './backlogConfigService';
+import { FOUNDATION_DIRS, missingFoundationParts } from './initFoundation';
+import { envStateDir } from './envStateDir';
 import {
   countStatuses,
   toLegacyTaskCounts,
@@ -94,7 +96,14 @@ function inspectCacheProbePaths(normalizedPath: string): string[] {
     path.join(normalizedPath, 'infra.config.json'),
     path.join(normalizedPath, 'package.json'),
     path.join(normalizedPath, '.rag-index', 'meta.json'),
-    path.join(normalizedPath, '.env-state', 'processes.json')
+    path.join(normalizedPath, '.env-state', 'processes.json'),
+    path.join(normalizedPath, '.projecthub', 'infra', '.env-state', 'processes.json'),
+    // Основа инициализации (decision-78): правила агентов и каталоги документации.
+    path.join(normalizedPath, 'CLAUDE.md'),
+    path.join(normalizedPath, 'AGENTS.md'),
+    path.join(normalizedPath, 'backlog'),
+    path.join(normalizedPath, 'backlog', 'docs'),
+    path.join(normalizedPath, 'backlog', 'decisions')
   ];
 }
 
@@ -314,7 +323,7 @@ export async function inspectProject(folderPath: string, options: InspectProject
 
     // 7. Process Status (.env-state/processes.json)
     let processStatus: ProcessStatus = { runningCount: 0, processes: [] };
-    const envStatePath = path.join(normalizedPath, '.env-state', 'processes.json');
+    const envStatePath = path.join(envStateDir(normalizedPath), 'processes.json');
     if (existsSync(envStatePath)) {
       try {
         const rawEnv = await fs.readFile(envStatePath, 'utf-8');
@@ -343,6 +352,17 @@ export async function inspectProject(folderPath: string, options: InspectProject
     const isFav = await projectRegistry.isFavorite(normalizedPath);
     const voiceAlias = await projectRegistry.getVoiceAlias(normalizedPath);
 
+    // Чего не хватает из основы (decision-78, п. 2): по этому списку видна кнопка «Инициализировать».
+    const rules = await Promise.all(
+      ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'].map((name) => fs.readFile(path.join(normalizedPath, name), 'utf-8').catch(() => null))
+    );
+    const foundationMissing = missingFoundationParts({
+      hasGit,
+      hasBacklogConfig: existsSync(path.join(normalizedPath, 'backlog', 'config.yml')),
+      dirs: FOUNDATION_DIRS.filter((dir) => existsSync(path.join(normalizedPath, dir))),
+      rules
+    });
+
     const info: ProjectInfo = {
       name: projectName,
       path: normalizedPath,
@@ -363,6 +383,7 @@ export async function inspectProject(folderPath: string, options: InspectProject
       ragStatus,
       processStatus,
       features,
+      foundationMissing,
       lastScannedAt: new Date().toISOString()
     };
 

@@ -27,6 +27,9 @@ import { memoryToolDeps } from './memoryToolDeps.js';
 import { automationEngine } from './automationService.js';
 import { automationToolList, automationToolRun } from './automationTools.js';
 import { terminalHookService } from './terminalHookService.js';
+import { PROJECT_TOOL_DEFINITIONS, callProjectTool, type ProjectToolContext } from './projectAgentTools.js';
+import { projectAgentToolDeps } from './projectAgentToolDeps.js';
+import { deriveAgentToken, isAgentTokenShape, projectForAgentToken } from './agentToken.js';
 
 /** Маршрут хуков терминальных сессий (TASK-77, decision-54 п. 3–4). */
 export const TERMINAL_HOOK_ROUTE = '/api/hooks/event';
@@ -35,6 +38,8 @@ const TERMINAL_HOOK_BODY_LIMIT = 8 * 1024 * 1024;
 
 /** Ключ персистентного токена MCP-сервера в safeStorage (TASK-58): переживает перезапуск приложения. */
 const MCP_TOKEN_SECRET_KEY = 'mcp_server_token';
+/** Секрет, из которого выводятся токены агентов проектов (TASK-136.6, decision-78 п. 12). */
+const MCP_AGENT_SECRET_KEY = 'mcp_agent_secret';
 
 export interface McpServerStatus {
   isRunning: boolean;
@@ -80,13 +85,18 @@ interface SseSession {
   hitlSessionId?: string;
   /** Зарегистрированные инструменты прокси управления компьютером `computer_*` (TASK-82). */
   computerTools: RegisteredTool[];
+  /** Сессия по токену агента: корень проекта, к которому привязан токен (TASK-136.6). */
+  agentProject?: string;
 }
+
+type McpAuth = { kind: 'main' } | { kind: 'agent'; projectRoot: string };
 
 class McpServerService {
   private server: http.Server | null = null;
   private sseSessions = new Map<string, SseSession>();
   private port = 42042;
   private token: string;
+  private agentSecret: string;
   private lastError: string | null = null;
   private currentAppState = {
     activeProject: null as any,
@@ -95,6 +105,7 @@ class McpServerService {
 
   constructor() {
     this.token = `ph_mcp_${crypto.randomBytes(12).toString('hex')}`;
+    this.agentSecret = crypto.randomBytes(32).toString('hex');
     // Набор computer_* меняется при включении/выключении функции и после запуска рантайма —
     // подключённые клиенты получают notifications/tools/list_changed от SDK при перерегистрации.
     const resync = () => {
@@ -121,6 +132,14 @@ class McpServerService {
     } catch (err) {
       console.warn('[MCPServer] Не удалось загрузить персистентный токен, используется временный:', err);
     }
+    // Секрет токенов агентов: постоянный, чтобы токен в окружении открытого терминала не протухал.
+    try {
+      const storedAgent = await secretStorageService.getSecret(MCP_AGENT_SECRET_KEY);
+      if (storedAgent) this.agentSecret = storedAgent;
+      else await secretStorageService.setSecret(MCP_AGENT_SECRET_KEY, this.agentSecret);
+    } catch (err) {
+      console.warn('[MCPServer] Не удалось загрузить секрет токенов агентов, используется временный:', err);
+    }
     // Токен хуков терминала (TASK-77) — отдельный секрет с правом только на маршрут хуков.
     await terminalHookService.getToken().catch((err) => {
       console.warn('[MCPServer] Не удалось загрузить токен хуков терминала:', err);
@@ -130,6 +149,18 @@ class McpServerService {
   /** Адрес сервера для скрипта хуков (`PROJECTHUB_HOOK_URL`); null — сервер не запущен. */
   public getHookBaseUrl(): string | null {
     return this.server && this.server.listening ? `http://127.0.0.1:${this.port}` : null;
+  }
+
+  /**
+   * Окружение агента проекта во встроенном терминале (TASK-136.6): адрес SSE и токен агента этого
+   * проекта. Основной токен сюда не попадает. Пусто, если сервер не запущен.
+   */
+  public agentEnv(projectPath: string): Record<string, string> {
+    if (!this.server || !this.server.listening) return {};
+    return {
+      PROJECTHUB_MCP_URL: `http://127.0.0.1:${this.port}/sse`,
+      PROJECTHUB_AGENT_TOKEN: deriveAgentToken(this.agentSecret, projectPath)
+    };
   }
 
   public setAppState(state: { activeProject?: any; activeTab?: string }) {
@@ -710,6 +741,14 @@ class McpServerService {
     }
 
     // ─────────────────────────────────────────────────────────────
+    // 11a. Задачи, документы и поиск по документации (TASK-136.6, decision-78 п. 12)
+    // ─────────────────────────────────────────────────────────────
+    this.registerProjectTools(server, true, (args) => {
+      const memoryCtx = this.memoryCallContext(hitlSessionId, args);
+      return memoryCtx ? { ...memoryCtx } : null;
+    });
+
+    // ─────────────────────────────────────────────────────────────
     // 12. Automations (TASK-74, decision-52 п. 8)
     // ─────────────────────────────────────────────────────────────
     server.registerTool(
@@ -747,6 +786,63 @@ class McpServerService {
       }
     );
 
+    return server;
+  }
+
+  /**
+   * Инструменты задач и документов. `withProjectPath` — параметр `projectPath` для внешних клиентов с
+   * основным токеном; у сессии агента проекта его нет: проект задан токеном.
+   */
+  private registerProjectTools(
+    server: McpServer,
+    withProjectPath: boolean,
+    contextFor: (args: Record<string, unknown>) => ProjectToolContext | null
+  ): void {
+    for (const def of PROJECT_TOOL_DEFINITIONS) {
+      const properties = (def.input_schema.properties ?? {}) as Record<string, unknown>;
+      const schema = withProjectPath
+        ? {
+            ...def.input_schema,
+            properties: {
+              ...properties,
+              projectPath: { type: 'string', description: 'Путь к проекту — только для внешних MCP-клиентов; агенту проекта он известен' }
+            }
+          }
+        : def.input_schema;
+      server.registerTool(
+        def.name,
+        { title: def.name, description: def.description, inputSchema: jsonSchemaToZodShape(schema) },
+        async (args: Record<string, unknown>) => {
+          const ctx = contextFor(args);
+          if (!ctx) {
+            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран.' }] };
+          }
+          const res = await callProjectTool(def.name, args, ctx, projectAgentToolDeps);
+          return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
+        }
+      );
+    }
+  }
+
+  /**
+   * Сервер для сессии по токену агента проекта (TASK-136.6): только задачи, документы, поиск и память
+   * этого проекта. Ни удалённого управления, ни одобрения HITL, ни процессов: токен лежит в окружении
+   * агента, и агент не должен одобрять собственные запросы.
+   */
+  private createAgentMcpServer(projectRoot: string, sseSessionId: string): McpServer {
+    const server = new McpServer({ name: 'projecthub', version: '2.5.0' });
+    const ctx = { sessionPath: projectRoot, sessionId: `agent-${sseSessionId}`, origin: 'terminal' as const };
+    this.registerProjectTools(server, false, () => ctx);
+    for (const def of MEMORY_TOOL_DEFINITIONS) {
+      server.registerTool(
+        def.name,
+        { title: def.name, description: def.description, inputSchema: jsonSchemaToZodShape(def.input_schema) },
+        async (args: Record<string, unknown>) => {
+          const res = await callMemoryTool(def.name, args, ctx, memoryToolDeps);
+          return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
+        }
+      );
+    }
     return server;
   }
 
@@ -929,11 +1025,34 @@ class McpServerService {
       return;
     }
 
-    // Все остальные маршруты требуют Authorization: Bearer <token>.
-    if (!this.isAuthorized(req)) {
-      this.sendJson(res, 401, { error: 'Unauthorized: valid Bearer token required' }, {
-        'WWW-Authenticate': 'Bearer realm="ProjectHub MCP"'
-      });
+    // Все остальные маршруты требуют Authorization: Bearer <token> — основной или агента проекта.
+    void this.authenticate(req).then((auth) => {
+      if (!auth) {
+        this.sendJson(res, 401, { error: 'Unauthorized: valid Bearer token required' }, {
+          'WWW-Authenticate': 'Bearer realm="ProjectHub MCP"'
+        });
+        return;
+      }
+      this.handleAuthorized(req, res, parsedUrl, auth);
+    });
+  }
+
+  /** Основной токен или токен агента зарегистрированного проекта; иначе null. */
+  private async authenticate(req: IncomingMessage): Promise<McpAuth | null> {
+    if (this.isAuthorized(req)) return { kind: 'main' };
+    const token = this.bearerToken(req);
+    if (!token || !isAgentTokenShape(token)) return null;
+    const roots = (await projectRegistry.getProjects()).map((p) => p.path);
+    const projectRoot = projectForAgentToken(this.agentSecret, token, roots);
+    return projectRoot ? { kind: 'agent', projectRoot } : null;
+  }
+
+  private handleAuthorized(req: IncomingMessage, res: ServerResponse, parsedUrl: URL, auth: McpAuth) {
+    const pathname = parsedUrl.pathname;
+
+    // Токен агента открывает только MCP-сессию своего проекта.
+    if (auth.kind === 'agent' && pathname !== '/sse' && pathname !== '/message') {
+      this.sendJson(res, 403, { error: 'Agent token allows only the MCP session of its project' });
       return;
     }
 
@@ -961,15 +1080,19 @@ class McpServerService {
 
     // 4. SSE Stream: GET /sse
     if (pathname === '/sse' && req.method === 'GET') {
-      const hitlSessionId = parsedUrl.searchParams.get(CLI_HITL_QUERY_PARAM) || undefined;
-      console.log(`[MCPServer] New client connected to SSE stream${hitlSessionId ? ` (HITL для сессии ${hitlSessionId})` : ''}`);
+      const agentProject = auth.kind === 'agent' ? auth.projectRoot : undefined;
+      // `phSession` — только для основного токена: агент проекта не может выдать себя за сессию AI Studio.
+      const hitlSessionId = agentProject ? undefined : parsedUrl.searchParams.get(CLI_HITL_QUERY_PARAM) || undefined;
+      console.log(
+        `[MCPServer] New client connected to SSE stream${hitlSessionId ? ` (HITL для сессии ${hitlSessionId})` : ''}${agentProject ? ' (агент проекта)' : ''}`
+      );
       const transport = new SSEServerTransport('/message', res);
       const sessionId = transport.sessionId;
-      const mcpServer = this.createMcpServer(hitlSessionId);
-      const session: SseSession = { transport, mcpServer, hitlSessionId, computerTools: [] };
+      const mcpServer = agentProject ? this.createAgentMcpServer(agentProject, sessionId) : this.createMcpServer(hitlSessionId);
+      const session: SseSession = { transport, mcpServer, hitlSessionId, computerTools: [], agentProject };
       this.sseSessions.set(sessionId, session);
       // Инструменты управления компьютером (TASK-82) — до connect, чтобы попасть в первый tools/list.
-      this.syncComputerTools(session, sessionId);
+      if (!agentProject) this.syncComputerTools(session, sessionId);
       this.broadcastStatus();
 
       transport.onclose = () => {
@@ -998,6 +1121,12 @@ class McpServerService {
       const session = this.sseSessions.get(sessionId);
       if (!session) {
         res.writeHead(404).end(`Session ${sessionId} not found`);
+        return;
+      }
+      // Сессию основного токена ведёт только основной токен, сессию агента — токен того же проекта.
+      const sameOwner = auth.kind === 'main' ? !session.agentProject : session.agentProject === auth.projectRoot;
+      if (!sameOwner) {
+        this.sendJson(res, 403, { error: 'Session belongs to another token' });
         return;
       }
 

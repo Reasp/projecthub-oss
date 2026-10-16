@@ -114,6 +114,8 @@ export interface ProjectInfo {
     bootstrap?: boolean;
     lightrag?: boolean;
   };
+  /** Чего не хватает из основы инициализации (decision-78, п. 2): пустой список — основа на месте. */
+  foundationMissing?: Array<'git' | 'tasks' | 'docs' | 'rules'>;
 }
 
 export interface TaskCriterion {
@@ -197,19 +199,6 @@ export interface TemplateAvailability {
   source: TemplateSource;
 }
 
-export interface CreateProjectOptions {
-  name: string;
-  targetDir: string;
-  templateSource?: string;
-  features: {
-    docsRag?: boolean;
-    envTools?: boolean;
-    backlogMcp?: boolean;
-    bootstrap?: boolean;
-    lightrag?: boolean;
-  };
-  initGit?: boolean;
-}
 
 // ─────────────── Управление компьютером через MCP-прокси (TASK-82), зеркало computerPolicy/computerUseService ───────────────
 
@@ -854,9 +843,32 @@ export interface IElectronAPI {
   createDoc: (projectPath: string, params: CreateDocParams) => Promise<DocItem>;
 
   // Project Template Wizard
-  createProjectFromTemplate: (options: CreateProjectOptions) => Promise<ProjectInfo>;
   checkTemplateAvailable: (customSource?: string) => Promise<TemplateAvailability>;
   setTemplatePath: (templatePath: string | null) => Promise<boolean>;
+
+  // Инициализация проекта и каталог шаблонов (TASK-136, decision-78)
+  initSelectFolder: () => Promise<string | null>;
+  initPreview: (request: import('./projectInit').InitRequest) => Promise<import('./projectInit').IpcResult<import('./projectInit').InitPreview>>;
+  initApply: (request: import('./projectInit').InitApplyRequest) => Promise<import('./projectInit').IpcResult<import('./projectInit').InitReport>>;
+  initFoundationStatus: (projectPath: string) => Promise<import('./projectInit').IpcResult<import('./projectInit').FoundationPart[]>>;
+  onInitProgress: (callback: (event: import('./projectInit').InitProgressEvent) => void) => () => void;
+  templatesList: (locale: string) => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry[]>>;
+  templatesAddFolder: () => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry | null>>;
+  templatesAddZip: () => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry | null>>;
+  templatesAddGit: (url: string) => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry>>;
+  templatesUpdate: (id: string) => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry>>;
+  templatesDuplicate: (id: string, name?: string) => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry>>;
+  templatesRemove: (id: string) => Promise<import('./projectInit').IpcResult<void>>;
+  templatesSetTrusted: (id: string, trusted: boolean) => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry>>;
+  templatesOpenFolder: (id: string) => Promise<import('./projectInit').IpcResult<boolean>>;
+  templatesPreviewSaveProject: (
+    projectPath: string,
+    options: { name: string; description?: string; exclude?: string[] }
+  ) => Promise<import('./projectInit').IpcResult<import('./projectInit').SaveTemplatePreview>>;
+  templatesSaveProject: (
+    projectPath: string,
+    options: { name: string; description?: string; exclude?: string[] }
+  ) => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry>>;
 
   // Background Processes & Terminal
   startProcess: (

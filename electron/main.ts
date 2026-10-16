@@ -30,6 +30,8 @@ import { computerUseService, type ComputerOverlayState } from './services/comput
 import { voiceHotkeyService } from './services/voiceHotkeyService';
 import { voiceResultCardWatch } from './services/voiceResultCardWatch';
 import { terminalHookService } from './services/terminalHookService';
+import { projectRegistry } from './services/projectRegistry';
+import { findOwningProject } from './services/pathGuard';
 import { HOOK_SCRIPT_REL_PATH } from './services/roleExport';
 import { registerAllIpc } from './ipc';
 
@@ -776,11 +778,19 @@ app.whenReady().then(() => {
   });
 
   // Хуки терминальных сессий (TASK-77, decision-54 п. 4): встроенный терминал проекта с установленными
-  // хуками получает адрес и токен хуков (не основной токен MCP) и режим отказа.
+  // хуками получает адрес и токен хуков (не основной токен MCP) и режим отказа. Терминал любого
+  // зарегистрированного проекта получает адрес MCP и токен агента этого проекта — для записи
+  // `projecthub` в .mcp.json основы (TASK-136.6, decision-78 п. 12); основной токен туда не попадает.
   ptyService.setExtraEnvProvider(async (projectPath) => {
-    if (!projectPath || !existsSync(path.join(projectPath, HOOK_SCRIPT_REL_PATH))) return {};
-    await mcpServerService.ensurePermissionEndpoint();
-    return terminalHookService.terminalEnv(mcpServerService.getHookBaseUrl());
+    if (!projectPath) return {};
+    const root = findOwningProject((await projectRegistry.getProjects()).map((p) => p.path), projectPath);
+    const env: Record<string, string> = {};
+    if (root || existsSync(path.join(projectPath, HOOK_SCRIPT_REL_PATH))) await mcpServerService.ensurePermissionEndpoint();
+    if (root) Object.assign(env, mcpServerService.agentEnv(root));
+    if (existsSync(path.join(projectPath, HOOK_SCRIPT_REL_PATH))) {
+      Object.assign(env, terminalHookService.terminalEnv(mcpServerService.getHookBaseUrl()));
+    }
+    return env;
   });
 
   mcpServerService

@@ -1,6 +1,6 @@
 import { ipcMain, dialog, shell } from 'electron';
 import { spawn } from 'node:child_process';
-import type { ProjectInfo, ScanOptions, CreateProjectOptions } from '../../src/types/electron';
+import type { ProjectInfo, ScanOptions } from '../../src/types/electron';
 import { projectRegistry } from '../services/projectRegistry';
 import {
   INSPECT_CONCURRENCY,
@@ -10,7 +10,7 @@ import {
   scanDirectories
 } from '../services/projectScanner';
 import { gitService } from '../services/gitService';
-import { createProjectFromTemplate, checkTemplateAvailable } from '../services/templateWizard';
+import { checkTemplateAvailable } from '../services/templateWizard';
 import type { IpcContext } from './types';
 
 export function registerProjectsIpc(ctx: IpcContext) {
@@ -155,11 +155,7 @@ export function registerProjectsIpc(ctx: IpcContext) {
     return process.platform;
   });
 
-  // Project Template Wizard
-  ipcMain.handle('template:createProject', async (_event, options: CreateProjectOptions) => {
-    return await createProjectFromTemplate(options);
-  });
-
+  // Путь шаблона: переопределение встроенного (decision-78, п. 7). Создание проекта — init:* (initIpc.ts).
   ipcMain.handle('template:checkAvailable', async (_event, customSource?: string) => {
     return await checkTemplateAvailable(customSource);
   });

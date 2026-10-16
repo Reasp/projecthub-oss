@@ -22,6 +22,7 @@ import { buildAgentContext, buildComputerUseInstructions, type ContextPartKey } 
 import { computerUseService, type ComputerCallContext } from './computerUseService.js';
 import { COMPUTER_TOOL_PREFIX } from './computerToolCatalog.js';
 import { MEMORY_TOOL_PREFIX, type MemoryToolContext } from './memoryTools.js';
+import { isProjectToolName } from './projectAgentTools.js';
 import type { ApiToolContext } from './apiToolExecutor.js';
 import { getApiToolExecutor } from './apiToolExecutorDeps.js';
 import { createStudioToolCallbacks } from './studioToolAdapter.js';
@@ -573,6 +574,13 @@ class ClaudeBridgeService extends EventEmitter {
 
     // Память проекта (TASK-76, decision-51 п. 4): формат, секреты, дубликаты и аудит проверяет сам сервис памяти.
     if (toolName.startsWith(`mcp__${CLI_HITL_MCP_SERVER_NAME}__${MEMORY_TOOL_PREFIX}`)) {
+      return allow();
+    }
+
+    // Задачи и документы проекта (TASK-136.6): запись только в backlog/ зарегистрированного проекта и аудит —
+    // в самих инструментах (projectAgentTools).
+    const hitlPrefix = `mcp__${CLI_HITL_MCP_SERVER_NAME}__`;
+    if (toolName.startsWith(hitlPrefix) && isProjectToolName(toolName.slice(hitlPrefix.length))) {
       return allow();
     }
 

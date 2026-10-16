@@ -8,6 +8,7 @@ import type { ManagedProcess } from '../../src/types/electron';
 import { appEventBus } from './eventBus.js';
 import { isPidAlive, type EnvEntryStatus } from './envRegistryIdentity';
 import { envToolsEntryStatuses } from './processSweep';
+import { envStateDir } from './envStateDir';
 import {
   findFreePort,
   findPortOwners,
@@ -118,7 +119,7 @@ function envToolsDisplayStatus(status: EnvEntryStatus): ManagedProcess['status']
 }
 
 function envStateRegistryPath(projectPath: string): string {
-  return path.join(path.normalize(projectPath), '.env-state', 'processes.json');
+  return path.join(envStateDir(projectPath), 'processes.json');
 }
 
 async function readEnvToolsRegistry(projectPath: string): Promise<Record<string, EnvToolsRegistryEntry>> {
@@ -953,7 +954,7 @@ class HubProcessManager {
     }
 
     // 2. Scan env-tools registry: .env-state/processes.json
-    const envStateFile = path.join(normalized, '.env-state', 'processes.json');
+    const envStateFile = envStateRegistryPath(normalized);
     if (existsSync(envStateFile)) {
       try {
         const raw = await fs.readFile(envStateFile, 'utf-8');
@@ -993,7 +994,7 @@ class HubProcessManager {
       return active.logBuffer.slice(-lines).join('');
     }
 
-    const logFile = path.join(projectPath, '.env-state', 'logs', `${processName}.log`);
+    const logFile = path.join(envStateDir(projectPath), 'logs', `${processName}.log`);
     if (existsSync(logFile)) {
       try {
         let content = await fs.readFile(logFile, 'utf-8');

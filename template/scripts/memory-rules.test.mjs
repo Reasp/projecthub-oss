@@ -64,7 +64,7 @@ test('ловит расхождение индекса с файлами и от
 });
 
 test('ловит незакавыченную дату, чужой тип, неверный id, секрет и имя файла', () => {
-  const bad = '---\nid: "mem-3"\ntitle: "t"\ndescription: "d"\ntype: "decision"\ncreated: 2026-09-26\n---\n\nключ sk-ant-api03-AbCdEf0123456789xyzXYZ\n';
+  const bad = '---\nid: "mem-3"\ntitle: "t"\ndescription: "d"\ntype: "decision"\ncreated: 2026-09-26\n---\n\nключ sk-ant-api03-AbCdEf0123456789xyzXYZ\n'; // projecthub:allow-secret — фиктивный ключ теста
   const errors = checkMemoryFile('mem-4 - t.md', bad).join('\n');
   assert.match(errors, /"created" должно быть строкой/);
   assert.match(errors, /type "decision"/);

@@ -20,7 +20,9 @@ import {
   Server,
   Bot,
   ShieldAlert,
-  Loader2
+  Loader2,
+  Wand2,
+  Package
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSwarmStore } from '../../store/useSwarmStore';
@@ -30,7 +32,8 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { useVoiceState } from '../../hooks/useVoiceState';
 import { ScanSettingsModal } from '../projects/ScanSettingsModal';
-import { NewProjectWizardModal } from '../projects/NewProjectWizardModal';
+import { ProjectInitModal, type ProjectInitMode } from '../projects/ProjectInitModal';
+import { TemplatesModal } from '../projects/TemplatesModal';
 import { VoiceBadge } from '../voice/VoiceBadge';
 
 /**
@@ -73,7 +76,13 @@ export const Sidebar: React.FC = () => {
   const connectedPeersCount = useFederationStore((s) => s.peers.filter((p) => p.status === 'connected').length);
 
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
-  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
+  // Окно инициализации (decision-78): мастер нового проекта, папка без основы или проект из каталога.
+  const [initTarget, setInitTarget] = useState<{ mode: ProjectInitMode; path?: string } | null>(null);
+  const missingLabel = (parts: string[]) =>
+    parts
+      .map((part) => ({ git: t.init.partGit, tasks: t.init.partTasks, docs: t.init.partDocs, rules: t.init.partRules })[part as 'git'] ?? part)
+      .join(', ');
 
   const handleEditVoiceAlias = async (e: React.MouseEvent, project: any) => {
     e.stopPropagation();
@@ -87,10 +96,13 @@ export const Sidebar: React.FC = () => {
     }
   };
 
+  // Папка без признаков проекта не добавляется в каталог — для неё открывается инициализация основы.
   const handleAddFolder = async () => {
     if (window.api) {
-      const folder = await window.api.selectDirectory();
-      if (folder) await addProjectByPath(folder);
+      const folder = await window.api.initSelectFolder();
+      if (!folder) return;
+      const added = await addProjectByPath(folder);
+      if (!added) setInitTarget({ mode: 'folder', path: folder });
     }
   };
 
@@ -290,6 +302,19 @@ export const Sidebar: React.FC = () => {
                   )}
 
                   <div className="ml-auto flex items-center shrink-0">
+                    {project.foundationMissing && project.foundationMissing.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setInitTarget({ mode: 'existing', path: project.path });
+                        }}
+                        className={`${rowAction} text-amber-400 hover:text-amber-300`}
+                        title={`${t.init.initButton} · ${t.init.initTooltip.replace('{parts}', missingLabel(project.foundationMissing))}`}
+                        aria-label={t.init.initButton}
+                      >
+                        <Wand2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -463,19 +488,36 @@ export const Sidebar: React.FC = () => {
             <FolderPlus className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span className="truncate">{t.sidebar.addProject}</span>
           </button>
-          <button
-            onClick={() => setIsWizardOpen(true)}
-            className="flex items-center justify-center gap-1.5 h-7 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-xs text-white transition min-w-0"
-            title={t.sidebar.newFromTemplate}
-          >
-            <Sparkles className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">{t.sidebar.newFromTemplate}</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setInitTarget({ mode: 'new' })}
+              className="flex-1 flex items-center justify-center gap-1.5 h-7 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-xs text-white transition min-w-0"
+              title={t.sidebar.newFromTemplate}
+            >
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{t.sidebar.newFromTemplate}</span>
+            </button>
+            <button
+              onClick={() => setIsTemplatesOpen(true)}
+              className="flex items-center justify-center h-7 w-7 rounded-md bg-ph-raised hover:bg-ph-hover text-slate-300 transition shrink-0"
+              title={t.templates.title}
+              aria-label={t.templates.title}
+            >
+              <Package className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </aside>
 
       <ScanSettingsModal isOpen={isScanModalOpen} onClose={() => setIsScanModalOpen(false)} />
-      <NewProjectWizardModal isOpen={isWizardOpen} onClose={() => setIsWizardOpen(false)} />
+      <ProjectInitModal
+        isOpen={initTarget !== null}
+        onClose={() => setInitTarget(null)}
+        mode={initTarget?.mode ?? 'new'}
+        projectPath={initTarget?.mode === 'existing' ? initTarget.path : undefined}
+        initialFolder={initTarget?.mode === 'folder' ? initTarget.path : undefined}
+      />
+      <TemplatesModal isOpen={isTemplatesOpen} onClose={() => setIsTemplatesOpen(false)} projectPath={selectedProject?.path} />
     </>
   );
 };

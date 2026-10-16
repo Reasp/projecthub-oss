@@ -19,6 +19,7 @@ import { registerMemoryIpc } from './memoryIpc';
 import { registerAutomationsIpc } from './automationsIpc';
 import { registerPrReviewIpc } from './prReviewIpc';
 import { registerSecurityIpc } from './securityIpc';
+import { registerInitIpc } from './initIpc';
 
 export type { IpcContext } from './types';
 
@@ -43,4 +44,5 @@ export function registerAllIpc(ctx: IpcContext) {
   registerAutomationsIpc(ctx);
   registerPrReviewIpc(ctx);
   registerSecurityIpc();
+  registerInitIpc(ctx);
 }

@@ -1,0 +1,161 @@
+{
+  "schema": 1,
+  "id": "projecthub-base",
+  "name": { "ru": "Базовый шаблон ProjectHub", "en": "ProjectHub base template" },
+  "description": {
+    "ru": "MCP-серверы поиска по документации, процессов и задач, скрипты инфраструктуры на Node, git-хуки и расширенные правила агентов.",
+    "en": "MCP servers for documentation search, processes and tasks, Node infrastructure scripts, git hooks and extended agent rules."
+  },
+  "version": "1.0.0",
+  "placement": { "subfolder": ".projecthub/infra", "allowRoot": true },
+  "files": [
+    { "path": "scripts/lightrag/**", "when": "lightrag" },
+    { "path": "scripts/computer-use/**", "when": "computerUse" },
+    { "path": "scripts/**" },
+    { "path": "package.json" },
+    { "path": "package-lock.json" },
+    { "path": "start-web.bat" },
+    { "path": "start-web.sh" },
+    { "path": ".gitattributes" },
+    { "path": ".gitignore", "apply": "merge-lines" },
+    { "path": ".claude/settings.json", "apply": "merge-settings", "target": "project" },
+    { "path": ".claude/skills/**", "target": "project" },
+    { "path": ".agents/skills/**", "target": "project" }
+  ],
+  "exclude": ["README.md", "scripts/lightrag/.venv/**"],
+  "features": [
+    {
+      "id": "docsRag",
+      "label": { "ru": "Векторный поиск по документации", "en": "Vector documentation search" },
+      "description": {
+        "ru": "MCP docs-rag: смысловой поиск по backlog/docs и backlog/decisions, индекс .rag-index коммитится в git.",
+        "en": "docs-rag MCP: semantic search over backlog/docs and backlog/decisions; the .rag-index is committed to git."
+      },
+      "default": true,
+      "mcp": { "docs-rag": { "command": "node", "args": ["{infra}scripts/rag/rag-server.mjs"] } }
+    },
+    {
+      "id": "envTools",
+      "label": { "ru": "Процессы env-tools", "en": "env-tools processes" },
+      "description": {
+        "ru": "MCP env-tools: запуск, остановка и логи dev-серверов, видимые другим агентам.",
+        "en": "env-tools MCP: start, stop and tail dev servers so other agents can see them."
+      },
+      "default": true,
+      "mcp": { "env-tools": { "command": "node", "args": ["{infra}scripts/env/env-server.mjs"] } }
+    },
+    {
+      "id": "backlogMcp",
+      "label": { "ru": "Backlog.md MCP", "en": "Backlog.md MCP" },
+      "description": {
+        "ru": "Нативный MCP Backlog.md через npx: задачи и документы для агента и без запущенного ProjectHub.",
+        "en": "Native Backlog.md MCP via npx: tasks and documents for agents even when ProjectHub is not running."
+      },
+      "default": true,
+      "mcp": { "backlog": { "command": "npx", "args": ["--yes", "backlog.md", "mcp", "start"] } }
+    },
+    {
+      "id": "gitnexus",
+      "label": { "ru": "Граф кода GitNexus", "en": "GitNexus code graph" },
+      "description": {
+        "ru": "MCP gitnexus: вызовы, зависимости и impact-анализ. Нужен глобально установленный CLI gitnexus.",
+        "en": "gitnexus MCP: calls, dependencies and impact analysis. Requires the gitnexus CLI installed globally."
+      },
+      "default": true,
+      "mcp": { "gitnexus": { "command": "gitnexus", "args": ["mcp"] } }
+    },
+    {
+      "id": "bootstrap",
+      "label": { "ru": "Установка окружения", "en": "Environment bootstrap" },
+      "description": {
+        "ru": "npm run bootstrap ставит git, node и остальное под текущую ОС.",
+        "en": "npm run bootstrap installs git, node and the rest for the current OS."
+      },
+      "default": true
+    },
+    {
+      "id": "lightrag",
+      "label": { "ru": "Граф документации LightRAG", "en": "LightRAG documentation graph" },
+      "description": {
+        "ru": "MCP docs-graph: связи понятий в документации. Python, Ollama и модель на несколько ГБ.",
+        "en": "docs-graph MCP: relations between concepts in the docs. Needs Python, Ollama and a multi-GB model."
+      },
+      "default": false,
+      "heavy": true,
+      "mcp": { "docs-graph": { "command": "node", "args": ["{infra}scripts/lightrag/lightrag-server.mjs"] } }
+    },
+    {
+      "id": "computerUse",
+      "label": { "ru": "Управление компьютером", "en": "Computer use" },
+      "description": {
+        "ru": "Инструменты computer_* через прокси ProjectHub с HITL и kill-switch.",
+        "en": "computer_* tools through the ProjectHub proxy with HITL and a kill switch."
+      },
+      "default": false,
+      "mcp": { "projecthub-computer": { "command": "node", "args": ["{infra}scripts/computer-use/computer-use-bridge.mjs"] } }
+    },
+    {
+      "id": "playwright",
+      "label": { "ru": "Браузер для проверки UI", "en": "Browser for UI checks" },
+      "description": {
+        "ru": "Playwright MCP: headless-браузер, снимки и скриншоты страниц проекта.",
+        "en": "Playwright MCP: a headless browser with page snapshots and screenshots."
+      },
+      "default": false,
+      "mcp": { "playwright": { "command": "npx", "args": ["--yes", "@playwright/mcp@0.0.82", "--headless", "--isolated"] } },
+      "gitignore": [".playwright-mcp/"]
+    }
+  ],
+  "sets": [
+    {
+      "id": "lang-ru",
+      "label": { "ru": "Ответы и документация на русском", "en": "Answers and docs in Russian" },
+      "default": true
+    },
+    {
+      "id": "windows",
+      "label": { "ru": "Windows-окружение", "en": "Windows environment" },
+      "description": {
+        "ru": "Git Bash и PowerShell, detached-процессы через env-tools.",
+        "en": "Git Bash and PowerShell, detached processes through env-tools."
+      },
+      "default": true
+    },
+    {
+      "id": "data-driven",
+      "label": { "ru": "Data-driven по умолчанию", "en": "Data-driven by default" },
+      "description": {
+        "ru": "Параметры и тексты — в данных, а не в коде.",
+        "en": "Parameters and texts live in data files, not in code."
+      },
+      "default": true
+    },
+    {
+      "id": "code-ts",
+      "label": { "ru": "Конвенции кода TS/JS", "en": "TS/JS code conventions" },
+      "default": true
+    }
+  ],
+  "rules": {
+    "source": "infra-dev.md",
+    "marker": "infra-dev",
+    "note": "сгенерировано из infra-dev.md, правь его, не эту секцию",
+    "targets": ["CLAUDE.md", "AGENTS.md", "GEMINI.md"],
+    "agentsRules": ".agents/rules/infra-dev.md"
+  },
+  "mcpConfigs": [".mcp.json", ".agents/mcp_config.json"],
+  "commands": [
+    { "id": "install", "label": "npm install", "run": "npm install", "cwd": "infra", "default": true },
+    { "id": "index-docs", "label": "npm run index-docs", "run": "npm run index-docs", "cwd": "infra", "default": true, "when": "docsRag" },
+    { "id": "gitnexus-analyze", "label": "gitnexus analyze", "run": "gitnexus analyze", "cwd": "project", "default": false, "when": "gitnexus" },
+    { "id": "lightrag-setup", "label": "npm run lightrag-setup", "run": "npm run lightrag-setup", "cwd": "infra", "default": false, "when": "lightrag" }
+  ],
+  "gitHooks": {
+    "description": {
+      "ru": "pre-commit проверяет документацию и индекс, commit-msg запрещает AI-атрибуцию, post-commit переиндексирует GitNexus. Ставятся через core.hooksPath при npm install.",
+      "en": "pre-commit validates docs and the index, commit-msg rejects AI attribution, post-commit reindexes GitNexus. Installed via core.hooksPath on npm install."
+    },
+    "configKey": "gitHooks"
+  },
+  "statuses": ["To Do", "In Progress", "InProgress(Human)", "Review", "Review(Human)", "Done"]
+}

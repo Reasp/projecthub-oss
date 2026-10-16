@@ -1,5 +1,6 @@
-import React from 'react';
-import { Code, FolderOpen, TerminalSquare, ShieldAlert, Loader2 } from '../common/icons';
+import React, { useState } from 'react';
+import { Code, FolderOpen, TerminalSquare, ShieldAlert, Loader2, Wand2 } from '../common/icons';
+import { ProjectInitModal } from '../projects/ProjectInitModal';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { ActionRunnerBar } from '../actions/ActionRunnerBar';
@@ -25,6 +26,7 @@ export const Header: React.FC = () => {
     projectAgentStatuses,
     workspaceRoot
   } = useProjectStore();
+  const [isInitOpen, setIsInitOpen] = useState(false);
 
   if (!selectedProject) {
     return (
@@ -81,6 +83,22 @@ export const Header: React.FC = () => {
 
       {/* Справа: действия над проектом */}
       <div className="flex items-center gap-1 shrink-0">
+        {/* Основы не хватает (decision-78, п. 2) — кнопка инициализации проекта */}
+        {selectedProject.foundationMissing && selectedProject.foundationMissing.length > 0 && (
+          <button
+            onClick={() => setIsInitOpen(true)}
+            title={t.init.initTooltip.replace(
+              '{parts}',
+              selectedProject.foundationMissing
+                .map((part) => ({ git: t.init.partGit, tasks: t.init.partTasks, docs: t.init.partDocs, rules: t.init.partRules })[part])
+                .join(', ')
+            )}
+            className={`${toolButton} text-amber-300 hover:text-amber-200`}
+          >
+            <Wand2 className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{t.init.initButton}</span>
+          </button>
+        )}
         <ActionRunnerBar />
 
         <div className="w-px h-4 bg-ph-line mx-1.5" />
@@ -108,6 +126,7 @@ export const Header: React.FC = () => {
           <VoiceBadge command={t.voice.voiceBadges.terminal} />
         </button>
       </div>
+      <ProjectInitModal isOpen={isInitOpen} onClose={() => setIsInitOpen(false)} mode="existing" projectPath={selectedProject.path} />
     </header>
   );
 };

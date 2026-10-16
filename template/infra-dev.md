@@ -10,6 +10,11 @@
 > ProxiHorror, ProjectHub, WorldSim, PlatPhas). Специфика конкретного движка/стека (Godot,
 > Blender, Electron, Phaser и т.п.) сюда не входит — она описывается в самом проекте: в
 > отдельной секции `CLAUDE.md` вне маркеров `infra-dev` или в документах `backlog/docs/`.
+<!-- if:subfolder -->
+>
+> Инфраструктура шаблона лежит в подпапке `{{infraDir}}` проекта: команды `npm run …` и
+> `node scripts/…` из этого файла выполняй в этом каталоге (или `npm --prefix {{infraDir}} run …`).
+<!-- endif -->
 
 ## Что здесь есть и зачем
 
@@ -21,10 +26,10 @@
 | **GitNexus** (MCP) | граф кода: вызовы, зависимости, impact-анализ | перед рефакторингом/правкой — проверить, что затронет изменение; `detect_changes` перед коммитом |
 | **Vector RAG** (`docs-rag`, MCP) | смысловой поиск по markdown-документации (`backlog/docs/`, `backlog/decisions/`) | перед ответом на вопрос про архитектуру/конвенции — вызвать `search_docs`, а не отвечать из памяти |
 | **Валидаторы документации** (`npm run lint:docs` = `scripts/validate-docs.mjs` + `scripts/rag/check-index.mjs`) | frontmatter, даты в кавычках, картинки, таблицы; формат, секреты и индекс памяти проекта `backlog/memory/`; актуальность `.rag-index/` относительно `backlog/` | перед каждым коммитом (делает `pre-commit`), после любой правки `backlog/docs/**`, `backlog/decisions/**` |
-| **LightRAG** (`docs-graph`, MCP) — опционально | граф сущностей/связей той же документации (LLM-экстракция через локальную Ollama) | вопросы про связи между понятиями ("как X связано с Y") — `search_docs_graph`; включён, только если `features.lightrag = true` в `infra.config.json` |
+| **LightRAG** (`docs-graph`, MCP) — опционально | граф сущностей/связей той же документации (LLM-экстракция через локальную Ollama) | вопросы про связи между понятиями ("как X связано с Y") — `search_docs_graph`; включён, только если `features.lightrag = true` в `infra.config.json` | <!-- if:lightrag -->
 | **env-tools** (`env-tools`, MCP) | старт/стоп/логи локальных процессов (dev-сервер и т.п.), пересборка RAG-индекса | вместо произвольного `Bash`/фоновых процессов, когда нужно, чтобы процесс был виден другим сессиям/агентам |
-| **Управление компьютером** (`projecthub-computer`, MCP) — опционально | инструменты `computer_*` (окна, дерево доступности, мышь, клавиатура) через прокси ProjectHub с HITL, allowlist и kill-switch | только когда задача требует GUI за пределами кода; включён, только если `features.computerUse = true` и в ProjectHub включено «Управление компьютером» (правило 24) |
-| **Браузер для проверки UI** (`playwright`, MCP) — опционально | инструменты `browser_*` Playwright MCP: открыть страницу проекта, снимок дерева, клики, скриншот; headless, профиль в памяти | проверить видимый результат правки UI; включён, только если `features.playwright = true` (правило 26) |
+| **Управление компьютером** (`projecthub-computer`, MCP) — опционально | инструменты `computer_*` (окна, дерево доступности, мышь, клавиатура) через прокси ProjectHub с HITL, allowlist и kill-switch | только когда задача требует GUI за пределами кода; включён, только если `features.computerUse = true` и в ProjectHub включено «Управление компьютером» (правило 24) | <!-- if:computerUse -->
+| **Браузер для проверки UI** (`playwright`, MCP) — опционально | инструменты `browser_*` Playwright MCP: открыть страницу проекта, снимок дерева, клики, скриншот; headless, профиль в памяти | проверить видимый результат правки UI; включён, только если `features.playwright = true` (правило 26) | <!-- if:playwright -->
 
 Google Antigravity — второй поддерживаемый агент наравне с Claude Code: те же MCP-серверы
 подключены через `.agents/mcp_config.json`, те же правила — через `.agents/rules/infra-dev.md`,
@@ -151,12 +156,11 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
    - Подробный гайд с примерами и шаблоном заметки — документ «Статусы задач: Review,
      InProgress(Human), Review(Human)» в `backlog/docs/`.
 7. Порядок разбора незнакомой части проекта: `search_docs` (что это и почему) →
-   `search_docs_graph`, если включён (как это связано с другими понятиями) →
+   `search_docs_graph` (как это связано с другими понятиями) → <!-- if:lightrag -->
    GitNexus `impact`/`explain` (как это связано с кодом) → сам код.
-8. **LightRAG — не форсировать.** Если `features.lightrag = false`, не предлагать пользователю
-   включать его без явного запроса — это осознанно опциональная тяжёлая фича (Python + Ollama +
-   модель на несколько ГБ), а не часть базового набора. То же для любых опциональных фич,
-   выключенных по умолчанию.
+8. **Опциональные фичи — не форсировать.** Фичи, выключенные в `infra.config.json` (LightRAG —
+   Python + Ollama + модель на несколько ГБ, управление компьютером, Playwright и т.п.), не
+   предлагать включать без явного запроса пользователя: это осознанно не часть базового набора.
 9. **Веб-интерфейсы (Backlog.md, GitNexus) — через `node scripts/web.mjs start`**
    (или `start-web.bat`/`start-web.sh`), не поднимать их отдельными разрозненными командами —
    так они тоже трекаются через `env-tools` и не плодят дубли на одних портах.
@@ -170,6 +174,7 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
     точно это увидел, и предложить конкретную команду `git commit`/или перевод задачи в
     `Review`/`Done` в Backlog.md. Само действие не выполняется без отдельного согласия
     пользователя (см. правило 10).
+<!-- if:lang-ru -->
 12. **Язык по умолчанию — русский, без исключений.** Все ответы пользователю — обычные
     сообщения, промежуточные статусы по ходу работы («делаю X», «нашёл Y»), вопросы, итоговые
     summary, тексты внутри артефактов и промптов для новых сессий — на русском, независимо от
@@ -180,6 +185,7 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
     сжатия/суммаризации контекста: поймал себя на ответе не на русском — немедленно продолжи
     на русском. Идентификаторы кода, названия команд, ключи конфигов, CSV-полей и цитаты из
     английских источников не переводить.
+<!-- endif -->
 13. **Чистота git-истории: никакой AI-атрибуции и ничего лишнего.** Категорически запрещено
     добавлять в сообщения коммитов, Pull Requests, описания, комментарии к коду и файлы проекта
     строки соавторства/атрибуции AI-ассистентов (`Co-Authored-By: Claude …`,
@@ -311,20 +317,25 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
     пользователя. `.gitattributes` держит `*.sh`, хуки, `*.service`/`*.timer`/`*.conf` в LF
     (иначе на Linux-сервере `$'\r': command not found`), а `*.bat`/`*.cmd`/`*.ps1` — в CRLF;
     новые скрипты, которые исполняются на сервере, добавляй туда же.
+<!-- if:windows -->
 21. **Windows-окружение.** Bash-тул — Git Bash поверх Windows, PowerShell — отдельный тул;
     батники и `.ps1` — основной способ запуска для пользователя. Detached-процессы с логом в
     файл — только через `env-tools` (там решена проблема `shell:true + detached:true`).
     Временные файлы — в scratchpad-директории сессии, не в проекте и не в `/tmp`.
+<!-- endif -->
 22. **Секреты и переменные окружения.** `.env` не коммитится (в `.gitignore`), каждая
     переменная задокументирована в `.env.example` с комментарием. Токены MCP-серверов и
     внешних API — только через переменные окружения, никогда в коммитящихся `.mcp.json`/
     `.agents/mcp_config.json`. Имена секретов и содержимое файлов в логи не писать.
     Прод-конфиги живут только на сервере; деплой-скрипт их не пересоздаёт.
+<!-- if:data-driven -->
 23. **Data-driven по умолчанию.** Баланс, параметры, тексты, конфиги подсистем — в данных
     (CSV/JSON/YAML в каталоге данных проекта), а не захардкожены в коде; код их читает через
     единый провайдер. При добавлении новой механики/типа сущности агент сразу заводит и данные,
     и (если в проекте есть редактор данных) модуль редактора, и документ-гайд в `backlog/docs/`
     с описанием формата — не оставляет результат только в диффе кода.
+<!-- endif -->
+<!-- if:computerUse -->
 24. **Управление компьютером — только через прокси ProjectHub и только по необходимости
     (decision-27 ProjectHub).**
     - Инструменты `computer_*` подключаются фичей шаблона `computerUse` (по умолчанию выключена) —
@@ -340,7 +351,8 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
       (скрипты, `run_command`, файловые операции) — остановиться и сообщить пользователю.
     - В Automations и автозапуске назначенных задач ProjectHub управление компьютером запрещено; в цикле
       «до готовности» — только для задач с label `computer-use`. Не предлагать включать `computerUse` без
-      явного запроса (как LightRAG, правило 8).
+      явного запроса (правило 8).
+<!-- endif -->
 25. **Роли ProjectHub как субагенты и хуки терминала (decision-54 ProjectHub).**
     - `.claude/agents/*.md`, `.codex/agents/*.toml`, `.projecthub/hooks/projecthub-hook.mjs` и записи хуков
       в `.claude/settings.json` / `.codex/hooks.json` генерирует ProjectHub (Роли → «Синхронизация в
@@ -349,16 +361,17 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
       `sync-agent-rules.mjs` эти файлы тоже не меняют.
     - Хуки ведут вызовы инструментов терминальных сессий `claude`/`codex` в политику роли, очередь
       решений HITL и аудит ProjectHub. Отказ хука (`deny`, «Отклонено в ProjectHub») не обходить другими
-      инструментами — остановиться и сообщить пользователю, как при отказе в правиле 24.
+      инструментами — остановиться и сообщить пользователю.
     - Токен хуков — только в переменной окружения `PROJECTHUB_HOOK_TOKEN` (адрес — `PROJECTHUB_HOOK_URL`,
       режим отказа — `PROJECTHUB_HOOK_FAIL_MODE`), в конфиги и файлы проекта не писать. Встроенный
       терминал ProjectHub получает их сам.
     - Если ProjectHub не запущен, хуки по умолчанию не мешают работе (fail-open с записью в лог).
+<!-- if:playwright -->
 26. **Визуальная проверка UI: Playwright MCP и чек `ui-smoke` (decision-55 ProjectHub).**
     - Фича шаблона `playwright` (по умолчанию выключена) добавляет в `.mcp.json` и
       `.agents/mcp_config.json` сервер `playwright` — `@playwright/mcp` с закреплённой версией,
       `--headless --isolated` — и `.playwright-mcp/` в `.gitignore`. Не предлагать включать её без
-      явного запроса (как LightRAG и `computerUse`, правила 8 и 24).
+      явного запроса (правило 8).
     - **Когда проверять UI обязательно:** фича включена и правка меняет видимый интерфейс (компоненты,
       стили, разметку страниц). После правки подними dev-сервер через `env-tools`, открой страницу по
       `http://` (`file:` заблокирован), сначала `browser_snapshot`, затем `browser_take_screenshot` для
@@ -375,8 +388,10 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
       файлы вне рабочего каталога (`filename`, `paths`), адреса `file:` — только с одобрения человека в
       ProjectHub, в Automations и автозапуске назначенных задач отклоняется. Отказ не обходить другими
       инструментами. Не подключать реальный браузер пользователя (`--extension`). Рабочий стол за
-      пределами браузера — только `computer_*` (правило 24).
+      пределами браузера — только `computer_*` (фича `computerUse`).
+<!-- endif -->
 
+<!-- if:code-ts -->
 ## Конвенции кода (TS/JS-проекты; для других стеков — по аналогии)
 
 - Классы (сцены, сущности, сервисы) — `PascalCase`, файлы классов — `PascalCase.ts`;
@@ -393,6 +408,7 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
   на гайд.
 - Node-скрипты инфраструктуры — ESM (`.mjs`), без сборки/транспиляции; ошибки и подсказки в
   них — на русском.
+<!-- endif -->
 
 ## Быстрые команды
 
@@ -411,9 +427,9 @@ npx backlog.md doc create "<Заголовок>" -t guide   # новый док�
 npx backlog.md decision create "<Заголовок>"        # новое архитектурное решение (ADR)
 gitnexus analyze                     # (пере)индексировать код GitNexus; post-commit делает это сам
 npm run bootstrap                    # поставить git/node/... под текущую ОС (scripts/bootstrap/stack.json)
-npm run lightrag-setup                # ОДНОРАЗОВО: venv + lightrag-hku + модели Ollama (если features.lightrag)
-npm run lightrag-index                # построить граф документации (LightRAG)
-npm run lightrag-server               # MCP-сервер docs-graph (обычно через .mcp.json)
+npm run lightrag-setup                # ОДНОРАЗОВО: venv + lightrag-hku + модели Ollama (если features.lightrag) <!-- if:lightrag -->
+npm run lightrag-index                # построить граф документации (LightRAG) <!-- if:lightrag -->
+npm run lightrag-server               # MCP-сервер docs-graph (обычно через .mcp.json) <!-- if:lightrag -->
 node scripts/web.mjs start|stop|status  # веб-интерфейсы Backlog.md/GitNexus (или start-web.bat/.sh)
 npm run sync-rules                    # разослать этот файл в CLAUDE.md/GEMINI.md/AGENTS.md
 ```

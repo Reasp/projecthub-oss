@@ -11,7 +11,6 @@ import type {
   ScanOptions,
   BacklogTask,
   TaskCriterion,
-  CreateProjectOptions,
   ManagedProcess,
   McpServerStatus,
   ComputerOverlayState,
@@ -67,11 +66,33 @@ const api: IElectronAPI = {
   createDoc: (projectPath: string, params: any) => ipcRenderer.invoke('docs:create', projectPath, params),
 
   // Project Template Wizard
-  createProjectFromTemplate: (options: CreateProjectOptions) =>
-    ipcRenderer.invoke('template:createProject', options),
   checkTemplateAvailable: (customSource?: string) =>
     ipcRenderer.invoke('template:checkAvailable', customSource),
   setTemplatePath: (templatePath: string | null) => ipcRenderer.invoke('template:setPath', templatePath),
+
+  // Инициализация проекта и каталог шаблонов (TASK-136, decision-78)
+  initSelectFolder: () => ipcRenderer.invoke('init:selectFolder'),
+  initPreview: (request) => ipcRenderer.invoke('init:preview', request),
+  initApply: (request) => ipcRenderer.invoke('init:apply', request),
+  initFoundationStatus: (projectPath: string) => ipcRenderer.invoke('init:foundationStatus', projectPath),
+  onInitProgress: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) => callback(data);
+    ipcRenderer.on('init:progress', handler);
+    return () => {
+      ipcRenderer.removeListener('init:progress', handler);
+    };
+  },
+  templatesList: (locale: string) => ipcRenderer.invoke('templates:list', locale),
+  templatesAddFolder: () => ipcRenderer.invoke('templates:addFolder'),
+  templatesAddZip: () => ipcRenderer.invoke('templates:addZip'),
+  templatesAddGit: (url: string) => ipcRenderer.invoke('templates:addGit', url),
+  templatesUpdate: (id: string) => ipcRenderer.invoke('templates:update', id),
+  templatesDuplicate: (id: string, name?: string) => ipcRenderer.invoke('templates:duplicate', id, name),
+  templatesRemove: (id: string) => ipcRenderer.invoke('templates:remove', id),
+  templatesSetTrusted: (id: string, trusted: boolean) => ipcRenderer.invoke('templates:setTrusted', id, trusted),
+  templatesOpenFolder: (id: string) => ipcRenderer.invoke('templates:openFolder', id),
+  templatesPreviewSaveProject: (projectPath, options) => ipcRenderer.invoke('templates:previewSaveProject', projectPath, options),
+  templatesSaveProject: (projectPath, options) => ipcRenderer.invoke('templates:saveProject', projectPath, options),
 
   // Background Processes & Terminal
   startProcess: (projectPath: string, command: string, name: string, options?: StartProcessOptions) =>

@@ -22,7 +22,7 @@ import { AIStudioView } from '../ai/AIStudioView';
 import { ClaudeCliView } from '../claude/ClaudeCliView';
 import { ProcessesView } from '../processes/ProcessesView';
 import { SecurityHealthView } from '../security/SecurityHealthView';
-import { NewProjectWizardModal } from './NewProjectWizardModal';
+import { ProjectInitModal, type ProjectInitMode } from './ProjectInitModal';
 
 /**
  * Рабочая область выбранного проекта. Переключение вкладок, их порядок, скрытие и настройка
@@ -43,7 +43,7 @@ export const ProjectWorkspace: React.FC = () => {
     isProjectDataLoading
   } = useProjectStore();
 
-  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [initTarget, setInitTarget] = useState<{ mode: ProjectInitMode; path?: string } | null>(null);
 
   if (!selectedProject) {
     const startAction =
@@ -81,8 +81,9 @@ export const ProjectWorkspace: React.FC = () => {
                   type="button"
                   onClick={async () => {
                     if (window.api) {
-                      const folder = await window.api.selectDirectory();
-                      if (folder) await addProjectByPath(folder);
+                      // Папка без признаков проекта не добавляется — для неё открывается инициализация основы.
+                      const folder = await window.api.initSelectFolder();
+                      if (folder && !(await addProjectByPath(folder))) setInitTarget({ mode: 'folder', path: folder });
                     }
                   }}
                   className={startAction}
@@ -90,7 +91,7 @@ export const ProjectWorkspace: React.FC = () => {
                   <FolderPlus className="w-4 h-4 shrink-0" />
                   <span>{t.sidebar.addProject}</span>
                 </button>
-                <button type="button" onClick={() => setIsWizardOpen(true)} className={startAction}>
+                <button type="button" onClick={() => setInitTarget({ mode: 'new' })} className={startAction}>
                   <Sparkles className="w-4 h-4 shrink-0" />
                   <span>{t.sidebar.newFromTemplate}</span>
                 </button>
@@ -137,7 +138,12 @@ export const ProjectWorkspace: React.FC = () => {
           </div>
         </div>
 
-        <NewProjectWizardModal isOpen={isWizardOpen} onClose={() => setIsWizardOpen(false)} />
+        <ProjectInitModal
+          isOpen={initTarget !== null}
+          onClose={() => setInitTarget(null)}
+          mode={initTarget?.mode ?? 'new'}
+          initialFolder={initTarget?.mode === 'folder' ? initTarget.path : undefined}
+        />
       </div>
     );
   }

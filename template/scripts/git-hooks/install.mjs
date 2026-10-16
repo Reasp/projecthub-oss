@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { INFRA_ROOT, PROJECT_ROOT } from '../config.mjs';
+import { CONFIG, INFRA_ROOT, PROJECT_ROOT } from '../config.mjs';
 
 // Подключает git-хуки инфраструктуры (scripts/git-hooks/) через core.hooksPath — без копирования
 // в .git/hooks/, чтобы хуки версионировались вместе с проектом и обновлялись через git pull.
@@ -29,6 +29,13 @@ function git(gitArgs, cwd = PROJECT_ROOT) {
 
 function log(msg) {
   if (!quiet) console.log(msg);
+}
+
+// ProjectHub выключает хуки шаблона, если у проекта свои (husky, lefthook, core.hooksPath):
+// `npm install` → prepare не должен молча переопределить их.
+if (!uninstall && CONFIG.gitHooks === false) {
+  log('git-hooks: выключены в infra.config.json ("gitHooks": false) — core.hooksPath не трогаю.');
+  process.exit(0);
 }
 
 const top = git(['rev-parse', '--show-toplevel']);
