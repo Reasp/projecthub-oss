@@ -11,6 +11,8 @@ import { AISettingsHost } from './components/ai/AISettingsHost';
 import { VoiceControlWidget } from './components/voice/VoiceControlWidget';
 import { DialogHost } from './components/common/DialogHost';
 import { HitlCenterModal } from './components/hitl/HitlCenterModal';
+import { ClaudeLoginModal } from './components/ai/ClaudeLoginModal';
+import { ClaudeAccountsModal } from './components/ai/ClaudeAccountsModal';
 import { ComputerControlBanner } from './components/computer/ComputerControlBanner';
 import { NotificationSettingsModal } from './components/notifications/NotificationSettingsModal';
 import { AutomationsModal } from './components/automations/AutomationsModal';
@@ -384,6 +386,10 @@ export const App: React.FC = () => {
 
       {/* Удалённые хосты федерации, hub-режим (TASK-66) */}
       <RemoteHostsModal />
+
+      {/* Аккаунты Claude Code и вход во встроенном терминале (TASK-152) */}
+      <ClaudeAccountsModal />
+      <ClaudeLoginModal />
 
       {/* Global Promise-based Modals (ConfirmDialog, PromptDialog, AlertDialog) */}
       <DialogHost />

@@ -6,7 +6,6 @@ import { EventEmitter } from 'node:events';
 import treeKill from 'tree-kill';
 import {
   aiAgentService,
-  PROJECT_HUB_CLAUDE_DIR,
   type AIProviderConfig,
   type AIMessage,
   type AIToolCall
@@ -14,6 +13,7 @@ import {
 import type { ProviderErrorInfo } from './providerErrors.js';
 import { CHILD_CLOSE_GRACE_MS, superviseChildExit } from './processSweep.js';
 import { claudeUsageService } from './claudeUsageService.js';
+import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountService.js';
 import { parseClaudeResultEvent, priceUsage, type AgentUsage } from './agentCost.js';
 import { pricingService } from './pricingService.js';
 import { hitlService, ApprovalCancelledError } from './hitlService.js';
@@ -155,6 +155,8 @@ export interface RateLimitWarning {
   utilization?: number;
   resetsAt?: string;
   tier?: string;
+  /** Профиль аккаунта Claude Code, чей лимит (TASK-152.5). */
+  accountName?: string;
   timestamp: number;
 }
 
@@ -253,6 +255,8 @@ export interface CliPermissionMeta {
   agentId?: string;
   agentName?: string;
   role?: string;
+  /** Имя профиля аккаунта Claude Code — в карточки и аудит HITL (decision-87 п. 14). */
+  claudeAccount?: string;
   /** Права роли (decision-9): применяются поверх глобальных настроек и только сужают их. */
   permissions?: RolePermissions;
   /** Рабочее дерево сессии (worktree), если агент запущен не в основном дереве (TASK-62). */
@@ -515,6 +519,7 @@ class ClaudeBridgeService extends EventEmitter {
       agentId: ctx.agentId,
       agentName: ctx.agentName,
       role: ctx.role,
+      ...(ctx.claudeAccount ? { claudeAccount: ctx.claudeAccount } : {}),
       tool: toolName
     } as const;
     // Автономный запуск (Automations, назначенные задачи): выход Playwright MCP за браузер — отказ (decision-55 п. 3).
@@ -965,7 +970,7 @@ class ClaudeBridgeService extends EventEmitter {
         child = spawn('claude', ['--version'], {
           shell: true,
           stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env, FORCE_COLOR: '0', CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR }
+          env: { ...process.env, FORCE_COLOR: '0', CLAUDE_CONFIG_DIR: defaultClaudeAccountDir() }
         });
       } catch (err: any) {
         finish({ available: false, message: this.buildCliMissingMessage(err?.message || String(err)) });
@@ -1098,7 +1103,7 @@ class ClaudeBridgeService extends EventEmitter {
     };
 
     try {
-      const dir = path.join(PROJECT_HUB_CLAUDE_DIR, 'hitl');
+      const dir = path.join(defaultClaudeAccountDir(), 'hitl');
       await fs.mkdir(dir, { recursive: true });
       const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
 
@@ -1409,7 +1414,7 @@ class ClaudeBridgeService extends EventEmitter {
     let systemPromptFile: string | null = null;
     if (systemAddon.length > 0) {
       try {
-        const promptDir = path.join(PROJECT_HUB_CLAUDE_DIR, 'hitl');
+        const promptDir = path.join(defaultClaudeAccountDir(), 'hitl');
         await fs.mkdir(promptDir, { recursive: true });
         systemPromptFile = path.join(promptDir, `${sessionId.replace(/[^a-zA-Z0-9_-]/g, '_')}.append-system-prompt.md`);
         await fs.writeFile(systemPromptFile, systemAddon.join('\n\n'), { encoding: 'utf-8', mode: 0o600 });
@@ -1426,9 +1431,12 @@ class ClaudeBridgeService extends EventEmitter {
     // Human-in-the-loop (TASK-42): разрешения запрашиваются через встроенный MCP-сервер
     // до выполнения инструмента. --dangerously-skip-permissions — только как запасной
     // вариант при auto-approve, если сервер поднять не удалось.
+    // Аккаунт Claude Code проекта сессии (decision-87): привязка в реестре машины, иначе по умолчанию.
+    const account = (await claudeAccountService.resolve({ projectPath })).account;
     const hitl = await this.prepareCliPermissions(sessionId, projectPath, req.config, onChunk, {
       origin: 'studio',
       engine: 'claude-cli',
+      claudeAccount: account.name,
       workspaceRoot: workDir,
       ...(req.taskId ? { taskId: req.taskId } : {})
     });
@@ -1474,7 +1482,7 @@ class ClaudeBridgeService extends EventEmitter {
           env: {
             ...process.env,
             FORCE_COLOR: '0',
-            CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR,
+            CLAUDE_CONFIG_DIR: account.configDir,
             // Инструмент разрешений ждёт человека — стандартный таймаут MCP-инструмента слишком мал.
             ...hitlEnv
           }
@@ -1540,13 +1548,14 @@ class ClaudeBridgeService extends EventEmitter {
           if (event.type === 'rate_limit_event' || event.rate_limit_info) {
             const info = event.rate_limit_info || event;
             // Единственный бесплатный источник окон лимитов для бейджа Usage (TASK-44).
-            claudeUsageService.noteRateLimitEvent(info);
+            claudeUsageService.noteRateLimitEvent(info, account.id);
             const utilization = info.utilization ?? info.unifiedWindows?.[0]?.utilization;
             const resetsAt = info.resetsAt || info.reset_at || info.unifiedWindows?.[0]?.resetsAt;
             const warning: RateLimitWarning = {
               id: `rl-${Date.now()}`,
               type: info.status === 'throttled' ? 'throttled' : 'rate_limit',
-              title: info.status === 'throttled' ? 'Достигнут лимит запросов Claude Code' : 'Приближение к лимиту запросов Claude Code',
+              title: `${info.status === 'throttled' ? 'Достигнут лимит запросов Claude Code' : 'Приближение к лимиту запросов Claude Code'} — аккаунт «${account.name}»`,
+              accountName: account.name,
               message: info.message || `Использовано ${utilization ? Math.round(utilization * 100) : 85}% доступного лимита запросов.`,
               utilization: utilization ? Math.round(utilization * 100) : 85,
               resetsAt: resetsAt ? new Date(resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
@@ -1569,7 +1578,8 @@ class ClaudeBridgeService extends EventEmitter {
                   const warning: RateLimitWarning = {
                     id: `rl-${Date.now()}`,
                     type: percent >= 100 ? 'throttled' : 'rate_limit',
-                    title: percent >= 100 ? 'Достигнут лимит запросов Claude Code' : `Приближение к лимиту запросов (${percent}%)`,
+                    title: `${percent >= 100 ? 'Достигнут лимит запросов Claude Code' : `Приближение к лимиту запросов (${percent}%)`} — аккаунт «${account.name}»`,
+                    accountName: account.name,
                     message: item.text,
                     utilization: percent,
                     timestamp: Date.now()

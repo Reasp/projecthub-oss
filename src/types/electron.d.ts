@@ -1034,9 +1034,23 @@ export interface IElectronAPI {
   saveModelTiers: (settings: ModelTierSettings) => Promise<ModelTierState>;
   /** «Заполнить из настроенного» поверх черновика; ничего не сохраняет. */
   seedModelTiers: (draft?: ModelTierSettings) => Promise<ModelTierSeedResult>;
-  getClaudeAuthStatus: () => Promise<ClaudeAuthStatus>;
-  startClaudeLogin: () => Promise<boolean>;
-  claudeLogout: () => Promise<boolean>;
+  getClaudeAuthStatus: (query?: { projectPath?: string; accountId?: string; force?: boolean }) => Promise<ClaudeAuthStatus>;
+  claudeLogout: (query?: { projectPath?: string; accountId?: string }) => Promise<boolean>;
+  /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
+  claudeAccounts: {
+    overview: () => Promise<ClaudeAccountsOverview>;
+    statuses: (force?: boolean) => Promise<{ statuses: Record<string, ClaudeAccountAuthStatus>; sharedLogin: string[][] }>;
+    status: (id: string, force?: boolean) => Promise<ClaudeAccountAuthStatus>;
+    create: (name: string) => Promise<ClaudeAccountProfile>;
+    /** Каталог выбирается в системном диалоге или берётся из CLAUDE_CONFIG_DIR процесса; `null` — диалог отменён. */
+    connectExternal: (input: { name: string; source: 'dialog' | 'processEnv' }) => Promise<ClaudeAccountProfile | null>;
+    rename: (id: string, name: string) => Promise<void>;
+    remove: (id: string) => Promise<{ removed: ClaudeAccountProfile; unboundProjects: number }>;
+    logout: (id: string) => Promise<ClaudeAccountAuthStatus>;
+    forProject: (projectPath: string) => Promise<{ account: ClaudeAccountProfile; source: ClaudeAccountSource }>;
+    setProject: (projectPath: string, accountId: string | null) => Promise<boolean>;
+    setRole: (roleSlug: string, accountId: string | null) => Promise<void>;
+  };
   streamAIChat: (request: AIStreamRequest) => Promise<boolean>;
   /** Предпросмотр контекста агента для карточки в AI Studio (TASK-64), без запуска стрима. */
   previewAgentContext: (
@@ -1064,7 +1078,7 @@ export interface IElectronAPI {
   sendApprovalResponse: (requestId: string, response: { approved: boolean; text?: string }) => Promise<boolean>;
   getSubagents: (projectPath: string) => Promise<SubagentInfo[]>;
   getAvailableModels: () => Promise<ClaudeModelOption[]>;
-  getClaudeUsage: (forceRefresh?: boolean) => Promise<ClaudeUsageData>;
+  getClaudeUsage: (forceRefresh?: boolean, query?: { accountId?: string; projectPath?: string }) => Promise<ClaudeUsageData>;
   onProjectAgentStatusChanged: (callback: (status: ProjectAgentStatus) => void) => () => void;
   onSubagentUpdated: (callback: (subagent: SubagentInfo) => void) => () => void;
 
@@ -1399,6 +1413,8 @@ export interface ApprovalRequest {
   agentId?: string;
   agentName?: string;
   role?: string;
+  /** Имя профиля аккаунта Claude Code (TASK-152.4). */
+  claudeAccount?: string;
   hostId?: string;
   tool?: string;
   expiresAt?: number;
@@ -1435,7 +1451,44 @@ export interface RateLimitWarning {
   utilization?: number;
   resetsAt?: string;
   tier?: string;
+  /** Профиль аккаунта Claude Code, чей лимит (TASK-152.5). */
+  accountName?: string;
   timestamp: number;
+}
+
+export type ClaudeAccountSource = 'slot' | 'role' | 'project' | 'default';
+
+export interface ClaudeAccountProfile {
+  id: string;
+  name: string;
+  kind: 'managed' | 'external';
+  configDir: string;
+  createdAt?: string;
+}
+
+export interface ClaudeAccountView extends ClaudeAccountProfile {
+  isDefault: boolean;
+  isHomeClaudeDir?: boolean;
+  projectCount: number;
+}
+
+export interface ClaudeAccountsOverview {
+  accounts: ClaudeAccountView[];
+  roleAccounts: Record<string, string>;
+  processConfigDir?: string;
+  processConfigDirAccountId?: string;
+  platform: string;
+}
+
+export interface ClaudeAccountAuthStatus {
+  loggedIn: boolean;
+  authMethod?: string;
+  email?: string;
+  orgName?: string;
+  subscriptionType?: string;
+  configDirectory?: string;
+  error?: string;
+  checkedAt: number;
 }
 
 export interface ClaudeAuthStatus {
@@ -1444,6 +1497,10 @@ export interface ClaudeAuthStatus {
   displayName?: string;
   seatTier?: string;
   organizationName?: string;
+  /** Профиль аккаунта, чей статус показан (TASK-152, decision-87). */
+  accountId?: string;
+  accountName?: string;
+  error?: string;
 }
 
 export interface AutoApproveRules {
@@ -1658,6 +1715,7 @@ export interface HitlAuditEntry {
   agentId?: string;
   agentName?: string;
   role?: string;
+  claudeAccount?: string;
   tool?: string;
   type?: ApprovalRequest['type'];
   title?: string;
@@ -2358,11 +2416,14 @@ export interface PtySession {
   cwd?: string;
   worktreeBranch?: string;
   projectName: string;
-  type: 'claude' | 'shell';
+  type: 'claude' | 'shell' | 'claude-login';
   title: string;
   createdAt: number;
   status: 'running' | 'exited';
   exitCode?: number;
+  /** Аккаунт Claude Code, под которым запущен терминал (TASK-152). */
+  claudeAccountId?: string;
+  claudeAccountName?: string;
 }
 
 export interface CreatePtyOptions {
@@ -2371,10 +2432,13 @@ export interface CreatePtyOptions {
   cwd?: string;
   worktreeBranch?: string;
   projectName?: string;
-  type: 'claude' | 'shell';
+  /** `claude-login` — `claude auth login` под профилем `claudeAccountId` (TASK-152.2). */
+  type: 'claude' | 'shell' | 'claude-login';
   title?: string;
   cols?: number;
   rows?: number;
+  /** Профиль аккаунта для `claude-login`; для остальных типов аккаунт берётся по проекту. */
+  claudeAccountId?: string;
 }
 
 export interface ClaudeUsageLimitWindow {
@@ -2425,6 +2489,9 @@ export interface ClaudeUsageData {
   rawText?: string;
   updatedAt: number;
   isFallback?: boolean;
+  /** Профиль аккаунта Claude Code, чьи это лимиты (TASK-152.5). */
+  accountId?: string;
+  accountName?: string;
   /** Почему `claude -p /usage` не дал лимитов (TASK-126); при успешном ответе поля нет. */
   cliError?: {
     kind: 'auth' | 'timeout' | 'failed' | 'unrecognized';
@@ -2533,6 +2600,8 @@ export interface AgentSlotConfig {
   budgetUsd?: number;
   /** Права роли для HITL: сужают глобальные настройки auto-approve (TASK-57). */
   permissions?: RolePermissions;
+  /** Аккаунт Claude Code слота `claude-cli` (TASK-152.4): id профиля, важнее роли и проекта. */
+  claudeAccountId?: string;
 }
 
 export interface AgentSlotDiffSummary {

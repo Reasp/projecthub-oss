@@ -1,4 +1,5 @@
 import type { AgentSlotState, SwarmSession } from './swarmTypes.js';
+import { CLAUDE_ACCOUNT_SOURCE_LABEL } from './claudeAccounts.js';
 import { addUsage, emptyUsage, formatTokens, formatUsd, type AgentUsage } from './agentCost.js';
 import { describeProviderInfo } from './slotProvider.js';
 import { describeProviderErrorBrief } from './providerErrors.js';
@@ -295,6 +296,10 @@ export function exportSwarmSessionMarkdown(session: SwarmSession, options: Markd
     lines.push(`- Провайдер: ${agentProviderLabel(agent)}`);
     if (agent.providerInfo?.profileId) lines.push(`- Профиль: id \`${agent.providerInfo.profileId}\`${agent.providerInfo.local ? ', локальная модель' : ''}`);
     lines.push(...modelRoutingLines(agent));
+    // Имя профиля, не e-mail (decision-87 п. 14).
+    if (agent.claudeAccount) {
+      lines.push(`- Аккаунт Claude Code: «${agent.claudeAccount.name}» (${CLAUDE_ACCOUNT_SOURCE_LABEL[agent.claudeAccount.source]})`);
+    }
     if (agent.worktreeBranch) lines.push(`- Ветка: \`${agent.worktreeBranch}\``);
     if (agent.worktreePath) lines.push(`- Worktree: \`${agent.worktreePath}\``);
     lines.push(...checkpointLines(agent));

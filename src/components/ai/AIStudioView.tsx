@@ -113,7 +113,8 @@ export const AIStudioView: React.FC = () => {
 
   useEffect(() => {
     fetchConfig();
-    fetchClaudeAuth();
+    // Статус аккаунта Claude Code этого проекта (TASK-152.3): привязка в реестре машины.
+    fetchClaudeAuth(projectPath || undefined);
     if (projectPath) {
       fetchSubagents(projectPath);
     }
@@ -345,7 +346,7 @@ export const AIStudioView: React.FC = () => {
             <div className="flex items-center shrink-0">
               <button
                 onClick={() => setIsSettingsOpen(true)}
-                title={`${t.aiStudio.loggedInAs}: ${claudeAuth.email} (${claudeAuth.seatTier || 'Pro'})`}
+                title={`${claudeAuth.accountName ? `${t.claudeAccounts.accountLabel}: ${claudeAuth.accountName}. ` : ''}${t.aiStudio.loggedInAs}: ${claudeAuth.email} (${claudeAuth.seatTier || 'Pro'})`}
                 className="flex items-center gap-1.5 h-7 px-2 rounded-md text-xs transition shrink-0 text-slate-300 hover:bg-ph-hover hover:text-white"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
@@ -356,8 +357,8 @@ export const AIStudioView: React.FC = () => {
               </button>
               <button
                 onClick={async () => {
-                  await claudeLogout();
-                  await fetchClaudeAuth();
+                  await claudeLogout(projectPath || undefined);
+                  await fetchClaudeAuth(projectPath || undefined, true);
                 }}
                 title={t.aiStudio.logoutClaudeTitle}
                 className="ph-icon-button hover:text-rose-300"
@@ -367,7 +368,7 @@ export const AIStudioView: React.FC = () => {
             </div>
           ) : (
             <button
-              onClick={() => startClaudeLogin()}
+              onClick={() => startClaudeLogin(projectPath || undefined)}
               title={t.aiStudio.loginClaudeTitle}
               className="flex items-center gap-1.5 h-7 px-2 rounded-md text-xs transition shrink-0 bg-ph-raised hover:bg-ph-hover text-slate-100"
             >
@@ -519,7 +520,7 @@ export const AIStudioView: React.FC = () => {
                       <p className="text-[11px] text-slate-400">{t.aiStudio.useSubscriptionDesc}</p>
                     </div>
                     <button
-                      onClick={() => startClaudeLogin()}
+                      onClick={() => startClaudeLogin(projectPath || undefined)}
                       className="px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs transition whitespace-nowrap"
                     >
                       {t.aiStudio.loginClaude}

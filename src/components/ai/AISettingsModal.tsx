@@ -17,7 +17,6 @@ import {
   Plus,
   SlidersHorizontal,
   Lock,
-  LogOut,
   Clock,
   History,
   DollarSign,
@@ -34,6 +33,7 @@ import { PricingEditorSection } from './PricingEditorSection';
 import { ModelTiersSection } from './ModelTiersSection';
 import { useLlmProfiles } from './ProviderProfileSelect';
 import { ReasoningEffortSelect } from './ReasoningEffortSelect';
+import { ClaudeAccountsPanel } from './ClaudeAccountsPanel';
 import { effortTargetKind } from '../../lib/reasoningEffort';
 
 interface AISettingsModalProps {
@@ -77,7 +77,7 @@ const MODEL_PRESETS: Record<string, string[]> = {
 
 export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose }) => {
   const { t } = useTranslation();
-  const { config, saveConfig, claudeAuth, startClaudeLogin, claudeLogout, fetchClaudeAuth } = useAIStudioStore();
+  const { config, saveConfig } = useAIStudioStore();
   const openHitlCenter = useHitlStore((s) => s.openCenter);
 
   const [activeTab, setActiveTab] = useState<'general' | 'autoApprove' | 'pricing' | 'tiers'>('general');
@@ -122,9 +122,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
         autoApproveRules: config.autoApproveRules || { ...DEFAULT_AUTO_APPROVE_RULES }
       });
       setSavedSuccess(false);
-      fetchClaudeAuth();
     }
-  }, [isOpen, config, fetchClaudeAuth]);
+  }, [isOpen, config]);
 
   if (!isOpen) return null;
 
@@ -303,76 +302,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
           {/* TAB 1: GENERAL (LLM PROVIDERS & MODELS) */}
           {activeTab === 'general' && (
             <div className="space-y-5">
-              {/* Claude.ai Pro/Team Subscription Info Card */}
-              <div className="p-4 rounded-lg bg-ph-panel border border-ph-line space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-100 font-medium text-xs">
-                    <ClaudeLogo className="w-4 h-4" />
-                    <span>{t.aiStudio.settingsModal.accountInfo} (Claude.ai OAuth)</span>
-                  </div>
-                  <span className="text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">
-                    {claudeAuth?.isLoggedIn ? '● ACTIVE' : 'NOT LOGGED IN'}
-                  </span>
-                </div>
-
-                {claudeAuth?.isLoggedIn ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs text-slate-200">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                      <span>
-                        {t.aiStudio.loggedInAs}: <strong className="text-amber-300">{claudeAuth.email}</strong>
-                      </span>
-                      <span className="text-[11px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
-                        {claudeAuth.seatTier || 'Pro / Team'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>
-                        Isolated ProjectHub config (<code className="text-amber-300">~/.projecthub/claude_config</code>)
-                      </span>
-                    </div>
-                    <div className="pt-1 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => startClaudeLogin()}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium text-xs transition flex items-center gap-1.5"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                        <span>{t.aiStudio.loginClaude}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await claudeLogout();
-                          await fetchClaudeAuth();
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-medium text-xs transition flex items-center gap-1.5"
-                        title={t.aiStudio.logoutClaudeTitle}
-                      >
-                        <LogOut className="w-3.5 h-3.5 text-rose-400" />
-                        <span>{t.aiStudio.logoutClaude}</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
-                      {t.aiStudio.useSubscriptionDesc}
-                    </p>
-                    <div className="pt-1 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => startClaudeLogin()}
-                        className="ph-btn ph-btn-primary"
-                      >
-                        <ClaudeLogo className="w-3.5 h-3.5" mono />
-                        <span>{t.aiStudio.loginClaude}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* Аккаунты Claude Code по подписке: профили, вход и выход каждого (TASK-152.2, decision-87) */}
+              <ClaudeAccountsPanel />
 
               {/* Provider Selection */}
               <div>

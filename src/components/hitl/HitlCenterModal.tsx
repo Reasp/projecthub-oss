@@ -169,6 +169,11 @@ export const HitlCenterModal: React.FC = () => {
                       <FolderOpen className="w-3 h-3 text-slate-500" />
                       {projectName(req.projectPath)}
                     </span>
+                    {req.claudeAccount && (
+                      <span className="text-[11px] text-amber-300/80" title={t.claudeAccounts.accountLabel}>
+                        {req.claudeAccount}
+                      </span>
+                    )}
                     {req.tool && <span className="text-[11px] font-mono text-slate-500 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">{req.tool}</span>}
                   </div>
                   <div className="text-xs font-semibold text-slate-100 break-words">{req.title}</div>
@@ -262,7 +267,10 @@ export const HitlCenterModal: React.FC = () => {
             {e.agentName ? ` · ${e.agentName}` : ''}
             {e.role ? <span className="text-slate-500"> / {e.role}</span> : null}
           </div>
-          <div className="text-[11px] text-slate-500 truncate" title={e.projectPath}>{projectName(e.projectPath)}</div>
+          <div className="text-[11px] text-slate-500 truncate" title={e.projectPath}>
+            {projectName(e.projectPath)}
+            {e.claudeAccount ? <span className="text-amber-300/70"> · {e.claudeAccount}</span> : null}
+          </div>
         </td>
         <td className="px-2 py-1.5 text-slate-200 max-w-[360px]">
           <div className="flex items-center gap-1.5">

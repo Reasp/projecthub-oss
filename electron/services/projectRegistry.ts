@@ -9,6 +9,11 @@ export interface ProjectRegistryEntry {
   favorite?: boolean;
   voiceAlias?: string;
   tags?: string[];
+  /**
+   * Аккаунт Claude Code проекта на этой машине (TASK-152.3, decision-87): id профиля из
+   * `claude-accounts.json`. В файлы проекта не пишется; без поля — профиль по умолчанию.
+   */
+  claudeAccountId?: string;
 }
 
 export interface RegistryConfig {
@@ -239,6 +244,39 @@ class ProjectRegistry {
       await this.saveConfig(config);
       return true;
     }
+  }
+
+  /** Аккаунт Claude Code зарегистрированного проекта; `undefined` — проект не привязан или не в реестре. */
+  async getClaudeAccountId(projectPath: string): Promise<string | undefined> {
+    const normalized = path.normalize(projectPath).toLowerCase();
+    const config = await this.getConfig();
+    return config.projects.find((p) => path.normalize(p.path).toLowerCase() === normalized)?.claudeAccountId;
+  }
+
+  /** Привязка аккаунта к проекту; `null` — снять. Проекта вне реестра не добавляет. */
+  async setClaudeAccountId(projectPath: string, accountId: string | null): Promise<boolean> {
+    const normalized = path.normalize(projectPath).toLowerCase();
+    const config = await this.getConfig();
+    const target = config.projects.find((p) => path.normalize(p.path).toLowerCase() === normalized);
+    if (!target) return false;
+    if (accountId) target.claudeAccountId = accountId;
+    else delete target.claudeAccountId;
+    await this.saveConfig(config);
+    return true;
+  }
+
+  /** Снять привязку всех проектов к удалённому профилю; возвращает число затронутых проектов. */
+  async clearClaudeAccount(accountId: string): Promise<number> {
+    const config = await this.getConfig();
+    let changed = 0;
+    for (const project of config.projects) {
+      if (project.claudeAccountId === accountId) {
+        delete project.claudeAccountId;
+        changed++;
+      }
+    }
+    if (changed > 0) await this.saveConfig(config);
+    return changed;
   }
 
   async getVoiceAlias(projectPath: string): Promise<string | undefined> {

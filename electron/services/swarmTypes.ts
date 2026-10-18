@@ -64,6 +64,18 @@ export interface AgentSlotConfig {
    * auto-approve и только сужают их. Без поля агент подчиняется глобальным настройкам.
    */
   permissions?: RolePermissions;
+  /**
+   * Аккаунт Claude Code слота с движком `claude-cli` (TASK-152.4, decision-87): id профиля, переопределяет
+   * аккаунт роли и проекта. Без поля — аккаунт роли, затем проекта, затем профиль по умолчанию.
+   */
+  claudeAccountId?: string;
+}
+
+/** Под каким аккаунтом Claude Code шёл слот: имя профиля, не e-mail (decision-87 п. 14). */
+export interface AgentSlotClaudeAccount {
+  id: string;
+  name: string;
+  source: 'slot' | 'role' | 'project' | 'default';
 }
 
 export interface AgentSlotDiffSummary {
@@ -139,6 +151,8 @@ export interface AgentSlotState {
   providerError?: ProviderErrorInfo;
   /** Тир, фактическая модель и переключения модели по fallback-цепочке (decision-44 п. 8). */
   modelRouting?: ModelRoutingInfo;
+  /** Аккаунт Claude Code последнего запуска слота (TASK-152.4): имя профиля и откуда он взят. */
+  claudeAccount?: AgentSlotClaudeAccount;
   /** Чекпоинты рабочего каталога по ходам (decision-45): ref вне истории ветки, не больше 50. */
   checkpoints?: AgentCheckpoint[];
   /** Откаты агента к чекпоинтам (decision-45 п. 4). */

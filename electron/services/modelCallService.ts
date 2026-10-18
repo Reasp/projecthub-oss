@@ -2,7 +2,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import {
-  PROJECT_HUB_CLAUDE_DIR,
   aiAgentService,
   killTree,
   quoteShellArg,
@@ -24,6 +23,7 @@ import { ProviderError, providerConfigError, timeoutError } from './providerErro
 import { claudeCliEffortArgs } from './reasoningEffort.js';
 import { apiToolNamesForCategories } from './roleEngineAdapter.js';
 import { logger } from './logger.js';
+import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountService.js';
 
 /** Одноразовый запрос назначения: модель выбирает резолвер, а не вызывающий код. */
 export interface ModelCompleteRequest extends Omit<LlmCompleteRequest, 'config'>, ModelRouteInput {}
@@ -41,6 +41,8 @@ export interface ModelTurnRequest extends ModelRouteInput {
   messages: AIMessage[];
   /** Системный промпт роли. */
   roleSystemPrompt?: string;
+  /** Slug роли: по нему берётся привязка аккаунта Claude Code роли на машине (decision-87 п. 6). */
+  roleSlug?: string;
   /** Задача, по которой собирается контекст (критерии, RAG, память). */
   taskId?: string;
   timeoutMs: number;
@@ -147,7 +149,7 @@ async function writeTurnSystemPrompt(req: ModelTurnRequest): Promise<string | un
     logger.warn('[modelCallService] contextBuilder failed:', err);
   }
   if (parts.length === 0) return undefined;
-  const dir = path.join(PROJECT_HUB_CLAUDE_DIR, 'turns');
+  const dir = path.join(defaultClaudeAccountDir(), 'turns');
   await fs.mkdir(dir, { recursive: true });
   const file = path.join(dir, `${req.sessionId.replace(/[^a-zA-Z0-9_-]/g, '_')}-${Date.now()}.append-system-prompt.md`);
   await fs.writeFile(file, parts.join('\n\n'), { encoding: 'utf-8', mode: 0o600 });
@@ -167,6 +169,8 @@ async function runCliTurn(req: ModelTurnRequest, resolved: ResolvedModel): Promi
     if (systemPromptFile) fs.unlink(systemPromptFile).catch(() => { /* файл мог быть уже удалён */ });
   };
   const errorContext = { provider: 'Claude Code', ...(resolved.model ? { model: resolved.model } : {}) };
+  // Аккаунт — проекта хода (корень или worktree) и роли (decision-87 п. 5).
+  const accountEnv = await claudeAccountService.envFor({ projectPath: req.projectPath, roleSlug: req.roleSlug });
 
   let command: ReturnType<typeof buildClaudeCliTurnCommand>;
   try {
@@ -188,7 +192,7 @@ async function runCliTurn(req: ModelTurnRequest, resolved: ResolvedModel): Promi
         cwd: req.projectPath,
         shell: true,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, FORCE_COLOR: '0', CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR }
+        env: { ...process.env, FORCE_COLOR: '0', ...accountEnv }
       });
     } catch (err) {
       removeSystemPromptFile();

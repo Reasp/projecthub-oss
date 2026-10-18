@@ -72,7 +72,7 @@ function matchesQuery(entry: HitlAuditEntry, q: HitlAuditQuery): boolean {
   if (q.origin && entry.origin !== q.origin) return false;
   if (q.search) {
     const needle = q.search.toLowerCase();
-    const hay = [entry.title, entry.tool, entry.filePath, entry.commandPreview, entry.agentName, entry.role, entry.detail, entry.rule]
+    const hay = [entry.title, entry.tool, entry.filePath, entry.commandPreview, entry.agentName, entry.role, entry.claudeAccount, entry.detail, entry.rule]
       .filter(Boolean)
       .join(' ')
       .toLowerCase();
@@ -84,7 +84,7 @@ function matchesQuery(entry: HitlAuditEntry, q: HitlAuditQuery): boolean {
 export function toCsv(entries: HitlAuditEntry[]): string {
   const columns: Array<keyof HitlAuditEntry> = [
     'ts', 'kind', 'requestId', 'sessionId', 'projectPath', 'hostId', 'origin', 'engine', 'agentId', 'agentName', 'role',
-    'tool', 'type', 'title', 'filePath', 'commandHash', 'commandPreview', 'decision', 'decidedBy', 'deviceId', 'deviceName',
+    'claudeAccount', 'tool', 'type', 'title', 'filePath', 'commandHash', 'commandPreview', 'decision', 'decidedBy', 'deviceId', 'deviceName',
     'rule', 'comment', 'waitedMs', 'outcome', 'detail', 'durationMs'
   ];
   const escape = (v: unknown) => {

@@ -17,26 +17,34 @@ import {
 } from '../common/icons';
 import type { ClaudeUsageData } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 
 interface ClaudeUsageModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Профиль, открытый первым: аккаунт активного проекта (TASK-152.5). */
+  initialAccountId?: string;
 }
 
-export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onClose }) => {
+export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onClose, initialAccountId }) => {
   const { t } = useTranslation();
+  const overview = useClaudeAccountsStore((s) => s.overview);
+  const refreshAccounts = useClaudeAccountsStore((s) => s.refresh);
+  const openLogin = useClaudeAccountsStore((s) => s.openLogin);
+  const accounts = overview?.accounts ?? [];
+  const [accountId, setAccountId] = useState<string>(initialAccountId ?? 'default');
   const [usageData, setUsageData] = useState<ClaudeUsageData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'limits' | 'models' | 'raw'>('limits');
   const [breakdownPeriod, setBreakdownPeriod] = useState<'24h' | '7d'>('24h');
 
-  const loadUsage = async (force = false) => {
+  const loadUsage = async (force = false, id = accountId) => {
     setIsLoading(true);
     setError(null);
     try {
       if (window.api?.getClaudeUsage) {
-        const data = await window.api.getClaudeUsage(force);
+        const data = await window.api.getClaudeUsage(force, { accountId: id });
         setUsageData(data);
       } else {
         setError(t.claudeUsage.apiUnavailable);
@@ -50,9 +58,20 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
 
   useEffect(() => {
     if (isOpen) {
-      loadUsage(false);
+      const id = initialAccountId ?? 'default';
+      setAccountId(id);
+      setUsageData(null);
+      void refreshAccounts().catch(() => undefined);
+      loadUsage(false, id);
     }
-  }, [isOpen]);
+  }, [isOpen, initialAccountId]);
+
+  const selectAccount = (id: string) => {
+    if (id === accountId) return;
+    setAccountId(id);
+    setUsageData(null);
+    loadUsage(false, id);
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -127,7 +146,9 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                {t.claudeUsage.modalDesc}
+                {usageData?.accountName && accounts.length > 1
+                  ? `${t.claudeAccounts.accountLabel}: ${usageData.accountName}`
+                  : t.claudeUsage.modalDesc}
               </p>
             </div>
           </div>
@@ -150,6 +171,27 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
             </button>
           </div>
         </div>
+
+        {/* Профили аккаунтов (TASK-152.5): лимиты каждого отдельно */}
+        {accounts.length > 1 && (
+          <div className="px-5 pt-3 flex items-center gap-1.5 flex-wrap bg-ph-elevated" role="tablist" aria-label={t.claudeAccounts.usageAccountsLabel}>
+            {accounts.map((account) => (
+              <button
+                key={account.id}
+                role="tab"
+                aria-selected={account.id === accountId}
+                onClick={() => selectAccount(account.id)}
+                className={`px-2.5 py-1 rounded-md text-xs border transition ${
+                  account.id === accountId
+                    ? 'bg-indigo-500/15 border-indigo-400/60 text-white'
+                    : 'bg-ph-panel border-ph-line text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {account.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Modal Tabs Bar */}
         <div className="px-5 pt-3 pb-0 border-b border-slate-800/80 flex items-center gap-2 bg-ph-elevated">
@@ -206,9 +248,9 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                   <div className="font-mono text-[11px] text-amber-300/70 break-words select-text">{cliError.detail}</div>
                 )}
               </div>
-              {cliError.kind === 'auth' && window.api?.startClaudeLogin && (
+              {cliError.kind === 'auth' && (
                 <button
-                  onClick={() => window.api.startClaudeLogin()}
+                  onClick={() => openLogin(accountId)}
                   className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold transition"
                 >
                   {t.claudeUsage.signIn}

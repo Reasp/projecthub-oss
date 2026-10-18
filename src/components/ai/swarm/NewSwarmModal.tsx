@@ -27,6 +27,7 @@ import { ReasoningEffortSelect } from '../ReasoningEffortSelect';
 import { effortTargetKind, withReasoningEffort } from '../../../lib/reasoningEffort';
 import { findProfileByRef, slotProviderFromChoice, slotProviderFromRole } from '../../../lib/providerSelect';
 import type { AgentSlotConfig, DoneLoopSettings, LlmProfileView, SwarmMode } from '../../../types/electron';
+import { useClaudeAccountsStore } from '../../../store/useClaudeAccountsStore';
 
 /** Слот исполнителя цикла «до готовности» по умолчанию — роль `implementer`, если она есть. */
 const DONE_LOOP_DEFAULT_NAME = 'Implementer';
@@ -164,9 +165,13 @@ function SlotModelInput({
   );
 }
 
+const EMPTY_ACCOUNTS: never[] = [];
+
 export const NewSwarmModal: React.FC = () => {
   const { t } = useTranslation();
   const presets = useMemo(() => getPresets(t), [t]);
+  const claudeAccounts = useClaudeAccountsStore((s) => s.overview?.accounts ?? EMPTY_ACCOUNTS);
+  const refreshClaudeAccounts = useClaudeAccountsStore((s) => s.refresh);
 
   const {
     isNewSwarmModalOpen,
@@ -187,6 +192,10 @@ export const NewSwarmModal: React.FC = () => {
   useEffect(() => {
     if (isNewSwarmModalOpen) void loadRolesAction(selectedProject?.path);
   }, [isNewSwarmModalOpen, selectedProject?.path, loadRolesAction]);
+
+  useEffect(() => {
+    if (isNewSwarmModalOpen) void refreshClaudeAccounts().catch(() => undefined);
+  }, [isNewSwarmModalOpen, refreshClaudeAccounts]);
 
   const [mode, setMode] = useState<SwarmMode>('fan_out');
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
@@ -626,6 +635,22 @@ export const NewSwarmModal: React.FC = () => {
                         </span>
                       );
                     })()}
+
+                    {/* Аккаунт Claude Code слота (TASK-152.4): переопределяет роль и проект; показывается, когда профилей больше одного */}
+                    {agent.engine === 'claude-cli' && claudeAccounts.length > 1 && (
+                      <select
+                        value={agent.claudeAccountId || ''}
+                        onChange={(e) => handleUpdateAgent(idx, { claudeAccountId: e.target.value || undefined })}
+                        className="px-2 py-1 rounded-sm border border-border bg-background text-foreground text-xs max-w-44"
+                        title={t.claudeAccounts.slotAccountLabel}
+                        data-testid="swarm-slot-claude-account"
+                      >
+                        <option value="">{t.claudeAccounts.slotAccountInherit}</option>
+                        {claudeAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>{account.name}</option>
+                        ))}
+                      </select>
+                    )}
 
                     {agent.engine === 'api' && (
                       <ProviderProfileSelect

@@ -20,6 +20,7 @@ import { registerAutomationsIpc } from './automationsIpc';
 import { registerPrReviewIpc } from './prReviewIpc';
 import { registerSecurityIpc } from './securityIpc';
 import { registerInitIpc } from './initIpc';
+import { registerClaudeAccountsIpc } from './claudeAccountsIpc';
 
 export type { IpcContext } from './types';
 
@@ -45,4 +46,5 @@ export function registerAllIpc(ctx: IpcContext) {
   registerPrReviewIpc(ctx);
   registerSecurityIpc();
   registerInitIpc(ctx);
+  registerClaudeAccountsIpc(ctx);
 }

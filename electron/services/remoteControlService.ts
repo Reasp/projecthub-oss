@@ -2276,7 +2276,9 @@ class RemoteControlService {
 
       case 'studio_get_usage': {
         // Кэш сервиса — 45 с; принудительное обновление запускает `claude -p /usage` (до 20 с).
-        return usageForPhone(await claudeUsageService.getUsage(params.forceRefresh === true));
+        // Аккаунт — проекта, если телефон его передал (TASK-152.5), иначе профиль по умолчанию.
+        const usageProject = typeof params.projectPath === 'string' && params.projectPath ? params.projectPath : undefined;
+        return usageForPhone(await claudeUsageService.getUsageForProject(usageProject, params.forceRefresh === true));
       }
 
       case 'studio_clear': {

@@ -8,6 +8,7 @@ import { unsupportedRoleFeatures } from '../../../lib/engineCapabilities';
 import { ProviderProfileSelect, useLlmProfiles, useProfileModels } from '../ProviderProfileSelect';
 import { ModelTierSelect } from '../ModelTierSelect';
 import { RoleSyncPanel } from './RoleSyncPanel';
+import { useClaudeAccountsStore } from '../../../store/useClaudeAccountsStore';
 import { SkillsPanel } from './SkillsPanel';
 import type { RoleDefinition, RoleEngine, ToolCategory } from '../../../types/electron';
 
@@ -72,6 +73,17 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
   const { selectedProject } = useProjectStore();
   const { rolesByProject, loadRolesAction, saveRoleAction, deleteRoleAction, copyRoleToProjectAction } = useRolesStore();
   const roles = useMemo(() => rolesByProject[selectedProject?.path || ''] || [], [rolesByProject, selectedProject?.path]);
+  const claudeOverview = useClaudeAccountsStore((s) => s.overview);
+  const refreshClaudeAccounts = useClaudeAccountsStore((s) => s.refresh);
+  const claudeAccountsList = claudeOverview?.accounts ?? [];
+  const roleAccounts = claudeOverview?.roleAccounts ?? {};
+  const setRoleAccount = async (slug: string, accountId: string | null) => {
+    await window.api.claudeAccounts.setRole(slug, accountId);
+    await refreshClaudeAccounts();
+  };
+  useEffect(() => {
+    if (isOpen) void refreshClaudeAccounts().catch(() => undefined);
+  }, [isOpen, refreshClaudeAccounts]);
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [draft, setDraft] = useState<RoleDefinition>(emptyRole());
@@ -322,6 +334,26 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                   className="w-full text-xs rounded-sm border border-border bg-background px-2 py-1.5 text-foreground"
                 />
               </div>
+              {/* Аккаунт Claude Code роли (TASK-152.4): привязка на машине, в файл роли не пишется */}
+              {claudeAccountsList.length > 1 && draft.slug.trim() && (!draft.engine || draft.engine === 'claude-cli') && (
+                <div>
+                  <label className="text-[11px] font-medium text-muted-foreground block mb-1" title={t.claudeAccounts.roleAccountHint}>
+                    {t.claudeAccounts.roleAccountLabel}
+                  </label>
+                  <select
+                    value={roleAccounts[draft.slug.trim()] ?? ''}
+                    onChange={(e) => void setRoleAccount(draft.slug.trim(), e.target.value || null)}
+                    className="w-full text-xs rounded-sm border border-border bg-background px-2 py-1.5 text-foreground"
+                    title={t.claudeAccounts.roleAccountHint}
+                    data-testid="role-claude-account"
+                  >
+                    <option value="">{t.claudeAccounts.roleAccountInherit}</option>
+                    {claudeAccountsList.map((account) => (
+                      <option key={account.id} value={account.id}>{account.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.budgetUsd}</label>
                 <input

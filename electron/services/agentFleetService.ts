@@ -8,6 +8,8 @@ import simpleGit from 'simple-git';
 import { worktreeService } from './worktreeService.js';
 import { aiAgentService, type AIProviderConfig, type AIMessage, type StreamToolBoundary } from './aiAgentService.js';
 import { claudeUsageService } from './claudeUsageService.js';
+import { claudeAccountService } from './claudeAccountService.js';
+import { CLAUDE_ACCOUNT_SOURCE_LABEL } from './claudeAccounts.js';
 import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_MCP_TOOL_TIMEOUT_MS } from './claudeBridgeService.js';
 import { hitlService } from './hitlService.js';
 import { applyRolePermissions } from './hitlPolicy.js';
@@ -2233,6 +2235,8 @@ export class AgentFleetService extends EventEmitter {
       agentId: agentState.id,
       agentName: agentState.config.name,
       role: agentState.config.role,
+      // Имя профиля аккаунта Claude Code — в аудит HITL (decision-87 п. 14).
+      ...(agentState.claudeAccount ? { claudeAccount: agentState.claudeAccount.name } : {}),
       permissions,
       // Агент роя работает в своём worktree — карточки одобрения и диффы берут файлы оттуда (TASK-62).
       workspaceRoot: targetPath,
@@ -2533,6 +2537,20 @@ export class AgentFleetService extends EventEmitter {
     role?: RoleDefinition,
     continueSession = false
   ): Promise<void> {
+    // Аккаунт Claude Code (decision-87): слот → роль → проект → по умолчанию. Раньше рой запускал CLI без
+    // CLAUDE_CONFIG_DIR и тратил квоту обычного ~/.claude, а не аккаунта ProjectHub, как AI Studio.
+    const accountResolution = await claudeAccountService.resolve({
+      projectPath: session.projectPath,
+      slotAccountId: agentState.config.claudeAccountId,
+      roleSlug: agentState.config.roleSlug
+    });
+    const account = accountResolution.account;
+    agentState.claudeAccount = { id: account.id, name: account.name, source: accountResolution.source };
+    this.log(session, agentState, `[Swarm] Аккаунт Claude Code: «${account.name}» (${CLAUDE_ACCOUNT_SOURCE_LABEL[accountResolution.source]})`);
+    for (const miss of accountResolution.missing) {
+      this.log(session, agentState, `[Swarm] ⚠️ Профиль аккаунта «${miss.id}» (${CLAUDE_ACCOUNT_SOURCE_LABEL[miss.source]}) удалён — используется «${account.name}».`);
+    }
+
     // Human-in-the-loop через единый контур (TASK-57): без --dangerously-skip-permissions,
     // кроме залогированного fallback при недоступном MCP-сервере и включённом auto-approve.
     const hitl = await this.prepareAgentHitl(session, agentState, targetPath);
@@ -2598,6 +2616,7 @@ export class AgentFleetService extends EventEmitter {
           env: {
             ...process.env,
             FORCE_COLOR: '0',
+            CLAUDE_CONFIG_DIR: account.configDir,
             ...hitl.env
           }
         });
@@ -2661,7 +2680,7 @@ export class AgentFleetService extends EventEmitter {
         }
         if (event.type === 'rate_limit_event' || event.rate_limit_info) {
           try {
-            claudeUsageService.noteRateLimitEvent(event.rate_limit_info || event);
+            claudeUsageService.noteRateLimitEvent(event.rate_limit_info || event, account.id);
           } catch { /* ignore */ }
           return;
         }

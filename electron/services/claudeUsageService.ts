@@ -1,9 +1,8 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import os from 'node:os';
-import { spawn } from 'node:child_process';
-import { PROJECT_HUB_CLAUDE_DIR } from './aiAgentService.js';
+import { claudeAccountService, runClaudeCliWithAccount } from './claudeAccountService.js';
+import { DEFAULT_CLAUDE_ACCOUNT_ID, type ClaudeAccountProfile } from './claudeAccounts.js';
 import {
   interpretUsageCliResult,
   isLoggedOutAuthStatus,
@@ -59,6 +58,9 @@ export interface ClaudeUsageData {
   rawText?: string;
   updatedAt: number;
   isFallback?: boolean;
+  /** Профиль аккаунта Claude Code, чьи это лимиты (TASK-152.5, decision-87 п. 13). */
+  accountId?: string;
+  accountName?: string;
   /** Почему `claude -p /usage` не дал лимитов (TASK-126); при успешном ответе поля нет. */
   cliError?: ClaudeUsageCliError;
 }
@@ -93,35 +95,69 @@ function formatResetsAt(value: number | string | undefined): string | undefined 
   return date.toISOString();
 }
 
+/** Лимиты и кэш одного аккаунта: `/usage` тратит время и квоту, поэтому кэш — на профиль. */
+interface AccountUsageState {
+  cachedUsage: ClaudeUsageData | null;
+  lastFetchTime: number;
+  rateLimits: ClaudeRateLimitSnapshot | null;
+  inflight: Promise<ClaudeUsageData> | null;
+}
+
 class ClaudeUsageService {
-  private cachedUsage: ClaudeUsageData | null = null;
-  private lastFetchTime = 0;
   private readonly CACHE_TTL_MS = 45 * 1000; // 45 seconds
   // Замер 2026-10-05 (CLI 2.1.289): ответ за 6.3 с, прежние 8 с срабатывали на загруженной машине.
   private readonly CLI_TIMEOUT_MS = 20 * 1000;
   private readonly AUTH_STATUS_TIMEOUT_MS = 5 * 1000;
-  private rateLimits: ClaudeRateLimitSnapshot | null = null;
+  private accounts = new Map<string, AccountUsageState>();
+
+  private state(accountId: string): AccountUsageState {
+    let state = this.accounts.get(accountId);
+    if (!state) {
+      state = { cachedUsage: null, lastFetchTime: 0, rateLimits: null, inflight: null };
+      this.accounts.set(accountId, state);
+    }
+    return state;
+  }
 
   /**
-   * Получение лимитов и статистики Claude Code.
+   * Получение лимитов и статистики Claude Code одного аккаунта (по умолчанию — профиля по умолчанию).
    * Схема гибридная:
-   * 1. Безопасный CLI-вызов `claude -p /usage` (с закрытым stdin, не тратит токены модели,
-   *    возвращает актуальные лимиты сессии, недели, Fable и активность за 24ч/7д).
-   * 2. Оперативные rate-limit события `rate_limit_event` из идущих сессий Claude CLI в AI Studio (`noteRateLimitEvent`).
-   * 3. Локальный кэш `~/.claude/stats-cache.json` для исторических показателей сессий и сообщений.
+   * 1. Безопасный CLI-вызов `claude -p /usage` с каталогом аккаунта (с закрытым stdin, не тратит токены
+   *    модели, возвращает актуальные лимиты сессии, недели, Fable и активность за 24ч/7д).
+   * 2. Оперативные rate-limit события `rate_limit_event` из идущих сессий Claude CLI этого аккаунта (`noteRateLimitEvent`).
+   * 3. Локальный кэш `stats-cache.json` каталога аккаунта для исторических показателей сессий и сообщений.
+   *
+   * В обычный `~/.claude` сервис не ходит (decision-87 п. 13): профиль без входа показывает «нет входа».
    */
-  public async getUsage(forceRefresh = false): Promise<ClaudeUsageData> {
+  public async getUsage(forceRefresh = false, accountId: string = DEFAULT_CLAUDE_ACCOUNT_ID): Promise<ClaudeUsageData> {
+    const account = await claudeAccountService.getAccount(accountId);
+    if (!account) throw new Error('Профиль аккаунта Claude Code не найден.');
+    const state = this.state(account.id);
     const now = Date.now();
-    if (!forceRefresh && this.cachedUsage && now - this.lastFetchTime < this.CACHE_TTL_MS) {
-      return this.cachedUsage;
+    if (!forceRefresh && state.cachedUsage && now - state.lastFetchTime < this.CACHE_TTL_MS) {
+      return state.cachedUsage;
     }
+    if (state.inflight) return state.inflight;
+    state.inflight = this.fetchUsage(account, state).finally(() => {
+      state.inflight = null;
+    });
+    return state.inflight;
+  }
 
+  /** Лимиты аккаунта проекта (привязка в реестре машины, иначе профиль по умолчанию). */
+  public async getUsageForProject(projectPath: string | undefined, forceRefresh = false): Promise<ClaudeUsageData> {
+    const { account } = await claudeAccountService.resolve({ projectPath });
+    return this.getUsage(forceRefresh, account.id);
+  }
+
+  private async fetchUsage(account: ClaudeAccountProfile, state: AccountUsageState): Promise<ClaudeUsageData> {
+    const now = Date.now();
     let cliUsageText: string | null = null;
     let cliError: ClaudeUsageCliError | undefined;
     let parsedFromCli: ReturnType<typeof this.parseUsageText> | null = null;
 
     try {
-      const cliResult = await this.fetchUsageFromCli();
+      const cliResult = await this.fetchUsageFromCli(account.configDir);
       if (cliResult) {
         cliUsageText = cliResult.text || null;
         cliError = cliResult.error;
@@ -130,13 +166,13 @@ class ClaudeUsageService {
           parsedFromCli = this.parseUsageText(cliUsageText);
           if (parsedFromCli.sessionLimit || parsedFromCli.weeklyLimit || parsedFromCli.fableLimit) {
             const nextSnapshot: ClaudeRateLimitSnapshot = {
-              ...(this.rateLimits ?? { updatedAt: 0 }),
+              ...(state.rateLimits ?? { updatedAt: 0 }),
               updatedAt: now
             };
             if (parsedFromCli.sessionLimit) nextSnapshot.sessionLimit = parsedFromCli.sessionLimit;
             if (parsedFromCli.weeklyLimit) nextSnapshot.weeklyLimit = parsedFromCli.weeklyLimit;
             if (parsedFromCli.fableLimit) nextSnapshot.fableLimit = parsedFromCli.fableLimit;
-            this.rateLimits = nextSnapshot;
+            state.rateLimits = nextSnapshot;
           }
         }
       }
@@ -145,24 +181,26 @@ class ClaudeUsageService {
     }
 
     if (cliError) {
-      // Если CLI недоступен или не авторизован, откатываемся на кэш и снимки, а причину отдаём в UI
+      // Если CLI недоступен или не авторизован, откатываемся на кэш и снимки этого аккаунта, а причину отдаём в UI
       console.warn(
-        `[ClaudeUsage] CLI fetch failed (${cliError.kind}), falling back to local cache & rate limit snapshot:`,
+        `[ClaudeUsage] CLI fetch failed for account "${account.id}" (${cliError.kind}), falling back to local cache & rate limit snapshot:`,
         cliError.detail ?? ''
       );
     }
 
-    const statsCacheData = await this.readStatsCacheFile();
+    // Профиль без входа не показывает старых лимитов (TASK-152.5 AC #3).
+    const rateLimits = cliError?.kind === 'auth' ? null : state.rateLimits;
+    const statsCacheData = await this.readStatsCacheFile(account.configDir);
 
-    if (!parsedFromCli && !statsCacheData && !this.rateLimits && !cliError) {
+    if (!parsedFromCli && !statsCacheData && !rateLimits && !cliError) {
       throw new Error(
         'Не удалось получить usage данные Claude Code: нет ответа от CLI, отсутствует stats-cache.json и ещё не было rate-limit событий'
       );
     }
 
-    const sessionLimit = this.rateLimits?.sessionLimit ?? parsedFromCli?.sessionLimit;
-    const weeklyLimit = this.rateLimits?.weeklyLimit ?? parsedFromCli?.weeklyLimit;
-    const fableLimit = this.rateLimits?.fableLimit ?? parsedFromCli?.fableLimit;
+    const sessionLimit = rateLimits?.sessionLimit ?? parsedFromCli?.sessionLimit;
+    const weeklyLimit = rateLimits?.weeklyLimit ?? parsedFromCli?.weeklyLimit;
+    const fableLimit = rateLimits?.fableLimit ?? parsedFromCli?.fableLimit;
 
     const usage: ClaudeUsageData = {
       planType: parsedFromCli?.planType || 'Claude Code Subscription',
@@ -175,99 +213,49 @@ class ClaudeUsageService {
       totalMessages: statsCacheData?.totalMessages,
       modelUsage: statsCacheData?.modelUsage,
       dailyActivity: statsCacheData?.dailyActivity,
-      rawText: cliUsageText || this.describeSources(statsCacheData !== null),
+      rawText: cliUsageText || this.describeSources(statsCacheData !== null, account, rateLimits),
       updatedAt: now,
-      isFallback: !this.rateLimits && !parsedFromCli?.sessionLimit && !parsedFromCli?.weeklyLimit,
-      cliError
+      isFallback: !rateLimits && !parsedFromCli?.sessionLimit && !parsedFromCli?.weeklyLimit,
+      cliError,
+      accountId: account.id,
+      accountName: account.name
     };
 
-    this.cachedUsage = usage;
-    this.lastFetchTime = now;
+    state.cachedUsage = usage;
+    state.lastFetchTime = now;
     return usage;
   }
 
   /**
-   * Запуск `claude -p /usage`. Не отклоняется: отказ авторизации, таймаут и сбой запуска приходят
-   * в поле `error`. `null` — CLI не опрашивался.
+   * Запуск `claude -p /usage` с каталогом аккаунта. Не отклоняется: отказ авторизации, таймаут и сбой
+   * запуска приходят в поле `error`. `null` — CLI не опрашивался.
    */
-  public async fetchUsageFromCli(): Promise<ClaudeUsageCliResult | null> {
+  public async fetchUsageFromCli(configDir: string): Promise<ClaudeUsageCliResult | null> {
     // В тестах Vitest не спауним внешний CLI, чтобы тесты выполнялись изолированно и детерминированно
     if (process.env.VITEST) return null;
 
-    const run = await this.runClaudeCli(['-p', '/usage'], this.CLI_TIMEOUT_MS);
+    const run = await runClaudeCliWithAccount(['-p', '/usage'], configDir, this.CLI_TIMEOUT_MS);
     if (run.timedOut) return { text: '', error: { kind: 'timeout' } };
     if (run.spawnError) return { text: '', error: { kind: 'failed', detail: run.spawnError } };
 
     const result = interpretUsageCliResult(run.code, run.stdout, run.stderr);
     // Профиль без входа отвечает на /usage сводкой стоимости сессии с кодом 0 — причину уточняет auth status.
     if (result.error && result.error.kind !== 'auth') {
-      const status = await this.runClaudeCli(['auth', 'status'], this.AUTH_STATUS_TIMEOUT_MS);
+      const status = await runClaudeCliWithAccount(['auth', 'status'], configDir, this.AUTH_STATUS_TIMEOUT_MS);
       if (isLoggedOutAuthStatus(status.stdout)) return { text: result.text, error: { kind: 'auth' } };
     }
     return result;
   }
 
-  private runClaudeCli(
-    args: string[],
-    timeoutMs: number
-  ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut?: boolean; spawnError?: string }> {
-    return new Promise((resolve) => {
-      const configDir = existsSync(path.join(PROJECT_HUB_CLAUDE_DIR, '.credentials.json'))
-        ? PROJECT_HUB_CLAUDE_DIR
-        : undefined;
-
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        FORCE_COLOR: '0',
-        ...(configDir ? { CLAUDE_CONFIG_DIR: configDir } : {})
-      };
-
-      const child = spawn('claude', args, {
-        shell: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env
-      });
-
-      // Немедленно закрываем stdin, чтобы процесс не ожидал 3 секунды ввода данных
-      child.stdin.end();
-
-      let stdout = '';
-      let stderr = '';
-
-      child.stdout.on('data', (d) => {
-        stdout += d.toString('utf-8');
-      });
-
-      child.stderr.on('data', (d) => {
-        stderr += d.toString('utf-8');
-      });
-
-      const timer = setTimeout(() => {
-        try {
-          child.kill();
-        } catch {}
-        resolve({ code: null, stdout, stderr, timedOut: true });
-      }, timeoutMs);
-
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        resolve({ code, stdout, stderr });
-      });
-
-      child.on('error', (err) => {
-        clearTimeout(timer);
-        resolve({ code: null, stdout, stderr, spawnError: err.message });
-      });
-    });
-  }
-
-  private describeSources(hasStatsCache: boolean): string {
+  private describeSources(hasStatsCache: boolean, account: ClaudeAccountProfile, rateLimits: ClaudeRateLimitSnapshot | null): string {
+    const statsFile = path.join(account.configDir, 'stats-cache.json');
     const lines = [
+      `Аккаунт: «${account.name}» (${account.configDir}).`,
       hasStatsCache
-        ? 'Сессии, сообщения и токены: локальный кэш Claude Code (~/.claude/stats-cache.json).'
-        : 'Локальный кэш Claude Code (~/.claude/stats-cache.json) не найден.',
-      this.rateLimits
-        ? `Лимиты: rate-limit события Claude CLI, последнее ${new Date(this.rateLimits.updatedAt).toLocaleString()}.`
+        ? `Сессии, сообщения и токены: локальный кэш Claude Code (${statsFile}).`
+        : `Локальный кэш Claude Code (${statsFile}) не найден.`,
+      rateLimits
+        ? `Лимиты: rate-limit события Claude CLI, последнее ${new Date(rateLimits.updatedAt).toLocaleString()}.`
         : 'Окна лимитов получены из снимка rate-limit событий Claude CLI.',
       'Для прямого опроса лимитов и квот подписки используется вызов `claude -p /usage`.'
     ];
@@ -275,8 +263,8 @@ class ClaudeUsageService {
   }
 
   /** Текущие окна лимитов, накопленные из событий CLI (для тестов и диагностики). */
-  public getRateLimitSnapshot(): ClaudeRateLimitSnapshot | null {
-    return this.rateLimits;
+  public getRateLimitSnapshot(accountId: string = DEFAULT_CLAUDE_ACCOUNT_ID): ClaudeRateLimitSnapshot | null {
+    return this.accounts.get(accountId)?.rateLimits ?? null;
   }
 
   /**
@@ -284,12 +272,13 @@ class ClaudeUsageService {
    * `five_hour` → сессия, `seven_day` → неделя, `seven_day_<model>` → отдельная модельная
    * квота (в UI — «Fable»). Событие без числовой `utilization` игнорируется.
    */
-  public noteRateLimitEvent(info: ClaudeRateLimitEventInfo | null | undefined): void {
+  public noteRateLimitEvent(info: ClaudeRateLimitEventInfo | null | undefined, accountId: string = DEFAULT_CLAUDE_ACCOUNT_ID): void {
     if (!info || typeof info !== 'object') return;
+    const state = this.state(accountId);
     const windows = Array.isArray(info.unifiedWindows) && info.unifiedWindows.length > 0 ? info.unifiedWindows : [info];
 
     let changed = false;
-    const next: ClaudeRateLimitSnapshot = { ...(this.rateLimits ?? { updatedAt: 0 }) };
+    const next: ClaudeRateLimitSnapshot = { ...(state.rateLimits ?? { updatedAt: 0 }) };
 
     for (const win of windows) {
       if (!win || typeof win.utilization !== 'number' || !Number.isFinite(win.utilization)) continue;
@@ -316,28 +305,21 @@ class ClaudeUsageService {
 
     if (!changed) return;
     next.updatedAt = Date.now();
-    this.rateLimits = next;
+    state.rateLimits = next;
     // Сбросить кэш, чтобы следующий getUsage отдал свежие лимиты.
-    this.lastFetchTime = 0;
+    state.lastFetchTime = 0;
   }
 
-  private async readStatsCacheFile(): Promise<any | null> {
-    const candidates = [
-      path.join(os.homedir(), '.claude', 'stats-cache.json'),
-      path.join(PROJECT_HUB_CLAUDE_DIR, 'stats-cache.json')
-    ];
-
-    for (const filePath of candidates) {
-      if (existsSync(filePath)) {
-        try {
-          const content = await fs.readFile(filePath, 'utf-8');
-          return JSON.parse(content);
-        } catch (e) {
-          console.warn(`Error reading ${filePath}:`, e);
-        }
-      }
+  /** `stats-cache.json` каталога аккаунта; в обычный `~/.claude` не заглядываем — это другой аккаунт. */
+  private async readStatsCacheFile(configDir: string): Promise<any | null> {
+    const filePath = path.join(configDir, 'stats-cache.json');
+    if (!existsSync(filePath)) return null;
+    try {
+      return JSON.parse(await fs.readFile(filePath, 'utf-8'));
+    } catch (e) {
+      console.warn(`Error reading ${filePath}:`, e);
+      return null;
     }
-    return null;
   }
 
   public parseUsageText(text: string): {

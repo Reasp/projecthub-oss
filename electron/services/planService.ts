@@ -313,6 +313,7 @@ export class PlanService extends EventEmitter {
         projectPath: plan.projectPath,
         messages,
         ...(role?.systemPrompt ? { roleSystemPrompt: role.systemPrompt } : {}),
+        ...(role?.slug ? { roleSlug: role.slug } : {}),
         // Контекст задачи уже в первом сообщении: `taskId` в ход не передаётся, иначе он попал бы в запрос дважды.
         timeoutMs: ARCHITECT_TIMEOUT_MS
       });

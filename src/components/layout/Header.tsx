@@ -8,6 +8,7 @@ import { VoiceBadge } from '../voice/VoiceBadge';
 import { ProjectTabs } from './ProjectTabsBar';
 import { useDialog } from '../../hooks/useDialog';
 import { openInVsCode } from '../../lib/openInVsCode';
+import { ClaudeAccountBadge } from '../ai/ClaudeAccountBadge';
 
 /**
  * Шапка проекта (decision-73): вкладки открытых проектов (путь и метка шаблона — в их подсказке),
@@ -99,6 +100,8 @@ export const Header: React.FC = () => {
             <span className="hidden lg:inline">{t.init.initButton}</span>
           </button>
         )}
+        {/* Аккаунт Claude Code проекта (TASK-152.3): чья квота расходуется */}
+        <ClaudeAccountBadge projectPath={selectedProject.path} />
         <ActionRunnerBar />
 
         <div className="w-px h-4 bg-ph-line mx-1.5" />

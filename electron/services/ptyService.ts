@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { existsSync } from 'node:fs';
 import { BrowserWindow } from 'electron';
-import { PROJECT_HUB_CLAUDE_DIR } from './aiAgentService.js';
+import { claudeAccountService } from './claudeAccountService.js';
 import {
   DEFAULT_PTY_EXIT_TTL_MS,
   PTY_EXIT_TTL_ENV,
@@ -99,7 +99,24 @@ class PtyService {
     let shell: string;
     let args: string[];
 
-    if (options.type === 'claude') {
+    // Вход в профиль аккаунта (TASK-152.2): `claude auth login` во встроенном терминале с каталогом
+    // профиля. Каталог берётся из списка профилей по id, а не из пути рендерера.
+    const loginAccount = options.type === 'claude-login'
+      ? await claudeAccountService.getAccount(String(options.claudeAccountId ?? ''))
+      : undefined;
+    if (options.type === 'claude-login' && !loginAccount) {
+      throw new Error('Профиль аккаунта Claude Code не найден.');
+    }
+
+    if (options.type === 'claude-login') {
+      if (isWin) {
+        shell = process.env.COMSPEC || 'cmd.exe';
+        args = ['/c', 'claude auth login'];
+      } else {
+        shell = process.env.SHELL || '/bin/bash';
+        args = ['-l', '-c', 'claude auth login'];
+      }
+    } else if (options.type === 'claude') {
       if (isWin) {
         // Use cmd.exe /c claude or powershell for maximum Windows compatibility
         shell = process.env.COMSPEC || 'cmd.exe';
@@ -118,11 +135,14 @@ class PtyService {
       }
     }
 
-    const projectName = options.projectName || path.basename(options.projectPath);
-    const title = options.title || (options.type === 'claude' ? `Claude: ${projectName}` : `Terminal: ${projectName}`);
+    const projectName = options.projectName || path.basename(options.projectPath || '');
+    const title = options.title
+      || (loginAccount
+        ? `Вход: ${loginAccount.name}`
+        : options.type === 'claude' ? `Claude: ${projectName}` : `Terminal: ${projectName}`);
 
     let extraEnv: Record<string, string> = {};
-    if (this.extraEnvProvider) {
+    if (this.extraEnvProvider && !loginAccount) {
       try {
         extraEnv = await this.extraEnvProvider(options.projectPath);
       } catch (err) {
@@ -130,12 +150,15 @@ class PtyService {
       }
     }
 
-    // Create env copy with UTF-8 encoding support and isolated Claude config
+    // Аккаунт Claude Code — профиля входа или проекта терминала (decision-87); перекрывает и
+    // CLAUDE_CONFIG_DIR, с которым запущен сам ProjectHub, — как раньше перекрывал каталог ProjectHub.
+    const account = loginAccount ?? (await claudeAccountService.resolve({ projectPath: options.projectPath })).account;
+    const accountEnv = { CLAUDE_CONFIG_DIR: account.configDir };
     const env = {
       ...process.env,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
-      CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR,
+      ...accountEnv,
       ...extraEnv
     };
 
@@ -153,6 +176,8 @@ class PtyService {
 
     const info: PtySession = {
       id: sessionId,
+      claudeAccountId: account.id,
+      claudeAccountName: account.name,
       projectPath: options.projectPath,
       cwd: options.cwd,
       worktreeBranch: options.worktreeBranch,

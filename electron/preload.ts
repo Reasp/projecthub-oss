@@ -330,9 +330,23 @@ const api: IElectronAPI = {
   getModelTiers: () => ipcRenderer.invoke('modelTiers:get'),
   saveModelTiers: (settings: unknown) => ipcRenderer.invoke('modelTiers:save', settings),
   seedModelTiers: (draft?: unknown) => ipcRenderer.invoke('modelTiers:seed', draft),
-  getClaudeAuthStatus: () => ipcRenderer.invoke('ai:getClaudeAuthStatus'),
-  startClaudeLogin: () => ipcRenderer.invoke('ai:startClaudeLogin'),
-  claudeLogout: () => ipcRenderer.invoke('ai:claudeLogout'),
+  getClaudeAuthStatus: (query?: { projectPath?: string; accountId?: string; force?: boolean }) =>
+    ipcRenderer.invoke('ai:getClaudeAuthStatus', query),
+  claudeLogout: (query?: { projectPath?: string; accountId?: string }) => ipcRenderer.invoke('ai:claudeLogout', query),
+  // Профили аккаунтов Claude Code (TASK-152, decision-87)
+  claudeAccounts: {
+    overview: () => ipcRenderer.invoke('claudeAccounts:overview'),
+    statuses: (force?: boolean) => ipcRenderer.invoke('claudeAccounts:statuses', force),
+    status: (id: string, force?: boolean) => ipcRenderer.invoke('claudeAccounts:status', id, force),
+    create: (name: string) => ipcRenderer.invoke('claudeAccounts:create', name),
+    connectExternal: (input: { name: string; source: 'dialog' | 'processEnv' }) => ipcRenderer.invoke('claudeAccounts:connectExternal', input),
+    rename: (id: string, name: string) => ipcRenderer.invoke('claudeAccounts:rename', id, name),
+    remove: (id: string) => ipcRenderer.invoke('claudeAccounts:remove', id),
+    logout: (id: string) => ipcRenderer.invoke('claudeAccounts:logout', id),
+    forProject: (projectPath: string) => ipcRenderer.invoke('claudeAccounts:forProject', projectPath),
+    setProject: (projectPath: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setProject', projectPath, accountId),
+    setRole: (roleSlug: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setRole', roleSlug, accountId)
+  },
   streamAIChat: (request: any) => ipcRenderer.invoke('ai:streamChat', request),
   previewAgentContext: (projectPath: string, taskId: string, contextParts?: any) =>
     ipcRenderer.invoke('ai:previewContext', projectPath, taskId, contextParts),
@@ -364,7 +378,8 @@ const api: IElectronAPI = {
     ipcRenderer.invoke('claudeBridge:sendApprovalResponse', requestId, response),
   getSubagents: (projectPath: string) => ipcRenderer.invoke('claudeBridge:getSubagents', projectPath),
   getAvailableModels: () => ipcRenderer.invoke('claudeBridge:getAvailableModels'),
-  getClaudeUsage: (forceRefresh?: boolean) => ipcRenderer.invoke('claudeBridge:getUsage', forceRefresh),
+  getClaudeUsage: (forceRefresh?: boolean, query?: { accountId?: string; projectPath?: string }) =>
+    ipcRenderer.invoke('claudeBridge:getUsage', forceRefresh, query),
 
   // Multi-Agent Swarm & Fleet Orchestration (TASK-54)
   startSwarmFanOut: (options: any) => ipcRenderer.invoke('swarm:startFanOut', options),

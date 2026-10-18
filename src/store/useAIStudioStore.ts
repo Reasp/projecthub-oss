@@ -19,6 +19,7 @@ import type {
   ContextPartKey
 } from '../types/electron';
 import { useProjectStore } from './useProjectStore';
+import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { upsertToolCall } from '../lib/aiToolCalls';
 
@@ -56,9 +57,11 @@ interface AIStudioState {
   // Actions
   fetchConfig: () => Promise<void>;
   saveConfig: (config: AIProviderConfig) => Promise<void>;
-  fetchClaudeAuth: () => Promise<void>;
-  startClaudeLogin: () => Promise<void>;
-  claudeLogout: () => Promise<void>;
+  /** Статус аккаунта Claude Code проекта (TASK-152): без проекта — профиль по умолчанию. */
+  fetchClaudeAuth: (projectPath?: string, force?: boolean) => Promise<void>;
+  /** Окно входа со встроенным терминалом для аккаунта проекта (TASK-152.2). */
+  startClaudeLogin: (projectPath?: string) => Promise<void>;
+  claudeLogout: (projectPath?: string) => Promise<void>;
   setMode: (mode: 'chat' | 'agent' | 'architect') => void;
   setIsSettingsOpen: (open: boolean) => void;
   /** Прочитать историю диалогов проекта с диска (один раз на проект); мигрирует старый localStorage. */
@@ -288,10 +291,10 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
       },
 
-      fetchClaudeAuth: async () => {
+      fetchClaudeAuth: async (projectPath, force) => {
         if (window.api?.getClaudeAuthStatus) {
           try {
-            const auth = await window.api.getClaudeAuthStatus();
+            const auth = await window.api.getClaudeAuthStatus({ ...(projectPath ? { projectPath } : {}), force: force === true });
             set({ claudeAuth: auth });
           } catch (err) {
             console.error('Failed to fetch Claude auth status:', err);
@@ -299,21 +302,20 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
       },
 
-      startClaudeLogin: async () => {
-        if (window.api?.startClaudeLogin) {
-          try {
-            await window.api.startClaudeLogin();
-          } catch (err) {
-            console.error('Failed to start Claude login:', err);
-          }
+      startClaudeLogin: async (projectPath) => {
+        try {
+          await useClaudeAccountsStore.getState().openLoginForProject(projectPath);
+        } catch (err) {
+          console.error('Failed to start Claude login:', err);
         }
       },
 
-      claudeLogout: async () => {
+      claudeLogout: async (projectPath) => {
         if (window.api?.claudeLogout) {
           try {
-            await window.api.claudeLogout();
-            set({ claudeAuth: { isLoggedIn: false } });
+            const accountId = get().claudeAuth?.accountId;
+            await window.api.claudeLogout(accountId ? { accountId } : projectPath ? { projectPath } : {});
+            set((state) => ({ claudeAuth: { ...state.claudeAuth, isLoggedIn: false, email: undefined, seatTier: undefined } }));
           } catch (err) {
             console.error('Failed to log out from Claude:', err);
           }

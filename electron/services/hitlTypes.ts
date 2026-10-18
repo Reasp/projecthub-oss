@@ -66,6 +66,8 @@ export interface HitlRequest {
   agentName?: string;
   /** Роль агента (decision-9); для AI Studio отсутствует. */
   role?: string;
+  /** Имя профиля аккаунта Claude Code, под которым идёт агент (decision-87 п. 14); не e-mail. */
+  claudeAccount?: string;
   /** Хост, на котором работает агент (federation, decision-11). */
   hostId?: string;
   /** Имя инструмента движка (Bash, Write, run_command …). */
@@ -125,6 +127,8 @@ export interface HitlAuditEntry {
   agentId?: string;
   agentName?: string;
   role?: string;
+  /** Имя профиля аккаунта Claude Code (decision-87 п. 14). */
+  claudeAccount?: string;
   tool?: string;
   type?: HitlRequestType;
   title?: string;

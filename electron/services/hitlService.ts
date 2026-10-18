@@ -98,6 +98,7 @@ export interface HitlFallbackInfo {
   agentId?: string;
   agentName?: string;
   role?: string;
+  claudeAccount?: string;
   reason: string;
 }
 
@@ -391,6 +392,7 @@ export class HitlService extends EventEmitter {
       agentId: info.agentId,
       agentName: info.agentName,
       role: info.role,
+      ...(info.claudeAccount ? { claudeAccount: info.claudeAccount } : {}),
       detail: truncateComment(info.reason, 300)
     };
     void this.audit?.append(entry);
@@ -490,6 +492,7 @@ export class HitlService extends EventEmitter {
       agentId: request.agentId,
       agentName: request.agentName,
       role: request.role,
+      ...(request.claudeAccount ? { claudeAccount: request.claudeAccount } : {}),
       tool: request.tool,
       type: request.type,
       title: request.title ? truncateComment(request.title, 200) : undefined,

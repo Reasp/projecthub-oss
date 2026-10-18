@@ -983,7 +983,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchPtySessions: async () => {
     if (!window.api?.listPtySessions) return;
     try {
-      const list = await window.api.listPtySessions();
+      // Терминал входа в аккаунт (TASK-152.2) живёт в своём окне, не во вкладках проекта.
+      const list = (await window.api.listPtySessions()).filter((session) => session.type !== 'claude-login');
       set({ ptySessions: list });
       if (!get().activePtySessionId && list.length > 0) {
         set({ activePtySessionId: list[0].id });

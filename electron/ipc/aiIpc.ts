@@ -1,11 +1,9 @@
 import { ipcMain, shell, dialog } from 'electron';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import type { CreatePtyOptions, AISession } from '../../src/types/electron';
 import { ptyService } from '../services/ptyService';
 import {
   aiAgentService,
-  PROJECT_HUB_CLAUDE_DIR,
   type AIProviderConfig,
   type AIStreamRequest
 } from '../services/aiAgentService';
@@ -110,42 +108,20 @@ export function registerAiIpc(ctx: IpcContext) {
   ipcMain.handle('modelTiers:save', (_event, settings: unknown) => modelTierService.save(settings));
   ipcMain.handle('modelTiers:seed', (_event, draft?: unknown) => modelTierService.seed(draft));
 
-  ipcMain.handle('ai:getClaudeAuthStatus', async () => {
-    return await aiAgentService.getClaudeAuthStatus();
+  // Аккаунт Claude Code (TASK-152, decision-87): статус и выход — по проекту или явному профилю.
+  ipcMain.handle('ai:getClaudeAuthStatus', async (_event, query?: { projectPath?: string; accountId?: string; force?: boolean }) => {
+    return await aiAgentService.getClaudeAuthStatus({
+      ...(typeof query?.projectPath === 'string' ? { projectPath: query.projectPath } : {}),
+      ...(typeof query?.accountId === 'string' ? { accountId: query.accountId } : {}),
+      force: query?.force === true
+    });
   });
 
-  ipcMain.handle('ai:startClaudeLogin', async () => {
-    try {
-      const isWin = process.platform === 'win32';
-      if (isWin) {
-        spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', 'claude auth login'], {
-          detached: true,
-          shell: true,
-          env: {
-            ...process.env,
-            CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR
-          }
-        });
-      } else {
-        spawn('claude', ['auth', 'login'], {
-          detached: true,
-          shell: true,
-          env: {
-            ...process.env,
-            CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR
-          }
-        });
-      }
-      return true;
-    } catch (e) {
-      console.error('Failed to start claude auth login process:', e);
-      shell.openExternal('https://claude.ai/login');
-      return false;
-    }
-  });
-
-  ipcMain.handle('ai:claudeLogout', async () => {
-    return await aiAgentService.claudeLogout();
+  ipcMain.handle('ai:claudeLogout', async (_event, query?: { projectPath?: string; accountId?: string }) => {
+    return await aiAgentService.claudeLogout({
+      ...(typeof query?.projectPath === 'string' ? { projectPath: query.projectPath } : {}),
+      ...(typeof query?.accountId === 'string' ? { accountId: query.accountId } : {})
+    });
   });
 
   // Streaming & Session Lifecycle
@@ -280,8 +256,15 @@ export function registerAiIpc(ctx: IpcContext) {
     return claudeBridgeService.getAvailableModels();
   });
 
-  ipcMain.handle('claudeBridge:getUsage', async (_event, forceRefresh = false) => {
-    return await claudeUsageService.getUsage(forceRefresh);
+  // Лимиты по аккаунтам (TASK-152.5): явный профиль, аккаунт проекта или профиль по умолчанию.
+  ipcMain.handle('claudeBridge:getUsage', async (_event, forceRefresh = false, query?: { accountId?: string; projectPath?: string }) => {
+    if (typeof query?.accountId === 'string' && query.accountId) {
+      return await claudeUsageService.getUsage(forceRefresh === true, query.accountId);
+    }
+    return await claudeUsageService.getUsageForProject(
+      typeof query?.projectPath === 'string' ? query.projectPath : undefined,
+      forceRefresh === true
+    );
   });
 
   // Multi-Agent Swarm (TASK-54)

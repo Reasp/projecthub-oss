@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Gauge } from '../common/icons';
 import { ClaudeUsageModal } from './ClaudeUsageModal';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { ClaudeUsageData } from '../../types/electron';
+import { useProjectStore } from '../../store/useProjectStore';
+import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 
 interface ClaudeUsageButtonProps {
   className?: string;
@@ -20,23 +22,36 @@ export const ClaudeUsageButton: React.FC<ClaudeUsageButtonProps> = ({
   const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [usage, setUsage] = useState<ClaudeUsageData | null>(null);
+  // Лимиты аккаунта активного проекта (TASK-152.5): при переключении проекта меняются.
+  const projectPath = useProjectStore((s) => s.selectedProject?.path);
+  const accountCount = useClaudeAccountsStore((s) => s.overview?.accounts.length ?? 1);
+  const refreshAccounts = useClaudeAccountsStore((s) => s.refresh);
 
   // Без фонового опроса (аудит 3.9): бейдж читает usage один раз при монтировании и после
   // закрытия модалки (там пользователь мог принудительно обновить данные). Сами данные
   // в main берутся из локального stats-cache.json и rate-limit событий CLI, без спауна claude.
-  const loadQuickUsage = async () => {
+  // Номер последнего запроса: медленный `/usage` прежнего проекта не должен перетереть ответ нового.
+  const requestSeq = useRef(0);
+  const loadQuickUsage = useCallback(async () => {
+    const seq = ++requestSeq.current;
     try {
       if (window.api?.getClaudeUsage) {
-        const data = await window.api.getClaudeUsage(false);
-        setUsage(data);
+        const data = await window.api.getClaudeUsage(false, projectPath ? { projectPath } : {});
+        if (seq === requestSeq.current) setUsage(data);
       }
     } catch {
       // Бейдж вторичен: ошибка загрузки показывается в модалке
     }
-  };
+  }, [projectPath]);
 
   useEffect(() => {
-    loadQuickUsage();
+    // Лимиты прежнего аккаунта не показываем, пока не пришли лимиты аккаунта нового проекта.
+    setUsage(null);
+    void loadQuickUsage();
+  }, [loadQuickUsage]);
+
+  useEffect(() => {
+    void refreshAccounts().catch(() => undefined);
 
     const handleOpenEvent = () => {
       setIsModalOpen(true);
@@ -45,7 +60,7 @@ export const ClaudeUsageButton: React.FC<ClaudeUsageButtonProps> = ({
     return () => {
       window.removeEventListener('projecthub:open-claude-usage', handleOpenEvent);
     };
-  }, []);
+  }, [refreshAccounts]);
 
   const handleModalClose = () => {
     setIsModalOpen(false);
@@ -96,7 +111,9 @@ export const ClaudeUsageButton: React.FC<ClaudeUsageButtonProps> = ({
       const fableLabel = t.claudeUsage.fableLimit;
       parts.push(`${fableLabel}: ${fablePercent}%`);
     }
-    return `Claude Code Usage (${sessionLabel}: ${sessionText}). ${parts.join(', ')}.`;
+    const account = usage.accountName ? ` — ${usage.accountName}` : '';
+    if (usage.cliError?.kind === 'auth') return `Claude Code Usage${account}: ${t.claudeAccounts.notLoggedIn}`;
+    return `Claude Code Usage${account} (${sessionLabel}: ${sessionText}). ${parts.join(', ')}.`;
   };
 
   return (
@@ -109,6 +126,13 @@ export const ClaudeUsageButton: React.FC<ClaudeUsageButtonProps> = ({
       >
         <Gauge className={`w-3.5 h-3.5 shrink-0 ${getGaugeColor()}`} />
         {showText && <span>Usage</span>}
+        {/* Имя аккаунта — только когда профилей больше одного: без профилей строка как раньше */}
+        {accountCount > 1 && usage?.accountName && (
+          <span className="max-w-[110px] truncate text-slate-300" data-testid="usage-account-name">{usage.accountName}</span>
+        )}
+        {accountCount > 1 && usage?.cliError?.kind === 'auth' && (
+          <span className="text-amber-300">{t.claudeAccounts.notLoggedInShort}</span>
+        )}
         {typeof sessionPercent === 'number' && (
           <span className={`font-mono ${getPercentColor()}`}>
             {sessionPercent}%
@@ -120,6 +144,7 @@ export const ClaudeUsageButton: React.FC<ClaudeUsageButtonProps> = ({
       <ClaudeUsageModal
         isOpen={isModalOpen}
         onClose={handleModalClose}
+        initialAccountId={usage?.accountId}
       />
     </>
   );

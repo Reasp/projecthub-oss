@@ -8,6 +8,7 @@ import { searchProjectDocs } from './ragSearch.js';
 import { buildAgentContext, buildComputerUseInstructions, type ContextPartKey } from './contextBuilder.js';
 import { MEMORY_TOOL_DEFINITIONS, MEMORY_TOOL_PREFIX } from './memoryTools.js';
 import { secretStorageService } from './secretStorageService.js';
+import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountService.js';
 import matter from 'gray-matter';
 import { assertInsideProject, isInsideProject } from './pathGuard.js';
 import { addUsage, estimateUsage, priceUsage, usageFromAnthropic, usageFromOpenAI, type AgentUsage } from './agentCost.js';
@@ -222,6 +223,8 @@ export interface LlmCompleteRequest {
   /** Ограничение ожидания; по истечении запрос прерывается. */
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Проект запроса: по нему Claude CLI берёт аккаунт (decision-87); без него — профиль по умолчанию. */
+  projectPath?: string;
 }
 
 export interface LlmCompleteResult {
@@ -337,9 +340,13 @@ export interface ClaudeAuthStatus {
   displayName?: string;
   seatTier?: string;
   organizationName?: string;
+  /** Профиль аккаунта, чей статус показан (TASK-152, decision-87). */
+  accountId?: string;
+  accountName?: string;
+  /** Статус не получен: CLI не запустился или не ответил. */
+  error?: string;
 }
 
-export const PROJECT_HUB_CLAUDE_DIR = path.join(os.homedir(), '.projecthub', 'claude_config');
 const CONFIG_FILE = path.join(os.homedir(), '.projecthub', 'ai-config.json');
 
 class AIAgentService {
@@ -361,92 +368,45 @@ class AIAgentService {
         console.error('Failed to create config dir:', e);
       }
     }
-    if (!existsSync(PROJECT_HUB_CLAUDE_DIR)) {
+    const claudeDir = defaultClaudeAccountDir();
+    if (!existsSync(claudeDir)) {
       try {
-        mkdirSync(PROJECT_HUB_CLAUDE_DIR, { recursive: true });
+        mkdirSync(claudeDir, { recursive: true });
       } catch (e) {
         console.error('Failed to create claude config dir:', e);
       }
     }
   }
 
-  public async getClaudeAuthStatus(): Promise<ClaudeAuthStatus> {
-    const isolatedClaudeJson = path.join(PROJECT_HUB_CLAUDE_DIR, '.claude.json');
-    const globalClaudeJson = path.join(os.homedir(), '.claude.json');
-    const targetPaths = [isolatedClaudeJson, globalClaudeJson];
-
-    for (const claudeJsonPath of targetPaths) {
-      if (existsSync(claudeJsonPath)) {
-        try {
-          const content = await fs.readFile(claudeJsonPath, 'utf-8');
-          const data = JSON.parse(content);
-          if (data.oauthAccount && (data.oauthAccount.emailAddress || data.oauthAccount.email)) {
-            return {
-              isLoggedIn: true,
-              email: data.oauthAccount.emailAddress || data.oauthAccount.email,
-              displayName: data.oauthAccount.displayName || data.oauthAccount.fullName,
-              seatTier: data.oauthAccount.seatTier || data.oauthAccount.billingType || 'Pro / Team',
-              organizationName: data.oauthAccount.organizationName
-            };
-          }
-        } catch (e) {
-          console.warn(`Failed to read ${claudeJsonPath}:`, e);
-        }
-      }
-    }
-    return { isLoggedIn: false };
+  /**
+   * Статус входа аккаунта проекта (или явного профиля) по `claude auth status` (decision-87 п. 8).
+   * Файлы входа не читаются: на macOS вход лежит в Keychain.
+   */
+  public async getClaudeAuthStatus(query: { projectPath?: string; accountId?: string; force?: boolean } = {}): Promise<ClaudeAuthStatus> {
+    const account = query.accountId
+      ? await claudeAccountService.getAccount(query.accountId)
+      : (await claudeAccountService.resolve({ projectPath: query.projectPath })).account;
+    if (!account) return { isLoggedIn: false, error: 'Профиль аккаунта не найден.' };
+    const status = await claudeAccountService.authStatus(account.id, query.force === true);
+    return {
+      isLoggedIn: status.loggedIn,
+      ...(status.email ? { email: status.email } : {}),
+      ...(status.subscriptionType ? { seatTier: status.subscriptionType } : {}),
+      ...(status.orgName ? { organizationName: status.orgName } : {}),
+      ...(status.error ? { error: status.error } : {}),
+      accountId: account.id,
+      accountName: account.name
+    };
   }
 
-  public async claudeLogout(): Promise<boolean> {
-    const isolatedClaudeJson = path.join(PROJECT_HUB_CLAUDE_DIR, '.claude.json');
-    const globalClaudeJson = path.join(os.homedir(), '.claude.json');
-    const targetPaths = [isolatedClaudeJson, globalClaudeJson];
-
-    for (const claudeJsonPath of targetPaths) {
-      if (existsSync(claudeJsonPath)) {
-        try {
-          const content = await fs.readFile(claudeJsonPath, 'utf-8');
-          const data = JSON.parse(content);
-          if (data.oauthAccount) {
-            delete data.oauthAccount;
-            delete data.primaryApiKey;
-            await fs.writeFile(claudeJsonPath, JSON.stringify(data, null, 2), 'utf-8');
-          }
-        } catch (e) {
-          console.warn(`Failed to clean oauthAccount from ${claudeJsonPath}:`, e);
-        }
-      }
-    }
-
-    try {
-      const credsFile = path.join(PROJECT_HUB_CLAUDE_DIR, '.credentials.json');
-      if (existsSync(credsFile)) {
-        await fs.unlink(credsFile);
-      }
-    } catch {}
-
-    try {
-      const isWin = process.platform === 'win32';
-      if (isWin) {
-        spawn('cmd.exe', ['/c', 'claude auth logout'], {
-          env: {
-            ...process.env,
-            CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR
-          }
-        });
-      } else {
-        spawn('claude', ['auth', 'logout'], {
-          env: {
-            ...process.env,
-            CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR
-          }
-        });
-      }
-    } catch (e) {
-      console.warn('Failed to spawn claude auth logout:', e);
-    }
-
-    return true;
+  /**
+   * Выход из аккаунта проекта (или явного профиля) — только `claude auth logout` с его каталогом.
+   * Глобальный `~/.claude.json` и файлы входа не трогаются (decision-87 п. 10).
+   */
+  public async claudeLogout(query: { projectPath?: string; accountId?: string } = {}): Promise<boolean> {
+    const accountId = query.accountId ?? (await claudeAccountService.resolve({ projectPath: query.projectPath })).account.id;
+    const status = await claudeAccountService.logout(accountId);
+    return !status.loggedIn;
   }
 
   public async getConfig(): Promise<AIProviderConfig> {
@@ -580,8 +540,10 @@ class AIAgentService {
    * CLAUDE.md проекта. `maxTokens` и `temperature` CLI не принимает — для служебных запросов с
    * короткими ответами это не мешает.
    */
-  private completeClaudeCli(req: LlmCompleteRequest, model: string, signal: AbortSignal): Promise<string> {
+  private async completeClaudeCli(req: LlmCompleteRequest, model: string, signal: AbortSignal): Promise<string> {
     const { args, stdin } = buildClaudeCliCompletionCommand({ model, system: req.system, prompt: req.prompt });
+    // Аккаунт — проекта запроса, без проекта — профиль по умолчанию (decision-87 п. 5).
+    const accountEnv = await claudeAccountService.envFor({ projectPath: req.projectPath });
 
     return new Promise<string>((resolve, reject) => {
       if (signal.aborted) {
@@ -595,7 +557,7 @@ class AIAgentService {
           cwd: os.tmpdir(),
           shell: true,
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, FORCE_COLOR: '0', CLAUDE_CONFIG_DIR: PROJECT_HUB_CLAUDE_DIR }
+          env: { ...process.env, FORCE_COLOR: '0', ...accountEnv }
         });
       } catch (err) {
         reject(new Error(`Не удалось запустить Claude CLI: ${err instanceof Error ? err.message : String(err)}`, { cause: err }));
