@@ -3,7 +3,7 @@ import { projectRegistry } from './projectRegistry';
 import { hitlService } from './hitlService';
 import { searchProjectDocs } from './ragSearch';
 
-/** Боевые зависимости инструментов задач и документов (TASK-136.6): реестр, аудит, поиск по документации. */
+/** Боевые зависимости инструментов задач и документов (TASK-136.6): реестр, аудит, поиск по документации, HITL. */
 export const projectAgentToolDeps: ProjectToolDeps = {
   async listProjectRoots() {
     return (await projectRegistry.getProjects()).map((p) => p.path);
@@ -13,5 +13,10 @@ export const projectAgentToolDeps: ProjectToolDeps = {
   },
   async searchDocs(projectRoot, query, limit) {
     return searchProjectDocs({ projectPath: projectRoot, query, mode: 'all', limit });
+  },
+  // Карточка режима `ask` (decision-89): общая очередь HITL, решение и аудит — там же.
+  async requestApproval(request) {
+    const res = await hitlService.request({ ...request, id: hitlService.newRequestId(), createdAt: Date.now() });
+    return Boolean(res?.approved);
   }
 };

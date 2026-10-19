@@ -234,7 +234,8 @@ class ClaudeUsageService {
     // В тестах Vitest не спауним внешний CLI, чтобы тесты выполнялись изолированно и детерминированно
     if (process.env.VITEST) return null;
 
-    const run = await runClaudeCliWithAccount(['-p', '/usage'], configDir, this.CLI_TIMEOUT_MS);
+    // Без --no-session-persistence каждый опрос оставлял файл сессии в <каталог аккаунта>/projects/<cwd>.
+    const run = await runClaudeCliWithAccount(['-p', '/usage', '--no-session-persistence'], configDir, this.CLI_TIMEOUT_MS);
     if (run.timedOut) return { text: '', error: { kind: 'timeout' } };
     if (run.spawnError) return { text: '', error: { kind: 'failed', detail: run.spawnError } };
 

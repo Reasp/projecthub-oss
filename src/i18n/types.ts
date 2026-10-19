@@ -614,6 +614,8 @@ export interface TranslationDictionary {
     dateCol: string;
     noTasksFound: string;
     unknownStatusHint: string;
+    agentCreatedBadge: string;
+    agentCreatedHint: string;
     otherStatuses: string;
   };
   taskDetail: {
@@ -636,6 +638,10 @@ export interface TranslationDictionary {
     generateCriteria: string;
     saving: string;
     reviewWarningRule5: string;
+    agentCreatedTitle: string;
+    agentCreatedDesc: string;
+    approveAgentTask: string;
+    approveAgentTaskFailed: string;
     worktreeActiveTooltip: string;
     createWorktreeTooltip: string;
     creatingWorktree: string;
@@ -661,6 +667,12 @@ export interface TranslationDictionary {
     anyEngine: string;
     model: string;
     budgetUsd: string;
+    taskCreate: string;
+    taskCreateHint: string;
+    taskCreateDefault: string;
+    taskCreatePropose: string;
+    taskCreateAsk: string;
+    taskCreateDeny: string;
     tools: string;
     unsupportedWarning: string;
     dod: string;
@@ -1642,6 +1654,11 @@ export interface TranslationDictionary {
     parentDirectory: string;
     resultingPath: string;
     nameRequired: string;
+    claudeAccount: string;
+    claudeAccountDesc: string;
+    claudeAccountDefault: string;
+    claudeAccountBound: string;
+    claudeAccountFailed: string;
     foundation: string;
     foundationDesc: string;
     partGit: string;
@@ -3099,5 +3116,15 @@ export interface TranslationDictionary {
     roleAccountInherit: string;
     roleAccountHint: string;
     homeClaudeDirWarning: string;
+  };
+  secretIssues: {
+    title: string;
+    body: string;
+    reasonUndecryptable: string;
+    reasonUnavailable: string;
+    reasonCorrupt: string;
+    showBackup: string;
+    acknowledge: string;
+    keys: Record<string, string>;
   };
 }

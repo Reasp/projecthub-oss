@@ -16,7 +16,12 @@ import { app } from 'electron';
  */
 
 function safeApp(): typeof app | null {
-  return app && typeof app === 'object' ? app : null;
+  try {
+    return app && typeof app === 'object' ? app : null;
+  } catch {
+    // Мок `electron` в vitest без `app` бросает при обращении к отсутствующему экспорту.
+    return null;
+  }
 }
 
 export function isPackagedApp(): boolean {

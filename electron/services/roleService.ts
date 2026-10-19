@@ -14,6 +14,7 @@ import { getRolesDir, getProjectRolesDir } from './appPaths.js';
 import { BUILTIN_ROLES } from './builtinRoles.js';
 import { ALL_TOOL_CATEGORIES, isRoleParseError } from './roleTypes.js';
 import { MODEL_TIERS, isModelTier, type ModelTier } from './modelTiers.js';
+import { isTaskCreateMode } from './agentTaskPolicy.js';
 import type { RoleDefinition, RoleEngine, RoleParseError, RoleSource, ToolCategory } from './roleTypes.js';
 
 const ROLE_ENGINES: RoleEngine[] = ['claude-cli', 'codex-cli', 'gemini-cli', 'api'];
@@ -117,7 +118,8 @@ export function parseRoleFile(raw: string, filePath: string, source: RoleSource)
       commandDenyList: fmStringArray(p.commandDenyList),
       commandTimeoutSec: fmNumber(p.commandTimeoutSec),
       allowedTools: fmStringArray(p.allowedTools),
-      approvalTimeoutMin: fmNumber(p.approvalTimeoutMin)
+      approvalTimeoutMin: fmNumber(p.approvalTimeoutMin),
+      taskCreate: isTaskCreateMode(p.taskCreate) ? p.taskCreate : undefined
     };
   }
 

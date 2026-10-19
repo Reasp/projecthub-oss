@@ -1,4 +1,5 @@
 import { parseAssignee } from '../../src/utils/assignee.js';
+import { isAwaitingApproval } from './agentTaskPolicy.js';
 
 /**
  * Правила автозапуска задачи, назначенной на этот хост (TASK-66, decision-11 п.5).
@@ -18,6 +19,8 @@ export interface AutoStartInput {
   enabled: boolean;
   assignee: string | null | undefined;
   taskStatus: string | null | undefined;
+  /** Метки задачи: `agent-created` — заведена агентом и ещё не подтверждена человеком (decision-89). */
+  labels?: readonly string[] | null;
   localHostId: string;
   /** По задаче уже работает агент. */
   hasActiveSwarm: boolean;
@@ -34,6 +37,7 @@ export interface AutoStartDecision {
     | 'no-explicit-host'
     | 'other-host'
     | 'status-not-runnable'
+    | 'awaiting-approval'
     | 'already-running'
     | 'cooldown'
     | 'ok';
@@ -57,6 +61,9 @@ export function decideAutoStart(input: AutoStartInput): AutoStartDecision {
 
   const status = String(input.taskStatus || '').trim().toLowerCase();
   if (!RUNNABLE_STATUSES.has(status)) return { start: false, reason: 'status-not-runnable', roleSlug: parsed.roleSlug };
+  // Задачу, которую агент завёл без подтверждения человека, автозапуск не берёт: иначе цепочка
+  // «агент завёл → агент выполнил → тот завёл следующие» шла бы без человека (decision-89).
+  if (isAwaitingApproval(input.labels)) return { start: false, reason: 'awaiting-approval', roleSlug: parsed.roleSlug };
   if (input.hasActiveSwarm) return { start: false, reason: 'already-running', roleSlug: parsed.roleSlug };
 
   const now = input.now ?? Date.now();

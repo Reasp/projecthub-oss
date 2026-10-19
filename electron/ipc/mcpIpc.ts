@@ -1,10 +1,13 @@
-import { ipcMain, shell } from 'electron';
+import { BrowserWindow, ipcMain, shell } from 'electron';
 import { mcpServerService } from '../services/mcpServerService';
 import { remoteControlService } from '../services/remoteControlService';
 import { telegramService } from '../services/telegramService';
 import { notificationService } from '../services/notificationService';
 import { secretStorageService } from '../services/secretStorageService';
 import type { DeviceRights } from '../../src/types/remote';
+
+/** Секреты, которые хранит сам рендерер (ключ Whisper API в `voiceService`). */
+const RENDERER_SECRET_KEYS = new Set(['whisperApiKey']);
 
 function isOpenExternalAllowed(url: string): boolean {
   try {
@@ -44,17 +47,36 @@ export function registerMcpIpc() {
     return secretStorageService.decrypt(cipherText);
   });
 
+  // Рендереру доступны только его собственные секреты: токены MCP, хуков и Remote Control ему не нужны
+  // (decision-5 п. 4, decision-88 п. 6).
   ipcMain.handle('secrets:setSecret', async (_event, { key, value }: { key: string; value: string }) => {
+    if (!RENDERER_SECRET_KEYS.has(key)) return false;
     await secretStorageService.setSecret(key, value);
     return true;
   });
 
   ipcMain.handle('secrets:getSecret', async (_event, key: string) => {
+    if (!RENDERER_SECRET_KEYS.has(key)) return null;
     return await secretStorageService.getSecret(key);
   });
 
   ipcMain.handle('secrets:deleteSecret', async (_event, key: string) => {
+    if (!RENDERER_SECRET_KEYS.has(key)) return false;
     return await secretStorageService.deleteSecret(key);
+  });
+
+  // Нерасшифрованные секреты (TASK-141): баннер в окне, резервная копия в userData.
+  ipcMain.handle('secrets:getIssues', () => secretStorageService.getIssues());
+  ipcMain.handle('secrets:acknowledgeIssues', () => secretStorageService.acknowledgeIssues());
+  ipcMain.handle('secrets:showBackup', async () => {
+    const { backupFile } = await secretStorageService.getIssues();
+    shell.showItemInFolder(backupFile);
+    return true;
+  });
+  secretStorageService.onIssuesChanged((state) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('secrets:issuesChanged', state);
+    }
   });
 
   // Built-in Remote MCP Server

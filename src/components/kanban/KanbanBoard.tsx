@@ -8,12 +8,14 @@ import {
   Search,
   CheckSquare,
   AlertCircle,
+  Bot,
   X
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import type { BacklogTask } from '../../types/electron';
+import { isAwaitingApproval, withoutApprovalLabel } from '../../utils/agentTask';
 import {
   matchStatus,
   isKnownStatus,
@@ -374,7 +376,8 @@ export const KanbanBoard: React.FC = () => {
                     const criteria = task.acceptanceCriteria || [];
                     const completedCriteria = criteria.filter((c) => c.completed).length;
                     const isDraggingThis = draggingTaskId === task.id;
-                    const labels = task.labels || [];
+                    const awaitingApproval = isAwaitingApproval(task.labels);
+                    const labels = withoutApprovalLabel(task.labels || []);
 
                     return (
                       <div
@@ -393,6 +396,18 @@ export const KanbanBoard: React.FC = () => {
                         </div>
 
                         <h4 className="text-[13px] text-slate-100 line-clamp-2 leading-snug">{task.title}</h4>
+
+                        {/* Задачу завёл агент, человек её ещё не подтвердил (decision-89) */}
+                        {awaitingApproval && (
+                          <div
+                            title={t.kanban.agentCreatedHint}
+                            data-testid="agent-created-badge"
+                            className="flex items-center gap-1 text-[11px] text-sky-300 w-fit"
+                          >
+                            <Bot className="w-3 h-3 shrink-0" />
+                            <span>{t.kanban.agentCreatedBadge}</span>
+                          </div>
+                        )}
 
                         {/* Статус вне statuses конфига: задача показана в колонке по умолчанию,
                             но её собственный статус не теряется и виден на карточке (TASK-68). */}

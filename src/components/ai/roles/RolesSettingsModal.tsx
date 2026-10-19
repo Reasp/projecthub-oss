@@ -368,6 +368,30 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                   className="w-full text-xs rounded-sm border border-border bg-background px-2 py-1.5 text-foreground"
                 />
               </div>
+              {/* Право роли заводить задачи (decision-89): «менеджер» — сразу, с подтверждением человеком позже */}
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground block mb-1" title={t.roles.taskCreateHint}>
+                  {t.roles.taskCreate}
+                </label>
+                <select
+                  value={draft.permissions?.taskCreate ?? ''}
+                  onChange={(e) => {
+                    const value = e.target.value as '' | 'propose' | 'ask' | 'deny';
+                    const permissions = { ...(draft.permissions ?? {}) };
+                    if (value) permissions.taskCreate = value;
+                    else delete permissions.taskCreate;
+                    setDraft({ ...draft, permissions });
+                  }}
+                  title={t.roles.taskCreateHint}
+                  data-testid="role-task-create"
+                  className="w-full text-xs rounded-sm border border-border bg-background px-2 py-1.5 text-foreground"
+                >
+                  <option value="">{t.roles.taskCreateDefault}</option>
+                  <option value="propose">{t.roles.taskCreatePropose}</option>
+                  <option value="ask">{t.roles.taskCreateAsk}</option>
+                  <option value="deny">{t.roles.taskCreateDeny}</option>
+                </select>
+              </div>
             </div>
 
             <div>

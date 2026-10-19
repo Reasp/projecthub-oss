@@ -30,6 +30,7 @@ import { useSwarmStore } from '../../store/useSwarmStore';
 import { useRolesStore } from '../../store/useRolesStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { parseAssignee, formatAgentAssignee } from '../../utils/assignee';
+import { isAwaitingApproval, withoutApprovalLabel } from '../../utils/agentTask';
 import { structureTaskDescription } from '../../utils/taskDescriptionFormat';
 import { isTaskDraftDirty } from '../../utils/taskDraft';
 import { useFederationStore } from '../../store/useFederationStore';
@@ -109,6 +110,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [isRawLoading, setIsRawLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  // Задача агента подтверждена в этом окне (decision-89): метка снята в файле, базовое состояние — без неё.
+  const [approvedNow, setApprovedNow] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const awaitingApproval = !approvedNow && isAwaitingApproval(task?.labels);
 
   const taskIdNorm = task?.id?.toLowerCase() || '';
   const existingWorktree = worktrees.find(
@@ -232,7 +237,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         milestone: task.milestone || '',
         assignee: task.assignee?.[0] || '',
         description: task.description || '',
-        labels: task.labels || [],
+        labels: approvedNow ? withoutApprovalLabel(task.labels || []) : task.labels || [],
         criteria: (task.acceptanceCriteria || []).map((c) => c.text)
       },
       { title, status, milestone, assignee, description, labels, criteria: criteria.map((c) => c.text) }
@@ -354,6 +359,22 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     }
   };
 
+  const handleApproveAgentTask = async () => {
+    if (!task?.filePath) return;
+    setIsApproving(true);
+    try {
+      const ok = await window.api.approveAgentTask(task.filePath);
+      if (!ok) {
+        setWarningMessage(t.taskDetail.approveAgentTaskFailed);
+        return;
+      }
+      setApprovedNow(true);
+      setLabels((prev) => withoutApprovalLabel(prev));
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (
       await dialog.confirm({
@@ -425,6 +446,29 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           <div className="px-6 py-2.5 bg-amber-950/40 border-b border-amber-800/50 flex items-center gap-2.5 text-xs text-amber-300">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
             <span>{warningMessage}</span>
+          </div>
+        )}
+
+        {/* Задачу завёл агент: до подтверждения автозапуск её не берёт (decision-89) */}
+        {awaitingApproval && (
+          <div
+            data-testid="agent-task-approval"
+            className="px-6 py-2.5 bg-sky-950/40 border-b border-sky-800/50 flex items-center gap-2.5 text-xs text-sky-200"
+          >
+            <Bot className="w-4 h-4 text-sky-300 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium">{t.taskDetail.agentCreatedTitle.replace('{reporter}', task.reporter || 'agent')}</div>
+              <div className="text-sky-300/80">{t.taskDetail.agentCreatedDesc}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleApproveAgentTask()}
+              disabled={isApproving}
+              data-testid="approve-agent-task"
+              className="ph-btn ph-btn-primary shrink-0"
+            >
+              {isApproving ? t.common.loading : t.taskDetail.approveAgentTask}
+            </button>
           </div>
         )}
 

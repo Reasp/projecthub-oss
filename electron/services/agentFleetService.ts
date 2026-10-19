@@ -2235,6 +2235,7 @@ export class AgentFleetService extends EventEmitter {
       agentId: agentState.id,
       agentName: agentState.config.name,
       role: agentState.config.role,
+      ...(agentState.config.roleSlug ? { roleSlug: agentState.config.roleSlug } : {}),
       // Имя профиля аккаунта Claude Code — в аудит HITL (decision-87 п. 14).
       ...(agentState.claudeAccount ? { claudeAccount: agentState.claudeAccount.name } : {}),
       permissions,

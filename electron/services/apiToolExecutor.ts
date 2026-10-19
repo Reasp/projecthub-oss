@@ -135,7 +135,10 @@ export class ApiToolExecutor {
   /** Исполняет вызов модели. Никогда не бросает: ошибки и отказы возвращаются модели как `isError`. */
   public async execute(call: AIToolCall, ctx: ApiToolContext): Promise<ToolExecutionResult> {
     const args: Record<string, unknown> = call.args && typeof call.args === 'object' ? call.args : {};
-    const plan = planApiToolCall(ctx.config, ctx.workDir, call.name, args, { allowBackground: ctx.allowBackground });
+    const plan = planApiToolCall(ctx.config, ctx.workDir, call.name, args, {
+      allowBackground: ctx.allowBackground,
+      autonomous: ctx.origin === 'automation' || ctx.origin === 'assigned'
+    });
     let outcome: Outcome;
     if (!ctx.isActive()) {
       outcome = { result: { content: STOPPED, isError: true }, status: 'rejected' };

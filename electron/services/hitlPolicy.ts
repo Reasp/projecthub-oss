@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { isInsideProject } from './pathGuard.js';
 import { evaluateBrowserTool } from './browserToolCatalog.js';
+import { autonomousTaskWriteViolation } from './agentTaskPolicy.js';
 import type { AIProviderConfig, AutoApproveRules } from './aiAgentService.js';
 import type { HitlDecisionSource, RolePermissions } from './hitlTypes.js';
 
@@ -184,6 +185,12 @@ export function evaluateToolRequest(
 
   if (tool === 'AskUserQuestion' || tool === 'ask_question') {
     return { verdict: 'ask', rule: 'question' };
+  }
+
+  // Автономный запуск не заводит задачи и не назначает агентов мимо инструментов ProjectHub (decision-89).
+  if (context.autonomous) {
+    const violation = autonomousTaskWriteViolation(tool, input);
+    if (violation) return { verdict: 'deny', rule: 'autonomous-task-write', reason: violation };
   }
 
   if (CLI_WRITE_TOOLS.includes(tool) || tool === 'write_file' || tool === 'write_to_file') {

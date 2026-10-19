@@ -159,6 +159,8 @@ export interface BacklogTask {
   milestone?: string;
   /** Человек (свободный текст) или агент/роль: `agent:<roleSlug>` / `agent:<roleSlug>@<hostId>` (TASK-60). */
   assignee?: string[];
+  /** Автор задачи (`reporter` Backlog.md); у задач агентов — `agent:<роль>` (decision-89). */
+  reporter?: string;
   created?: string;
   filePath: string;
   /** Сырой markdown-текст файла. В списке задач НЕ заполняется (TASK-38) — грузится по требованию через getTaskContent. */
@@ -910,6 +912,8 @@ export interface IElectronAPI {
   /** Сырой markdown задачи (frontmatter + тело) по абсолютному пути файла; null, если файл не прочитан. */
   getTaskContent: (filePath: string) => Promise<string | null>;
   updateTaskStatus: (filePath: string, newStatus: string) => Promise<boolean>;
+  /** Подтвердить задачу, заведённую агентом: снять метку `agent-created` (decision-89). */
+  approveAgentTask: (filePath: string) => Promise<boolean>;
   saveTask: (filePath: string, content: string) => Promise<boolean>;
   saveFullTask: (
     filePath: string,
@@ -1257,6 +1261,10 @@ export interface IElectronAPI {
   saveEncryptedSecret: (key: string, value: string) => Promise<boolean>;
   getEncryptedSecret: (key: string) => Promise<string | null>;
   deleteEncryptedSecret: (key: string) => Promise<boolean>;
+  getSecretIssues: () => Promise<SecretIssuesState>;
+  acknowledgeSecretIssues: () => Promise<SecretIssuesState>;
+  showSecretBackup: () => Promise<boolean>;
+  onSecretIssuesChanged: (callback: (state: SecretIssuesState) => void) => () => void;
 
   // Remote MCP Server
   getMcpStatus: () => Promise<McpServerStatus>;
@@ -1546,6 +1554,8 @@ export interface RolePermissions {
   commandTimeoutSec?: number;
   allowedTools?: string[];
   approvalTimeoutMin?: number;
+  /** Заведение задач агентом (decision-89): `propose` — с меткой `agent-created`, `ask` — карточка HITL, `deny`. */
+  taskCreate?: 'propose' | 'ask' | 'deny';
 }
 
 // Реестр ролей агентов (decision-9, TASK-60). Зеркало `electron/services/roleTypes.ts`.
@@ -2089,6 +2099,23 @@ export interface AutomationLogEntry {
   costUsd?: number;
   durationMs?: number;
   depth?: number;
+}
+
+// ─────────────────── Нерасшифрованные секреты (TASK-141, decision-88) — зеркало electron/services/secretStorageTypes.ts ───────────────────
+
+export type SecretIssueReason = 'undecryptable' | 'encryptionUnavailable' | 'corruptFile';
+export type SecretIssueSource = 'secrets' | 'ai-config' | 'llm-profiles';
+
+export interface SecretIssue {
+  key: string;
+  reason: SecretIssueReason;
+  source: SecretIssueSource;
+  at: number;
+}
+
+export interface SecretIssuesState {
+  issues: SecretIssue[];
+  backupFile: string;
 }
 
 // ─────────────────── Уведомления (TASK-63, decision-13) — зеркало electron/services/notificationTypes.ts ───────────────────

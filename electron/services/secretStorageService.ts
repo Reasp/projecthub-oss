@@ -1,30 +1,127 @@
 import { safeStorage } from 'electron';
 import fs from 'node:fs/promises';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { getUserDataDir } from './appPaths.js';
+import type { SecretIssue, SecretIssueReason, SecretIssueSource, SecretIssuesState } from './secretStorageTypes.js';
+
+/**
+ * Хранилище секретов main-процесса (TASK-18, TASK-65; расположение и сбои — TASK-141, decision-88).
+ *
+ * Ключ `safeStorage` у Electron свой для каждого `userData`, поэтому файл секретов лежит там же —
+ * `<userData>/secrets.enc.json`. Копия ProjectHub с другим `--user-data-dir` пишет в свой файл и не
+ * портит секреты основного профиля. Старый общий `~/.projecthub/secrets.enc.json` при первом запуске
+ * переносится: берутся только записи, которые расшифровываются ключом этого профиля, сам файл не меняется.
+ *
+ * Значение, которое не удалось расшифровать, не теряется: оно откладывается в
+ * `<userData>/secrets.undecryptable.json` и попадает в список проблем, который показывает UI.
+ */
 
 const ENCRYPTION_PREFIX = 'enc_v1:';
-const SECRETS_DIR = path.join(os.homedir(), '.projecthub');
-const SECRETS_FILE = path.join(SECRETS_DIR, 'secrets.enc.json');
+export const SECRETS_FILE_NAME = 'secrets.enc.json';
+export const SECRETS_BACKUP_FILE_NAME = 'secrets.undecryptable.json';
+
+/** Шифр, которым закрываются значения. В приложении — `safeStorage`, в тестах — подмена. */
+export interface SecretCipher {
+  isAvailable(): boolean;
+  encrypt(plainText: string): Buffer;
+  decrypt(data: Buffer): string;
+}
+
+export interface SecretStorageOptions {
+  /** Каталог файла секретов — `userData`, где лежит и ключ шифрования. */
+  dir: () => string;
+  /** Старый общий файл секретов (до TASK-141), из которого переносятся записи этого профиля. */
+  legacyFile?: () => string | null;
+  cipher?: SecretCipher;
+}
+
+export type DecryptResult = { ok: true; value: string } | { ok: false; reason: Exclude<SecretIssueReason, 'corruptFile'> };
+
+interface BackupEntry extends SecretIssue {
+  /** Значение как оно лежало на диске (зашифрованное) — для восстановления, если ключ вернётся. */
+  value: string;
+  acknowledged?: boolean;
+}
+
+interface BackupFile {
+  version: 1;
+  entries: BackupEntry[];
+}
+
+const safeStorageCipher: SecretCipher = {
+  isAvailable: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (plainText) => safeStorage.encryptString(plainText),
+  decrypt: (data) => safeStorage.decryptString(data)
+};
+
+function defaultOptions(): SecretStorageOptions {
+  return {
+    dir: () => getUserDataDir(),
+    legacyFile: () => path.join(os.homedir(), '.projecthub', SECRETS_FILE_NAME),
+    cipher: safeStorageCipher
+  };
+}
+
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => {
+    const resolved = path.resolve(p);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  return norm(a) === norm(b);
+}
+
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Запись через временный файл: оборванная запись не оставляет полупустой JSON. */
+async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const body = JSON.stringify(data, null, 2);
+  const tmp = `${file}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, body, { encoding: 'utf-8', mode: 0o600 });
+  try {
+    await fs.rename(tmp, file);
+  } catch (err) {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') throw err;
+    // Windows: файл держит антивирус или индексатор — пишем напрямую, чтобы не потерять изменение.
+    await fs.writeFile(file, body, { encoding: 'utf-8', mode: 0o600 });
+  }
+}
 
 export class SecretStorageService {
-  private inMemoryCache = new Map<string, string>();
-  private initialized = false;
+  private readonly options: SecretStorageOptions;
+  private readonly cipher: SecretCipher;
+  private readonly cache = new Map<string, string>();
+  /** Все операции с файлами идут по очереди: параллельные setSecret не теряют друг друга. */
+  private queue: Promise<unknown> = Promise.resolve();
+  private migration: Promise<void> | null = null;
+  private readonly listeners = new Set<(state: SecretIssuesState) => void>();
 
-  constructor() {
-    this.ensureDir();
+  constructor(options: SecretStorageOptions = defaultOptions()) {
+    this.options = options;
+    this.cipher = options.cipher ?? safeStorageCipher;
   }
 
-  private ensureDir() {
-    // Синхронно: промис fs.mkdir без await внутри try не ловится и становится unhandled rejection
-    if (!existsSync(SECRETS_DIR)) {
-      try {
-        mkdirSync(SECRETS_DIR, { recursive: true });
-      } catch (e) {
-        console.error('[SecretStorage] Failed to create dir:', e);
-      }
-    }
+  private get filePath(): string {
+    return path.join(this.options.dir(), SECRETS_FILE_NAME);
+  }
+
+  private get backupPath(): string {
+    return path.join(this.options.dir(), SECRETS_BACKUP_FILE_NAME);
+  }
+
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(async () => {
+      await this.ensureMigrated();
+      return fn();
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 
   /**
@@ -32,7 +129,7 @@ export class SecretStorageService {
    */
   public isEncryptionAvailable(): boolean {
     try {
-      return safeStorage.isEncryptionAvailable();
+      return this.cipher.isAvailable();
     } catch {
       return false;
     }
@@ -49,7 +146,7 @@ export class SecretStorageService {
 
     if (this.isEncryptionAvailable()) {
       try {
-        const buffer = safeStorage.encryptString(plainText);
+        const buffer = this.cipher.encrypt(plainText);
         return `${ENCRYPTION_PREFIX}${buffer.toString('base64')}`;
       } catch (err) {
         console.warn('[SecretStorage] safeStorage.encryptString failed, using plain fallback:', err);
@@ -60,30 +157,27 @@ export class SecretStorageService {
     return plainText;
   }
 
+  /** Расшифровка с причиной отказа. Значение без префикса `enc_v1:` возвращается как есть. */
+  public tryDecrypt(cipherText: string): DecryptResult {
+    if (!cipherText.startsWith(ENCRYPTION_PREFIX)) return { ok: true, value: cipherText };
+    if (!this.isEncryptionAvailable()) return { ok: false, reason: 'encryptionUnavailable' };
+    try {
+      const buffer = Buffer.from(cipherText.slice(ENCRYPTION_PREFIX.length), 'base64');
+      return { ok: true, value: this.cipher.decrypt(buffer) };
+    } catch {
+      return { ok: false, reason: 'undecryptable' };
+    }
+  }
+
   /**
    * Decrypt an encrypted string.
    * If string is not encrypted (does not start with enc_v1:), returns as-is (auto-migration).
    */
   public decrypt(cipherText: string): string {
     if (!cipherText) return '';
-
-    if (!cipherText.startsWith(ENCRYPTION_PREFIX)) {
-      // Plain text (existing legacy or unencrypted)
-      return cipherText;
-    }
-
-    if (this.isEncryptionAvailable()) {
-      try {
-        const base64Data = cipherText.slice(ENCRYPTION_PREFIX.length);
-        const buffer = Buffer.from(base64Data, 'base64');
-        return safeStorage.decryptString(buffer);
-      } catch (err) {
-        console.error('[SecretStorage] safeStorage.decryptString failed:', err);
-        return '';
-      }
-    }
-
-    console.warn('[SecretStorage] Decryption requested but safeStorage is unavailable');
+    const result = this.tryDecrypt(cipherText);
+    if (result.ok) return result.value;
+    console.error(`[SecretStorage] Decryption failed: ${result.reason}`);
     return '';
   }
 
@@ -98,65 +192,207 @@ export class SecretStorageService {
     return `${clean.slice(0, 4)}...${clean.slice(-4)}`;
   }
 
-  private async loadSecretsFile(): Promise<Record<string, string>> {
-    try {
-      if (existsSync(SECRETS_FILE)) {
-        const raw = await fs.readFile(SECRETS_FILE, 'utf-8');
-        return JSON.parse(raw);
-      }
-    } catch (err) {
-      console.warn('[SecretStorage] Error reading secrets file:', err);
+  /**
+   * Перенос старого общего файла (decision-88 п. 2): только записи, которые расшифровываются ключом
+   * этого профиля. Чужие записи пропускаются молча — это секреты другого профиля, не сбой этого.
+   */
+  private ensureMigrated(): Promise<void> {
+    if (!this.migration) {
+      this.migration = (async () => {
+        const target = this.filePath;
+        if (existsSync(target)) return;
+        const legacy = this.options.legacyFile?.() ?? null;
+        if (!legacy || samePath(legacy, target) || !existsSync(legacy)) return;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(await fs.readFile(legacy, 'utf-8'));
+        } catch (err) {
+          console.warn('[SecretStorage] Legacy secrets file is unreadable, migration skipped:', err instanceof Error ? err.message : err);
+          return;
+        }
+        const moved: Record<string, string> = {};
+        let skipped = 0;
+        for (const [key, value] of Object.entries(isStringRecord(parsed) ? parsed : {})) {
+          if (typeof value !== 'string' || !value) continue;
+          const result = this.tryDecrypt(value);
+          if (result.ok) moved[key] = this.encrypt(result.value);
+          else skipped += 1;
+        }
+        await writeJsonAtomic(target, moved);
+        console.log(
+          `[SecretStorage] Migrated ${Object.keys(moved).length} secret(s) from the shared legacy file; ${skipped} belong to another profile and were left there`
+        );
+      })().catch((err) => {
+        console.error('[SecretStorage] Legacy migration failed:', err);
+      });
     }
-    return {};
+    return this.migration;
   }
 
-  private async saveSecretsFile(data: Record<string, string>): Promise<void> {
-    this.ensureDir();
-    await fs.writeFile(SECRETS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  private async readStore(): Promise<Record<string, string>> {
+    let raw: string;
+    try {
+      raw = await fs.readFile(this.filePath, 'utf-8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
+      throw err;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      const out: Record<string, string> = {};
+      for (const [key, value] of Object.entries(isStringRecord(parsed) ? parsed : {})) {
+        if (typeof value === 'string') out[key] = value;
+      }
+      return out;
+    } catch {
+      // Испорченный файл не затираем пустым: откладываем копию и сообщаем пользователю.
+      const aside = `${this.filePath}.corrupt-${Date.now()}`;
+      await fs.rename(this.filePath, aside).catch(() => fs.copyFile(this.filePath, aside));
+      await this.addBackupEntries([{ key: SECRETS_FILE_NAME, value: '', reason: 'corruptFile', source: 'secrets', at: Date.now() }]);
+      console.error('[SecretStorage] Secrets file is not valid JSON; moved aside, starting a new store');
+      return {};
+    }
+  }
+
+  private async writeStore(data: Record<string, string>): Promise<void> {
+    await writeJsonAtomic(this.filePath, data);
+  }
+
+  private async readBackup(): Promise<BackupFile> {
+    try {
+      const parsed = JSON.parse(await fs.readFile(this.backupPath, 'utf-8')) as Partial<BackupFile>;
+      return { version: 1, entries: Array.isArray(parsed.entries) ? parsed.entries : [] };
+    } catch {
+      return { version: 1, entries: [] };
+    }
+  }
+
+  /** Резервная копия нерасшифрованных значений. Одно и то же значение ключа второй раз не пишется. */
+  private async addBackupEntries(entries: BackupEntry[]): Promise<void> {
+    const backup = await this.readBackup();
+    const fresh = entries.filter(
+      (e) => !backup.entries.some((b) => b.key === e.key && b.value === e.value && b.reason === e.reason && e.value !== '')
+    );
+    if (fresh.length === 0) return;
+    backup.entries.push(...fresh);
+    await writeJsonAtomic(this.backupPath, backup);
+    console.error(
+      `[SecretStorage] ${fresh.length} stored secret(s) could not be read (${[...new Set(fresh.map((e) => e.reason))].join(', ')}); old values kept in ${SECRETS_BACKUP_FILE_NAME}`
+    );
+    this.emitIssues(backup);
+  }
+
+  /** Перед перезаписью или удалением нерасшифрованное значение откладывается в резервную копию. */
+  private async backupIfUnreadable(key: string, stored: string | undefined, source: SecretIssueSource): Promise<boolean> {
+    if (!stored) return false;
+    const result = this.tryDecrypt(stored);
+    if (result.ok) return false;
+    await this.addBackupEntries([{ key, value: stored, reason: result.reason, source, at: Date.now() }]);
+    return true;
+  }
+
+  /**
+   * Сообщить о нерасшифрованном значении, которое лежит вне файла секретов (поле `apiKey` в
+   * `ai-config.json`, `llm-profiles.json`). Значение сохраняется в резервной копии.
+   */
+  public reportUndecryptable(key: string, stored: string, source: SecretIssueSource): Promise<void> {
+    return this.serialize(async () => {
+      await this.backupIfUnreadable(key, stored, source);
+    });
   }
 
   /**
    * Store a secret key-value pair encrypted on disk.
    */
-  public async setSecret(key: string, value: string): Promise<void> {
-    const encrypted = this.encrypt(value);
-    this.inMemoryCache.set(key, value);
-
-    const all = await this.loadSecretsFile();
-    all[key] = encrypted;
-    await this.saveSecretsFile(all);
-    console.log(`[SecretStorage] Secret saved (DPAPI: ${this.isEncryptionAvailable()})`);
+  public setSecret(key: string, value: string): Promise<void> {
+    return this.serialize(async () => {
+      const all = await this.readStore();
+      await this.backupIfUnreadable(key, all[key], 'secrets');
+      all[key] = this.encrypt(value);
+      await this.writeStore(all);
+      this.cache.set(key, value);
+    });
   }
 
   /**
-   * Retrieve and decrypt a secret key-value pair.
+   * Retrieve and decrypt a secret. `null` — значения нет или его не удалось расшифровать
+   * (тогда оно отложено в резервную копию и показано пользователю).
    */
-  public async getSecret(key: string): Promise<string | null> {
-    if (this.inMemoryCache.has(key)) {
-      return this.inMemoryCache.get(key)!;
-    }
-
-    const all = await this.loadSecretsFile();
-    const val = all[key];
-    if (!val) return null;
-
-    const decrypted = this.decrypt(val);
-    this.inMemoryCache.set(key, decrypted);
-    return decrypted;
+  public getSecret(key: string): Promise<string | null> {
+    if (this.cache.has(key)) return Promise.resolve(this.cache.get(key)!);
+    return this.serialize(async () => {
+      if (this.cache.has(key)) return this.cache.get(key)!;
+      const all = await this.readStore();
+      const stored = all[key];
+      if (!stored) return null;
+      const result = this.tryDecrypt(stored);
+      if (!result.ok) {
+        await this.backupIfUnreadable(key, stored, 'secrets');
+        return null;
+      }
+      this.cache.set(key, result.value);
+      return result.value;
+    });
   }
 
   /**
    * Delete a stored secret.
    */
-  public async deleteSecret(key: string): Promise<boolean> {
-    this.inMemoryCache.delete(key);
-    const all = await this.loadSecretsFile();
-    if (key in all) {
+  public deleteSecret(key: string): Promise<boolean> {
+    this.cache.delete(key);
+    return this.serialize(async () => {
+      this.cache.delete(key);
+      const all = await this.readStore();
+      if (!(key in all)) return false;
+      await this.backupIfUnreadable(key, all[key], 'secrets');
       delete all[key];
-      await this.saveSecretsFile(all);
+      await this.writeStore(all);
       return true;
+    });
+  }
+
+  private toState(backup: BackupFile): SecretIssuesState {
+    return {
+      issues: backup.entries
+        .filter((e) => !e.acknowledged)
+        .map(({ key, reason, source, at }) => ({ key, reason, source, at })),
+      backupFile: this.backupPath
+    };
+  }
+
+  /** Непросмотренные проблемы с секретами — для баннера в UI. */
+  public getIssues(): Promise<SecretIssuesState> {
+    return this.serialize(async () => this.toState(await this.readBackup()));
+  }
+
+  /** Пользователь прочитал сообщение: проблемы скрываются, резервные копии остаются. */
+  public acknowledgeIssues(): Promise<SecretIssuesState> {
+    return this.serialize(async () => {
+      const backup = await this.readBackup();
+      if (backup.entries.some((e) => !e.acknowledged)) {
+        for (const e of backup.entries) e.acknowledged = true;
+        await writeJsonAtomic(this.backupPath, backup);
+      }
+      const state = this.toState(backup);
+      this.emitIssues(backup);
+      return state;
+    });
+  }
+
+  public onIssuesChanged(listener: (state: SecretIssuesState) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emitIssues(backup: BackupFile): void {
+    const state = this.toState(backup);
+    for (const listener of this.listeners) {
+      try {
+        listener(state);
+      } catch (err) {
+        console.warn('[SecretStorage] Issues listener failed:', err);
+      }
     }
-    return false;
   }
 }
 

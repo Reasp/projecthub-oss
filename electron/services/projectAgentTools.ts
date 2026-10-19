@@ -27,7 +27,18 @@ import {
 import { parseBacklogConfig } from './backlogConfigService.js';
 import { matchStatus } from '../../src/utils/taskStatus.js';
 import { createProjectDoc, listProjectDocs } from './docsService.js';
-import type { HitlEngine, HitlOrigin, HitlRequest } from './hitlTypes.js';
+import {
+  agentReporter,
+  assigneeList,
+  canAgentChangeAssignee,
+  countAgentTasksToday,
+  decideTaskCreate,
+  isAwaitingApproval,
+  preserveApprovalLabel,
+  resolveTaskCreateMode,
+  withApprovalLabel
+} from './agentTaskPolicy.js';
+import type { HitlEngine, HitlOrigin, HitlRequest, RolePermissions } from './hitlTypes.js';
 import type { RagSearchResult } from '../../src/types/electron';
 
 export const PROJECT_TOOL_NAMES = [
@@ -77,7 +88,8 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
     name: 'task_create',
     description:
       'Создать задачу Backlog.md (статус To Do). Описание — Markdown с короткими разделами ### (Почему, Цель, Ограничения). '
-      + 'Заголовок короткий: детали — в описание.',
+      + 'Заголовок короткий: детали — в описание. Задача, заведённая агентом, получает метку agent-created и ждёт '
+      + 'подтверждения человека: автозапуск её не берёт, пока человек не подтвердит. Есть лимит задач на сессию и на сутки.',
     input_schema: {
       type: 'object',
       properties: {
@@ -88,7 +100,12 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
         type: { type: 'string', description: 'Тип: feature, bug, task, docs, chore…' },
         acceptanceCriteria: { type: 'array', items: { type: 'string' }, description: 'Проверяемые критерии приёмки' },
         parentTaskId: { type: 'string', description: 'id родительской задачи — тогда создаётся подзадача TASK-N.M' },
-        milestone: { type: 'string', description: 'Milestone' }
+        milestone: { type: 'string', description: 'Milestone' },
+        assignee: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Исполнители: человек или agent:<роль>@<хост>. Ставь, только если об этом попросили'
+        }
       },
       required: ['title']
     }
@@ -105,7 +122,12 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
         status: { type: 'string', description: 'Новый статус из config.yml проекта' },
         title: { type: 'string', description: 'Новый заголовок' },
         description: { type: 'string', description: 'Новое описание целиком' },
-        labels: { type: 'array', items: { type: 'string' }, description: 'Метки целиком' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Метки целиком (метку agent-created снимает только человек)' },
+        assignee: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Исполнители целиком. Назначить агента на подтверждённую задачу может только человек'
+        },
         priority: { type: 'string', enum: ['high', 'medium', 'low'] },
         addCriteria: { type: 'array', items: { type: 'string' }, description: 'Добавить критерии приёмки' },
         checkCriteria: { type: 'array', items: { type: 'number' }, description: 'Отметить выполненными критерии с этими номерами (с 1)' },
@@ -191,12 +213,30 @@ export interface ProjectToolContext {
   agentId?: string;
   agentName?: string;
   role?: string;
+  /** Slug роли: автор задачи `agent:<slug>` (`role` у агентов Swarm — отображаемое имя). */
+  roleSlug?: string;
+  /** Права роли сессии: `taskCreate` задаёт режим заведения задач (decision-89). */
+  permissions?: RolePermissions;
 }
 
 export interface ProjectToolDeps {
   listProjectRoots(): Promise<string[]>;
   recordAutoDecision(info: Omit<HitlRequest, 'id' | 'createdAt'>, decision: 'allow' | 'deny', rule: string, detail?: string): string;
   searchDocs(projectRoot: string, query: string, limit: number): Promise<RagSearchResult[]>;
+  /**
+   * Карточка HITL для режима `ask` (decision-89): `true` — человек одобрил. Без зависимости режим `ask`
+   * отказывает — спросить некого.
+   */
+  requestApproval?(request: Omit<HitlRequest, 'id' | 'createdAt'>): Promise<boolean>;
+  now?(): number;
+}
+
+/** Сколько задач завела каждая сессия: лимит `AGENT_TASK_LIMITS.perSession` (decision-89). */
+const sessionTaskCounts = new Map<string, number>();
+
+/** Для тестов: сбросить счётчики задач сессий. */
+export function resetAgentTaskCounters(): void {
+  sessionTaskCounts.clear();
 }
 
 export interface ProjectToolResult {
@@ -234,6 +274,8 @@ interface TaskRow {
   status: string;
   labels: string[];
   description: string;
+  reporter?: string;
+  created?: string;
 }
 
 async function readTasks(root: string): Promise<TaskRow[]> {
@@ -249,7 +291,9 @@ async function readTasks(root: string): Promise<TaskRow[]> {
         title: fmString(data.title) ?? file,
         status: fmString(data.status) ?? 'To Do',
         labels: Array.isArray(data.labels) ? data.labels.map((l) => fmString(l) ?? '').filter(Boolean) : [],
-        description: parseTaskBody(content).description
+        description: parseTaskBody(content).description,
+        reporter: fmString(data.reporter),
+        created: fmString(data.created_date)
       });
     } catch {
       // битый файл задачи не должен прятать остальные
@@ -338,10 +382,61 @@ export async function callProjectTool(name: string, args: Record<string, unknown
       case 'task_create': {
         const title = str(args.title).trim();
         if (!title) return { text: 'Не указан заголовок (title).', isError: true };
+        const assignee = assigneeList(args.assignee);
+        const labels = strList(args.labels);
+
+        // Политика заведения задач агентами (decision-89): режим роли, лимиты, подтверждение человеком.
+        const sessionKey = `${root}\n${ctx.sessionId}`;
+        const decision = decideTaskCreate({
+          mode: resolveTaskCreateMode(ctx),
+          sessionCount: sessionTaskCounts.get(sessionKey) ?? 0,
+          todayCount: countAgentTasksToday(await readTasks(root), deps.now?.() ?? Date.now())
+        });
+        if (decision.action === 'deny') {
+          audit('deny', `task_create: ${title}`, undefined, decision.reason);
+          return { text: decision.message, isError: true };
+        }
+        let approvedByHuman = false;
+        if (decision.action === 'ask') {
+          const preview = [
+            `Задача: ${title}`,
+            assignee.length ? `Исполнитель: ${assignee.join(', ')}` : '',
+            labels.length ? `Метки: ${labels.join(', ')}` : '',
+            '',
+            str(args.description).trim(),
+            ...strList(args.acceptanceCriteria).map((c) => `- [ ] ${c}`)
+          ].filter((line, i, all) => line || (i > 0 && all[i - 1]));
+          const approved = deps.requestApproval
+            ? await deps
+                .requestApproval({
+                  sessionId: ctx.sessionId,
+                  projectPath: root,
+                  type: 'file_write',
+                  title: `Агент заводит задачу: ${title}`,
+                  details: preview.join('\n'),
+                  origin: ctx.origin,
+                  engine: ctx.engine,
+                  ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
+                  ...(ctx.agentName ? { agentName: ctx.agentName } : {}),
+                  ...(ctx.role ? { role: ctx.role } : {}),
+                  tool: name
+                })
+                .catch(() => false)
+            : false;
+          if (!approved) {
+            if (!deps.requestApproval) audit('deny', `task_create: ${title}`, undefined, 'no-approver');
+            return { text: 'Человек не подтвердил задачу — она не создана. Опиши её в ответе, если она всё-таки нужна.', isError: true };
+          }
+          approvedByHuman = true;
+        }
+
         const created = await createBacklogTaskFile(root, {
           title,
           description: str(args.description),
-          labels: strList(args.labels),
+          // Одобренная в карточке задача уже подтверждена: человек видел её целиком.
+          labels: approvedByHuman ? labels : withApprovalLabel(labels),
+          reporter: agentReporter(ctx),
+          ...(assignee.length ? { assignee } : {}),
           ...(str(args.priority) ? { priority: str(args.priority) } : {}),
           ...(str(args.type) ? { type: str(args.type) } : {}),
           ...(str(args.milestone) ? { milestone: str(args.milestone) } : {}),
@@ -349,9 +444,18 @@ export async function callProjectTool(name: string, args: Record<string, unknown
           acceptanceCriteria: strList(args.acceptanceCriteria)
         });
         if (!created) return { text: 'Задачу создать не удалось (подробности в логе ProjectHub).', isError: true };
+        sessionTaskCounts.set(sessionKey, (sessionTaskCounts.get(sessionKey) ?? 0) + 1);
         const rel = path.relative(root, created.filePath).split(path.sep).join('/');
-        audit('allow', `task_create: ${created.id}`, rel);
-        return { text: `Создано: ${created.id} «${created.title}» (${rel}).`, isError: false };
+        const pending = isAwaitingApproval(created.labels);
+        // В режиме ask решение человека уже записал сам HITL; здесь — авто-решение политики.
+        if (!approvedByHuman) audit('allow', `task_create: ${created.id}`, rel, pending ? 'awaiting-approval' : undefined);
+        return {
+          text: pending
+            ? `Создано: ${created.id} «${created.title}» (${rel}). Задача ждёт подтверждения человека (метка agent-created): `
+              + 'до подтверждения автозапуск её не возьмёт.'
+            : `Создано: ${created.id} «${created.title}» (${rel}), подтверждено человеком.`,
+          isError: false
+        };
       }
 
       case 'task_update': {
@@ -372,9 +476,26 @@ export async function callProjectTool(name: string, args: Record<string, unknown
           data.title = str(args.title).trim();
           changes.push('заголовок');
         }
+        const previousLabels = Array.isArray(data.labels) ? data.labels.map((l) => fmString(l) ?? '').filter(Boolean) : [];
         if (args.labels !== undefined) {
-          data.labels = strList(args.labels);
+          // Метку agent-created снимает только человек (decision-89).
+          data.labels = preserveApprovalLabel(previousLabels, strList(args.labels));
           changes.push('метки');
+        }
+        if (args.assignee !== undefined) {
+          const previous = Array.isArray(data.assignee) ? data.assignee.map((a) => fmString(a) ?? '').filter(Boolean) : assigneeList(fmString(data.assignee));
+          const next = assigneeList(args.assignee);
+          const labelsNow = Array.isArray(data.labels) ? (data.labels as unknown[]).map((l) => fmString(l) ?? '') : previousLabels;
+          if (!canAgentChangeAssignee({ labels: labelsNow, previous, next })) {
+            audit('deny', `task_update: ${taskIdOf(data, filePath)}`, undefined, 'agent-assignee-on-approved-task');
+            return {
+              text: 'Назначить агента на подтверждённую задачу может только человек (decision-89). '
+                + 'Заведи новую задачу с этим исполнителем — она подождёт подтверждения — или попроси человека.',
+              isError: true
+            };
+          }
+          data.assignee = next;
+          changes.push('исполнитель');
         }
         if (str(args.priority).trim()) {
           data.priority = str(args.priority).trim().toLowerCase();

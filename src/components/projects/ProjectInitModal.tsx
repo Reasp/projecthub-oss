@@ -25,6 +25,7 @@ import {
   ChevronRight
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
+import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import type {
   InitAction,
@@ -82,6 +83,11 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
   const { t, language } = useTranslation();
   const { fetchProjects, selectProject, refreshSingleProject, setActiveTab } = useProjectStore();
   const ti = t.init;
+  // Селектор возвращает сам overview: `?? []` в селекторе давал бы новый массив на каждый вызов и бесконечный ререндер.
+  const claudeOverview = useClaudeAccountsStore((s) => s.overview);
+  const claudeAccounts = claudeOverview?.accounts ?? [];
+  const refreshClaudeAccounts = useClaudeAccountsStore((s) => s.refresh);
+  const setProjectClaudeAccount = useClaudeAccountsStore((s) => s.setProjectAccount);
 
   const [step, setStep] = useState<Step>('setup');
   const [projectName, setProjectName] = useState('');
@@ -109,6 +115,10 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
   const [report, setReport] = useState<InitReport | null>(null);
   const [copied, setCopied] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  // Аккаунт Claude Code проекта (decision-87 п. 4): '' — без привязки, профиль по умолчанию.
+  const [claudeAccountId, setClaudeAccountId] = useState('');
+  const [initialClaudeAccountId, setInitialClaudeAccountId] = useState('');
+  const [accountWarning, setAccountWarning] = useState<string | null>(null);
   const requestSeq = useRef(0);
   const logRef = useRef<HTMLPreElement | null>(null);
 
@@ -140,7 +150,22 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
     setSets({});
     setCommands({});
     setGitHooks(undefined);
+    setClaudeAccountId('');
+    setInitialClaudeAccountId('');
+    setAccountWarning(null);
     void loadTemplates();
+    void refreshClaudeAccounts();
+    // У существующего проекта показываем его текущую привязку.
+    if (mode === 'existing' && projectPath && window.api?.claudeAccounts) {
+      void window.api.claudeAccounts
+        .forProject(projectPath)
+        .then((resolved) => {
+          const bound = resolved?.source === 'project' ? resolved.account.id : '';
+          setClaudeAccountId(bound);
+          setInitialClaudeAccountId(bound);
+        })
+        .catch(() => undefined);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- сброс только при открытии окна
   }, [isOpen, mode, projectPath, initialFolder]);
 
@@ -304,6 +329,14 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
     setStep('done');
     await fetchProjects();
     await refreshSingleProject(res.value.projectPath);
+    // Привязка к аккаунту — после регистрации проекта: IPC принимает только зарегистрированный путь.
+    if (claudeAccountId !== initialClaudeAccountId) {
+      try {
+        await setProjectClaudeAccount(res.value.projectPath, claudeAccountId || null);
+      } catch (err) {
+        setAccountWarning(ti.claudeAccountFailed.replace('{error}', err instanceof Error ? err.message : String(err)));
+      }
+    }
   };
 
   const handleOpenProject = () => {
@@ -322,6 +355,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
   const stepIndex = { setup: 1, preview: 2, applying: 3, done: 3 }[step];
   const stepName = { setup: ti.stepSetup, preview: ti.stepPreview, applying: ti.stepApply, done: ti.stepDone }[step];
   const busy = step === 'applying';
+  const chosenAccountName = claudeAccountId ? claudeAccounts.find((a) => a.id === claudeAccountId)?.name ?? null : null;
 
   const toggle = (setter: React.Dispatch<React.SetStateAction<Record<string, boolean>>>, id: string, current: boolean) =>
     setter((prev) => ({ ...prev, [id]: !current }));
@@ -463,6 +497,31 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
                 </div>
               </section>
 
+              {/* Аккаунт Claude Code (decision-87 п. 4): выбор есть, только когда профилей больше одного */}
+              {claudeAccounts.length > 1 && (
+                <section className="space-y-2">
+                  <div>
+                    <h3 className="font-medium text-slate-200 text-[11px]">{ti.claudeAccount}</h3>
+                    <p className="text-[11px] text-slate-400">{ti.claudeAccountDesc}</p>
+                  </div>
+                  <select
+                    value={claudeAccountId}
+                    onChange={(e) => setClaudeAccountId(e.target.value)}
+                    data-testid="init-claude-account"
+                    aria-label={ti.claudeAccount}
+                    className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">{ti.claudeAccountDefault}</option>
+                    {/* Профиль `default` — то же, что «без привязки»: сервис не хранит привязку к нему. */}
+                    {claudeAccounts
+                      .filter((account) => account.id !== 'default')
+                      .map((account) => (
+                        <option key={account.id} value={account.id}>{account.name}</option>
+                      ))}
+                  </select>
+                </section>
+              )}
+
               {/* Шаблон */}
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -595,6 +654,11 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
           {step === 'preview' && preview && (
             <div className="space-y-4">
               <p className="text-[11px] text-slate-400">{ti.previewDesc}</p>
+              {claudeAccountId !== initialClaudeAccountId && (
+                <div className="text-[11px] text-slate-300">
+                  {ti.claudeAccountBound.replace('{name}', chosenAccountName ?? ti.claudeAccountDefault)}
+                </div>
+              )}
               {changes.length === 0 && (
                 <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-800/50 flex items-center gap-2 text-emerald-300">
                   <CheckCircle2 className="w-4 h-4" />
@@ -728,6 +792,12 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
                     {ti.doneSummary.replace('{count}', String(report.written.length))}
                   </div>
                   {report.backupDir && <div className="text-[11px] text-slate-400 font-mono break-all">{ti.backupAt.replace('{path}', report.backupDir)}</div>}
+                  {(chosenAccountName || claudeAccountId !== initialClaudeAccountId) && !accountWarning && (
+                    <div className="text-[11px] text-emerald-300" data-testid="init-claude-account-done">
+                      {ti.claudeAccountBound.replace('{name}', chosenAccountName ?? ti.claudeAccountDefault)}
+                    </div>
+                  )}
+                  {accountWarning && <div className="text-[11px] text-amber-300">{accountWarning}</div>}
                   {report.commands.map((cmd) => (
                     <div key={cmd.id} className={`text-[11px] ${cmd.ok ? 'text-emerald-300' : 'text-rose-300'}`}>
                       {cmd.ok

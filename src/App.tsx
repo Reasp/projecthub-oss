@@ -14,6 +14,7 @@ import { HitlCenterModal } from './components/hitl/HitlCenterModal';
 import { ClaudeLoginModal } from './components/ai/ClaudeLoginModal';
 import { ClaudeAccountsModal } from './components/ai/ClaudeAccountsModal';
 import { ComputerControlBanner } from './components/computer/ComputerControlBanner';
+import { SecretIssuesNotice } from './components/security/SecretIssuesNotice';
 import { NotificationSettingsModal } from './components/notifications/NotificationSettingsModal';
 import { AutomationsModal } from './components/automations/AutomationsModal';
 import { useAutomationsStore } from './store/useAutomationsStore';
@@ -377,6 +378,7 @@ export const App: React.FC = () => {
       {/* Центр решений HITL: очередь всех сессий и история (TASK-57) */}
       <HitlCenterModal />
       <ComputerControlBanner />
+      <SecretIssuesNotice />
 
       {/* Настройки уведомлений: каналы, тихие часы, Telegram-бот (TASK-63) */}
       <NotificationSettingsModal />

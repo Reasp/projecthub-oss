@@ -744,6 +744,7 @@ class McpServerService {
     // 11a. Задачи, документы и поиск по документации (TASK-136.6, decision-78 п. 12)
     // ─────────────────────────────────────────────────────────────
     this.registerProjectTools(server, true, (args) => {
+      if (hitlSessionId) return claudeBridgeService.getProjectToolContext(hitlSessionId);
       const memoryCtx = this.memoryCallContext(hitlSessionId, args);
       return memoryCtx ? { ...memoryCtx } : null;
     });

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { AppBusEvent } from './hitlTypes.js';
 import { validateCron } from './cronExpr.js';
 import { addedAssignees } from './taskSnapshot.js';
+import { isAwaitingApproval } from './agentTaskPolicy.js';
 
 /**
  * Правила Automations (TASK-74, decision-52): «триггер + условие + действие».
@@ -490,6 +491,8 @@ export function matchRuleEvent(rule: AutomationRule, scope: RuleScope, event: Au
   if (c.assignee && !(event.assignee ?? []).some((a) => wildcardMatch(c.assignee!, a))) return false;
   if (c.outcomes?.length && (!event.outcome || !c.outcomes.includes(event.outcome))) return false;
   if (c.processName && !(event.processName && wildcardMatch(c.processName, event.processName))) return false;
+  // Агента по задаче, которую агент завёл без подтверждения человека, правило не запускает (decision-89).
+  if (isAgentAction(rule.action.type) && event.taskId && isAwaitingApproval(event.labels)) return false;
   // Черновики PR ревьюятся, только если правило это разрешает (decision-53 п. 2).
   if (rule.action.type === 'reviewPr' && event.draft && !rule.action.includeDrafts) return false;
   return true;

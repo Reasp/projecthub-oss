@@ -81,6 +81,8 @@ export interface ApiToolPlan {
 export interface ApiToolPlanOptions {
   /** Фоновые команды разрешены (AI Studio). В Swarm их нет: процесс пережил бы агента (decision-46 п. 2). */
   allowBackground?: boolean;
+  /** Запуск без человека (Automations, автозапуск назначенной задачи): задачи — только через ProjectHub (decision-89). */
+  autonomous?: boolean;
 }
 
 /**
@@ -138,12 +140,12 @@ export function planApiToolCall(
       approvalType = 'question';
       break;
     case 'write':
-      verdict = evaluateToolRequest(narrowed, workDir, 'write_file', { filePath });
+      verdict = evaluateToolRequest(narrowed, workDir, 'write_file', { filePath }, { autonomous: options.autonomous });
       approvalType = 'file_write';
       if (!filePath) verdict = { verdict: 'deny', rule: 'bad-args', reason: 'Не указан путь файла (filePath).' };
       break;
     case 'command':
-      verdict = evaluateToolRequest(narrowed, workDir, 'run_command', { command });
+      verdict = evaluateToolRequest(narrowed, workDir, 'run_command', { command }, { autonomous: options.autonomous });
       approvalType = 'command';
       if (!command.trim()) verdict = { verdict: 'deny', rule: 'bad-args', reason: 'Не указана команда (command).' };
       else if (args.background === true && !options.allowBackground) {

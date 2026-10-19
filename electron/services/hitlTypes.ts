@@ -186,7 +186,15 @@ export interface RolePermissions {
   allowedTools?: string[];
   /** Таймаут ожидания решения человека в минутах. */
   approvalTimeoutMin?: number;
+  /**
+   * Заведение задач инструментом `task_create` (decision-89): `propose` — сразу, с меткой `agent-created`
+   * до подтверждения человеком (право роли «менеджер»); `ask` — через карточку HITL; `deny` — запрещено.
+   * Не задано — `ask` у роли, `propose` у сессии без роли.
+   */
+  taskCreate?: TaskCreateMode;
 }
+
+export type TaskCreateMode = 'propose' | 'ask' | 'deny';
 
 // ─────────────────────────── Шина событий (decision-10, п. 5) ───────────────────────────
 

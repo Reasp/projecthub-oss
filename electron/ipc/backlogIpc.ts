@@ -22,6 +22,8 @@ import { listProjectDocs, readDocFile, saveDocFile, createProjectDoc, buildProje
 import { listMilestones, createMilestone, saveMilestone, deleteMilestone } from '../services/milestoneService';
 import { assertInsideRegisteredProject, assertRegisteredProject } from '../services/projectPathGuard';
 import { DEFAULT_TASK_STATUS } from '../../src/utils/taskStatus.js';
+import { isAwaitingApproval, withoutApprovalLabel } from '../services/agentTaskPolicy';
+import { hitlService } from '../services/hitlService';
 import type { IpcContext } from './types';
 
 function fmString(value: unknown): string | undefined {
@@ -87,6 +89,7 @@ export function registerBacklogIpc(ctx: IpcContext) {
             labels: fmStringList(data.labels),
             milestone: fmString(data.milestone) || fmString(data.milestone_id) || undefined,
             assignee: fmStringList(data.assignee),
+            reporter: fmString(data.reporter),
             created: fmString(data.created_date) || fmString(data.created) || undefined,
             filePath: fullPath,
             description,
@@ -114,6 +117,40 @@ export function registerBacklogIpc(ctx: IpcContext) {
       return true;
     } catch (err) {
       console.error(`Failed to update status for ${filePath}:`, err);
+      return false;
+    }
+  });
+
+  // Подтверждение задачи, заведённой агентом (decision-89): снять метку agent-created. Автор в `reporter`
+  // остаётся. После записи источник событий задач увидит изменение, и автозапуск сможет её взять.
+  ipcMain.handle('backlog:approveAgentTask', async (_event, rawFilePath: string) => {
+    const filePath = await assertInsideRegisteredProject(rawFilePath);
+    try {
+      if (!existsSync(filePath)) return false;
+      const { eol, data, content } = parseTaskFile(await fs.readFile(filePath, 'utf-8'));
+      const labels = fmStringList(data.labels);
+      if (!isAwaitingApproval(labels)) return true;
+      data.labels = withoutApprovalLabel(labels);
+      await fs.writeFile(filePath, serializeTaskFile(content, withUpdatedDate(data), eol), 'utf-8');
+      const projectPath = path.resolve(path.dirname(filePath), '..', '..');
+      const taskId = taskIdFromFile(data, filePath);
+      hitlService.recordHumanDecision(
+        {
+          sessionId: 'ui',
+          projectPath,
+          type: 'file_write',
+          title: `Подтверждена задача агента: ${taskId}`,
+          tool: 'task_approve',
+          filePath: path.relative(projectPath, filePath).split(path.sep).join('/'),
+          ...(fmString(data.reporter) ? { agentName: fmString(data.reporter) } : {})
+        },
+        'allow',
+        { kind: 'local' },
+        'agent-task-approve'
+      );
+      return true;
+    } catch (err) {
+      console.error(`Failed to approve agent task ${filePath}:`, err);
       return false;
     }
   });

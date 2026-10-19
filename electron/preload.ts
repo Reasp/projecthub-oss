@@ -41,7 +41,8 @@ import type {
   AutomationRuleInput,
   SecuritySettings,
   AutomationsSettings,
-  PrReviewStartOptions
+  PrReviewStartOptions,
+  SecretIssuesState
 } from '../src/types/electron';
 
 const api: IElectronAPI = {
@@ -147,6 +148,7 @@ const api: IElectronAPI = {
   getBacklogConfig: (projectPath: string) => ipcRenderer.invoke('backlog:getConfig', projectPath),
   getTaskContent: (filePath: string) => ipcRenderer.invoke('backlog:getTaskContent', filePath),
   updateTaskStatus: (filePath: string, newStatus: string) => ipcRenderer.invoke('backlog:updateTaskStatus', filePath, newStatus),
+  approveAgentTask: (filePath: string) => ipcRenderer.invoke('backlog:approveAgentTask', filePath),
   saveTask: (filePath: string, content: string) => ipcRenderer.invoke('backlog:saveTask', filePath, content),
   saveFullTask: (
     filePath: string,
@@ -649,6 +651,16 @@ const api: IElectronAPI = {
   saveEncryptedSecret: (key: string, value: string) => ipcRenderer.invoke('secrets:setSecret', { key, value }),
   getEncryptedSecret: (key: string) => ipcRenderer.invoke('secrets:getSecret', key),
   deleteEncryptedSecret: (key: string) => ipcRenderer.invoke('secrets:deleteSecret', key),
+  getSecretIssues: () => ipcRenderer.invoke('secrets:getIssues'),
+  acknowledgeSecretIssues: () => ipcRenderer.invoke('secrets:acknowledgeIssues'),
+  showSecretBackup: () => ipcRenderer.invoke('secrets:showBackup'),
+  onSecretIssuesChanged: (callback: (state: SecretIssuesState) => void) => {
+    const handler = (_event: IpcRendererEvent, state: SecretIssuesState) => callback(state);
+    ipcRenderer.on('secrets:issuesChanged', handler);
+    return () => {
+      ipcRenderer.removeListener('secrets:issuesChanged', handler);
+    };
+  },
 
   // Внешние ссылки: только через системный браузер (main проверяет схему)
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),

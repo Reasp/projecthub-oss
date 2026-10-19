@@ -45,6 +45,7 @@ class AssignedTaskRunner {
       enabled: this.enabled,
       assignee: event.assignee?.[0] ?? '',
       taskStatus: event.status ?? '',
+      labels: event.labels ?? [],
       localHostId: remoteControlService.getHostId(),
       hasActiveSwarm,
       lastStartedAt,

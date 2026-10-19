@@ -255,6 +255,8 @@ export interface CliPermissionMeta {
   agentId?: string;
   agentName?: string;
   role?: string;
+  /** Slug роли (`role` — отображаемое имя): автор задач агента в `reporter` (decision-89). */
+  roleSlug?: string;
   /** Имя профиля аккаунта Claude Code — в карточки и аудит HITL (decision-87 п. 14). */
   claudeAccount?: string;
   /** Права роли (decision-9): применяются поверх глобальных настроек и только сужают их. */
@@ -448,6 +450,14 @@ class ClaudeBridgeService extends EventEmitter {
       ...(ctx.role ? { role: ctx.role } : {}),
       ...(ctx.taskId ? { taskId: ctx.taskId } : {})
     };
+  }
+
+  /** Контекст инструментов задач и документов: как у памяти плюс права роли — режим заведения задач (decision-89). */
+  public getProjectToolContext(sessionId: string): (MemoryToolContext & { permissions?: RolePermissions; roleSlug?: string }) | null {
+    const base = this.getMemoryCallContext(sessionId);
+    if (!base) return null;
+    const { permissions, roleSlug } = this.cliPermissionContexts.get(sessionId) ?? {};
+    return { ...base, ...(permissions ? { permissions } : {}), ...(roleSlug ? { roleSlug } : {}) };
   }
 
   public getComputerCallContext(sessionId: string): ComputerCallContext | null {

@@ -20,6 +20,10 @@ export interface CreateBacklogTaskInput {
   dependencies?: string[];
   /** Критерии приёмки: попадают в секцию `## Acceptance Criteria` неотмеченными. */
   acceptanceCriteria?: string[];
+  /** Исполнители (`assignee`): люди или `agent:<role>[@host]`. */
+  assignee?: string[];
+  /** Автор (`reporter`, нативное поле Backlog.md): у задач агентов — `agent:<роль>` (decision-89). */
+  reporter?: string;
 }
 
 export interface CreatedBacklogTask {
@@ -85,7 +89,8 @@ export async function createBacklogTaskFile(projectPath: string, task: CreateBac
       id,
       title: task.title,
       status: 'To Do',
-      assignee: [],
+      assignee: task.assignee ?? [],
+      ...(task.reporter ? { reporter: task.reporter } : {}),
       created_date: createdDate,
       labels,
       dependencies: task.dependencies ?? [],
