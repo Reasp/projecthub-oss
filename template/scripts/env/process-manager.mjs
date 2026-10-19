@@ -14,6 +14,11 @@ import {
 
 const IS_WINDOWS = process.platform === 'win32';
 const WRAPPER_DIR = path.join(STATE_DIR, 'wrappers');
+// Сколько ждать pid-файл PowerShell-обёртки. Холодный старт PowerShell под нагрузкой машины идёт секунды
+// (снимок процессов через PowerShell — до 42 с, TASK-159): с прежними 5 с start_process отказывал, а
+// обёртка, стартовавшая позже, оставляла процесс без записи в реестре. Ожидание прерывается, как только
+// файл появился, так что полный срок уходит только на отказ.
+export const WRAPPER_START_TIMEOUT_MS = 30_000;
 
 // Мёртвые записи реестра без активности (старт, запись в лог) дольше этого срока list_processes
 // удаляет вместе с логом и файлами обёртки (ProjectHub decision-59). Недавние оставляем: «НЕ работает» и
@@ -70,12 +75,12 @@ function startWindows({ name, command, cwd }) {
   // start /b возвращает управление почти сразу, до того как PowerShell успевает
   // записать свой $PID — ждём появления файла (обычно первые сотни мс).
   const sleepBuf = new Int32Array(new SharedArrayBuffer(4));
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + WRAPPER_START_TIMEOUT_MS;
   while (!fs.existsSync(pidFile) && Date.now() < deadline) {
     Atomics.wait(sleepBuf, 0, 0, 50);
   }
   if (!fs.existsSync(pidFile)) {
-    throw new Error(`Не удалось запустить "${name}": PowerShell-обёртка не стартовала за 5с.`);
+    throw new Error(`Не удалось запустить "${name}": PowerShell-обёртка не стартовала за ${WRAPPER_START_TIMEOUT_MS / 1000} с.`);
   }
   const pidLine = fs.readFileSync(pidFile, 'utf-8').trim();
   const m = /^(\d+),(\d+)$/.exec(pidLine);
@@ -159,10 +164,17 @@ export function stopProcess({ name }) {
 
   const status = readStatuses([entry], { strict: true })[0];
   if (status === 'running') {
-    if (IS_WINDOWS) {
-      stopWindows({ pid: entry.pid });
-    } else {
-      stopPosix({ pid: entry.pid });
+    try {
+      if (IS_WINDOWS) {
+        stopWindows({ pid: entry.pid });
+      } else {
+        stopPosix({ pid: entry.pid });
+      }
+    } catch (err) {
+      // taskkill /T /F завершается ошибкой, если процесс или его потомок вышел между проверкой и
+      // остановкой; под нагрузкой машины это окно — секунды. Процесс записи уже мёртв — остановка
+      // удалась; жив — ошибка остаётся (ProjectHub TASK-159).
+      if (readStatuses([entry], { strict: true })[0] === 'running') throw err;
     }
   }
 

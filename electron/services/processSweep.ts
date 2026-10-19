@@ -77,8 +77,15 @@ const LIST_PROCESSES_SCRIPT =
   '$t = if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }; ' +
   '"$($_.ProcessId),$($_.ParentProcessId),$t" }';
 
-/** Предельное время снимка процессов: дольше обход потомков при остановке не ждёт. */
+/** Предельное время снимка процессов для статусов и остановки записей env-tools (показ не должен висеть). */
 export const LIST_PROCESSES_TIMEOUT_MS = 15_000;
+
+/**
+ * Предельное время снимка при добивании потомков после остановки (decision-93 п. 9). Снимок идёт уже после выхода
+ * оболочки и никого не блокирует, а сдавшийся обход оставляет сирот. Под нагрузкой машины снимок медленный: 0,55 с
+ * на свободной машине, ~5 с при 8 busy-процессах на 16 ядрах, до 42 с при 12 (TASK-159), — 15 с не хватало.
+ */
+export const SWEEP_SNAPSHOT_TIMEOUT_MS = 30_000;
 
 /** Снимок процессов Windows (pid, ppid, время создания). */
 export function listWindowsProcesses(timeoutMs = LIST_PROCESSES_TIMEOUT_MS): Promise<ProcessEntry[]> {
@@ -151,7 +158,7 @@ export function envToolsEntryStatuses(
  */
 export async function sweepOrphanedDescendants(rootPid: number, rootStartedAt: number): Promise<number[]> {
   if (process.platform !== 'win32') return [];
-  const pids = collectDescendantPids(await listWindowsProcesses(), rootPid, rootStartedAt);
+  const pids = collectDescendantPids(await listWindowsProcesses(SWEEP_SNAPSHOT_TIMEOUT_MS), rootPid, rootStartedAt);
   await Promise.all(
     pids.map((pid) => new Promise<void>((resolve) => treeKill(pid, 'SIGKILL', () => resolve())))
   );
