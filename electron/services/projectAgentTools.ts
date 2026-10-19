@@ -31,7 +31,7 @@ import {
   agentReporter,
   assigneeList,
   canAgentChangeAssignee,
-  countAgentTasksToday,
+  countAgentTasksLastDay,
   decideTaskCreate,
   isAwaitingApproval,
   preserveApprovalLabel,
@@ -39,6 +39,7 @@ import {
   withApprovalLabel
 } from './agentTaskPolicy.js';
 import type { HitlEngine, HitlOrigin, HitlRequest, RolePermissions } from './hitlTypes.js';
+import type { AgentTaskCreatedInfo } from './agentTaskNotify.js';
 import type { RagSearchResult } from '../../src/types/electron';
 
 export const PROJECT_TOOL_NAMES = [
@@ -228,6 +229,8 @@ export interface ProjectToolDeps {
    * отказывает — спросить некого.
    */
   requestApproval?(request: Omit<HitlRequest, 'id' | 'createdAt'>): Promise<boolean>;
+  /** Задача создана и ждёт подтверждения человека: уведомить его по матрице каналов (decision-89). */
+  onAgentTaskPending?(info: AgentTaskCreatedInfo): void;
   now?(): number;
 }
 
@@ -390,7 +393,7 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         const decision = decideTaskCreate({
           mode: resolveTaskCreateMode(ctx),
           sessionCount: sessionTaskCounts.get(sessionKey) ?? 0,
-          todayCount: countAgentTasksToday(await readTasks(root), deps.now?.() ?? Date.now())
+          dayCount: countAgentTasksLastDay(await readTasks(root), deps.now?.() ?? Date.now())
         });
         if (decision.action === 'deny') {
           audit('deny', `task_create: ${title}`, undefined, decision.reason);
@@ -449,6 +452,9 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         const pending = isAwaitingApproval(created.labels);
         // В режиме ask решение человека уже записал сам HITL; здесь — авто-решение политики.
         if (!approvedByHuman) audit('allow', `task_create: ${created.id}`, rel, pending ? 'awaiting-approval' : undefined);
+        if (pending) {
+          deps.onAgentTaskPending?.({ projectPath: root, sessionId: ctx.sessionId, reporter: agentReporter(ctx), id: created.id, title: created.title });
+        }
         return {
           text: pending
             ? `Создано: ${created.id} «${created.title}» (${rel}). Задача ждёт подтверждения человека (метка agent-created): `

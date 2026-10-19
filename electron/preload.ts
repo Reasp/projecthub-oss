@@ -149,6 +149,8 @@ const api: IElectronAPI = {
   getTaskContent: (filePath: string) => ipcRenderer.invoke('backlog:getTaskContent', filePath),
   updateTaskStatus: (filePath: string, newStatus: string) => ipcRenderer.invoke('backlog:updateTaskStatus', filePath, newStatus),
   approveAgentTask: (filePath: string) => ipcRenderer.invoke('backlog:approveAgentTask', filePath),
+  approveAgentTasksByReporter: (projectPath: string, reporter: string) =>
+    ipcRenderer.invoke('backlog:approveAgentTasksByReporter', projectPath, reporter),
   saveTask: (filePath: string, content: string) => ipcRenderer.invoke('backlog:saveTask', filePath, content),
   saveFullTask: (
     filePath: string,

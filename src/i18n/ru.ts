@@ -721,6 +721,11 @@ export const ru: TranslationDictionary = {
     unknownStatusHint: 'Статуса нет в списке statuses в backlog/config.yml проекта',
     agentCreatedBadge: 'Ждёт подтверждения',
     agentCreatedHint: 'Задачу завёл агент: автозапуск её не возьмёт, пока человек не подтвердит (откройте задачу)',
+    awaitingApprovalFilter: 'Ждут подтверждения',
+    awaitingApprovalFilterHint: 'Показать только задачи, которые завёл агент и ещё не подтвердил человек',
+    approveAllByReporter: 'Подтвердить все: {reporter} ({count})',
+    approveAllByReporterConfirm: 'Подтвердить {count} задач(и) от {reporter}? Автозапуск сможет взять назначенные на агентов. Проверьте описания и исполнителей.',
+    approvedAllByReporter: 'Подтверждено задач: {count}',
     otherStatuses: 'Прочие статусы'
   },
   taskDetail: {
@@ -747,6 +752,7 @@ export const ru: TranslationDictionary = {
     agentCreatedDesc: 'Пока вы её не подтвердите, автозапуск назначенных задач и правила Automations её не возьмут. Проверьте описание и исполнителя.',
     approveAgentTask: 'Подтвердить',
     approveAgentTaskFailed: 'Не удалось подтвердить задачу: файл недоступен или вне зарегистрированного проекта.',
+    approveAllByReporter: 'Подтвердить все задачи агента ({count})',
     worktreeActiveTooltip: 'Изолированное дерево активно: {path}. Нажмите для запуска сессии Claude в директории задачи.',
     createWorktreeTooltip: 'Создать изолированное Git Worktree в .worktrees/{id} со своей веткой task/{id} и открыть терминал',
     creatingWorktree: 'Создание...',
@@ -2913,7 +2919,8 @@ export const ru: TranslationDictionary = {
       modelFallback: 'Агент переключил модель',
       automation: 'Автоматизации: пауза по лимиту, сбой, уведомление правила',
       prReview: 'Ревью PR завершено',
-      securityFinding: 'Безопасность: уязвимости, секреты, рискованные пакеты'
+      securityFinding: 'Безопасность: уязвимости, секреты, рискованные пакеты',
+      agentTask: 'Агент завёл задачи, они ждут подтверждения'
     },
     osActionsUnsupported: 'Кнопки решения прямо в системном уведомлении поддерживает только macOS. На Windows и Linux клик по уведомлению открывает Центр решений.',
     unsupportedOs: 'Системные уведомления недоступны в этой ОС',

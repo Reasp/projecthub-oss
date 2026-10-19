@@ -2,6 +2,11 @@ import type { ProjectToolDeps } from './projectAgentTools';
 import { projectRegistry } from './projectRegistry';
 import { hitlService } from './hitlService';
 import { searchProjectDocs } from './ragSearch';
+import { appEventBus } from './eventBus';
+import { AgentTaskNotifyBatcher } from './agentTaskNotify';
+
+/** Задачи агента, ждущие подтверждения, — в шину пачками: уведомление по матрице каналов (decision-89). */
+const agentTaskNotifier = new AgentTaskNotifyBatcher((event) => appEventBus.publish(event));
 
 /** Боевые зависимости инструментов задач и документов (TASK-136.6): реестр, аудит, поиск по документации, HITL. */
 export const projectAgentToolDeps: ProjectToolDeps = {
@@ -18,5 +23,8 @@ export const projectAgentToolDeps: ProjectToolDeps = {
   async requestApproval(request) {
     const res = await hitlService.request({ ...request, id: hitlService.newRequestId(), createdAt: Date.now() });
     return Boolean(res?.approved);
+  },
+  onAgentTaskPending(info) {
+    agentTaskNotifier.add(info);
   }
 };

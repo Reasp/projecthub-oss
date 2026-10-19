@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -30,7 +30,7 @@ import { useSwarmStore } from '../../store/useSwarmStore';
 import { useRolesStore } from '../../store/useRolesStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { parseAssignee, formatAgentAssignee } from '../../utils/assignee';
-import { isAwaitingApproval, withoutApprovalLabel } from '../../utils/agentTask';
+import { isAwaitingApproval, pendingTasksOfReporter, withoutApprovalLabel } from '../../utils/agentTask';
 import { structureTaskDescription } from '../../utils/taskDescriptionFormat';
 import { isTaskDraftDirty } from '../../utils/taskDraft';
 import { useFederationStore } from '../../store/useFederationStore';
@@ -78,7 +78,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     updateTaskStatusLocal,
     setActiveTab: setMainTab,
     backlogConfig,
-    setDirtyTaskId
+    setDirtyTaskId,
+    tasks,
+    loadProjectData
   } = useProjectStore();
   // Статусы задаёт backlog/config.yml проекта, а не код ProjectHub (TASK-68, decision-24).
   const taskStatuses = backlogConfig.statuses;
@@ -114,6 +116,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [approvedNow, setApprovedNow] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const awaitingApproval = !approvedNow && isAwaitingApproval(task?.labels);
+  // Сколько ещё задач этого же агента ждут подтверждения: кнопка «Подтвердить все» нужна, если их больше одной.
+  const sameReporterPending = useMemo(
+    () => (awaitingApproval ? pendingTasksOfReporter(tasks, task?.reporter).length : 0),
+    [awaitingApproval, tasks, task?.reporter]
+  );
 
   const taskIdNorm = task?.id?.toLowerCase() || '';
   const existingWorktree = worktrees.find(
@@ -375,6 +382,24 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     }
   };
 
+  // «Подтвердить все задачи этого агента»: main сам отбирает файлы по автору и метке (decision-89).
+  const handleApproveAllByReporter = async () => {
+    if (!selectedProject || !task?.reporter) return;
+    setIsApproving(true);
+    try {
+      const { approved } = await window.api.approveAgentTasksByReporter(selectedProject.path, task.reporter);
+      if (!approved.some((id) => id.toLowerCase() === task.id.toLowerCase())) {
+        setWarningMessage(t.taskDetail.approveAgentTaskFailed);
+        return;
+      }
+      setApprovedNow(true);
+      setLabels((prev) => withoutApprovalLabel(prev));
+      await loadProjectData(selectedProject, { silent: true });
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (
       await dialog.confirm({
@@ -460,6 +485,17 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               <div className="font-medium">{t.taskDetail.agentCreatedTitle.replace('{reporter}', task.reporter || 'agent')}</div>
               <div className="text-sky-300/80">{t.taskDetail.agentCreatedDesc}</div>
             </div>
+            {sameReporterPending > 1 && (
+              <button
+                type="button"
+                onClick={() => void handleApproveAllByReporter()}
+                disabled={isApproving}
+                data-testid="approve-all-agent-tasks"
+                className="ph-btn ph-btn-secondary shrink-0"
+              >
+                {t.taskDetail.approveAllByReporter.replace('{count}', String(sameReporterPending))}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void handleApproveAgentTask()}

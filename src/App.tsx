@@ -124,6 +124,12 @@ export const App: React.FC = () => {
           focusProject(action.projectPath);
           setActiveTab('security');
           break;
+        // Задачи агента ждут подтверждения (decision-89): одна — открыть её карточку, пачка — доску.
+        case 'openTask':
+          focusProject(action.projectPath);
+          if (action.taskId) useProjectStore.getState().requestOpenTask(action.taskId);
+          else setActiveTab('kanban');
+          break;
         case 'openRemote':
         case 'openApp':
         default:

@@ -39,7 +39,9 @@ export type NotificationKind =
   /** Ревью PR завершено (TASK-81, decision-53 п. 9). */
   | 'prReview'
   /** Security Health: уязвимости, секреты, рискованные пакеты (TASK-73, decision-56 п. 10). */
-  | 'securityFinding';
+  | 'securityFinding'
+  /** Агент завёл задачи, они ждут подтверждения человека (TASK-153, decision-89). */
+  | 'agentTask';
 
 export const NOTIFICATION_KINDS: NotificationKind[] = [
   'hitl',
@@ -53,7 +55,8 @@ export const NOTIFICATION_KINDS: NotificationKind[] = [
   'modelFallback',
   'automation',
   'prReview',
-  'securityFinding'
+  'securityFinding',
+  'agentTask'
 ];
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'critical';
@@ -67,6 +70,7 @@ export type NotificationAction =
   | { type: 'openRemote' }
   | { type: 'openAutomations'; projectPath?: string }
   | { type: 'openSecurity'; projectPath?: string }
+  | { type: 'openTask'; projectPath?: string; taskId?: string }
   | { type: 'openApp' };
 
 /** Нормализованное уведомление — то, что шина событий превращает в доставку по каналам. */

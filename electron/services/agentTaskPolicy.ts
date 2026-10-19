@@ -20,7 +20,7 @@ export { AGENT_CREATED_LABEL, isAwaitingApproval, withoutApprovalLabel };
 export const AGENT_TASK_LIMITS = {
   /** На одну сессию агента. */
   perSession: 10,
-  /** На проект за локальные сутки — по файлам задач с автором-агентом, поэтому переживает перезапуск. */
+  /** На проект за последние 24 часа — по файлам задач с автором-агентом, поэтому переживает перезапуск. */
   perProjectPerDay: 30
 } as const;
 
@@ -79,8 +79,8 @@ export function decideTaskCreate(input: {
   mode: TaskCreateMode;
   /** Сколько задач эта сессия уже завела. */
   sessionCount: number;
-  /** Сколько задач агенты завели в проекте за сегодня. */
-  todayCount: number;
+  /** Сколько задач агенты завели в проекте за последние 24 часа. */
+  dayCount: number;
   limits?: { perSession: number; perProjectPerDay: number };
 }): TaskCreateDecision {
   const limits = input.limits ?? AGENT_TASK_LIMITS;
@@ -94,11 +94,11 @@ export function decideTaskCreate(input: {
       message: `Лимит: не больше ${limits.perSession} задач за сессию агента. Перечисли оставшиеся в ответе — человек решит, заводить ли их.`
     };
   }
-  if (input.todayCount >= limits.perProjectPerDay) {
+  if (input.dayCount >= limits.perProjectPerDay) {
     return {
       action: 'deny',
       reason: 'daily-limit',
-      message: `Лимит: агенты уже завели ${input.todayCount} задач в проекте за сегодня (не больше ${limits.perProjectPerDay}). Подожди подтверждения человека.`
+      message: `Лимит: агенты уже завели ${input.dayCount} задач в проекте за последние 24 часа (не больше ${limits.perProjectPerDay}). Подожди подтверждения человека.`
     };
   }
   return input.mode === 'ask' ? { action: 'ask' } : { action: 'create-pending' };
@@ -120,17 +120,30 @@ export function canAgentChangeAssignee(input: { labels: readonly string[]; previ
   return addedAgentAssignees(input.previous, input.next).length === 0;
 }
 
-/** Локальный день `YYYY-MM-DD` в формате `created_date` Backlog.md. */
-function localDay(at: number): string {
-  const d = new Date(at);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * `created_date` Backlog.md (`YYYY-MM-DD HH:mm` или `YYYY-MM-DD`) — время UTC, как его пишут сам Backlog.md и
+ * `nowBacklogTimestamp`. Невалидное значение — `null`.
+ */
+export function parseBacklogTimestamp(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(value.trim());
+  if (!m) return null;
+  const at = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0));
+  return Number.isFinite(at) ? at : null;
 }
 
-/** Сколько задач с автором-агентом создано сегодня (по `reporter` и `created_date`). */
-export function countAgentTasksToday(tasks: ReadonlyArray<{ reporter?: unknown; created?: unknown }>, now: number): number {
-  const today = localDay(now);
-  return tasks.filter((t) => isAgentReporter(t.reporter) && typeof t.created === 'string' && t.created.trim().startsWith(today)).length;
+/**
+ * Сколько задач с автором-агентом создано за последние 24 часа (по `reporter` и `created_date`).
+ * Скользящее окно, а не календарный день: не зависит от часового пояса и не обнуляется в полночь.
+ */
+export function countAgentTasksLastDay(tasks: ReadonlyArray<{ reporter?: unknown; created?: unknown }>, now: number): number {
+  return tasks.filter((t) => {
+    if (!isAgentReporter(t.reporter)) return false;
+    const at = parseBacklogTimestamp(t.created);
+    return at !== null && at <= now && now - at < DAY_MS;
+  }).length;
 }
 
 const TASK_DIR_RE = /(^|\/)backlog\/(tasks|drafts)\//i;

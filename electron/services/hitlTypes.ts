@@ -313,6 +313,18 @@ export type AppBusEvent =
       changes: TaskBusChanges;
       at: number;
     }
+  /**
+   * Агент завёл задачи через `task_create`, они ждут подтверждения человека (decision-89). Задачи одной
+   * сессии за несколько секунд приходят одним событием — менеджер не шлёт десять push подряд.
+   */
+  | {
+      type: 'task:agentCreated';
+      projectPath: string;
+      /** Автор: `agent:<роль>`. */
+      reporter: string;
+      tasks: Array<{ id: string; title: string }>;
+      at: number;
+    }
   /** Действие `notify` правила автоматизации. */
   | {
       type: 'automation:notify';

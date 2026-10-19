@@ -914,6 +914,8 @@ export interface IElectronAPI {
   updateTaskStatus: (filePath: string, newStatus: string) => Promise<boolean>;
   /** Подтвердить задачу, заведённую агентом: снять метку `agent-created` (decision-89). */
   approveAgentTask: (filePath: string) => Promise<boolean>;
+  /** Подтвердить все неподтверждённые задачи этого автора (`reporter`) в проекте; id подтверждённых. */
+  approveAgentTasksByReporter: (projectPath: string, reporter: string) => Promise<{ approved: string[] }>;
   saveTask: (filePath: string, content: string) => Promise<boolean>;
   saveFullTask: (
     filePath: string,
@@ -2134,7 +2136,8 @@ export type NotificationKind =
   | 'modelFallback'
   | 'automation'
   | 'prReview'
-  | 'securityFinding';
+  | 'securityFinding'
+  | 'agentTask';
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'critical';
 
@@ -2146,6 +2149,7 @@ export type NotificationAction =
   | { type: 'openRemote' }
   | { type: 'openAutomations'; projectPath?: string }
   | { type: 'openSecurity'; projectPath?: string }
+  | { type: 'openTask'; projectPath?: string; taskId?: string }
   | { type: 'openApp' };
 
 export interface AppNotification {

@@ -616,6 +616,11 @@ export interface TranslationDictionary {
     unknownStatusHint: string;
     agentCreatedBadge: string;
     agentCreatedHint: string;
+    awaitingApprovalFilter: string;
+    awaitingApprovalFilterHint: string;
+    approveAllByReporter: string;
+    approveAllByReporterConfirm: string;
+    approvedAllByReporter: string;
     otherStatuses: string;
   };
   taskDetail: {
@@ -642,6 +647,7 @@ export interface TranslationDictionary {
     agentCreatedDesc: string;
     approveAgentTask: string;
     approveAgentTaskFailed: string;
+    approveAllByReporter: string;
     worktreeActiveTooltip: string;
     createWorktreeTooltip: string;
     creatingWorktree: string;
@@ -2660,7 +2666,8 @@ export interface TranslationDictionary {
       | 'modelFallback'
       | 'automation'
       | 'prReview'
-      | 'securityFinding',
+      | 'securityFinding'
+      | 'agentTask',
       string
     >;
     osActionsUnsupported: string;

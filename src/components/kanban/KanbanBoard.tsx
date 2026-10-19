@@ -15,7 +15,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import type { BacklogTask } from '../../types/electron';
-import { isAwaitingApproval, withoutApprovalLabel } from '../../utils/agentTask';
+import { isAwaitingApproval, pendingByReporter, withoutApprovalLabel } from '../../utils/agentTask';
 import {
   matchStatus,
   isKnownStatus,
@@ -85,6 +85,30 @@ export const KanbanBoard: React.FC = () => {
   const [searchTaskQuery, setSearchTaskQuery] = useState('');
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  // Фильтр «Ждут подтверждения» и подтверждение пачкой по автору-агенту (decision-89).
+  const [awaitingOnly, setAwaitingOnly] = useState(false);
+  const [approvingReporter, setApprovingReporter] = useState<string | null>(null);
+  const awaitingCount = useMemo(() => tasks.filter((task) => isAwaitingApproval(task.labels)).length, [tasks]);
+  const pendingGroups = useMemo(() => pendingByReporter(tasks), [tasks]);
+  // Всё подтверждено — фильтр гаснет сам, а не оставляет пустую доску.
+  const awaitingFilterOn = awaitingOnly && awaitingCount > 0;
+
+  const handleApproveAllByReporter = async (reporter: string, count: number) => {
+    if (!selectedProject || approvingReporter) return;
+    const proceed = await dialog.confirm({
+      message: t.kanban.approveAllByReporterConfirm.replace('{count}', String(count)).replace('{reporter}', reporter),
+      confirmText: t.kanban.approveAllByReporter.replace('{reporter}', reporter).replace('{count}', String(count))
+    });
+    if (!proceed) return;
+    setApprovingReporter(reporter);
+    try {
+      const { approved } = await window.api.approveAgentTasksByReporter(selectedProject.path, reporter);
+      await loadProjectData(selectedProject, { silent: true });
+      await dialog.alert({ message: t.kanban.approvedAllByReporter.replace('{count}', String(approved.length)) });
+    } finally {
+      setApprovingReporter(null);
+    }
+  };
 
   // Extract all unique labels
   const allLabels = useMemo(() => {
@@ -105,7 +129,8 @@ export const KanbanBoard: React.FC = () => {
         taskItem.id.toLowerCase().includes(searchTaskQuery.toLowerCase()) ||
         (taskItem.description && taskItem.description.toLowerCase().includes(searchTaskQuery.toLowerCase()));
       if (!matchQuery) return false;
-      if (selectedLabelFilter && (!taskItem.labels || !taskItem.labels.includes(selectedLabelFilter))) {
+      if (awaitingFilterOn && !isAwaitingApproval(taskItem.labels)) return false;
+      if (selectedLabelFilter &&(!taskItem.labels || !taskItem.labels.includes(selectedLabelFilter))) {
         return false;
       }
       if (selectedMilestoneFilter) {
@@ -119,7 +144,7 @@ export const KanbanBoard: React.FC = () => {
       }
       return true;
     });
-  }, [tasks, searchTaskQuery, selectedLabelFilter, selectedMilestoneFilter, milestones]);
+  }, [tasks, searchTaskQuery, awaitingFilterOn, selectedLabelFilter, selectedMilestoneFilter, milestones]);
 
   // Раскладка по колонкам: сопоставление статуса нестрогое (регистр/пробелы не значимы),
   // а задача с неизвестным статусом попадает в колонку по умолчанию с пометкой,
@@ -291,12 +316,31 @@ export const KanbanBoard: React.FC = () => {
           </select>
         )}
 
-        {(selectedLabelFilter || selectedMilestoneFilter) && (
+        {/* Задачи агентов, которые ждут человека (decision-89): кнопка видна, только пока такие есть */}
+        {awaitingCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setAwaitingOnly(!awaitingFilterOn)}
+            aria-pressed={awaitingFilterOn}
+            data-testid="awaiting-approval-filter"
+            title={t.kanban.awaitingApprovalFilterHint}
+            className={`flex items-center gap-1.5 h-7 px-2 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
+              awaitingFilterOn ?'bg-sky-500/15 text-sky-200 ring-1 ring-sky-500/40' : 'bg-ph-raised text-sky-300 hover:text-sky-200'
+            }`}
+          >
+            <Bot className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xl:inline">{t.kanban.awaitingApprovalFilter}</span>
+            <span className="tabular-nums">{awaitingCount}</span>
+          </button>
+        )}
+
+        {(selectedLabelFilter || selectedMilestoneFilter || awaitingFilterOn) && (
           <button
             type="button"
             onClick={() => {
               setSelectedLabelFilter(null);
               setSelectedMilestoneFilter(null);
+              setAwaitingOnly(false);
             }}
             className="ph-icon-button shrink-0"
             title={t.kanban.resetMilestoneFilter}
@@ -327,6 +371,29 @@ export const KanbanBoard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Подтверждение пачкой: по одной кнопке на автора-агента */}
+      {awaitingFilterOn && pendingGroups.length > 0 && (
+        <div
+          data-testid="awaiting-approval-bar"
+          className="px-4 py-1.5 flex items-center gap-2 flex-wrap border-b border-ph-line bg-sky-950/20 shrink-0"
+        >
+          {pendingGroups.map((group) => (
+            <button
+              key={group.reporter}
+              type="button"
+              disabled={approvingReporter !== null}
+              onClick={() => void handleApproveAllByReporter(group.reporter, group.tasks.length)}
+              data-testid="approve-all-by-reporter"
+              className="ph-btn ph-btn-primary h-6 text-xs"
+            >
+              {approvingReporter === group.reporter
+                ? t.common.loading
+                : t.kanban.approveAllByReporter.replace('{reporter}', group.reporter).replace('{count}', String(group.tasks.length))}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Main Content Area: Kanban Board or List View */}
       {taskViewMode === 'list' ? (

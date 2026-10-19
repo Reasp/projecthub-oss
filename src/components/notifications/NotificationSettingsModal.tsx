@@ -25,7 +25,8 @@ const KINDS: NotificationKind[] = [
   'modelFallback',
   'automation',
   'prReview',
-  'securityFinding'
+  'securityFinding',
+  'agentTask'
 ];
 
 const CHANNELS: NotificationChannel[] = ['tray', 'os', 'sound', 'telegram', 'remote'];

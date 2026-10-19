@@ -23,6 +23,7 @@ import { listMilestones, createMilestone, saveMilestone, deleteMilestone } from 
 import { assertInsideRegisteredProject, assertRegisteredProject } from '../services/projectPathGuard';
 import { DEFAULT_TASK_STATUS } from '../../src/utils/taskStatus.js';
 import { isAwaitingApproval, withoutApprovalLabel } from '../services/agentTaskPolicy';
+import { reporterKey, sameReporter } from '../../src/utils/agentTask.js';
 import { hitlService } from '../services/hitlService';
 import type { IpcContext } from './types';
 
@@ -123,36 +124,64 @@ export function registerBacklogIpc(ctx: IpcContext) {
 
   // Подтверждение задачи, заведённой агентом (decision-89): снять метку agent-created. Автор в `reporter`
   // остаётся. После записи источник событий задач увидит изменение, и автозапуск сможет её взять.
+  // `reporter` — если задан, файл подтверждается только при совпадении автора (массовое подтверждение).
+  const approveTaskFile = async (filePath: string, reporter?: string): Promise<string | null> => {
+    const { eol, data, content } = parseTaskFile(await fs.readFile(filePath, 'utf-8'));
+    const labels = fmStringList(data.labels);
+    if (!isAwaitingApproval(labels)) return null;
+    if (reporter !== undefined && !sameReporter(fmString(data.reporter), reporter)) return null;
+    data.labels = withoutApprovalLabel(labels);
+    await fs.writeFile(filePath, serializeTaskFile(content, withUpdatedDate(data), eol), 'utf-8');
+    const projectPath = path.resolve(path.dirname(filePath), '..', '..');
+    const taskId = taskIdFromFile(data, filePath);
+    hitlService.recordHumanDecision(
+      {
+        sessionId: 'ui',
+        projectPath,
+        type: 'file_write',
+        title: `Подтверждена задача агента: ${taskId}`,
+        tool: 'task_approve',
+        filePath: path.relative(projectPath, filePath).split(path.sep).join('/'),
+        ...(fmString(data.reporter) ? { agentName: fmString(data.reporter) } : {})
+      },
+      'allow',
+      { kind: 'local' },
+      'agent-task-approve'
+    );
+    return taskId;
+  };
+
   ipcMain.handle('backlog:approveAgentTask', async (_event, rawFilePath: string) => {
     const filePath = await assertInsideRegisteredProject(rawFilePath);
     try {
       if (!existsSync(filePath)) return false;
-      const { eol, data, content } = parseTaskFile(await fs.readFile(filePath, 'utf-8'));
-      const labels = fmStringList(data.labels);
-      if (!isAwaitingApproval(labels)) return true;
-      data.labels = withoutApprovalLabel(labels);
-      await fs.writeFile(filePath, serializeTaskFile(content, withUpdatedDate(data), eol), 'utf-8');
-      const projectPath = path.resolve(path.dirname(filePath), '..', '..');
-      const taskId = taskIdFromFile(data, filePath);
-      hitlService.recordHumanDecision(
-        {
-          sessionId: 'ui',
-          projectPath,
-          type: 'file_write',
-          title: `Подтверждена задача агента: ${taskId}`,
-          tool: 'task_approve',
-          filePath: path.relative(projectPath, filePath).split(path.sep).join('/'),
-          ...(fmString(data.reporter) ? { agentName: fmString(data.reporter) } : {})
-        },
-        'allow',
-        { kind: 'local' },
-        'agent-task-approve'
-      );
+      await approveTaskFile(filePath);
       return true;
     } catch (err) {
       console.error(`Failed to approve agent task ${filePath}:`, err);
       return false;
     }
+  });
+
+  // «Подтвердить все задачи этого агента»: main сам выбирает файлы по автору и метке, рендерер передаёт
+  // только проект и автора — подтвердить чужой файл списком путей нельзя. Каждая задача — своя запись аудита.
+  ipcMain.handle('backlog:approveAgentTasksByReporter', async (_event, rawProjectPath: string, reporter: string) => {
+    const projectPath = await assertRegisteredProject(rawProjectPath);
+    const approved: string[] = [];
+    if (!reporterKey(reporter)) return { approved };
+    const tasksDir = path.join(projectPath, 'backlog', 'tasks');
+    const files = existsSync(tasksDir) ? await fs.readdir(tasksDir) : [];
+    for (const file of files) {
+      if (!file.endsWith('.md')) continue;
+      const filePath = path.join(tasksDir, file);
+      try {
+        const taskId = await approveTaskFile(filePath, reporter);
+        if (taskId) approved.push(taskId);
+      } catch (err) {
+        console.error(`Failed to approve agent task ${filePath}:`, err);
+      }
+    }
+    return { approved };
   });
 
   ipcMain.handle('backlog:toggleCriterion', async (_event, rawFilePath: string, index: number, completed: boolean) => {

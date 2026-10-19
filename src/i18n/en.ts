@@ -720,6 +720,11 @@ export const en: TranslationDictionary = {
     unknownStatusHint: 'Status is missing from statuses in backlog/config.yml of this project',
     agentCreatedBadge: 'Awaiting approval',
     agentCreatedHint: 'Created by an agent: auto-start skips it until a human approves it (open the task)',
+    awaitingApprovalFilter: 'Awaiting approval',
+    awaitingApprovalFilterHint: 'Show only tasks created by an agent and not yet approved by a human',
+    approveAllByReporter: 'Approve all: {reporter} ({count})',
+    approveAllByReporterConfirm: 'Approve {count} task(s) from {reporter}? Auto-start will be able to pick up those assigned to agents. Check descriptions and assignees.',
+    approvedAllByReporter: 'Tasks approved: {count}',
     otherStatuses: 'Other statuses'
   },
   taskDetail: {
@@ -746,6 +751,7 @@ export const en: TranslationDictionary = {
     agentCreatedDesc: 'Until you approve it, assigned-task auto-start and Automations rules will skip it. Check the description and the assignee.',
     approveAgentTask: 'Approve',
     approveAgentTaskFailed: 'Could not approve the task: the file is unavailable or outside a registered project.',
+    approveAllByReporter: 'Approve all tasks from this agent ({count})',
     worktreeActiveTooltip: 'Isolated tree active: {path}. Click to launch Claude session in task directory.',
     createWorktreeTooltip: 'Create isolated Git Worktree in .worktrees/{id} with branch task/{id} and open terminal',
     creatingWorktree: 'Creating...',
@@ -2911,7 +2917,8 @@ export const en: TranslationDictionary = {
       modelFallback: 'Agent switched model',
       automation: 'Automations: limit pause, failure, rule notification',
       prReview: 'PR review finished',
-      securityFinding: 'Security: vulnerabilities, secrets, risky packages'
+      securityFinding: 'Security: vulnerabilities, secrets, risky packages',
+      agentTask: 'An agent created tasks awaiting approval'
     },
     osActionsUnsupported: 'Decision buttons inside the system notification are macOS-only. On Windows and Linux clicking the notification opens the decision center.',
     unsupportedOs: 'System notifications are unavailable on this OS',
