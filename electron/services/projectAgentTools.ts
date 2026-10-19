@@ -36,7 +36,8 @@ import {
   isAwaitingApproval,
   preserveApprovalLabel,
   resolveTaskCreateMode,
-  withApprovalLabel
+  withApprovalLabel,
+  type AgentTaskLimits
 } from './agentTaskPolicy.js';
 import type { HitlEngine, HitlOrigin, HitlRequest, RolePermissions } from './hitlTypes.js';
 import type { AgentTaskCreatedInfo } from './agentTaskNotify.js';
@@ -231,6 +232,8 @@ export interface ProjectToolDeps {
   requestApproval?(request: Omit<HitlRequest, 'id' | 'createdAt'>): Promise<boolean>;
   /** Задача создана и ждёт подтверждения человека: уведомить его по матрице каналов (decision-89). */
   onAgentTaskPending?(info: AgentTaskCreatedInfo): void;
+  /** Лимиты из настройки (TASK-155); без зависимости — `AGENT_TASK_LIMITS`. */
+  getAgentTaskLimits?(): Promise<AgentTaskLimits>;
   now?(): number;
 }
 
@@ -393,7 +396,8 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         const decision = decideTaskCreate({
           mode: resolveTaskCreateMode(ctx),
           sessionCount: sessionTaskCounts.get(sessionKey) ?? 0,
-          dayCount: countAgentTasksLastDay(await readTasks(root), deps.now?.() ?? Date.now())
+          dayCount: countAgentTasksLastDay(await readTasks(root), deps.now?.() ?? Date.now()),
+          ...(deps.getAgentTaskLimits ? { limits: await deps.getAgentTaskLimits() } : {})
         });
         if (decision.action === 'deny') {
           audit('deny', `task_create: ${title}`, undefined, decision.reason);

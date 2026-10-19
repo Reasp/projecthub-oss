@@ -263,6 +263,43 @@ async function applyHitlDecision(query, decision, requestId) {
   }
 }
 
+/**
+ * Подтверждение задач агента кнопкой из уведомления `agentTask` (TASK-155, decision-89 п. 11). Билет
+ * подтверждает ровно задачи этой пачки; уже подтверждённые в окне или с телефона считаются отдельно.
+ */
+async function applyAgentTaskApproval(query, ticket) {
+  try {
+    const res = await fetchHub('/api/agent-tasks/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket, deviceName: `Telegram (${query.from?.username || query.from?.id || '?'})` })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) {
+      const approved = Array.isArray(data.approved) ? data.approved : [];
+      const notPending = Array.isArray(data.notPending) ? data.notPending : [];
+      const text = approved.length > 0 ? `Подтверждено: ${approved.length}` : 'Задачи уже подтверждены';
+      await tgApi('answerCallbackQuery', { callback_query_id: query.id, text });
+      const parts = [];
+      if (approved.length > 0) parts.push(`✅ Подтверждено из Telegram: ${approved.join(', ')}`);
+      if (notPending.length > 0) parts.push(`— уже не ждали подтверждения: ${notPending.join(', ')}`);
+      await editDecidedMessage(query, parts.join('\n'));
+    } else if (res.status === 409) {
+      await tgApi('answerCallbackQuery', {
+        callback_query_id: query.id,
+        text: 'Кнопка устарела (ProjectHub перезапускался). Подтвердите задачи в окне или с телефона.',
+        show_alert: true
+      });
+      await editDecidedMessage(query, '— кнопка устарела, подтвердите задачи в ProjectHub');
+    } else {
+      throw new Error(`HTTP ${res.status}`);
+    }
+  } catch (e) {
+    await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: 'ProjectHub недоступен', show_alert: true }).catch(() => {});
+    console.warn('[TelegramBot] Не удалось подтвердить задачи агента:', e.message);
+  }
+}
+
 /** Снять кнопки с карточки решения, чтобы по ней нельзя было ответить дважды. */
 async function editDecidedMessage(query, suffix) {
   const chatId = query.message?.chat?.id;
@@ -296,6 +333,12 @@ async function handleCallbackQuery(query) {
   const hitlMatch = data.match(/^hitl:(allow|deny):(.+)$/);
   if (hitlMatch) {
     await applyHitlDecision(query, hitlMatch[1], hitlMatch[2]);
+    return;
+  }
+
+  const agentTaskMatch = data.match(/^atask:([A-Za-z0-9_-]{8,32})$/);
+  if (agentTaskMatch) {
+    await applyAgentTaskApproval(query, agentTaskMatch[1]);
     return;
   }
 

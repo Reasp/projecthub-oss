@@ -1,41 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FolderOpen, KeyRound } from '../common/icons';
-import type { SecretIssue, SecretIssuesState } from '../../types/electron';
+import { FolderOpen, KeyRound, RotateCcw } from '../common/icons';
+import type { SecretIssuesState } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
+import { secretKeyLabel, secretReasonLabel } from './secretLabels';
 
 /**
  * Сообщение о секретах, которые не удалось расшифровать (TASK-141, decision-88 п. 5).
  * Значения не показываются: только что за секрет и почему. Плавающий глобальный контрол —
- * `z-[10000]` через portal (decision-17).
+ * `z-[10000]` через portal (decision-17). «Восстановить…» открывает окно восстановления (TASK-154).
  */
 export const SecretIssuesNotice: React.FC = () => {
   const { t } = useTranslation();
   const [state, setState] = useState<SecretIssuesState | null>(null);
+  const openRestore = useSecretRestoreStore((s) => s.open);
+  const refreshCount = useSecretRestoreStore((s) => s.refreshCount);
 
   useEffect(() => {
     if (!window.api?.getSecretIssues) return;
     window.api.getSecretIssues().then(setState).catch(() => undefined);
-    const unsubscribe = window.api.onSecretIssuesChanged?.((next) => setState(next));
+    void refreshCount();
+    const unsubscribe = window.api.onSecretIssuesChanged?.((next) => {
+      setState(next);
+      void refreshCount();
+    });
     return () => {
       unsubscribe?.();
     };
-  }, []);
+  }, [refreshCount]);
 
   if (!state || state.issues.length === 0) return null;
-
-  const label = (issue: SecretIssue): string => {
-    const known = t.secretIssues.keys[issue.key];
-    if (known) return known;
-    const profile = /^llmProfile\.(.+)\.apiKey$/.exec(issue.key);
-    return profile ? `${t.secretIssues.keys['ai.apiKey']} (${profile[1]})` : issue.key;
-  };
-  const reason = (issue: SecretIssue): string =>
-    issue.reason === 'corruptFile'
-      ? t.secretIssues.reasonCorrupt
-      : issue.reason === 'encryptionUnavailable'
-        ? t.secretIssues.reasonUnavailable
-        : t.secretIssues.reasonUndecryptable;
 
   return createPortal(
     <div
@@ -48,13 +43,21 @@ export const SecretIssuesNotice: React.FC = () => {
         <ul className="space-y-0.5">
           {state.issues.map((issue) => (
             <li key={`${issue.key}-${issue.at}`}>
-              <span className="font-medium">{label(issue)}</span>
-              <span className="text-amber-100/70"> — {reason(issue)}</span>
+              <span className="font-medium">{secretKeyLabel(t.secretIssues, issue.key)}</span>
+              <span className="text-amber-100/70"> — {secretReasonLabel(t.secretIssues, issue.reason)}</span>
             </li>
           ))}
         </ul>
         <p className="text-amber-100/80">{t.secretIssues.body}</p>
-        <div className="flex gap-2 pt-0.5">
+        <div className="flex flex-wrap gap-2 pt-0.5">
+          <button
+            type="button"
+            onClick={openRestore}
+            className="px-2.5 py-1 rounded-md bg-amber-900/50 hover:bg-amber-900/80 flex items-center gap-1"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            {t.secretIssues.restore}
+          </button>
           <button
             type="button"
             onClick={() => window.api.showSecretBackup()}

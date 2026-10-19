@@ -90,6 +90,8 @@ export interface AppNotification {
   requestId?: string;
   sessionId?: string;
   action?: NotificationAction;
+  /** Пачка задач агента, которую можно подтвердить кнопкой в Telegram (TASK-155, decision-89 п. 11). */
+  agentTaskApproval?: { ticket: string; count: number };
 }
 
 /** «Тихие часы»: в интервале доставляются только каналы без шума (трей) и, опционально, critical. */

@@ -943,6 +943,9 @@ export interface IElectronAPI {
 
   // Реестр ролей агентов (decision-9, TASK-60)
   listRoles: (projectPath?: string) => Promise<{ roles: RoleDefinition[]; errors: { error: string; filePath: string }[] }>;
+  /** Лимиты задач, заведённых агентами (TASK-155, decision-89 п. 6). */
+  getAgentTaskSettings: () => Promise<AgentTaskSettings>;
+  saveAgentTaskSettings: (settings: AgentTaskSettings) => Promise<AgentTaskSettings>;
   saveRole: (scope: 'global' | 'project', role: RoleDefinition, projectPath?: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
   deleteRole: (scope: 'global' | 'project', slug: string, projectPath?: string) => Promise<boolean>;
   copyRoleToProject: (slug: string, projectPath: string) => Promise<RoleDefinition | null>;
@@ -1266,6 +1269,8 @@ export interface IElectronAPI {
   getSecretIssues: () => Promise<SecretIssuesState>;
   acknowledgeSecretIssues: () => Promise<SecretIssuesState>;
   showSecretBackup: () => Promise<boolean>;
+  getSecretBackupPreview: () => Promise<SecretBackupPreview>;
+  restoreSecretsFromBackup: (ids: string[]) => Promise<SecretRestoreResult>;
   onSecretIssuesChanged: (callback: (state: SecretIssuesState) => void) => () => void;
 
   // Remote MCP Server
@@ -2120,6 +2125,39 @@ export interface SecretIssuesState {
   backupFile: string;
 }
 
+/** Лимиты задач агентов (TASK-155) — зеркало electron/services/agentTaskSettingsService.ts. */
+export interface AgentTaskSettings {
+  limits: { perSession: number; perProjectPerDay: number };
+}
+
+/** Восстановление из резервной копии (TASK-154). */
+export type SecretBackupReason = SecretIssueReason | 'replaced';
+export type SecretRestoreStatus = 'restorable' | 'current' | 'unreadable' | 'noValue';
+
+export interface SecretBackupItem {
+  id: string;
+  key: string;
+  reason: SecretBackupReason;
+  source: SecretIssueSource;
+  at: number;
+  status: SecretRestoreStatus;
+  replacesCurrent: boolean;
+  suggested: boolean;
+  restoredAt?: number;
+}
+
+export interface SecretBackupPreview {
+  items: SecretBackupItem[];
+  backupFile: string;
+  encryptionAvailable: boolean;
+}
+
+export interface SecretRestoreResult {
+  restored: string[];
+  skipped: Array<{ id: string; reason: 'unknown' | 'notRestorable' | 'duplicateKey' }>;
+  preview: SecretBackupPreview;
+}
+
 // ─────────────────── Уведомления (TASK-63, decision-13) — зеркало electron/services/notificationTypes.ts ───────────────────
 
 export type NotificationChannel = 'tray' | 'os' | 'sound' | 'telegram' | 'remote';
@@ -2166,6 +2204,7 @@ export interface AppNotification {
   requestId?: string;
   sessionId?: string;
   action?: NotificationAction;
+  agentTaskApproval?: { ticket: string; count: number };
 }
 
 export interface QuietHoursSettings {

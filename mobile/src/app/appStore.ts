@@ -1,6 +1,8 @@
 import type {
   FederationHost,
   RemoteAgentOutput,
+  RemoteAgentTaskApproval,
+  RemotePendingAgentTask,
   RemoteHostStatus,
   RemotePendingApproval,
   RemoteProcessSummary,
@@ -65,6 +67,8 @@ export interface AppState {
   swarms: RemoteSwarmSummary[];
   roles: RemoteRoleSummary[];
   hitl: HitlItem[];
+  /** Задачи агентов всех проектов хоста, ждущие подтверждения. */
+  agentTasks: RemotePendingAgentTask[];
   studio: StudioState;
   toast: Toast | null;
 }
@@ -112,6 +116,7 @@ export class AppStore {
       swarms: [],
       roles: [],
       hitl: [],
+      agentTasks: [],
       studio: emptyStudio(),
       toast: null
     };
@@ -193,6 +198,7 @@ export class AppStore {
     await Promise.all([
       this.refreshHosts(),
       this.refreshHitl(),
+      this.refreshAgentTasks(),
       this.refreshTasks(),
       this.refreshProcesses(),
       this.refreshSwarms(),
@@ -257,6 +263,33 @@ export class AppStore {
     }
     this.showToast(approve ? 'Одобрено' : 'Отклонено', 'success');
     return true;
+  }
+
+  // ── задачи агентов, ждущие подтверждения (TASK-155, decision-89 п. 11) ──
+
+  async refreshAgentTasks(): Promise<void> {
+    const list = await this.call<RemotePendingAgentTask[]>('get_pending_agent_tasks', {}, true);
+    if (Array.isArray(list)) this.set({ agentTasks: list });
+  }
+
+  /**
+   * Подтвердить задачи агента. Телефон передаёт id тех задач, которые человек видит на экране: задачи,
+   * которые агент заведёт позже, этим нажатием не подтверждаются.
+   */
+  async approveAgentTasks(projectPath: string, taskIds: string[]): Promise<boolean> {
+    if (taskIds.length === 0) return false;
+    const prev = this.state.agentTasks;
+    const keys = new Set(taskIds.map((id) => id.toUpperCase()));
+    this.set({ agentTasks: prev.filter((t) => t.projectPath !== projectPath || !keys.has(t.id.toUpperCase())) });
+    const res = await this.call<RemoteAgentTaskApproval>('approve_agent_tasks', { projectPath, taskIds });
+    if (!res) {
+      this.set({ agentTasks: prev });
+      return false;
+    }
+    if (res.approved.length > 0) this.showToast(res.approved.length > 1 ? `Подтверждено задач: ${res.approved.length}` : `Подтверждена ${res.approved[0]}`, 'success');
+    else this.showToast('Задачи уже подтверждены', 'info');
+    if (projectPath === this.state.projectPath) this.debounced('tasks', () => void this.refreshTasks());
+    return res.approved.length > 0;
   }
 
   // ── задачи ──
@@ -555,6 +588,11 @@ export class AppStore {
         return;
       case 'backlog:changed':
         if (!d.projectPath || d.projectPath === this.state.projectPath) this.debounced('tasks', () => void this.refreshTasks());
+        // Задачи агентов во «Входящих» — по всем проектам хоста (TASK-155).
+        this.debounced('agentTasks', () => void this.refreshAgentTasks());
+        return;
+      case 'notification':
+        if (d.kind === 'agentTask') this.debounced('agentTasks', () => void this.refreshAgentTasks());
         return;
       case 'projects:changed':
         this.debounced('all', () => void this.refreshAll());

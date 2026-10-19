@@ -240,7 +240,10 @@ export type RemoteRpcMethod =
   | 'studio_send'
   | 'studio_abort'
   | 'studio_clear'
-  | 'studio_get_usage';
+  | 'studio_get_usage'
+  // Задачи агентов, ждущие подтверждения человека (TASK-155, decision-89 п. 11)
+  | 'get_pending_agent_tasks'
+  | 'approve_agent_tasks';
 
 /**
  * Ответы RPC в том виде, в каком их отдаёт `dispatchRpc` хоста. Общие для хоста и мобильного
@@ -445,6 +448,22 @@ export interface RemotePendingApproval {
   createdAt?: number;
   expiresAt?: number;
   orphaned?: boolean;
+}
+
+/** Задача агента, ждущая подтверждения человека (`get_pending_agent_tasks`, TASK-155). */
+export interface RemotePendingAgentTask {
+  projectPath: string;
+  id: string;
+  title: string;
+  /** Автор: `agent:<роль>`. */
+  reporter?: string;
+  created?: string;
+}
+
+/** Ответ `approve_agent_tasks`. */
+export interface RemoteAgentTaskApproval {
+  approved: string[];
+  notPending: string[];
 }
 
 /** Ответ хоста на сопряжение/переподключение (`handshake_ack`). */

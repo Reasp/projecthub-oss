@@ -4,7 +4,15 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { getUserDataDir } from './appPaths.js';
-import type { SecretIssue, SecretIssueReason, SecretIssueSource, SecretIssuesState } from './secretStorageTypes.js';
+import type {
+  SecretBackupPreview,
+  SecretIssue,
+  SecretIssueReason,
+  SecretIssueSource,
+  SecretIssuesState,
+  SecretRestoreResult
+} from './secretStorageTypes.js';
+import { backupEntryId, buildBackupPreview, planSecretRestore, type SecretBackupEntry, type SecretEntryProbe } from './secretRestore.js';
 
 /**
  * Хранилище секретов main-процесса (TASK-18, TASK-65; расположение и сбои — TASK-141, decision-88).
@@ -39,11 +47,8 @@ export interface SecretStorageOptions {
 
 export type DecryptResult = { ok: true; value: string } | { ok: false; reason: Exclude<SecretIssueReason, 'corruptFile'> };
 
-interface BackupEntry extends SecretIssue {
-  /** Значение как оно лежало на диске (зашифрованное) — для восстановления, если ключ вернётся. */
-  value: string;
-  acknowledged?: boolean;
-}
+/** Значение хранится как лежало на диске (зашифрованное) — для восстановления, если ключ вернётся. */
+type BackupEntry = SecretBackupEntry;
 
 interface BackupFile {
   version: 1;
@@ -354,10 +359,83 @@ export class SecretStorageService {
   private toState(backup: BackupFile): SecretIssuesState {
     return {
       issues: backup.entries
-        .filter((e) => !e.acknowledged)
+        .filter((e): e is BackupEntry & { reason: SecretIssue['reason'] } => !e.acknowledged && e.reason !== 'replaced')
         .map(({ key, reason, source, at }) => ({ key, reason, source, at })),
       backupFile: this.backupPath
     };
+  }
+
+  /** Расшифровка записи копии текущим ключом — только для сравнения внутри сервиса. */
+  private probeEntry(entry: BackupEntry, store: Record<string, string>): SecretEntryProbe {
+    const restored = this.tryDecrypt(entry.value);
+    if (!restored.ok) return { readable: false, equalsCurrent: false };
+    const current = store[entry.key] ? this.tryDecrypt(store[entry.key]) : null;
+    return { readable: true, equalsCurrent: Boolean(current?.ok && current.value === restored.value) };
+  }
+
+  private buildPreview(backup: BackupFile, store: Record<string, string>): SecretBackupPreview {
+    return {
+      items: buildBackupPreview(
+        backup.entries,
+        (entry) => this.probeEntry(entry, store),
+        (key) => Boolean(store[key] && this.tryDecrypt(store[key]).ok)
+      ),
+      backupFile: this.backupPath,
+      encryptionAvailable: this.isEncryptionAvailable()
+    };
+  }
+
+  /** Предпросмотр резервной копии для окна восстановления (TASK-154): без значений. */
+  public getBackupPreview(): Promise<SecretBackupPreview> {
+    return this.serialize(async () => this.buildPreview(await this.readBackup(), await this.readStore()));
+  }
+
+  /**
+   * Вернуть выбранные записи копии в хранилище (TASK-154). Текущее читаемое значение ключа перед заменой
+   * откладывается в ту же копию с причиной `replaced` — восстановление можно откатить. Запись копии остаётся
+   * (копия хранится до ручного удаления, decision-88 п. 5) и получает `restoredAt`.
+   */
+  public restoreFromBackup(ids: readonly string[]): Promise<SecretRestoreResult> {
+    return this.serialize(async () => {
+      const backup = await this.readBackup();
+      const store = await this.readStore();
+      const plan = planSecretRestore(this.buildPreview(backup, store).items, ids);
+      const now = Date.now();
+      const restored: string[] = [];
+      for (const item of plan.restore) {
+        const entry = backup.entries.find((e) => backupEntryId(e) === item.id);
+        const value = entry ? this.tryDecrypt(entry.value) : null;
+        if (!entry || !value?.ok) continue;
+        const current = store[entry.key];
+        if (current) {
+          // Текущее значение не затирается: читаемое — `replaced`, нечитаемое (записано другим ключом) — со своей
+          // причиной. Человек сам запустил замену, поэтому баннер о нём не нужен.
+          const readable = this.tryDecrypt(current);
+          const replaced: BackupEntry = {
+            key: entry.key,
+            value: current,
+            reason: readable.ok ? 'replaced' : readable.reason,
+            source: 'secrets',
+            at: now,
+            acknowledged: true
+          };
+          if (!backup.entries.some((e) => e.key === replaced.key && e.value === replaced.value)) backup.entries.push(replaced);
+        }
+        store[entry.key] = this.encrypt(value.value);
+        this.cache.set(entry.key, value.value);
+        entry.restoredAt = now;
+        entry.acknowledged = true;
+        restored.push(entry.key);
+      }
+      if (restored.length > 0) {
+        await this.writeStore(store);
+        await writeJsonAtomic(this.backupPath, backup);
+        // Имена секретов в лог не пишутся (decision-88 п. 5): только число.
+        console.log(`[SecretStorage] Restored ${restored.length} secret(s) from ${SECRETS_BACKUP_FILE_NAME}`);
+        this.emitIssues(backup);
+      }
+      return { restored, skipped: plan.skipped, preview: this.buildPreview(backup, store) };
+    });
   }
 
   /** Непросмотренные проблемы с секретами — для баннера в UI. */

@@ -324,6 +324,8 @@ export type AppBusEvent =
       reporter: string;
       tasks: Array<{ id: string; title: string }>;
       at: number;
+      /** Билет кнопки «Подтвердить» вне окна (TASK-155): подтверждает ровно задачи этой пачки. */
+      approvalTicket?: string;
     }
   /** Действие `notify` правила автоматизации. */
   | {

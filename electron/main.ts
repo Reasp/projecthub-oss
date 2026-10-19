@@ -25,7 +25,8 @@ import { hitlService } from './services/hitlService';
 import { updaterService } from './services/updaterService';
 import { notificationService } from './services/notificationService';
 import { trayService } from './services/trayService';
-import { telegramService } from './services/telegramService';
+import { telegramService, agentTaskTrackKey } from './services/telegramService';
+import { agentTaskApproval } from './services/agentTaskApprovalInstance';
 import { computerUseService, type ComputerOverlayState } from './services/computerUseService';
 import { voiceHotkeyService } from './services/voiceHotkeyService';
 import { voiceResultCardWatch } from './services/voiceResultCardWatch';
@@ -495,6 +496,18 @@ function setupTrayAndNotifications(): void {
       hostToken: status.secretToken || '',
       hubPort: status.port
     };
+  });
+
+  // Пачку задач агента подтвердили в любом канале — кнопка в Telegram больше не нужна (TASK-155).
+  // Нажатие в самом Telegram сообщение правит бот, второй правки не нужно.
+  agentTaskApproval.onApproved(({ projectPath, resolvedTickets, channel }) => {
+    // Телефон убирает подтверждённое из «Входящих», даже если подтвердили в окне.
+    if (channel === 'window') remoteControlService.broadcastEvent('backlog:changed', { projectPath });
+    if (channel === 'telegram') return;
+    const where = channel === 'phone' ? 'с телефона' : 'в окне ProjectHub';
+    for (const ticket of resolvedTickets) {
+      void telegramService.resolveRequest(agentTaskTrackKey(ticket.id), `✅ Подтверждено ${where}`);
+    }
   });
 
   notificationService

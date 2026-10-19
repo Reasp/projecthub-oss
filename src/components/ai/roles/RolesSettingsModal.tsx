@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Save, Trash2, Copy, TriangleAlert, Bot, UploadCloud, Sparkles } from '../../common/icons';
+import { X, Plus, Save, Trash2, Copy, TriangleAlert, Bot, UploadCloud, Sparkles, Gauge } from '../../common/icons';
 import { useRolesStore } from '../../../store/useRolesStore';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useTranslation } from '../../../i18n';
@@ -10,6 +10,7 @@ import { ModelTierSelect } from '../ModelTierSelect';
 import { RoleSyncPanel } from './RoleSyncPanel';
 import { useClaudeAccountsStore } from '../../../store/useClaudeAccountsStore';
 import { SkillsPanel } from './SkillsPanel';
+import { AgentTaskLimitsPanel } from './AgentTaskLimitsPanel';
 import type { RoleDefinition, RoleEngine, ToolCategory } from '../../../types/electron';
 
 interface RolesSettingsModalProps {
@@ -93,7 +94,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
   const [error, setError] = useState<string | null>(null);
   // Синхронизация ролей в проект (TASK-77): вид правой панели, расхождения файлов, пересчёт после правки ролей.
   // Менеджер скиллов проекта (TASK-105): отдельный вид правой панели со своим индикатором расхождений копий.
-  const [view, setView] = useState<'editor' | 'sync' | 'skills'>('editor');
+  const [view, setView] = useState<'editor' | 'sync' | 'skills' | 'limits'>('editor');
   const [syncDrift, setSyncDrift] = useState(0);
   const [skillsDrift, setSkillsDrift] = useState(0);
   const [syncRefresh, setSyncRefresh] = useState(0);
@@ -219,6 +220,16 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                 )}
               </button>
             )}
+            <button
+              type="button"
+              data-testid="agent-task-limits-button"
+              onClick={() => setView('limits')}
+              className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border mb-2 ${
+                view === 'limits' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-foreground hover:bg-secondary/50'
+              }`}
+            >
+              <Gauge className="w-3.5 h-3.5" /> {t.roles.agentTaskLimitsButton}
+            </button>
             {roles.map((r) => (
               <button
                 key={r.slug}
@@ -251,6 +262,13 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
           {selectedProject && (
             <div className={view === 'skills' ? 'flex-1 overflow-y-auto p-5' : 'hidden'}>
               <SkillsPanel projectPath={selectedProject.path} onDriftChange={setSkillsDrift} />
+            </div>
+          )}
+
+          {/* Лимиты задач агентов (TASK-155): общие для всех ролей */}
+          {view === 'limits' && (
+            <div className="flex-1 overflow-y-auto p-5">
+              <AgentTaskLimitsPanel />
             </div>
           )}
 

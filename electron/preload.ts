@@ -186,6 +186,8 @@ const api: IElectronAPI = {
 
   // Реестр ролей агентов (decision-9, TASK-60)
   listRoles: (projectPath?: string) => ipcRenderer.invoke('roles:list', projectPath),
+  getAgentTaskSettings: () => ipcRenderer.invoke('agentTasks:getSettings'),
+  saveAgentTaskSettings: (settings: unknown) => ipcRenderer.invoke('agentTasks:saveSettings', settings),
   saveRole: (scope: 'global' | 'project', role: any, projectPath?: string) =>
     ipcRenderer.invoke('roles:save', scope, role, projectPath),
   deleteRole: (scope: 'global' | 'project', slug: string, projectPath?: string) =>
@@ -656,6 +658,8 @@ const api: IElectronAPI = {
   getSecretIssues: () => ipcRenderer.invoke('secrets:getIssues'),
   acknowledgeSecretIssues: () => ipcRenderer.invoke('secrets:acknowledgeIssues'),
   showSecretBackup: () => ipcRenderer.invoke('secrets:showBackup'),
+  getSecretBackupPreview: () => ipcRenderer.invoke('secrets:getBackupPreview'),
+  restoreSecretsFromBackup: (ids: string[]) => ipcRenderer.invoke('secrets:restoreFromBackup', ids),
   onSecretIssuesChanged: (callback: (state: SecretIssuesState) => void) => {
     const handler = (_event: IpcRendererEvent, state: SecretIssuesState) => callback(state);
     ipcRenderer.on('secrets:issuesChanged', handler);

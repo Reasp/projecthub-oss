@@ -679,6 +679,19 @@ export interface TranslationDictionary {
     taskCreatePropose: string;
     taskCreateAsk: string;
     taskCreateDeny: string;
+    agentTaskLimitsButton: string;
+    agentTaskLimits: {
+      title: string;
+      intro: string;
+      perSession: string;
+      perSessionHint: string;
+      perProjectPerDay: string;
+      perProjectPerDayHint: string;
+      range: string;
+      saved: string;
+      error: string;
+      storage: string;
+    };
     tools: string;
     unsupportedWarning: string;
     dod: string;
@@ -3133,5 +3146,27 @@ export interface TranslationDictionary {
     showBackup: string;
     acknowledge: string;
     keys: Record<string, string>;
+    restore: string;
+    restoreTitle: string;
+    restoreIntro: string;
+    restoreEmpty: string;
+    restoreEncryptionOff: string;
+    reasonReplaced: string;
+    statusRestorable: string;
+    statusCurrent: string;
+    statusUnreadable: string;
+    statusNoValue: string;
+    replacesCurrent: string;
+    restoredAt: string;
+    restoreSelected: string;
+    restoreDone: string;
+    restoreRestart: string;
+    restoreSkipped: string;
+    restoreFailed: string;
+    sourceSecrets: string;
+    sourceAiConfig: string;
+    sourceLlmProfiles: string;
+    close: string;
+    reload: string;
   };
 }

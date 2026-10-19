@@ -1,8 +1,38 @@
-import type { DeviceRights, RemotePendingApproval, RemoteTaskSummary } from '../../../src/types/remote';
+import type { DeviceRights, RemotePendingAgentTask, RemotePendingApproval, RemoteTaskSummary } from '../../../src/types/remote';
 
 /**
  * Чистые модели экранов мобильного клиента (TASK-140.1): без React, покрыты unit-тестами.
  */
+
+// ── Задачи агентов, ждущие подтверждения (TASK-155) ──
+
+export interface AgentTaskGroup {
+  projectPath: string;
+  /** Автор `agent:<роль>`; пустой — задачи без автора, их подтверждают по одной. */
+  reporter: string;
+  tasks: RemotePendingAgentTask[];
+}
+
+/** Группы «проект × автор»: больше задач — выше; внутри группы задачи по номеру. */
+export function groupAgentTasks(list: readonly RemotePendingAgentTask[]): AgentTaskGroup[] {
+  const groups = new Map<string, AgentTaskGroup>();
+  for (const task of list) {
+    const reporter = (task.reporter ?? '').trim();
+    const key = `${task.projectPath}\n${reporter.toLowerCase()}`;
+    const group = groups.get(key) ?? { projectPath: task.projectPath, reporter, tasks: [] };
+    group.tasks.push(task);
+    groups.set(key, group);
+  }
+  const num = (id: string) => (id.match(/\d+(?:\.\d+)*/)?.[0] ?? '0').split('.').map(Number);
+  const byNumber = (a: RemotePendingAgentTask, b: RemotePendingAgentTask) => {
+    const [x, y] = [num(a.id), num(b.id)];
+    for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? -1) !== (y[i] ?? -1)) return (x[i] ?? -1) - (y[i] ?? -1);
+    return 0;
+  };
+  return [...groups.values()]
+    .map((g) => ({ ...g, tasks: [...g.tasks].sort(byNumber) }))
+    .sort((a, b) => b.tasks.length - a.tasks.length || a.projectPath.localeCompare(b.projectPath) || a.reporter.localeCompare(b.reporter));
+}
 
 // ── Права ──
 

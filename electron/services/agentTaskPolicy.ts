@@ -24,6 +24,32 @@ export const AGENT_TASK_LIMITS = {
   perProjectPerDay: 30
 } as const;
 
+export interface AgentTaskLimits {
+  perSession: number;
+  perProjectPerDay: number;
+}
+
+/** Допустимые значения лимитов в настройке (TASK-155): меньше одного — это уже режим `deny` роли. */
+export const AGENT_TASK_LIMIT_BOUNDS = {
+  perSession: { min: 1, max: 200 },
+  perProjectPerDay: { min: 1, max: 1000 }
+} as const;
+
+function clampLimit(value: unknown, bounds: { min: number; max: number }, fallback: number): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(bounds.max, Math.max(bounds.min, Math.round(n)));
+}
+
+/** Лимиты из настройки: нечисло — значение по умолчанию, выход за границы — ближайшая граница. */
+export function normalizeAgentTaskLimits(raw: unknown): AgentTaskLimits {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    perSession: clampLimit(r.perSession, AGENT_TASK_LIMIT_BOUNDS.perSession, AGENT_TASK_LIMITS.perSession),
+    perProjectPerDay: clampLimit(r.perProjectPerDay, AGENT_TASK_LIMIT_BOUNDS.perProjectPerDay, AGENT_TASK_LIMITS.perProjectPerDay)
+  };
+}
+
 export const TASK_CREATE_MODES: readonly TaskCreateMode[] = ['propose', 'ask', 'deny'];
 
 export function isTaskCreateMode(value: unknown): value is TaskCreateMode {
@@ -81,7 +107,7 @@ export function decideTaskCreate(input: {
   sessionCount: number;
   /** Сколько задач агенты завели в проекте за последние 24 часа. */
   dayCount: number;
-  limits?: { perSession: number; perProjectPerDay: number };
+  limits?: AgentTaskLimits;
 }): TaskCreateDecision {
   const limits = input.limits ?? AGENT_TASK_LIMITS;
   if (input.mode === 'deny') {

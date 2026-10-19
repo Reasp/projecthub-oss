@@ -17,9 +17,11 @@ import {
   EyeOff,
   MoreHorizontal,
   HelpCircle,
-  FolderKanban
+  FolderKanban,
+  KeyRound
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
+import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useWorkspaceTabs, type WorkspaceTabId } from '../../hooks/useWorkspaceTabs';
 import { WorkspaceTabsConfigModal } from '../projects/WorkspaceTabsConfigModal';
@@ -63,6 +65,9 @@ export const ActivityBar: React.FC = () => {
     resetToDefault,
     showAllTabs
   } = useWorkspaceTabs();
+
+  const restorableSecrets = useSecretRestoreStore((s) => s.restorableCount);
+  const openSecretRestore = useSecretRestoreStore((s) => s.open);
 
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [hiddenMenuAnchor, setHiddenMenuAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -247,6 +252,22 @@ export const ActivityBar: React.FC = () => {
       )}
 
       <div className="flex-1" />
+
+      {/* Вернуть секреты из резервной копии (TASK-154): видно, пока в копии есть что восстановить. */}
+      {restorableSecrets > 0 && (
+        <button
+          type="button"
+          onClick={openSecretRestore}
+          className={itemClass(false)}
+          title={t.secretIssues.restoreTitle}
+          aria-label={t.secretIssues.restoreTitle}
+        >
+          <KeyRound className="w-[18px] h-[18px] text-amber-400" />
+          <span className="absolute bottom-1.5 right-2 min-w-[14px] h-[14px] px-0.5 rounded-full bg-amber-600 text-[10px] font-semibold text-white flex items-center justify-center">
+            {restorableSecrets}
+          </span>
+        </button>
+      )}
 
       {selectedProject && (
         <button

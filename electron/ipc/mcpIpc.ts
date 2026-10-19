@@ -3,7 +3,8 @@ import { mcpServerService } from '../services/mcpServerService';
 import { remoteControlService } from '../services/remoteControlService';
 import { telegramService } from '../services/telegramService';
 import { notificationService } from '../services/notificationService';
-import { secretStorageService } from '../services/secretStorageService';
+import { secretStorageService, SECRETS_FILE_NAME } from '../services/secretStorageService';
+import { hitlService } from '../services/hitlService';
 import type { DeviceRights } from '../../src/types/remote';
 
 /** Секреты, которые хранит сам рендерер (ключ Whisper API в `voiceService`). */
@@ -72,6 +73,22 @@ export function registerMcpIpc() {
     const { backupFile } = await secretStorageService.getIssues();
     shell.showItemInFolder(backupFile);
     return true;
+  });
+  // Восстановление из копии (TASK-154): рендерер видит только ключи и статусы и передаёт id записей.
+  ipcMain.handle('secrets:getBackupPreview', () => secretStorageService.getBackupPreview());
+  ipcMain.handle('secrets:restoreFromBackup', async (_event, ids: unknown) => {
+    const list = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string').slice(0, 500) : [];
+    const result = await secretStorageService.restoreFromBackup(list);
+    // Аудит решения человека: имя ключа, без значения.
+    for (const key of result.restored) {
+      hitlService.recordHumanDecision(
+        { sessionId: 'ui', projectPath: '', type: 'file_write', title: `Секрет восстановлен из резервной копии: ${key}`, tool: 'secret_restore', filePath: SECRETS_FILE_NAME },
+        'allow',
+        { kind: 'local' },
+        'secret-restore'
+      );
+    }
+    return result;
   });
   secretStorageService.onIssuesChanged((state) => {
     for (const win of BrowserWindow.getAllWindows()) {

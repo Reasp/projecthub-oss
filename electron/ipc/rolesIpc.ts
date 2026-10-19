@@ -6,6 +6,7 @@ import { EXPORT_TARGETS, type ExportTarget } from '../services/roleExport';
 import { terminalHookService } from '../services/terminalHookService';
 import { mcpServerService } from '../services/mcpServerService';
 import type { RoleDefinition } from '../services/roleTypes';
+import { agentTaskSettings } from '../services/agentTaskApprovalInstance';
 
 /** Опции синхронизации из рендерера: только известные движки, тайм-аут хука — из настроек (TASK-77). */
 async function syncOptions(raw: unknown): Promise<RoleSyncOptions> {
@@ -23,6 +24,10 @@ function syncChoices(raw: unknown): RoleSyncChoices {
 
 /** Реестр ролей агентов (decision-9, TASK-60): global/project роли поверх builtin. */
 export function registerRolesIpc() {
+  // Лимиты задач, заведённых агентами (TASK-155, decision-89 п. 6): общие для всех ролей и проектов.
+  ipcMain.handle('agentTasks:getSettings', () => agentTaskSettings.get());
+  ipcMain.handle('agentTasks:saveSettings', (_event, raw: unknown) => agentTaskSettings.save(raw));
+
   ipcMain.handle('roles:list', async (_event, projectPath?: string) => {
     const safeProject = projectPath ? await assertRegisteredProject(projectPath) : undefined;
     return await loadRoles(safeProject);

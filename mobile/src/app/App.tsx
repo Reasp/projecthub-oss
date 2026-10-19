@@ -88,7 +88,8 @@ function Shell() {
   const status = useAppState((s) => s.status);
   const projects = useAppState((s) => s.projects);
   const projectPath = useAppState((s) => s.projectPath);
-  const hitlCount = useAppState((s) => s.hitl.length);
+  // Счётчик вкладки «Входящие»: решения HITL и задачи агентов на подтверждение (TASK-155).
+  const hitlCount = useAppState((s) => s.hitl.length + s.agentTasks.length);
   const conn = useAppState((s) => s.conn);
   const [tab, setTab] = useState<Tab>('inbox');
   const [hostOpen, setHostOpen] = useState(false);

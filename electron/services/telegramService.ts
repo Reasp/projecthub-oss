@@ -46,6 +46,11 @@ export function getServiceProcessesRoot(): string {
   return path.join(getUserDataDir(), 'services');
 }
 
+/** Ключ сообщения о пачке задач агента: кнопки снимаются, когда пачку подтвердили в любом канале (TASK-155). */
+export function agentTaskTrackKey(ticket: string): string {
+  return `atask:${ticket}`;
+}
+
 /** Сколько сообщений с кнопками помним, чтобы позже снять с них клавиатуру. */
 const TRACKED_MESSAGES_LIMIT = 200;
 
@@ -115,7 +120,10 @@ class TelegramService {
       parse_mode: 'Markdown'
     };
 
+    // Ключ, по которому позже снимаются кнопки: запрос HITL или билет пачки задач агента.
+    let trackKey: string | null = null;
     if (notification.requestId) {
+      trackKey = notification.requestId;
       body.reply_markup = {
         inline_keyboard: [
           [
@@ -124,13 +132,20 @@ class TelegramService {
           ]
         ]
       };
+    } else if (notification.agentTaskApproval) {
+      // Подтвердить задачи агента из Telegram (TASK-155): бот применит билет через /api/agent-tasks/approve.
+      const { ticket, count } = notification.agentTaskApproval;
+      trackKey = agentTaskTrackKey(ticket);
+      body.reply_markup = {
+        inline_keyboard: [[{ text: count > 1 ? `✅ Подтвердить все (${count})` : '✅ Подтвердить', callback_data: `atask:${ticket}` }]]
+      };
     }
 
     const result = await this.api<{ message_id?: number }>('sendMessage', body);
     if (!result) return false;
 
-    if (notification.requestId && typeof result.message_id === 'number') {
-      this.messagesByRequest.set(notification.requestId, {
+    if (trackKey && typeof result.message_id === 'number') {
+      this.messagesByRequest.set(trackKey, {
         chatId: creds.chatId,
         messageId: result.message_id,
         text

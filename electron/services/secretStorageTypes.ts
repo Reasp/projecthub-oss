@@ -29,3 +29,50 @@ export interface SecretIssuesState {
   /** Файл с резервными копиями нерасшифрованных значений. */
   backupFile: string;
 }
+
+/**
+ * Причина записи в резервной копии. Кроме сбоев чтения — `replaced`: значение, которое заменило
+ * восстановление из копии (TASK-154). По нему восстановление можно откатить.
+ */
+export type SecretBackupReason = SecretIssueReason | 'replaced';
+
+/**
+ * Можно ли вернуть запись копии сейчас:
+ * - `restorable` — расшифровывается ключом этого профиля и отличается от текущего значения;
+ * - `current` — расшифровывается и уже совпадает с текущим значением (восстановлена раньше);
+ * - `unreadable` — ключ всё ещё другой или шифрование ОС недоступно;
+ * - `noValue` — значения нет: запись об испорченном файле.
+ */
+export type SecretRestoreStatus = 'restorable' | 'current' | 'unreadable' | 'noValue';
+
+/** Запись резервной копии для предпросмотра. Значение наружу не отдаётся — ни открытое, ни зашифрованное. */
+export interface SecretBackupItem {
+  /** Устойчивый id записи (хэш), по нему рендерер выбирает, что восстановить. */
+  id: string;
+  key: string;
+  reason: SecretBackupReason;
+  source: SecretIssueSource;
+  at: number;
+  status: SecretRestoreStatus;
+  /** У ключа сейчас есть читаемое значение: восстановление заменит его, а старое уйдёт в копию. */
+  replacesCurrent: boolean;
+  /** Самая свежая восстанавливаемая запись своего ключа — её предлагают выбрать по умолчанию. */
+  suggested: boolean;
+  /** Когда запись уже восстанавливали. */
+  restoredAt?: number;
+}
+
+export interface SecretBackupPreview {
+  items: SecretBackupItem[];
+  backupFile: string;
+  encryptionAvailable: boolean;
+}
+
+export type SecretRestoreSkipReason = 'unknown' | 'notRestorable' | 'duplicateKey';
+
+export interface SecretRestoreResult {
+  /** Ключи, значения которых восстановлены. */
+  restored: string[];
+  skipped: Array<{ id: string; reason: SecretRestoreSkipReason }>;
+  preview: SecretBackupPreview;
+}

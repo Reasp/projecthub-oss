@@ -49,6 +49,7 @@ import { aiAgentService } from './aiAgentService.js';
 import { actionConfigService, type ActionDefinition } from './actionConfigService.js';
 import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { hitlService } from './hitlService.js';
+import { agentTaskApproval } from './agentTaskApprovalInstance.js';
 import { assignedTaskRunner } from './assignedTaskRunner.js';
 import { lanDiscoveryService } from './lanDiscoveryService.js';
 import { loadRoles } from './roleService.js';
@@ -1362,6 +1363,39 @@ class RemoteControlService {
       return;
     }
 
+    // Подтверждение задач агента кнопкой Telegram (TASK-155, decision-89 п. 11): по билету из уведомления,
+    // тем же путём, что окно и телефон. Токен обязателен, как и для HITL.
+    if (url.pathname === '/api/agent-tasks/approve' && req.method === 'POST') {
+      if (!this.isAuthorizedApiRequest(req, url)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 16 * 1024) req.destroy();
+      });
+      req.on('end', () => {
+        void (async () => {
+          try {
+            const payload = JSON.parse(body || '{}') as { ticket?: unknown; deviceName?: unknown };
+            const result = await agentTaskApproval.approveTicket(payload.ticket, {
+              kind: 'remote',
+              deviceName: typeof payload.deviceName === 'string' && payload.deviceName ? payload.deviceName.slice(0, 120) : 'Telegram'
+            });
+            if (result.ok && result.approved.length > 0) this.broadcastEvent('backlog:changed', { projectPath: result.projectPath });
+            res.writeHead(result.ok ? 200 : 409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result.ok ? { ok: true, approved: result.approved, notPending: result.notPending } : result));
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Invalid JSON' }));
+          }
+        })();
+      });
+      return;
+    }
+
     // Встроенный клиент (`/`, `/remote`), Telegram Mini App (`/telegram`) и их ассеты (`/m/…`) —
     // одна сборка `mobile/` (TASK-140.1, decision-79 п. 1).
     const route = resolveMobileClientRoute(url.pathname);
@@ -2040,6 +2074,7 @@ class RemoteControlService {
       'git_push',
       'send_ai_prompt',
       'hitl_decision',
+      'approve_agent_tasks',
       'run_action',
       'start_assigned_agent',
       'stop_swarm',
@@ -2059,7 +2094,8 @@ class RemoteControlService {
       if (rights === 'readOnly') {
         throw new Error(`Method ${method} is forbidden for this device (readOnly rights)`);
       }
-      if (rights === 'hitl' && method !== 'hitl_decision') {
+      // Подтверждение задачи агента — такое же решение человека, как HITL (decision-89 п. 11).
+      if (rights === 'hitl' && method !== 'hitl_decision' && method !== 'approve_agent_tasks') {
         throw new Error(`Method ${method} is forbidden for this device (hitl-only rights)`);
       }
     }
@@ -2195,6 +2231,34 @@ class RemoteControlService {
           byDevice: device.name
         });
         return { ok: true, decision: approved, sessionId: result.request.sessionId };
+      }
+
+      // Задачи агентов, ждущие подтверждения (TASK-155): все проекты хоста — «Входящие» телефона не привязаны к проекту.
+      case 'get_pending_agent_tasks': {
+        const projectPath = typeof params.projectPath === 'string' && params.projectPath ? await assertRegisteredProject(params.projectPath) : undefined;
+        return (await agentTaskApproval.listPending(projectPath)).map(({ projectPath: p, id, title, reporter, created }) => ({
+          projectPath: p,
+          id,
+          title,
+          ...(reporter ? { reporter } : {}),
+          ...(created ? { created } : {})
+        }));
+      }
+
+      // Подтверждение с телефона: по id задач или всех задач автора в проекте, тем же путём, что окно.
+      case 'approve_agent_tasks': {
+        const projectPath = await assertRegisteredProject(String(params.projectPath || ''));
+        const ids = Array.isArray(params.taskIds) ? params.taskIds.filter((id: unknown): id is string => typeof id === 'string').slice(0, 200) : undefined;
+        const reporter = typeof params.reporter === 'string' && params.reporter ? params.reporter : undefined;
+        if (!ids && !reporter) throw new Error('taskIds or reporter is required');
+        const result = await agentTaskApproval.approveInProject(
+          projectPath,
+          { ...(ids ? { ids } : {}), ...(reporter ? { reporter } : {}) },
+          { kind: 'remote', deviceId: device.id, deviceName: device.name },
+          'phone'
+        );
+        if (result.approved.length > 0) this.broadcastEvent('backlog:changed', { projectPath });
+        return result;
       }
 
       case 'create_task': {
