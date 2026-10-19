@@ -39,8 +39,10 @@ import type {
   TemplateEntry
 } from '../../types/projectInit';
 import { TemplatesModal } from './TemplatesModal';
+import { InitDiffView } from './InitDiffView';
 
-export type ProjectInitMode = 'existing' | 'new' | 'folder';
+/** `update` — обновление существующего проекта из новой версии шаблона (TASK-156). */
+export type ProjectInitMode = 'existing' | 'new' | 'folder' | 'update';
 
 interface ProjectInitModalProps {
   isOpen: boolean;
@@ -119,11 +121,13 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
   const [claudeAccountId, setClaudeAccountId] = useState('');
   const [initialClaudeAccountId, setInitialClaudeAccountId] = useState('');
   const [accountWarning, setAccountWarning] = useState<string | null>(null);
+  // Режим обновления: настройки шаблона из lock-файла; предпросмотр — только после них.
+  const [updateReady, setUpdateReady] = useState(mode !== 'update');
   const requestSeq = useRef(0);
   const logRef = useRef<HTMLPreElement | null>(null);
 
   const targetDir = useMemo(() => {
-    if (mode === 'existing') return projectPath ?? '';
+    if (mode === 'existing' || mode === 'update') return projectPath ?? '';
     if (mode === 'folder') return folder ?? '';
     return projectName.trim() && parentDir.trim() ? joinPath(parentDir.trim(), projectName.trim()) : '';
   }, [mode, projectPath, folder, projectName, parentDir]);
@@ -153,10 +157,27 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
     setClaudeAccountId('');
     setInitialClaudeAccountId('');
     setAccountWarning(null);
+    setUpdateReady(mode !== 'update');
+    if (mode === 'update' && projectPath) {
+      void window.api.initTemplateStatus(projectPath, language).then((res) => {
+        if (res.ok) {
+          const status = res.value;
+          setTemplateId(status.templateId ?? 'builtin');
+          if (status.placement) setPlacement(status.placement);
+          setFeatures(status.features);
+          setSets(status.sets);
+          if (status.gitHooks !== undefined) setGitHooks(status.gitHooks);
+        } else {
+          setTemplateId('builtin');
+          setError(res.error);
+        }
+        setUpdateReady(true);
+      });
+    }
     void loadTemplates();
     void refreshClaudeAccounts();
     // У существующего проекта показываем его текущую привязку.
-    if (mode === 'existing' && projectPath && window.api?.claudeAccounts) {
+    if ((mode === 'existing' || mode === 'update') && projectPath && window.api?.claudeAccounts) {
       void window.api.claudeAccounts
         .forProject(projectPath)
         .then((resolved) => {
@@ -188,7 +209,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
 
   // Предпросмотр пересчитывается при каждом изменении настроек: по нему окно знает фичи шаблона и что уже есть.
   useEffect(() => {
-    if (!isOpen || step !== 'setup' || !targetDir) {
+    if (!isOpen || step !== 'setup' || !targetDir || !updateReady) {
       if (!targetDir) setPreview(null);
       return;
     }
@@ -207,7 +228,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [isOpen, step, request, targetDir]);
+  }, [isOpen, step, request, targetDir, updateReady]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -238,7 +259,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
   const actionLabel = (action: InitAction, item?: InitPlanItem) =>
     item?.kind === 'command' && action === 'create'
       ? ti.actionRun
-      : { create: ti.actionCreate, append: ti.actionAppend, merge: ti.actionMerge, replace: ti.actionReplace, skip: ti.actionSkip }[action];
+      : { create: ti.actionCreate, append: ti.actionAppend, merge: ti.actionMerge, replace: ti.actionReplace, delete: ti.actionDelete, skip: ti.actionSkip }[action];
 
   const reasonLabel = (reason: InitReason, detail?: string): string => {
     const map: Record<InitReason, string> = {
@@ -254,6 +275,11 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
       'not-json': ti.reasonNotJson,
       'template-file': ti.reasonTemplateFile,
       'template-changed': ti.reasonTemplateChanged,
+      'template-updated': ti.reasonTemplateUpdated,
+      'user-modified': ti.reasonUserModified,
+      conflict: ti.reasonConflict,
+      'user-deleted': ti.reasonUserDeleted,
+      'template-removed': ti.reasonTemplateRemoved,
       'hooks-conflict': ti.reasonHooksConflict,
       'feature-off': ti.reasonFeatureOff,
       'entry-missing': ti.reasonEntryMissing
@@ -349,9 +375,36 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
     onClose();
   };
 
-  const commitText = report ? commitCommand(report, language === 'en' ? 'chore: initialize ProjectHub' : 'chore: инициализация ProjectHub') : '';
+  const commitMessage =
+    mode === 'update'
+      ? language === 'en' ? 'chore: update ProjectHub template' : 'chore: обновление шаблона ProjectHub'
+      : language === 'en' ? 'chore: initialize ProjectHub' : 'chore: инициализация ProjectHub';
+  const commitText = report ? commitCommand(report, commitMessage) : '';
 
-  const title = mode === 'new' ? ti.titleNew : mode === 'folder' ? ti.titleFolder : ti.titleExisting;
+  const title = mode === 'new' ? ti.titleNew : mode === 'folder' ? ti.titleFolder : mode === 'update' ? ti.titleUpdate : ti.titleExisting;
+  const conflicts = items.filter((item) => item.reason === 'conflict').length;
+  const diffLabels = { tooLarge: ti.diffTooLarge, same: ti.diffSame, gap: ti.diffGap };
+
+  // Что станет с файлом при действии, которое пишет: для пункта «пропустить» — при первом пишущем варианте.
+  const nextText = (item: InitPlanItem, action: InitAction): string | null | undefined => {
+    const writing = action !== 'skip' ? action : item.options.find((option) => option !== 'skip');
+    if (!writing) return undefined;
+    if (writing === 'delete') return '';
+    return item.contents?.[writing] ?? (item.copyFrom ? item.compare?.template : undefined);
+  };
+  const templateNext = (item: InitPlanItem): string | null | undefined =>
+    item.contents?.replace ?? item.contents?.create ?? (item.copyFrom ? item.compare?.template : undefined);
+
+  // Строка о версии шаблона: обновление по lock-файлу или повторная инициализация без него.
+  const updateBanner = (() => {
+    if (!tpl) return null;
+    if (tpl.applied) {
+      return tpl.applied.changed
+        ? ti.updateFrom.replace('{name}', tpl.entry.name).replace('{from}', tpl.applied.version || '?').replace('{to}', tpl.entry.version || '?')
+        : ti.updateSame.replace('{version}', tpl.applied.version || '?');
+    }
+    return mode === 'update' ? ti.updateNoLock : null;
+  })();
   const stepIndex = { setup: 1, preview: 2, applying: 3, done: 3 }[step];
   const stepName = { setup: ti.stepSetup, preview: ti.stepPreview, applying: ti.stepApply, done: ti.stepDone }[step];
   const busy = step === 'applying';
@@ -401,7 +454,12 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
               {/* Папка */}
               <section className="space-y-2">
                 <h3 className="font-medium text-slate-200 text-[11px]">{ti.location}</h3>
-                {mode === 'existing' && <div className={`${card} font-mono text-indigo-300 break-all`}>{projectPath}</div>}
+                {(mode === 'existing' || mode === 'update') && <div className={`${card} font-mono text-indigo-300 break-all`}>{projectPath}</div>}
+                {mode === 'update' && updateBanner && (
+                  <div className="text-[11px] text-sky-300" data-testid="init-update-banner">
+                    {updateBanner}
+                  </div>
+                )}
                 {mode === 'folder' && (
                   <div className="flex items-center gap-2">
                     <div className={`${card} flex-1 font-mono break-all ${folder ? 'text-indigo-300' : 'text-slate-500'}`}>{folder ?? ti.folderNotChosen}</div>
@@ -654,6 +712,12 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
           {step === 'preview' && preview && (
             <div className="space-y-4">
               <p className="text-[11px] text-slate-400">{ti.previewDesc}</p>
+              {updateBanner && (
+                <div className="p-3 rounded-xl bg-sky-950/30 border border-sky-800/50 text-sky-200 text-[11px] space-y-1" data-testid="init-update-banner">
+                  <div>{updateBanner}</div>
+                  {conflicts > 0 && <div className="text-amber-300">{ti.conflictsCount.replace('{count}', String(conflicts))}</div>}
+                </div>
+              )}
               {claudeAccountId !== initialClaudeAccountId && (
                 <div className="text-[11px] text-slate-300">
                   {ti.claudeAccountBound.replace('{name}', chosenAccountName ?? ti.claudeAccountDefault)}
@@ -679,11 +743,15 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
                       {groupItems.map((item) => {
                         const action = actionOf(item);
                         const content = item.contents?.[action];
+                        const compare = item.compare;
+                        const expandable = content !== undefined || compare !== undefined;
                         const isOpenRow = expanded[item.id];
+                        const projectAfter = compare ? nextText(item, action) : undefined;
+                        const templateAfter = compare ? templateNext(item) : undefined;
                         return (
                           <div key={item.id} className={action === 'skip' ? 'bg-ph-hover/20' : 'bg-ph-hover/60'}>
                             <div className="flex items-center gap-2 px-3 py-2">
-                              {content !== undefined ? (
+                              {expandable ? (
                                 <button
                                   type="button"
                                   onClick={() => setExpanded((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
@@ -700,7 +768,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
                               <span className={`font-mono truncate ${action === 'skip' ? 'text-slate-500' : 'text-slate-200'}`} title={item.path}>
                                 {item.kind === 'command' && item.detail ? item.detail : item.path}
                               </span>
-                              <span className="text-[10px] text-slate-500 shrink-0">{reasonLabel(item.reason, item.detail)}</span>
+                              <span className={`text-[10px] shrink-0 ${item.reason === 'conflict' ? 'text-amber-300' : 'text-slate-500'}`}>{reasonLabel(item.reason, item.detail)}</span>
                               <span className="ml-auto shrink-0">
                                 {item.options.length > 1 ? (
                                   <select
@@ -719,7 +787,23 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
                                 )}
                               </span>
                             </div>
-                            {isOpenRow && content !== undefined && (
+                            {isOpenRow && compare && (
+                              <div className="mx-3 mb-2 space-y-1.5">
+                                {compare.binary ? (
+                                  <div className="text-[11px] text-slate-500">{ti.diffBinary}</div>
+                                ) : (
+                                  <>
+                                    {typeof compare.base === 'string' && typeof templateAfter === 'string' && (
+                                      <InitDiffView title={ti.diffTemplate} before={compare.base} after={templateAfter} labels={diffLabels} />
+                                    )}
+                                    {typeof compare.current === 'string' && typeof projectAfter === 'string' && (
+                                      <InitDiffView title={ti.diffProject} before={compare.current} after={projectAfter} labels={diffLabels} />
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            {isOpenRow && !compare && content !== undefined && (
                               <pre className="mx-3 mb-2 p-2.5 rounded-lg bg-ph-base border border-slate-800 text-[11px] text-slate-300 max-h-64 overflow-auto whitespace-pre-wrap break-words">
                                 {content}
                               </pre>
@@ -890,7 +974,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
           setTemplatesOpen(false);
           void loadTemplates();
         }}
-        projectPath={mode === 'existing' ? projectPath : undefined}
+        projectPath={mode === 'existing' || mode === 'update' ? projectPath : undefined}
       />
     </div>
   );

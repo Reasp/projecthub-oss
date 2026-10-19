@@ -270,6 +270,8 @@ export interface McpServerStatus {
 /** Сведения экрана «Диагностика» (TASK-58): версии, пути, уровень логирования. */
 export interface DiagnosticsInfo {
   appVersion: string;
+  /** Отметка сборки (TASK-158) — зеркало electron/services/buildInfo.ts. */
+  build: { commit: string; commitDate: string | null; dirtyFiles: number; builtAt: string } | null;
   electronVersion: string;
   chromeVersion: string;
   nodeVersion: string;
@@ -853,6 +855,7 @@ export interface IElectronAPI {
   initPreview: (request: import('./projectInit').InitRequest) => Promise<import('./projectInit').IpcResult<import('./projectInit').InitPreview>>;
   initApply: (request: import('./projectInit').InitApplyRequest) => Promise<import('./projectInit').IpcResult<import('./projectInit').InitReport>>;
   initFoundationStatus: (projectPath: string) => Promise<import('./projectInit').IpcResult<import('./projectInit').FoundationPart[]>>;
+  initTemplateStatus: (projectPath: string, locale: string) => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateUpdateStatus>>;
   onInitProgress: (callback: (event: import('./projectInit').InitProgressEvent) => void) => () => void;
   templatesList: (locale: string) => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry[]>>;
   templatesAddFolder: () => Promise<import('./projectInit').IpcResult<import('./projectInit').TemplateEntry | null>>;
@@ -1271,6 +1274,7 @@ export interface IElectronAPI {
   showSecretBackup: () => Promise<boolean>;
   getSecretBackupPreview: () => Promise<SecretBackupPreview>;
   restoreSecretsFromBackup: (ids: string[]) => Promise<SecretRestoreResult>;
+  deleteSecretBackupEntries: (ids: string[]) => Promise<SecretBackupDeleteResult>;
   onSecretIssuesChanged: (callback: (state: SecretIssuesState) => void) => () => void;
 
   // Remote MCP Server
@@ -2150,6 +2154,13 @@ export interface SecretBackupPreview {
   items: SecretBackupItem[];
   backupFile: string;
   encryptionAvailable: boolean;
+}
+
+/** Удаление записей из копии (TASK-157). */
+export interface SecretBackupDeleteResult {
+  removed: string[];
+  skipped: Array<{ id: string; reason: 'unknown' }>;
+  preview: SecretBackupPreview;
 }
 
 export interface SecretRestoreResult {

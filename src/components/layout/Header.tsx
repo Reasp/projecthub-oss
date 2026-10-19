@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Code, FolderOpen, TerminalSquare, ShieldAlert, Loader2, Wand2 } from '../common/icons';
+import React, { useEffect, useState } from 'react';
+import { Code, FolderOpen, TerminalSquare, ShieldAlert, Loader2, Wand2, RefreshCw } from '../common/icons';
 import { ProjectInitModal } from '../projects/ProjectInitModal';
+import type { TemplateUpdateStatus } from '../../types/projectInit';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { ActionRunnerBar } from '../actions/ActionRunnerBar';
@@ -17,7 +18,7 @@ import { ClaudeAccountBadge } from '../ai/ClaudeAccountBadge';
  * навигация по вкладкам — в Activity Bar, переключатель сайдбара — там же.
  */
 export const Header: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const dialog = useDialog();
   const {
     selectedProject,
@@ -28,6 +29,24 @@ export const Header: React.FC = () => {
     workspaceRoot
   } = useProjectStore();
   const [isInitOpen, setIsInitOpen] = useState(false);
+  const [initMode, setInitMode] = useState<'existing' | 'update'>('existing');
+  // Новая версия шаблона проекта (TASK-156): перепроверяется при смене проекта и после окна обновления.
+  const [templateStatus, setTemplateStatus] = useState<TemplateUpdateStatus | null>(null);
+  const statusPath = selectedProject?.path;
+  useEffect(() => {
+    setTemplateStatus(null);
+    if (!statusPath || isInitOpen || !window.api?.initTemplateStatus) return;
+    let cancelled = false;
+    window.api
+      .initTemplateStatus(statusPath, language)
+      .then((res) => {
+        if (!cancelled && res.ok) setTemplateStatus(res.value);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [statusPath, language, isInitOpen]);
 
   if (!selectedProject) {
     return (
@@ -87,7 +106,10 @@ export const Header: React.FC = () => {
         {/* Основы не хватает (decision-78, п. 2) — кнопка инициализации проекта */}
         {selectedProject.foundationMissing && selectedProject.foundationMissing.length > 0 && (
           <button
-            onClick={() => setIsInitOpen(true)}
+            onClick={() => {
+              setInitMode('existing');
+              setIsInitOpen(true);
+            }}
             title={t.init.initTooltip.replace(
               '{parts}',
               selectedProject.foundationMissing
@@ -98,6 +120,28 @@ export const Header: React.FC = () => {
           >
             <Wand2 className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">{t.init.initButton}</span>
+          </button>
+        )}
+        {/* Новая версия шаблона проекта или проект без lock-файла (TASK-156) */}
+        {templateStatus?.updateAvailable && (
+          <button
+            onClick={() => {
+              setInitMode('update');
+              setIsInitOpen(true);
+            }}
+            title={
+              templateStatus.hasLock
+                ? t.init.updateTooltip
+                    .replace('{name}', templateStatus.templateName ?? '')
+                    .replace('{from}', templateStatus.appliedVersion || '?')
+                    .replace('{to}', templateStatus.availableVersion || '?')
+                : t.init.updateTooltipLegacy.replace('{name}', templateStatus.templateName ?? '')
+            }
+            className={`${toolButton} text-sky-300 hover:text-sky-200`}
+            data-testid="header-template-update"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{t.init.updateButton}</span>
           </button>
         )}
         {/* Аккаунт Claude Code проекта (TASK-152.3): чья квота расходуется */}
@@ -129,7 +173,7 @@ export const Header: React.FC = () => {
           <VoiceBadge command={t.voice.voiceBadges.terminal} />
         </button>
       </div>
-      <ProjectInitModal isOpen={isInitOpen} onClose={() => setIsInitOpen(false)} mode="existing" projectPath={selectedProject.path} />
+      <ProjectInitModal isOpen={isInitOpen} onClose={() => setIsInitOpen(false)} mode={initMode} projectPath={selectedProject.path} />
     </header>
   );
 };

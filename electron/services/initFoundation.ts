@@ -26,8 +26,11 @@ import {
 
 export type InitLocale = 'ru' | 'en';
 
-/** Действие над файлом: создать, дописать секцию/строки, слить JSON или YAML, заменить целиком, пропустить. */
-export type InitAction = 'create' | 'append' | 'merge' | 'replace' | 'skip';
+/**
+ * Действие над файлом: создать, дописать секцию/строки, слить JSON или YAML, заменить целиком,
+ * удалить (файл, который шаблон больше не даёт, TASK-156), пропустить.
+ */
+export type InitAction = 'create' | 'append' | 'merge' | 'replace' | 'delete' | 'skip';
 
 export type InitGroup = 'git' | 'tasks' | 'docs' | 'rules' | 'mcp' | 'template';
 
@@ -45,6 +48,13 @@ export type InitReason =
   | 'not-json'
   | 'template-file'
   | 'template-changed'
+  // Обновление по lock-файлу (TASK-156): шаблон изменил файл, который пользователь не трогал;
+  // пользователь изменил, шаблон — нет; изменили оба; пользователь удалил; шаблон больше не даёт.
+  | 'template-updated'
+  | 'user-modified'
+  | 'conflict'
+  | 'user-deleted'
+  | 'template-removed'
   | 'hooks-conflict'
   | 'feature-off'
   | 'entry-missing';
@@ -71,6 +81,12 @@ export interface InitPlanItem {
   label?: string;
   /** Файл шаблона (путь от корня шаблона), который копируется как есть. */
   copyFrom?: string;
+  /**
+   * Тексты для диффа в предпросмотре (TASK-156): `current` — файл в проекте, `template` — файл
+   * шаблона для `copyFrom`, `base` — что шаблон дал при прошлом применении. Двоичный или слишком
+   * большой файл — `binary`.
+   */
+  compare?: { current?: string | null; template?: string | null; base?: string | null; binary?: boolean };
 }
 
 /** Файлы проекта, которые нужны плану основы. `null` — файла нет. */

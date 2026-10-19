@@ -35,6 +35,8 @@ dist-electron/
 release/
 # pack-win.mjs при EBUSY собирает во временный каталог release_tmp_<timestamp>/ — тоже не коммитим
 release_tmp*/
+# Отметка сборки (scripts/build-info.mjs, TASK-158): пишется каждой сборкой
+build/build-info.json
 
 # IDE
 .vscode/

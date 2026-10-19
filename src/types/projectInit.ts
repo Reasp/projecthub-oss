@@ -9,7 +9,8 @@ export type {
   InitReport,
   InitProgressEvent,
   InitTemplateView,
-  InitOptionView
+  InitOptionView,
+  TemplateUpdateStatus
 } from '../../electron/services/projectInitService';
 export type { InitAction, InitPlanItem, InitReason, InitGroup, FoundationPart, RulesMode } from '../../electron/services/initFoundation';
 export type { TemplateEntry, TemplateOrigin } from '../../electron/services/templateCatalog';

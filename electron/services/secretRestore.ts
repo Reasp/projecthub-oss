@@ -13,6 +13,7 @@ import type {
   SecretRestoreSkipReason,
   SecretRestoreStatus
 } from './secretStorageTypes.js';
+import { isSoleCopy } from '../../src/utils/secretBackup.js';
 
 /** Запись копии, как она лежит на диске. */
 export interface SecretBackupEntry {
@@ -112,4 +113,27 @@ export function planSecretRestore(items: readonly SecretBackupItem[], selectedId
     skipped.push({ id: drop.id, reason: 'duplicateKey' });
   }
   return { restore: [...chosen.values()], skipped };
+}
+
+export interface SecretBackupRemovalPlan {
+  remove: SecretBackupItem[];
+  skipped: Array<{ id: string; reason: 'unknown' }>;
+  /** Сколько из удаляемых — единственная копия значения (`isSoleCopy`). */
+  soleCopies: number;
+}
+
+/**
+ * Что удалить из копии по выбору человека (TASK-157). Любые записи, в том числе несколько записей
+ * одного ключа; неизвестный id (копия изменилась после предпросмотра) пропускается.
+ */
+export function planBackupRemoval(items: readonly SecretBackupItem[], selectedIds: readonly string[]): SecretBackupRemovalPlan {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const remove: SecretBackupItem[] = [];
+  const skipped: SecretBackupRemovalPlan['skipped'] = [];
+  for (const id of new Set(selectedIds)) {
+    const item = byId.get(id);
+    if (item) remove.push(item);
+    else skipped.push({ id, reason: 'unknown' });
+  }
+  return { remove, skipped, soleCopies: remove.filter(isSoleCopy).length };
 }

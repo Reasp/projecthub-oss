@@ -1,17 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, X, RefreshCw, Download, FileArchive, ExternalLink } from '../common/icons';
+import { Activity, X, RefreshCw, Download, FileArchive, ExternalLink, KeyRound } from '../common/icons';
 
 import type { DiagnosticsInfo, UpdaterStatus } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
 
 export const DiagnosticsBadge: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [info, setInfo] = useState<DiagnosticsInfo | null>(null);
   const [updater, setUpdater] = useState<UpdaterStatus | null>(null);
   const [archiveMessage, setArchiveMessage] = useState<string | null>(null);
   const [isCollecting, setIsCollecting] = useState(false);
+  // Записей в резервной копии секретов (TASK-157): окно восстановления открывается отсюда всегда,
+  // а не только когда есть что вернуть — иначе ненужные записи нечем удалить.
+  const [backupEntries, setBackupEntries] = useState(0);
+  const openSecretRestore = useSecretRestoreStore((s) => s.open);
 
   useEffect(() => {
     window.api?.getUpdaterStatus?.().then(setUpdater).catch(() => {});
@@ -22,6 +27,9 @@ export const DiagnosticsBadge: React.FC = () => {
   useEffect(() => {
     if (!isOpen) return;
     window.api?.getDiagnosticsInfo?.().then(setInfo).catch(() => {});
+    window.api?.getSecretBackupPreview?.()
+      .then((preview) => setBackupEntries(preview.items.length))
+      .catch(() => setBackupEntries(0));
   }, [isOpen]);
 
   const handleCheckUpdates = async () => {
@@ -128,11 +136,40 @@ export const DiagnosticsBadge: React.FC = () => {
                     <div className="text-slate-500">{t.diagnostics.platform}</div>
                     <div className="font-mono text-slate-200">{info.platform} ({info.arch})</div>
                   </div>
+                  {/* Какая сборка запущена (TASK-158): версия всегда 0.1.0, различает сборки только коммит и время */}
+                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 col-span-2" data-testid="diagnostics-build">
+                    <div className="text-slate-500">{t.diagnostics.build}</div>
+                    <div className="font-mono text-slate-200">
+                      {info.build
+                        ? t.diagnostics.buildValue
+                            .replace('{commit}', info.build.commit.slice(0, 7))
+                            .replace('{built}', new Date(info.build.builtAt).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US'))
+                        : t.diagnostics.buildUnknown}
+                      {info.build && info.build.dirtyFiles > 0 && (
+                        <span className="text-amber-300"> {t.diagnostics.buildDirty.replace('{count}', String(info.build.dirtyFiles))}</span>
+                      )}
+                    </div>
+                  </div>
                   <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 col-span-2">
                     <div className="text-slate-500">{t.diagnostics.userDataDir}</div>
                     <div className="font-mono text-slate-300 truncate" title={info.userDataDir}>{info.userDataDir}</div>
                   </div>
                 </div>
+              )}
+
+              {backupEntries > 0 && (
+                <button
+                  type="button"
+                  data-testid="diagnostics-secret-backup"
+                  onClick={() => {
+                    setIsOpen(false);
+                    openSecretRestore();
+                  }}
+                  className="w-full flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 text-[11px] text-slate-300 hover:border-slate-600 hover:text-white transition"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                  {t.diagnostics.secretBackup.replace('{count}', String(backupEntries))}
+                </button>
               )}
 
               <div className="space-y-2 text-xs">

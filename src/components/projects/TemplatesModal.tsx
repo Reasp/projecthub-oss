@@ -25,9 +25,11 @@ interface TemplatesModalProps {
   onClose: () => void;
   /** Проект, который можно сохранить шаблоном. */
   projectPath?: string;
+  /** Открыть обновление проекта из шаблона (TASK-156); без обработчика кнопки нет. */
+  onUpdateProject?: (projectPath: string) => void;
 }
 
-export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose, projectPath }) => {
+export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose, projectPath, onUpdateProject }) => {
   const { t, language } = useTranslation();
   const tt = t.templates;
   const dialog = useDialog();
@@ -217,6 +219,13 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
               <div className="px-3 py-3 text-center text-slate-500">{tt.empty}</div>
             )}
           </div>
+
+          {projectPath && onUpdateProject && (
+            <button type="button" onClick={() => onUpdateProject(projectPath)} className="ph-btn ph-btn-secondary" data-testid="templates-update-project">
+              <RefreshCw className="w-3.5 h-3.5 text-sky-400" />
+              {tt.updateProject}
+            </button>
+          )}
 
           {projectPath && (
             <section className="space-y-2">

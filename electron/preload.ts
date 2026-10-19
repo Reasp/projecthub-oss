@@ -76,6 +76,7 @@ const api: IElectronAPI = {
   initPreview: (request) => ipcRenderer.invoke('init:preview', request),
   initApply: (request) => ipcRenderer.invoke('init:apply', request),
   initFoundationStatus: (projectPath: string) => ipcRenderer.invoke('init:foundationStatus', projectPath),
+  initTemplateStatus: (projectPath: string, locale: string) => ipcRenderer.invoke('init:templateStatus', projectPath, locale),
   onInitProgress: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) => callback(data);
     ipcRenderer.on('init:progress', handler);
@@ -660,6 +661,7 @@ const api: IElectronAPI = {
   showSecretBackup: () => ipcRenderer.invoke('secrets:showBackup'),
   getSecretBackupPreview: () => ipcRenderer.invoke('secrets:getBackupPreview'),
   restoreSecretsFromBackup: (ids: string[]) => ipcRenderer.invoke('secrets:restoreFromBackup', ids),
+  deleteSecretBackupEntries: (ids: string[]) => ipcRenderer.invoke('secrets:deleteFromBackup', ids),
   onSecretIssuesChanged: (callback: (state: SecretIssuesState) => void) => {
     const handler = (_event: IpcRendererEvent, state: SecretIssuesState) => callback(state);
     ipcRenderer.on('secrets:issuesChanged', handler);

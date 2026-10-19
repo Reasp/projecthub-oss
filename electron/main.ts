@@ -35,6 +35,8 @@ import { projectRegistry } from './services/projectRegistry';
 import { findOwningProject } from './services/pathGuard';
 import { HOOK_SCRIPT_REL_PATH } from './services/roleExport';
 import { registerAllIpc } from './ipc';
+import { buildInfoPath, formatBuildInfo, readBuildInfo } from './services/buildInfo';
+import { RebuildWatch } from './services/rebuildWatch';
 
 // Локальные crash-репорты (TASK-58, decision-14 п.4, decision-7): дампы падений остаются на диске
 // пользователя (`app.getPath('crashDumps')`) и собираются в архив только вручную из «Диагностики» —
@@ -185,6 +187,45 @@ claudeBridgeService.on('subagentUpdated', (subagent) => {
   }
 });
 
+// Отметка сборки и замена сборки на диске (decision-92, TASK-158): старый процесс из трея
+// предлагает перезапуститься, когда приложение пересобрали.
+let rebuildWatch: RebuildWatch | null = null;
+
+function setupBuildInfo(): void {
+  const file = buildInfoPath(app.isPackaged, process.resourcesPath, app.getAppPath());
+  const running = readBuildInfo(file);
+  console.log(`[Main] ProjectHub ${app.getVersion()} — ${formatBuildInfo(running)}`);
+  rebuildWatch = new RebuildWatch({
+    running,
+    readOnDisk: () => readBuildInfo(file),
+    prompt: async (current, onDisk) => {
+      console.log(`[Main] Build replaced on disk: running ${formatBuildInfo(current)}, on disk ${formatBuildInfo(onDisk)}`);
+      const agents = collectActiveSessions().reduce((sum, session) => sum + session.activeAgents, 0);
+      const options = {
+        type: 'info' as const,
+        buttons: ['Позже', 'Перезапустить'],
+        defaultId: 1,
+        cancelId: 0,
+        title: 'ProjectHub пересобран',
+        message: 'Приложение на диске заменено новой сборкой, а работает прежняя.',
+        detail:
+          `Работает: ${formatBuildInfo(current)}\nНа диске: ${formatBuildInfo(onDisk)}\n\n` +
+          (agents > 0 ? `Сейчас работают агенты (${agents}): перезапуск прервёт их.\n\n` : '') +
+          'Перезапустить, чтобы открыть новую сборку?'
+      };
+      const result = win && !win.isDestroyed() ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+      if (result.response !== 1) return;
+      isQuitRequested = true;
+      app.relaunch();
+      app.quit();
+    }
+  });
+}
+
+function checkRebuilt(): void {
+  void rebuildWatch?.check().catch((err) => console.warn('[Main] Rebuild check failed:', err));
+}
+
 function createWindow() {
   const distPath = path.join(__dirname, '../dist');
   const indexPath = path.join(distPath, 'index.html');
@@ -270,6 +311,9 @@ function createWindow() {
       process.exit(0);
     }, 1500).unref();
   });
+
+  // Окно показали из трея или дока — самое время заметить, что сборку на диске заменили.
+  win.on('focus', checkRebuilt);
 
   win.on('closed', () => {
     win = null;
@@ -530,6 +574,8 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+  // macOS: запуск пересобранного .app с тем же appId приходит сюда, в уже работающий процесс.
+  checkRebuilt();
 });
 
 let isCleaningUp = false;
@@ -727,6 +773,7 @@ app.whenReady().then(() => {
     );
   });
 
+  setupBuildInfo();
   createWindow();
 
   // Трей, доставка уведомлений по каналам и демон Telegram-бота (TASK-63, decision-13)

@@ -17,6 +17,7 @@ import {
 } from './initMerge.js';
 import type { FoundationContribution, InitAction, InitLocale, InitPlanItem, InitReason } from './initFoundation.js';
 import { assembleRules, localize, MANIFEST_FILE, type McpServerDef, type TemplateManifest } from './templateManifest.js';
+import { sha256, threeWayDecision } from './templateLock.js';
 
 /** Файлы шаблона, которые никогда не копируются: данные самого шаблона и генерируемые файлы. */
 export const ALWAYS_EXCLUDE = [
@@ -95,6 +96,11 @@ export interface TemplateProjectState {
   texts: Record<string, string | null>;
   /** У проекта свои git-хуки (husky, lefthook, core.hooksPath, файлы в .git/hooks). */
   hooksConflict: string | null;
+  /**
+   * Хэши того, что шаблон дал файлам при прошлом применении, из lock-файла (TASK-156). `null` —
+   * lock-файла нет или он от другого шаблона: план как при повторной инициализации.
+   */
+  base?: Record<string, string> | null;
 }
 
 export interface TemplateLayerOptions {
@@ -126,6 +132,19 @@ export interface TemplateLayerResult {
   sets: Record<string, boolean>;
   gitHooks: { available: boolean; enabled: boolean; conflict: string | null };
   risks: TemplateRisks;
+  /**
+   * Файлы, содержимое которых целиком задаёт шаблон, — для lock-файла: путь от корня проекта →
+   * хэш и источник (файл шаблона или готовый текст). Сливаемые файлы сюда не входят.
+   */
+  tracked: Record<string, TrackedFile>;
+  /** Секция правил шаблона → sha256 её текста. */
+  rulesHashes: Record<string, string>;
+}
+
+export interface TrackedFile {
+  hash: string;
+  copyFrom?: string;
+  text?: string;
 }
 
 const INFRA_CONFIG = 'infra.config.json';
@@ -169,11 +188,20 @@ function enabledMap<T extends { id: string; default: boolean }>(list: T[], chose
   return Object.fromEntries(list.map((item) => [item.id, chosen[item.id] ?? item.default]));
 }
 
-function copyItem(dest: string, source: string, projectHash: string | null, templateHash: string): InitPlanItem {
-  const base = { id: `tpl:${dest}`, path: dest, kind: 'file' as const, group: 'template' as const, copyFrom: source };
-  if (projectHash === null) return { ...base, action: 'create', options: ['create', 'skip'], reason: 'template-file' };
-  if (projectHash === templateHash) return { ...base, action: 'skip', options: ['skip'], reason: 'up-to-date' };
-  return { ...base, action: 'skip', options: ['replace', 'skip'], reason: 'template-changed', backupOnReplace: true };
+function copyItem(dest: string, source: string, projectHash: string | null, templateHash: string, baseHash: string | undefined): InitPlanItem {
+  return { id: `tpl:${dest}`, path: dest, kind: 'file', group: 'template', copyFrom: source, ...threeWayDecision(projectHash, templateHash, baseHash) };
+}
+
+/**
+ * Файл, который шаблон собирает целиком (правила, манифест, package.json инфраструктуры). С
+ * записью в lock-файле — решение по трём версиям, без неё — прежнее поведение `legacy`.
+ */
+function trackedTextItem(id: string, dest: string, existing: string | null, next: string, baseHash: string | undefined, legacy: () => InitPlanItem): InitPlanItem {
+  if (baseHash === undefined) return legacy();
+  const decision = threeWayDecision(existing === null ? null : sha256(existing), sha256(next), baseHash);
+  const contents: InitPlanItem['contents'] = {};
+  for (const action of decision.options) if (action === 'create' || action === 'replace') contents[action] = next;
+  return { id, path: dest, kind: 'file', group: 'template', ...decision, contents };
 }
 
 function textItem(
@@ -215,6 +243,9 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
   const hooksEnabled = hooksAvailable && (options.gitHooks ?? !state.hooksConflict);
 
   const items: InitPlanItem[] = [];
+  const tracked: Record<string, TrackedFile> = {};
+  const rulesHashes: Record<string, string> = {};
+  const baseOf = (dest: string) => state.base?.[dest];
   const contribution: PlanContribution = {
     gitignore: [],
     rulesSections: [],
@@ -267,18 +298,22 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
         if (!infraDir) delete next.description;
         const existing = state.texts[dest] ?? null;
         const rendered = `${JSON.stringify(next, null, 2)}\n`;
+        tracked[dest] = { hash: sha256(rendered), text: rendered };
         items.push(
-          existing === null
-            ? { id: `tpl:${dest}`, path: dest, kind: 'file', group: 'template', action: 'create', options: ['create', 'skip'], reason: 'template-file', contents: { create: rendered } }
-            : existing === rendered
-              ? { id: `tpl:${dest}`, path: dest, kind: 'file', group: 'template', action: 'skip', options: ['skip'], reason: 'up-to-date' }
-              : { id: `tpl:${dest}`, path: dest, kind: 'file', group: 'template', action: 'skip', options: ['replace', 'skip'], reason: 'template-changed', contents: { replace: rendered }, backupOnReplace: true }
+          trackedTextItem(`tpl:${dest}`, dest, existing, rendered, baseOf(dest), () =>
+            existing === null
+              ? { id: `tpl:${dest}`, path: dest, kind: 'file', group: 'template', action: 'create', options: ['create', 'skip'], reason: 'template-file', contents: { create: rendered } }
+              : existing === rendered
+                ? { id: `tpl:${dest}`, path: dest, kind: 'file', group: 'template', action: 'skip', options: ['skip'], reason: 'up-to-date' }
+                : { id: `tpl:${dest}`, path: dest, kind: 'file', group: 'template', action: 'skip', options: ['replace', 'skip'], reason: 'template-changed', contents: { replace: rendered }, backupOnReplace: true }
+          )
         );
         continue;
       }
     }
 
-    items.push(copyItem(dest, file.path, state.hashes[dest] ?? null, file.hash));
+    tracked[dest] = { hash: file.hash, copyFrom: file.path };
+    items.push(copyItem(dest, file.path, state.hashes[dest] ?? null, file.hash, baseOf(dest)));
   }
 
   // 2. infra.config.json: корень проекта, фичи, хуки и происхождение шаблона.
@@ -301,7 +336,12 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
   // снова сохранить шаблоном («Сохранить проект как шаблон») без потери фич и MCP-серверов.
   const manifestPath = join(infraDir, MANIFEST_FILE);
   const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
-  items.push(textItem('tpl:manifest', manifestPath, state.texts[manifestPath] ?? null, manifestText, { mergeAction: 'replace', changedDefault: 'replace' }));
+  const replaceText = (id: string, dest: string, next: string) => {
+    const existing = state.texts[dest] ?? null;
+    tracked[dest] = { hash: sha256(next), text: next };
+    items.push(trackedTextItem(id, dest, existing, next, baseOf(dest), () => textItem(id, dest, existing, next, { mergeAction: 'replace', changedDefault: 'replace' })));
+  };
+  replaceText('tpl:manifest', manifestPath, manifestText);
 
   // 3. Правила: собранный текст — секцией в файлы правил, целиком в infra-dev.md и в правила Antigravity.
   if (manifest.rules) {
@@ -315,12 +355,9 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
       const body = assembleRules(source, enabled, { infraDir }).trim();
       contribution.rulesSections.push({ markers: sectionMarkers(manifest.rules.marker, manifest.rules.note), body });
       contribution.rulesTargets.push(...manifest.rules.targets);
-      const sourceDest = join(infraDir, manifest.rules.source);
-      items.push(textItem('tpl:rules-source', sourceDest, state.texts[sourceDest] ?? null, `${body}\n`, { mergeAction: 'replace', changedDefault: 'replace' }));
-      if (manifest.rules.agentsRules) {
-        const dest = manifest.rules.agentsRules;
-        items.push(textItem('tpl:agents-rules', dest, state.texts[dest] ?? null, `${body}\n`, { mergeAction: 'replace', changedDefault: 'replace' }));
-      }
+      rulesHashes[manifest.rules.marker] = sha256(body);
+      replaceText('tpl:rules-source', join(infraDir, manifest.rules.source), `${body}\n`);
+      if (manifest.rules.agentsRules) replaceText('tpl:agents-rules', manifest.rules.agentsRules, `${body}\n`);
     }
   }
 
@@ -355,7 +392,14 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
   }
   if (manifest.statuses) contribution.statuses = manifest.statuses;
 
-  // 6. Команды после применения — пунктами плана, чтобы пользователь видел и мог снять каждую.
+  // 6. Файлы, которые шаблон давал при прошлом применении, а теперь нет (удалены из шаблона или
+  //    выключена их фича): предложить удалить, по умолчанию оставить.
+  for (const dest of Object.keys(state.base ?? {}).sort()) {
+    if (tracked[dest] || state.hashes[dest] == null) continue;
+    items.push({ id: `tpl-removed:${dest}`, path: dest, kind: 'file', group: 'template', action: 'skip', options: ['delete', 'skip'], reason: 'template-removed', backupOnReplace: true });
+  }
+
+  // 7. Команды после применения — пунктами плана, чтобы пользователь видел и мог снять каждую.
   const commandItems: TemplateRisks['commands'] = [];
   for (const command of manifest.commands) {
     if (!isOn(command.when)) continue;
@@ -391,7 +435,9 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
     features,
     sets,
     gitHooks: { available: hooksAvailable, enabled: hooksEnabled, conflict: state.hooksConflict },
-    risks
+    risks,
+    tracked,
+    rulesHashes
   };
 }
 

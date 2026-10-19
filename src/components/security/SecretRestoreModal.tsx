@@ -1,15 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FolderOpen, KeyRound, Loader2, RefreshCw, X } from '../common/icons';
+import { FolderOpen, KeyRound, Loader2, RefreshCw, Trash2, X } from '../common/icons';
 import type { SecretBackupItem, SecretBackupPreview } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
 import { secretKeyLabel, secretReasonLabel, secretSourceLabel } from './secretLabels';
+import { useDialog } from '../../hooks/useDialog';
+import { isSoleCopy } from '../../utils/secretBackup';
 
 /**
  * Восстановление секретов из резервной копии (TASK-154, долг decision-88 п. 5).
  * Значения не показываются: только какой секрет, почему он в копии и можно ли вернуть его сейчас.
  * Main сам перепроверяет выбор (`planSecretRestore`), рендерер передаёт только id записей.
+ * Режим «Удаление» (TASK-157, decision-90 п. 7) убирает выбранные записи из копии после подтверждения.
  * Модальное окно первого уровня — `z-[9999]` через portal (decision-17).
  */
 export const SecretRestoreModal: React.FC = () => {
@@ -22,12 +25,16 @@ export const SecretRestoreModal: React.FC = () => {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; lines: string[] } | null>(null);
+  const [mode, setMode] = useState<'restore' | 'delete'>('restore');
+  const [toDelete, setToDelete] = useState<Set<string>>(new Set());
+  const dialog = useDialog();
 
   const apply = useCallback(
     (next: SecretBackupPreview) => {
       setPreview(next);
       setRestorableCount(next.items.filter((i) => i.suggested).length);
       setSelected(new Set(next.items.filter((i) => i.suggested).map((i) => i.id)));
+      setToDelete(new Set());
     },
     [setRestorableCount]
   );
@@ -43,6 +50,7 @@ export const SecretRestoreModal: React.FC = () => {
   useEffect(() => {
     if (!isOpen) return;
     setMessage(null);
+    setMode('restore');
     void load();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
@@ -54,6 +62,16 @@ export const SecretRestoreModal: React.FC = () => {
   if (!isOpen) return null;
 
   const toggle = (item: SecretBackupItem) => {
+    if (mode === 'delete') {
+      // Удаление: любые записи, несколько записей одного ключа — тоже.
+      setToDelete((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(item.id)) {
@@ -86,6 +104,34 @@ export const SecretRestoreModal: React.FC = () => {
     }
   };
 
+  const remove = async () => {
+    const chosen = (preview?.items ?? []).filter((i) => toDelete.has(i.id));
+    if (chosen.length === 0) return;
+    const sole = chosen.filter(isSoleCopy).length;
+    const ok = await dialog.confirm({
+      title: s.deleteConfirmTitle,
+      message: [s.deleteConfirmMessage.replace('{count}', String(chosen.length)), sole > 0 ? s.deleteConfirmSoleCopies.replace('{count}', String(sole)) : '']
+        .filter(Boolean)
+        .join('\n\n'),
+      confirmText: s.deleteSelected.replace('{count}', String(chosen.length)),
+      danger: true
+    });
+    if (!ok) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await window.api.deleteSecretBackupEntries(chosen.map((i) => i.id));
+      apply(result.preview);
+      const lines = [s.deleteDone.replace('{count}', String(result.removed.length))];
+      if (result.skipped.length > 0) lines.push(s.deleteSkipped.replace('{count}', String(result.skipped.length)));
+      setMessage({ kind: result.removed.length > 0 ? 'ok' : 'error', lines });
+    } catch (err) {
+      setMessage({ kind: 'error', lines: [s.restoreFailed.replace('{error}', err instanceof Error ? err.message : String(err))] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const formatTime = (at: number) => new Date(at).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US');
   const statusLabel = (item: SecretBackupItem) =>
     item.status === 'restorable'
@@ -99,6 +145,7 @@ export const SecretRestoreModal: React.FC = () => {
     item.status === 'restorable' ? 'text-emerald-400' : item.status === 'current' ? 'text-sky-400' : 'text-muted-foreground';
   const items = preview?.items ?? [];
   const selectedCount = items.filter((i) => selected.has(i.id) && i.status === 'restorable').length;
+  const deleteCount = items.filter((i) => toDelete.has(i.id)).length;
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={close}>
@@ -125,7 +172,28 @@ export const SecretRestoreModal: React.FC = () => {
         </div>
 
         <div className="px-5 py-3 space-y-3 overflow-y-auto text-xs">
-          <p className="text-muted-foreground leading-relaxed">{s.restoreIntro}</p>
+          {items.length > 0 && (
+            <div className="inline-flex rounded-md border border-border overflow-hidden" role="tablist">
+              {(['restore', 'delete'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === value}
+                  data-testid={`secret-backup-mode-${value}`}
+                  disabled={busy}
+                  onClick={() => {
+                    setMode(value);
+                    setMessage(null);
+                  }}
+                  className={`px-3 py-1 text-xs ${mode === value ? 'bg-ph-hover text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  {value === 'restore' ? s.modeRestore : s.modeDelete}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-muted-foreground leading-relaxed">{mode === 'delete' ? s.deleteIntro : s.restoreIntro}</p>
           {preview && !preview.encryptionAvailable && (
             <div className="rounded-md border border-amber-500/50 bg-amber-900/20 px-3 py-2 text-amber-100">{s.restoreEncryptionOff}</div>
           )}
@@ -138,7 +206,8 @@ export const SecretRestoreModal: React.FC = () => {
           {items.length > 0 && (
             <ul className="divide-y divide-border rounded-lg border border-border">
               {items.map((item) => {
-                const selectable = item.status === 'restorable';
+                const selectable = mode === 'delete' || item.status === 'restorable';
+                const checked = mode === 'delete' ? toDelete.has(item.id) : item.status === 'restorable' && selected.has(item.id);
                 return (
                   <li key={item.id}>
                     <label className={`flex items-start gap-2.5 px-3 py-2 ${selectable ? 'cursor-pointer hover:bg-ph-hover' : 'opacity-70'}`}>
@@ -146,14 +215,15 @@ export const SecretRestoreModal: React.FC = () => {
                         type="checkbox"
                         className="mt-0.5"
                         disabled={!selectable || busy}
-                        checked={selectable && selected.has(item.id)}
+                        checked={checked}
                         onChange={() => toggle(item)}
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-baseline gap-x-2">
                           <span className="font-medium">{secretKeyLabel(s, item.key)}</span>
                           <span className={statusClass(item)}>{statusLabel(item)}</span>
-                          {item.replacesCurrent && <span className="text-amber-300">· {s.replacesCurrent}</span>}
+                          {mode === 'restore' && item.replacesCurrent && <span className="text-amber-300">· {s.replacesCurrent}</span>}
+                          {mode === 'delete' && isSoleCopy(item) && <span className="text-amber-300">· {s.soleCopy}</span>}
                         </div>
                         <div className="text-muted-foreground">
                           {secretReasonLabel(s, item.reason)} · {secretSourceLabel(s, item.source)} · {formatTime(item.at)}
@@ -191,15 +261,28 @@ export const SecretRestoreModal: React.FC = () => {
             <button type="button" onClick={close} className="px-3 py-1.5 rounded-md text-xs bg-secondary hover:bg-secondary/80">
               {s.close}
             </button>
-            <button
-              type="button"
-              disabled={busy || selectedCount === 0}
-              onClick={() => void restore()}
-              className="px-3 py-1.5 rounded-md text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-40 flex items-center gap-1.5"
-            >
-              {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              {s.restoreSelected.replace('{count}', String(selectedCount))}
-            </button>
+            {mode === 'delete' ? (
+              <button
+                type="button"
+                disabled={busy || deleteCount === 0}
+                onClick={() => void remove()}
+                data-testid="secret-backup-delete"
+                className="px-3 py-1.5 rounded-md text-xs font-semibold bg-red-700 hover:bg-red-600 text-white disabled:opacity-40 flex items-center gap-1.5"
+              >
+                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                {s.deleteSelected.replace('{count}', String(deleteCount))}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={busy || selectedCount === 0}
+                onClick={() => void restore()}
+                className="px-3 py-1.5 rounded-md text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-40 flex items-center gap-1.5"
+              >
+                {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {s.restoreSelected.replace('{count}', String(selectedCount))}
+              </button>
+            )}
           </div>
         </div>
       </div>

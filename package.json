@@ -10,7 +10,7 @@
     "lint:docs": "node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs",
     "check-index": "node scripts/rag/check-index.mjs",
     "test": "vitest run",
-    "build": "node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs --warn && npm run lint && npm run test && tsc && vite build && npm run build:mobile && node scripts/check-bundle.mjs",
+    "build": "node scripts/build-info.mjs && node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs --warn && npm run lint && npm run test && tsc && vite build && npm run build:mobile && node scripts/check-bundle.mjs",
     "preview": "vite preview",
     "build:mobile": "vite build --config mobile/vite.config.ts",
     "build:mobile:capacitor": "vite build --config mobile/vite.config.ts --mode capacitor",
@@ -62,6 +62,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "build/build-info.json",
+        "to": "build-info.json"
       }
     ],
     "npmRebuild": false,

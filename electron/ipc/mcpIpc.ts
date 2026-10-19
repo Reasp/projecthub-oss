@@ -3,7 +3,7 @@ import { mcpServerService } from '../services/mcpServerService';
 import { remoteControlService } from '../services/remoteControlService';
 import { telegramService } from '../services/telegramService';
 import { notificationService } from '../services/notificationService';
-import { secretStorageService, SECRETS_FILE_NAME } from '../services/secretStorageService';
+import { secretStorageService, SECRETS_BACKUP_FILE_NAME, SECRETS_FILE_NAME } from '../services/secretStorageService';
 import { hitlService } from '../services/hitlService';
 import type { DeviceRights } from '../../src/types/remote';
 
@@ -86,6 +86,20 @@ export function registerMcpIpc() {
         'allow',
         { kind: 'local' },
         'secret-restore'
+      );
+    }
+    return result;
+  });
+  // Удаление записей копии (TASK-157): только id, аудит — имя ключа без значения.
+  ipcMain.handle('secrets:deleteFromBackup', async (_event, ids: unknown) => {
+    const list = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string').slice(0, 500) : [];
+    const result = await secretStorageService.deleteFromBackup(list);
+    for (const key of result.removed) {
+      hitlService.recordHumanDecision(
+        { sessionId: 'ui', projectPath: '', type: 'file_write', title: `Запись резервной копии секрета удалена: ${key}`, tool: 'secret_backup_delete', filePath: SECRETS_BACKUP_FILE_NAME },
+        'allow',
+        { kind: 'local' },
+        'secret-backup-delete'
       );
     }
     return result;

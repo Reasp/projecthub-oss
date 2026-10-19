@@ -5,6 +5,7 @@ import {
   approveInitTarget,
   foundationStatus,
   previewInit,
+  templateUpdateStatus,
   type InitApplyRequest,
   type InitRequest
 } from '../services/projectInitService';
@@ -83,6 +84,11 @@ export function registerInitIpc(ctx: IpcContext) {
 
   ipcMain.handle('init:foundationStatus', (_event, projectPath: unknown) =>
     wrap(async () => foundationStatus(await assertRegisteredProject(String(projectPath ?? ''))))
+  );
+
+  // Обновление из новой версии шаблона (TASK-156): что применено и есть ли новая версия.
+  ipcMain.handle('init:templateStatus', (_event, projectPath: unknown, locale: unknown) =>
+    wrap(async () => templateUpdateStatus(await assertRegisteredProject(String(projectPath ?? '')), locale === 'en' ? 'en' : 'ru'))
   );
 
   // Каталог шаблонов (TASK-136.5)

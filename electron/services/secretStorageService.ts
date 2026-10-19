@@ -10,9 +10,10 @@ import type {
   SecretIssueReason,
   SecretIssueSource,
   SecretIssuesState,
-  SecretRestoreResult
+  SecretRestoreResult,
+  SecretBackupDeleteResult
 } from './secretStorageTypes.js';
-import { backupEntryId, buildBackupPreview, planSecretRestore, type SecretBackupEntry, type SecretEntryProbe } from './secretRestore.js';
+import { backupEntryId, buildBackupPreview, planBackupRemoval, planSecretRestore, type SecretBackupEntry, type SecretEntryProbe } from './secretRestore.js';
 
 /**
  * Хранилище секретов main-процесса (TASK-18, TASK-65; расположение и сбои — TASK-141, decision-88).
@@ -435,6 +436,27 @@ export class SecretStorageService {
         this.emitIssues(backup);
       }
       return { restored, skipped: plan.skipped, preview: this.buildPreview(backup, store) };
+    });
+  }
+
+  /**
+   * Удалить выбранные записи копии (TASK-157, decision-90 п. 7). Рендерер передаёт только id; main сам
+   * находит записи по свежей копии. Окно заранее предупреждает о записях — единственных копиях значения.
+   */
+  public deleteFromBackup(ids: readonly string[]): Promise<SecretBackupDeleteResult> {
+    return this.serialize(async () => {
+      const backup = await this.readBackup();
+      const store = await this.readStore();
+      const plan = planBackupRemoval(this.buildPreview(backup, store).items, ids);
+      const drop = new Set(plan.remove.map((item) => item.id));
+      if (drop.size > 0) {
+        backup.entries = backup.entries.filter((entry) => !drop.has(backupEntryId(entry)));
+        await writeJsonAtomic(this.backupPath, backup);
+        // Имена секретов в лог не пишутся (decision-88 п. 5): только число.
+        console.log(`[SecretStorage] Removed ${drop.size} entr${drop.size === 1 ? 'y' : 'ies'} from ${SECRETS_BACKUP_FILE_NAME}`);
+        this.emitIssues(backup);
+      }
+      return { removed: plan.remove.map((item) => item.key), skipped: plan.skipped, preview: this.buildPreview(backup, store) };
     });
   }
 

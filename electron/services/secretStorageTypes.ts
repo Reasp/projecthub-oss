@@ -70,6 +70,14 @@ export interface SecretBackupPreview {
 
 export type SecretRestoreSkipReason = 'unknown' | 'notRestorable' | 'duplicateKey';
 
+/** Удаление записей из копии (TASK-157). */
+export interface SecretBackupDeleteResult {
+  /** Ключи удалённых записей (у ключа может быть несколько записей). */
+  removed: string[];
+  skipped: Array<{ id: string; reason: 'unknown' }>;
+  preview: SecretBackupPreview;
+}
+
 export interface SecretRestoreResult {
   /** Ключи, значения которых восстановлены. */
   restored: string[];

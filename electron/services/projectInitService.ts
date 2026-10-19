@@ -1,6 +1,8 @@
 /**
  * Инициализация проекта (decision-78; TASK-136.1, 136.2, 136.4): снимок проекта с диска,
  * предпросмотр плана основы и шаблона, применение выбранных действий, команды после применения.
+ * Обновление из новой версии шаблона (decision-91, TASK-156) — тот же план: lock-файл даёт
+ * хэши прошлого применения, и слой шаблона решает по трём версиям.
  *
  * План строят чистые модули (`initFoundation.ts`, `initTemplateLayer.ts`). Здесь — только
  * чтение и запись. Применение каждый раз строит план заново по свежему снимку: из интерфейса
@@ -29,14 +31,28 @@ import {
 } from './initFoundation';
 import {
   buildTemplateLayer,
+  infraDirFor,
   templateCopyDestinations,
   templateStateTextPaths,
   type Placement,
+  type TemplateLayerResult,
   type TemplateRisks
 } from './initTemplateLayer';
 import { localize } from './templateManifest';
-import { BUILTIN_TEMPLATE_ID, loadTemplate, type TemplateEntry } from './templateCatalog';
+import { BUILTIN_TEMPLATE_ID, listTemplates, loadTemplate, type TemplateEntry } from './templateCatalog';
+import {
+  decodeBase,
+  encodeBase,
+  isStorableText,
+  parseTemplateLock,
+  renderTemplateLock,
+  stripCredentials,
+  TEMPLATE_BASE_PATH,
+  TEMPLATE_LOCK_PATH,
+  type TemplateLock
+} from './templateLock';
 import { parseBacklogConfig } from './backlogConfigService';
+import { parseJsonObject } from './initMerge';
 import { assertInsideProject, isRegisteredProjectRoot } from './pathGuard';
 import { projectRegistry } from './projectRegistry';
 import { invalidateInspectCache } from './projectScanner';
@@ -78,6 +94,11 @@ export interface InitTemplateView {
   risks: TemplateRisks;
   /** Шаблон не доверенный: применение — только с подтверждением этого хэша. */
   requiresConfirmation: boolean;
+  /**
+   * Прошлое применение этого шаблона из lock-файла (TASK-156): план строится по трём версиям.
+   * `null` — lock-файла нет или он от другого шаблона либо размещения: план как при повторной инициализации.
+   */
+  applied: { version: string; appliedAt: string; commit?: string; changed: boolean } | null;
 }
 
 export interface InitPreview {
@@ -234,6 +255,10 @@ function nowStamp(): string {
 interface BuiltPlan {
   preview: InitPreview;
   templateDir: string | null;
+  layer: TemplateLayerResult | null;
+  placement: Placement | null;
+  /** lock-файл, по которому строился план (тот же шаблон и каталог инфраструктуры). */
+  lock: TemplateLock | null;
 }
 
 async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
@@ -245,6 +270,9 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
   let templateDir: string | null = null;
   let contribution = null;
   let extraTexts: string[] = [];
+  let layerResult: TemplateLayerResult | null = null;
+  let usedPlacement: Placement | null = null;
+  let usedLock: TemplateLock | null = null;
 
   if (request.templateId) {
     const loaded = await loadTemplate(request.templateId, locale);
@@ -255,12 +283,17 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
     extraTexts = textPaths;
     const texts: Record<string, string | null> = {};
     for (const rel of textPaths) texts[rel] = existsSync(root) ? await readText(root, rel) : null;
+    // lock-файл того же шаблона в том же каталоге инфраструктуры — основа плана по трём версиям.
+    const lock = existsSync(root) ? parseTemplateLock(await readText(root, TEMPLATE_LOCK_PATH)) : null;
+    usedLock = lock && lock.template.id === loaded.entry.id && lock.infraDir === infraDirFor(manifest, placement) ? lock : null;
     const hashes: Record<string, string | null> = {};
-    for (const rel of templateCopyDestinations(loaded.input, placement)) hashes[rel] = existsSync(root) ? await hashFile(root, rel) : null;
+    for (const rel of new Set([...templateCopyDestinations(loaded.input, placement), ...Object.keys(usedLock?.files ?? {})])) {
+      hashes[rel] = existsSync(root) ? await hashFile(root, rel) : null;
+    }
     const infraDirGuess = placement === 'root' ? '' : manifest.placement.subfolder;
     const layer = buildTemplateLayer(
       loaded.input,
-      { hashes, texts, hooksConflict: await detectHooksConflict(root, infraDirGuess) },
+      { hashes, texts, hooksConflict: await detectHooksConflict(root, infraDirGuess), base: usedLock?.files ?? null },
       {
         locale,
         placement,
@@ -272,6 +305,8 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
       }
     );
     contribution = layer.contribution;
+    layerResult = layer;
+    usedPlacement = placement;
     templateDir = loaded.entry.dir;
     templateView = {
       entry: loaded.entry,
@@ -295,7 +330,10 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
       })),
       gitHooks: { ...layer.gitHooks, description: localize(manifest.gitHooks?.description, locale) },
       risks: layer.risks,
-      requiresConfirmation: !loaded.entry.trusted
+      requiresConfirmation: !loaded.entry.trusted,
+      applied: usedLock
+        ? { version: usedLock.template.version, appliedAt: usedLock.appliedAt, commit: usedLock.template.commit, changed: usedLock.template.hash !== loaded.entry.hash }
+        : null
     };
   }
 
@@ -316,12 +354,63 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
       items: plan.items,
       template: templateView
     },
-    templateDir
+    templateDir,
+    layer: layerResult,
+    placement: usedPlacement,
+    lock: usedLock
   };
 }
 
+/** Действия, которые пишут поверх существующего файла: для них предпросмотр показывает дифф. */
+const OVERWRITING: readonly InitAction[] = ['append', 'merge', 'replace', 'delete'];
+/** Больше — дифф не передаётся в окно, только пометка. */
+const COMPARE_MAX_BYTES = 512 * 1024;
+
+async function readCompareText(file: string): Promise<{ text: string | null; binary: boolean }> {
+  try {
+    const buf = await fs.readFile(file);
+    if (buf.length > COMPARE_MAX_BYTES || buf.subarray(0, 8192).includes(0)) return { text: null, binary: true };
+    return { text: buf.toString('utf-8'), binary: false };
+  } catch {
+    return { text: null, binary: false };
+  }
+}
+
+async function readBaseTexts(root: string): Promise<Record<string, string>> {
+  try {
+    return decodeBase(await fs.readFile(path.join(root, TEMPLATE_BASE_PATH)));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Тексты для диффа (TASK-156): у каждого файла, который план может переписать поверх
+ * существующего, — текущая версия, файл шаблона и версия прошлого применения.
+ */
+async function attachCompare(built: BuiltPlan): Promise<void> {
+  const root = built.preview.targetDir;
+  const baseTexts = built.lock ? await readBaseTexts(root) : {};
+  for (const item of built.preview.items) {
+    if (item.kind !== 'file' || item.reason === 'up-to-date' || !item.options.some((option) => OVERWRITING.includes(option))) continue;
+    const target = path.join(root, item.path);
+    if (!existsSync(target)) continue;
+    const current = await readCompareText(target);
+    const compare: NonNullable<typeof item.compare> = { current: current.text, binary: current.binary || undefined };
+    if (item.copyFrom && built.templateDir) {
+      const template = await readCompareText(assertInsideProject(built.templateDir, path.join(built.templateDir, item.copyFrom)));
+      compare.template = template.text;
+      if (template.binary) compare.binary = true;
+    }
+    if (baseTexts[item.path] !== undefined) compare.base = baseTexts[item.path];
+    item.compare = compare;
+  }
+}
+
 export async function previewInit(request: InitRequest): Promise<InitPreview> {
-  return (await buildPlan(request)).preview;
+  const built = await buildPlan(request);
+  await attachCompare(built);
+  return built.preview;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -335,7 +424,8 @@ function backupStamp(): string {
 const COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
 
 export async function applyInit(request: InitApplyRequest, onEvent: (event: InitProgressEvent) => void = () => {}): Promise<InitReport> {
-  const { preview, templateDir } = await buildPlan(request);
+  const built = await buildPlan(request);
+  const { preview, templateDir } = built;
   const root = preview.targetDir;
 
   if (preview.template?.requiresConfirmation && request.confirmTemplateHash !== preview.template.entry.hash) {
@@ -370,6 +460,14 @@ export async function applyInit(request: InitApplyRequest, onEvent: (event: Init
     const target = assertInsideProject(root, path.join(root, item.path));
     if (item.kind === 'dir') {
       await fs.mkdir(target, { recursive: true });
+    } else if (action === 'delete') {
+      // Файл, который шаблон больше не даёт: удаляется только с резервной копией.
+      if (!existsSync(target)) continue;
+      const backup = path.join(backupRoot, item.path);
+      await fs.mkdir(path.dirname(backup), { recursive: true });
+      await fs.copyFile(target, backup);
+      backupUsed = true;
+      await fs.rm(target, { force: true });
     } else {
       await fs.mkdir(path.dirname(target), { recursive: true });
       if (action === 'replace' && item.backupOnReplace && existsSync(target)) {
@@ -392,7 +490,18 @@ export async function applyInit(request: InitApplyRequest, onEvent: (event: Init
     onEvent({ type: 'file', path: item.path, action });
   }
 
-  // 3. Регистрация: после основы любая папка распознаётся сканером (есть backlog/).
+  // 3. lock-файл шаблона: что применено и что шаблон дал каждому своему файлу (TASK-156).
+  if (built.layer && preview.template && built.placement) {
+    // Без базы (lock-файла не было) отличающийся файл, который человек пропустил, остаётся без записи:
+    // неизвестно, его это правка или старая версия шаблона, — в следующий раз дифф покажется снова.
+    const unknown = new Set(chosen.filter(({ item, action }) => item.reason === 'template-changed' && action === 'skip').map(({ item }) => item.path));
+    for (const entry of await writeTemplateLock(root, built, preview.template.entry, unknown)) {
+      written.push(entry);
+      onEvent({ type: 'file', ...entry });
+    }
+  }
+
+  // 4. Регистрация: после основы любая папка распознаётся сканером (есть backlog/).
   let registered = preview.registered;
   if (!registered) {
     await projectRegistry.addProject(root, false);
@@ -400,7 +509,7 @@ export async function applyInit(request: InitApplyRequest, onEvent: (event: Init
   }
   invalidateInspectCache(root);
 
-  // 4. Команды после применения — по очереди; первая неудачная останавливает остальные.
+  // 5. Команды после применения — по очереди; первая неудачная останавливает остальные.
   const commands: InitReport['commands'] = [];
   for (const { item, action } of chosen) {
     if (item.kind !== 'command' || item.id === 'git:init' || action === 'skip' || !item.detail) continue;
@@ -420,6 +529,166 @@ export async function applyInit(request: InitApplyRequest, onEvent: (event: Init
   if (commands.length > 0) invalidateInspectCache(root);
 
   return { projectPath: root, registered, written, backupDir: backupUsed ? backupRoot : null, commands };
+}
+
+// ---------------------------------------------------------------------------------------
+// lock-файл шаблона (decision-91, TASK-156)
+// ---------------------------------------------------------------------------------------
+
+async function templateCommit(entry: TemplateEntry): Promise<string | undefined> {
+  if (entry.origin !== 'git') return undefined;
+  try {
+    return (await simpleGit(entry.dir).revparse(['HEAD'])).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Хэш каждого файла, который шаблон задаёт целиком, — то, что шаблон дал сейчас, даже если
+ * пользователь оставил свою версию: при следующем обновлении его правка отличит себя от шаблона.
+ * Базовые тексты — для диффа «было в шаблоне → стало в шаблоне».
+ */
+async function writeTemplateLock(
+  root: string,
+  built: BuiltPlan,
+  entry: TemplateEntry,
+  unknown: Set<string>
+): Promise<Array<{ path: string; action: InitAction }>> {
+  const layer = built.layer!;
+  const files: Record<string, string> = {};
+  const baseTexts: Record<string, string> = {};
+  for (const [dest, info] of Object.entries(layer.tracked)) {
+    if (unknown.has(dest)) continue;
+    files[dest] = info.hash;
+    if (info.text !== undefined) {
+      if (Buffer.byteLength(info.text) <= COMPARE_MAX_BYTES) baseTexts[dest] = info.text;
+    } else if (info.copyFrom && built.templateDir) {
+      try {
+        const buf = await fs.readFile(assertInsideProject(built.templateDir, path.join(built.templateDir, info.copyFrom)));
+        if (isStorableText(buf)) baseTexts[dest] = buf.toString('utf-8');
+      } catch {
+        // файла шаблона нет — хэша в lock достаточно
+      }
+    }
+  }
+  const lock: TemplateLock = {
+    schema: 1,
+    template: {
+      id: entry.id,
+      manifestId: entry.manifestId,
+      name: entry.name,
+      version: entry.version,
+      hash: entry.hash,
+      origin: entry.origin
+    },
+    placement: built.placement!,
+    infraDir: layer.infraDir,
+    features: layer.features,
+    sets: layer.sets,
+    gitHooks: layer.gitHooks.enabled,
+    appliedAt: new Date().toISOString(),
+    files,
+    rules: layer.rulesHashes
+  };
+  if (entry.origin === 'git' && entry.originRef) lock.template.source = stripCredentials(entry.originRef);
+  const commit = await templateCommit(entry);
+  if (commit) lock.template.commit = commit;
+
+  const result: Array<{ path: string; action: InitAction }> = [];
+  await fs.mkdir(path.join(root, '.projecthub'), { recursive: true });
+  for (const [rel, data] of [
+    [TEMPLATE_LOCK_PATH, renderTemplateLock(lock)],
+    [TEMPLATE_BASE_PATH, encodeBase(baseTexts)]
+  ] as const) {
+    const target = path.join(root, rel);
+    const existed = existsSync(target);
+    await fs.writeFile(target, data);
+    result.push({ path: rel, action: existed ? 'replace' : 'create' });
+  }
+  return result;
+}
+
+export interface TemplateUpdateStatus {
+  /** Чем проект обновлять: шаблон из lock-файла или найденный по `infra.config.json`. */
+  templateId: string | null;
+  templateName: string | null;
+  placement: Placement | null;
+  features: Record<string, boolean>;
+  sets: Record<string, boolean>;
+  gitHooks?: boolean;
+  /** Версия при прошлом применении и версия шаблона сейчас. */
+  appliedVersion: string | null;
+  availableVersion: string | null;
+  appliedAt: string | null;
+  /** `true` — lock-файл есть; `false` — проект инициализирован раньше, обновление как повторная инициализация. */
+  hasLock: boolean;
+  /** Шаблон в каталоге изменился с прошлого применения (или lock-файла нет, а шаблон найден). */
+  updateAvailable: boolean;
+}
+
+/** Где искать `infra.config.json` проекта без lock-файла: подпапка по умолчанию, затем корень. */
+const LEGACY_CONFIGS: Array<{ path: string; placement: Placement }> = [
+  { path: '.projecthub/infra/infra.config.json', placement: 'subfolder' },
+  { path: 'infra.config.json', placement: 'root' }
+];
+
+/**
+ * Статус обновления шаблона для шапки проекта и окна «Обновить из шаблона». Без lock-файла
+ * шаблон определяется по `template.id` в `infra.config.json` (так его пишет инициализация).
+ */
+export async function templateUpdateStatus(projectPath: string, locale: InitLocale = 'ru'): Promise<TemplateUpdateStatus> {
+  const root = path.resolve(projectPath);
+  const empty: TemplateUpdateStatus = {
+    templateId: null,
+    templateName: null,
+    placement: null,
+    features: {},
+    sets: {},
+    appliedVersion: null,
+    availableVersion: null,
+    appliedAt: null,
+    hasLock: false,
+    updateAvailable: false
+  };
+  const lock = parseTemplateLock(await readText(root, TEMPLATE_LOCK_PATH));
+  const templates = await listTemplates(locale);
+  if (lock) {
+    const entry = templates.find((t) => t.id === lock.template.id) ?? null;
+    return {
+      templateId: lock.template.id,
+      templateName: entry?.name ?? lock.template.name,
+      placement: lock.placement,
+      features: lock.features,
+      sets: lock.sets,
+      gitHooks: lock.gitHooks,
+      appliedVersion: lock.template.version,
+      availableVersion: entry?.version ?? null,
+      appliedAt: lock.appliedAt,
+      hasLock: true,
+      updateAvailable: Boolean(entry && entry.issues.length === 0 && entry.hash !== lock.template.hash)
+    };
+  }
+  for (const legacy of LEGACY_CONFIGS) {
+    const config = parseJsonObject(await readText(root, legacy.path));
+    const template = config?.template as { id?: unknown; version?: unknown } | undefined;
+    if (!config || !template || typeof template.id !== 'string') continue;
+    const candidates = templates.filter((t) => t.manifestId === template.id && t.issues.length === 0);
+    const entry = candidates.find((t) => t.builtin) ?? candidates[0] ?? null;
+    if (!entry) return empty;
+    const features = config.features && typeof config.features === 'object' ? (config.features as Record<string, unknown>) : {};
+    return {
+      ...empty,
+      templateId: entry.id,
+      templateName: entry.name,
+      placement: legacy.placement,
+      features: Object.fromEntries(Object.entries(features).filter(([, v]) => typeof v === 'boolean')) as Record<string, boolean>,
+      appliedVersion: typeof template.version === 'string' ? template.version : null,
+      availableVersion: entry.version,
+      updateAvailable: true
+    };
+  }
+  return empty;
 }
 
 // ---------------------------------------------------------------------------------------

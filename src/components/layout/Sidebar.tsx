@@ -514,10 +514,18 @@ export const Sidebar: React.FC = () => {
         isOpen={initTarget !== null}
         onClose={() => setInitTarget(null)}
         mode={initTarget?.mode ?? 'new'}
-        projectPath={initTarget?.mode === 'existing' ? initTarget.path : undefined}
+        projectPath={initTarget?.mode === 'existing' || initTarget?.mode === 'update' ? initTarget.path : undefined}
         initialFolder={initTarget?.mode === 'folder' ? initTarget.path : undefined}
       />
-      <TemplatesModal isOpen={isTemplatesOpen} onClose={() => setIsTemplatesOpen(false)} projectPath={selectedProject?.path} />
+      <TemplatesModal
+        isOpen={isTemplatesOpen}
+        onClose={() => setIsTemplatesOpen(false)}
+        projectPath={selectedProject?.path}
+        onUpdateProject={(path) => {
+          setIsTemplatesOpen(false);
+          setInitTarget({ mode: 'update', path });
+        }}
+      />
     </>
   );
 };

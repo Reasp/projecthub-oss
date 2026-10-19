@@ -6,6 +6,7 @@ import { app } from 'electron';
 import { getUserDataDir } from './appPaths.js';
 import { DEFAULT_LOG_FILE, rotatedFileName, DEFAULT_MAX_FILES, logger } from './logger.js';
 import { ZipWriter } from './zipWriter.js';
+import { buildInfoPath, readBuildInfo, type BuildInfo } from './buildInfo.js';
 
 /**
  * Экран «Диагностика» (TASK-58, decision-14 п.4): версия и пути приложения, сбор архива
@@ -15,6 +16,8 @@ import { ZipWriter } from './zipWriter.js';
 
 export interface DiagnosticsInfo {
   appVersion: string;
+  /** Отметка сборки (TASK-158): коммит и время; `null` — запуск без сборки. */
+  build: BuildInfo | null;
   electronVersion: string;
   chromeVersion: string;
   nodeVersion: string;
@@ -36,6 +39,7 @@ export function getDiagnosticsInfo(): DiagnosticsInfo {
   const userDataDir = getUserDataDir();
   return {
     appVersion: a?.getVersion?.() ?? 'dev',
+    build: a?.getAppPath ? readBuildInfo(buildInfoPath(Boolean(a.isPackaged), process.resourcesPath, a.getAppPath())) : null,
     electronVersion: process.versions.electron ?? 'n/a',
     chromeVersion: process.versions.chrome ?? 'n/a',
     nodeVersion: process.versions.node ?? 'n/a',
