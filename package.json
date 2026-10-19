@@ -20,6 +20,7 @@
     "pack:win": "node scripts/pack-win.mjs",
     "selfcheck:ui": "node scripts/visual/selfcheck.mjs",
     "pack:mac": "node scripts/pack-mac.mjs",
+    "install:mac": "node scripts/pack-mac.mjs --install",
     "dist:win": "npm run build && electron-builder --win portable && node scripts/patch-exe-icon.mjs",
     "dist:mac": "node scripts/pack-mac.mjs --dist",
     "dist:linux": "npm run build && electron-builder --linux",
