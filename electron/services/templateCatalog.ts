@@ -350,12 +350,14 @@ async function extractZip(zipPath: string, dest: string): Promise<void> {
   await fs.mkdir(dest, { recursive: true });
   if (process.platform === 'linux') await run('unzip', ['-q', zipPath, '-d', dest], dest);
   else await run('tar', ['-xf', zipPath, '-C', dest], dest);
+  // Compare real paths: dest itself may sit under a symlink (macOS /var -> /private/var).
+  const realDest = await fs.realpath(dest);
   const check = async (current: string) => {
     for (const entry of await fs.readdir(current, { withFileTypes: true })) {
       const abs = path.join(current, entry.name);
       if (entry.isSymbolicLink()) throw new Error(`В архиве ссылка: ${path.relative(dest, abs)}`);
       const real = await fs.realpath(abs);
-      if (!isInsideProject(dest, real)) throw new Error(`Файл архива вне каталога: ${entry.name}`);
+      if (!isInsideProject(realDest, real)) throw new Error(`Файл архива вне каталога: ${entry.name}`);
       if (entry.isDirectory()) await check(abs);
     }
   };
