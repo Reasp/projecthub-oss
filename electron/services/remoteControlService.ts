@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, powerMonitor } from 'electron';
 import { WebSocketServer, WebSocket } from 'ws';
 import type {
   RemoteConnectionMode,
@@ -63,6 +63,8 @@ import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { hitlService } from './hitlService.js';
 import { confirmProofPayload, parseConfirmKey, verifyConfirmProof } from './hitlConfirmProof.js';
 import { fitsPhoneReview, hitlDetailForPhone } from './remoteHitlDetail.js';
+import { parsePushAction, parsePushRegistration, verifyPushAction, type PushHostEndpoint, type PushRegistration } from './remotePush.js';
+import { RemotePushService, type PushTarget } from './remotePushService.js';
 import {
   AttachmentUploads,
   parseAttachmentChunk,
@@ -169,6 +171,11 @@ interface DeviceTokenRecord {
    * `high` после биометрии. Регистрируется только при сопряжении по ключу или PIN из QR, не по токену.
    */
   confirmKey?: string;
+  /**
+   * Push на это устройство включён явно для этого ПК (TASK-140.3, decision-115): адрес UnifiedPush или токен FCM/APNs,
+   * ключи RFC 8291 и ключ кнопок уведомления. Секреты — потому и лежат в secretStorage вместе с токеном.
+   */
+  push?: PushRegistration;
 }
 
 /**
@@ -222,6 +229,41 @@ class RemoteControlService {
   private autoStart = false;
   /** Автозапуск назначенных на этот хост задач (TASK-66), по умолчанию выключен. */
   private autoStartAssignedTasks = false;
+
+  /** Шлюз `ph-push` для FCM и APNs (decision-115); пустой — только UnifiedPush. */
+  private pushGatewayUrl = '';
+  private pushService = new RemotePushService(
+    {
+      now: () => Date.now(),
+      fetch: (url, init) => fetch(url, init),
+      targets: () => this.pushTargets(),
+      hostId: () => this.hostId,
+      machineName: () => this.machineName || os.hostname(),
+      endpoints: () => this.pushHostEndpoints(),
+      deviceOnline: (deviceId) => Boolean(this.connectedDevices.get(deviceId)?.isApproved),
+      pcActivity: () => ({
+        windowFocused: Boolean(BrowserWindow.getFocusedWindow()),
+        idleSeconds: (() => {
+          try {
+            return powerMonitor.getSystemIdleTime();
+          } catch {
+            return Number.MAX_SAFE_INTEGER;
+          }
+        })()
+      }),
+      gatewayUrl: () => this.pushGatewayUrl,
+      hostSigningKey: async () => {
+        try {
+          const { privateKeyPem, hostKeyRaw } = await this.ensureSessionKey();
+          return { privateKeyPem, hostKeyRaw };
+        } catch {
+          return null;
+        }
+      },
+      log: (message) => logger.warn(message)
+    },
+    (deviceId) => this.dropPushRegistration(deviceId)
+  );
 
   private telegramBotToken = '';
   private telegramChatId = '';
@@ -554,7 +596,8 @@ class RemoteControlService {
       rightsExplicit: record.rightsExplicit,
       connected: this.connectedDevices.has(deviceId),
       ...(record.delegatedBy ? { delegatedBy: record.delegatedBy } : {}),
-      ...(record.confirmKey ? { biometricConfirm: true } : {})
+      ...(record.confirmKey ? { biometricConfirm: true } : {}),
+      ...(record.push ? { push: record.push.kind } : {})
     }));
   }
 
@@ -631,6 +674,7 @@ class RemoteControlService {
         if (data.telegramChatId) this.telegramChatId = data.telegramChatId;
         if (data.telegramBotUsername) this.telegramBotUsername = data.telegramBotUsername;
         if (data.telegramMiniAppUrl) this.telegramMiniAppUrl = data.telegramMiniAppUrl;
+        if (typeof data.pushGatewayUrl === 'string') this.pushGatewayUrl = data.pushGatewayUrl;
       }
     } catch (err: any) {
       logger.warn(`[RemoteControl] Failed to load config: ${err?.message || err}`);
@@ -655,7 +699,8 @@ class RemoteControlService {
         autoStartAssignedTasks: this.autoStartAssignedTasks,
         telegramChatId: this.telegramChatId,
         telegramBotUsername: this.telegramBotUsername,
-        telegramMiniAppUrl: this.telegramMiniAppUrl
+        telegramMiniAppUrl: this.telegramMiniAppUrl,
+        pushGatewayUrl: this.pushGatewayUrl
       };
       writeFileSync(cfgPath, JSON.stringify(data, null, 2), 'utf8');
     } catch (err: any) {
@@ -690,7 +735,9 @@ class RemoteControlService {
           filePath: r.filePath,
           expiresAt: r.expiresAt
         });
+        void this.pushService.onHitlRequested(r).catch(() => undefined);
       } else if (event.type === 'hitl:decided' || event.type === 'hitl:expired' || event.type === 'hitl:cancelled') {
+        void this.pushService.onHitlFinished(event.request.id).catch(() => undefined);
         this.broadcastEvent('ai:hitlDecided', {
           requestId: event.request.id,
           sessionId: event.request.sessionId,
@@ -824,8 +871,63 @@ class RemoteControlService {
       telegramChatId: this.telegramChatId,
       telegramBotUsername: this.telegramBotUsername,
       telegramMiniAppUrl: this.telegramMiniAppUrl || (this.tunnelUrl ? `${this.tunnelUrl}/telegram` : ''),
-      endpoints: this.getPhoneEndpoints()
+      endpoints: this.getPhoneEndpoints(),
+      pushGatewayUrl: this.pushGatewayUrl
     };
+  }
+
+  // ── push (TASK-140.3, decision-115) ──
+
+  /** Устройства с включённым push: одобренные, решать могут только с правом hitl/full и не на хосте «только чтение». */
+  private pushTargets(): PushTarget[] {
+    const out: PushTarget[] = [];
+    for (const [deviceId, record] of this.deviceTokens.entries()) {
+      if (!record.push || !this.isTokenApproved(record)) continue;
+      out.push({ deviceId, registration: record.push, canDecide: !this.readOnly && record.rights !== 'readOnly' });
+    }
+    return out;
+  }
+
+  /** Адреса для кнопок уведомления: телефон шлёт решение по HTTP туда же, куда ходит сокетом (без релея). */
+  private pushHostEndpoints(): PushHostEndpoint[] {
+    return this.getPhoneEndpoints()
+      .filter((e) => e.kind !== 'relay')
+      .map((e) => ({ kind: e.kind, url: e.url.replace(/^ws:/i, 'http:').replace(/^wss:/i, 'https:') }));
+  }
+
+  private dropPushRegistration(deviceId: string): void {
+    const record = this.deviceTokens.get(deviceId);
+    if (!record?.push) return;
+    delete record.push;
+    this.persistDeviceTokens().catch(() => {});
+    logger.info(`[RemoteControl] Push registration of ${deviceId} is gone at the provider — removed`);
+  }
+
+  /**
+   * Кнопка уведомления (`POST /api/remote/push-action`): решение, подписанное ключом кнопок устройства. Способ
+   * `notification`/`unlocked` хост сверяет с классом риска так же, как для решения из приложения (decision-112 п. 3).
+   */
+  private async handlePushAction(body: unknown): Promise<{ status: number; result: Record<string, unknown> }> {
+    const action = parsePushAction(body);
+    if (!action) return { status: 400, result: { ok: false, reason: 'bad_request' } };
+    const record = this.deviceTokens.get(action.deviceId);
+    if (!record?.push || !this.isTokenApproved(record) || !verifyPushAction(record.push.actionKey, this.hostId, action, Date.now())) {
+      return { status: 403, result: { ok: false, reason: 'forbidden' } };
+    }
+    if (this.readOnly || record.rights === 'readOnly') return { status: 403, result: { ok: false, reason: 'read_only' } };
+    const result = hitlService.decide(
+      action.requestId,
+      { approved: action.decision === 'allow' },
+      { kind: 'remote', deviceId: action.deviceId, deviceName: record.deviceName, confirm: action.confirm }
+    );
+    if (!result.ok) return { status: 409, result: { ok: false, reason: result.reason, ...(result.risk ? { risk: result.risk } : {}) } };
+    this.notifyRenderer('remote:hitlDecisionMade', {
+      requestId: action.requestId,
+      sessionId: result.request.sessionId,
+      approved: action.decision === 'allow',
+      byDevice: record.deviceName
+    });
+    return { status: 200, result: { ok: true } };
   }
 
   public async sendTelegramNotification(text: string): Promise<boolean> {
@@ -893,6 +995,11 @@ class RemoteControlService {
     }
     if (patch.tunnelUrl !== undefined) {
       this.tunnelUrl = patch.tunnelUrl;
+    }
+    if (patch.pushGatewayUrl !== undefined) {
+      const url = patch.pushGatewayUrl.trim();
+      if (url && !/^https?:\/\/[^\s/]+/i.test(url)) throw new Error('Адрес шлюза push должен начинаться с http:// или https://');
+      this.pushGatewayUrl = url;
     }
     if (patch.telegramBotToken !== undefined) {
       this.telegramBotToken = patch.telegramBotToken;
@@ -1400,6 +1507,33 @@ class RemoteControlService {
           port: this.port
         })
       );
+      return;
+    }
+
+    // Кнопка push-уведомления (TASK-140.3): решение подписано ключом кнопок устройства, без сокета и сессии.
+    if (url.pathname === '/api/remote/push-action' && req.method === 'POST') {
+      let body = '';
+      let tooBig = false;
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 4096) {
+          tooBig = true;
+          req.destroy();
+        }
+      });
+      req.on('end', () => {
+        if (tooBig) return;
+        let parsed: unknown = null;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          // ниже — 400
+        }
+        void this.handlePushAction(parsed).then(({ status, result }) => {
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        });
+      });
       return;
     }
 
@@ -2871,6 +3005,37 @@ class RemoteControlService {
       case 'get_events_since': {
         const sinceId = Number(params.sinceId) || 0;
         return { events: this.eventLog.filter((e) => e.id > sinceId), lastEventId: this.eventLogNextId - 1 };
+      }
+
+      // Push на это устройство с этого ПК (TASK-140.3, decision-115): включается явно и отдельно для каждого ПК.
+      case 'push_register': {
+        const record = this.deviceTokens.get(device.id);
+        if (!record) throw new Error('Устройство не сопряжено с этим ПК');
+        record.push = parsePushRegistration(params, Date.now());
+        await this.persistDeviceTokens();
+        return { ok: true, kind: record.push.kind, regId: record.push.regId };
+      }
+
+      case 'push_unregister': {
+        const record = this.deviceTokens.get(device.id);
+        if (record?.push) {
+          delete record.push;
+          await this.persistDeviceTokens();
+        }
+        return { ok: true };
+      }
+
+      case 'push_status': {
+        const push = this.deviceTokens.get(device.id)?.push;
+        return { enabled: Boolean(push), ...(push ? { kind: push.kind } : {}), gateway: Boolean(this.pushGatewayUrl) };
+      }
+
+      case 'push_test': {
+        const record = this.deviceTokens.get(device.id);
+        if (!record?.push) throw new Error('Push для этого ПК не включён');
+        const res = await this.pushService.sendTest({ deviceId: device.id, registration: record.push, canDecide: false });
+        if (!res.ok) throw new Error(`Push не доставлен: ${res.error}`);
+        return { ok: true };
       }
 
       // Полный запрос перед одобрением с телефона (TASK-140.6): команда целиком и дифф, только пока запрос ждёт.

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { DesktopIcon, FolderIcon, GitBranchIcon, LockKeyIcon, PlusIcon, SignOutIcon } from '@phosphor-icons/react';
+import { BellRingingIcon, DesktopIcon, FolderIcon, GitBranchIcon, LockKeyIcon, PlusIcon, SignOutIcon } from '@phosphor-icons/react';
+import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { useAppState, useHostSummaries, useServices } from '../app/context';
 import { rightsLabel } from '../protocol/models';
@@ -49,6 +49,14 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
   const activeHitl = useAppState((s) => s.hitl.length);
   const summaries = useHostSummaries();
   const [confirmForget, setConfirmForget] = useState(false);
+  const push = useAppState((s) => s.push);
+  const [distributors, setDistributors] = useState<string[] | null>(null);
+  // Push — своё у каждого ПК (TASK-140.3): состояние спрашиваем у открытого ПК при показе листа.
+  useEffect(() => {
+    if (!open || !platform.push || conn.state !== 'ready') return;
+    void store.refreshPush();
+    void platform.push.distributors().then(setDistributors);
+  }, [open, platform, store, conn.state]);
   const [enrolling, setEnrolling] = useState<string | null>(null);
   const active = activeProfile(profiles);
   const nameOf = (hostId: string | undefined) => profiles.profiles.find((p) => p.hostId === hostId)?.machineName || hostId || '';
@@ -208,6 +216,38 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
           </ul>
           <div className="mt-1 px-1 text-[12px] text-slate-500">
             Доступ к соседнему ПК выдаётся отдельным токеном через этот компьютер. Компьютеры других сопряжений сюда не попадают.
+          </div>
+        </>
+      )}
+
+      {platform.push && active?.id && (
+        <>
+          <SectionTitle>Уведомления</SectionTitle>
+          <div className="flex items-center gap-2 px-1">
+            <BellRingingIcon size={18} className="shrink-0 text-slate-400" />
+            <span className="min-w-0 flex-1 text-[14px]">Push с этого компьютера</span>
+            <Button
+              size="sm"
+              variant={push?.enabled ? 'secondary' : 'primary'}
+              disabled={!push || push.busy || conn.state !== 'ready'}
+              onClick={() => {
+                platform.haptic('selection');
+                const label = status?.machineName || active.machineName || 'ProjectHub';
+                void (push?.enabled ? store.disablePush(active.id!) : store.enablePush(active.id!, label));
+              }}
+            >
+              <span data-testid="push-toggle">{push?.busy ? '…' : push?.enabled ? 'Выключить' : 'Включить'}</span>
+            </Button>
+            {push?.enabled && (
+              <Button size="sm" variant="ghost" onClick={() => void store.testPush()}>
+                Проверить
+              </Button>
+            )}
+          </div>
+          <div className="mt-1 px-1 text-[12px] leading-snug text-slate-500">
+            {distributors && distributors.length === 0
+              ? 'Нужно приложение-дистрибьютор UnifiedPush, например ntfy: уведомления идут без сервисов Google.'
+              : 'Содержимое шифруется ключом этого телефона: сервер уведомлений видит только шифртекст. Пока вы за этим ПК или приложение открыто, push не приходят.'}
           </div>
         </>
       )}

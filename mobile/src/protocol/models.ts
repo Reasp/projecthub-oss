@@ -159,6 +159,14 @@ export function diffLineKind(line: string): 'add' | 'del' | 'hunk' | 'meta' | 'c
   return 'context';
 }
 
+/** Почему push не включился (TASK-140.3). */
+export function pushErrorText(err: unknown): string {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === 'no_distributor') return 'Нет приложения-дистрибьютора UnifiedPush. Установите ntfy (без сервисов Google) и повторите';
+  if (code === 'timeout') return 'Дистрибьютор UnifiedPush не ответил — откройте ntfy и проверьте сервер';
+  return 'Не удалось включить уведомления';
+}
+
 /** Текст ошибки биометрии; отмена человеком — `null`, без сообщения. */
 export function confirmErrorText(err: unknown): string | null {
   const code = (err as { code?: unknown } | null)?.code;

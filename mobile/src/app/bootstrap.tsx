@@ -106,7 +106,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       if (p.id) commit(updateProfile(listRef.current, p));
     })
   );
-  const [store] = useState(() => new AppStore(client, createPrefs(), undefined, platform.confirm ?? null));
+  const [store] = useState(() => new AppStore(client, createPrefs(), undefined, platform.confirm ?? null, platform.push ?? null));
   const [pool] = useState(
     () =>
       new HostPool(
@@ -150,6 +150,33 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
     },
     [store]
   );
+
+  // Нажатие push: открыть ПК, с которого пришло уведомление (TASK-140.3).
+  useEffect(() => {
+    const push = platform.push;
+    if (!push) return;
+    const go = (instance: string) => {
+      if (instance === listRef.current.activeId) return;
+      const next = setActiveProfile(listRef.current, instance);
+      const profile = activeProfile(next);
+      if (!profile || profile.id !== instance) return;
+      commit(next);
+      open(profile);
+    };
+    void push.takeLaunchTarget().then((t) => t && go(t.instance));
+    const offLaunch = push.onLaunchTarget((t) => go(t.instance));
+    // Дистрибьютор сменил адрес открытого ПК — регистрируемся заново, иначе push перестанут доходить.
+    const offEndpoint = push.onEndpointChanged((instance, endpoint) => {
+      const profile = activeProfile(listRef.current);
+      if (endpoint && profile?.id === instance && store.getState().push?.enabled) {
+        void store.enablePush(instance, profile.machineName || store.getState().status?.machineName || 'ProjectHub');
+      }
+    });
+    return () => {
+      offLaunch();
+      offEndpoint();
+    };
+  }, [platform, commit, open, store]);
 
   const services = useMemo<AppServices>(
     () => ({
@@ -199,6 +226,8 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
           confirmKeys.delete(removed.deviceId);
           void platform.confirm.deleteKey(removed.deviceId);
         }
+        // Push с забытого ПК больше не нужен: дистрибьютор удалит адрес, ПК получит 410 и снимет регистрацию.
+        if (removed?.id && platform.push) void platform.push.unregister(removed.id);
         commit(next);
         if (!wasActive) return;
         client.disconnect();

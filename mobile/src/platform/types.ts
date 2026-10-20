@@ -43,6 +43,38 @@ export interface ConfirmPort {
   deleteKey(id: string): Promise<void>;
 }
 
+/** Что телефон отдаёт ПК для `push_register` (RFC 8291): адрес дистрибьютора и открытые ключи. */
+export interface PushRegistrationData {
+  kind: 'unifiedpush';
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  actionKey: string;
+  distributor: string;
+}
+
+/** Уведомление, по которому открыли приложение: профиль ПК и запрос. */
+export interface PushLaunchTarget {
+  instance: string;
+  requestId?: string;
+}
+
+/**
+ * Push с ПК (TASK-140.3, [[decision-115]]): UnifiedPush без сервисов Google. Регистрация своя у каждого профиля хоста
+ * (`instance` — id профиля), закрытые ключи остаются в нативном хранилище.
+ */
+export interface PushPort {
+  distributors(): Promise<string[]>;
+  requestPermission(): Promise<boolean>;
+  /** Ошибка — `PushError` с кодом `no_distributor`, `timeout` или `failed`. */
+  register(instance: string, label: string): Promise<PushRegistrationData>;
+  unregister(instance: string): Promise<void>;
+  takeLaunchTarget(): Promise<PushLaunchTarget | null>;
+  onLaunchTarget(listener: (target: PushLaunchTarget) => void): () => void;
+  /** Дистрибьютор выдал новый адрес (или отозвал: пустая строка). */
+  onEndpointChanged(listener: (instance: string, endpoint: string) => void): () => void;
+}
+
 export interface Platform {
   target: ClientTarget;
   deviceIdPrefix: string;
@@ -62,4 +94,6 @@ export interface Platform {
   applyChrome?: () => void;
   /** Подпись решений `high` биометрией — только в приложении с нативным плагином. */
   confirm?: ConfirmPort;
+  /** Push с ПК — только в приложении с нативным плагином. */
+  push?: PushPort;
 }

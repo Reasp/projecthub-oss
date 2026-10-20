@@ -1,24 +1,31 @@
 package com.projecthub.mobile;
 
+import android.Manifest;
 import android.app.KeyguardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.hardware.biometrics.BiometricManager;
 import android.hardware.biometrics.BiometricPrompt;
 import android.os.Build;
 import android.os.CancellationSignal;
+import android.os.Handler;
+import android.os.Looper;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyPermanentlyInvalidatedException;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -26,12 +33,9 @@ import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.Signature;
 import java.security.spec.ECGenParameterSpec;
+import java.util.List;
 import java.util.concurrent.Executor;
-
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.GCMParameterSpec;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Хранилище ключа и токена устройства (TASK-140.8, decision-79 п. 2). Ключ AES-256-GCM живёт в
@@ -39,33 +43,13 @@ import javax.crypto.spec.GCMParameterSpec;
  * (IV + данные). Криптография — только средствами ОС, своей библиотеки нет (decision-79 п. 10).
  * В хранилище WebView (localStorage, IndexedDB) профиль не пишется никогда.
  */
-@CapacitorPlugin(name = "PhSecureStore")
+@CapacitorPlugin(name = "PhSecureStore", permissions = { @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS }) })
 public class PhSecureStorePlugin extends Plugin {
     private static final String KEYSTORE = "AndroidKeyStore";
-    private static final String KEY_ALIAS = "projecthub_device_store";
     private static final String PREFS = "ph_secure_store";
-    private static final int IV_BYTES = 12;
-    private static final int TAG_BITS = 128;
 
     private SharedPreferences prefs() {
         return getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-    }
-
-    private SecretKey key() throws Exception {
-        KeyStore ks = KeyStore.getInstance(KEYSTORE);
-        ks.load(null);
-        if (ks.containsAlias(KEY_ALIAS)) {
-            return ((KeyStore.SecretKeyEntry) ks.getEntry(KEY_ALIAS, null)).getSecretKey();
-        }
-        KeyGenerator gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE);
-        gen.init(
-            new KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .build()
-        );
-        return gen.generateKey();
     }
 
     private static String requireKey(PluginCall call) {
@@ -89,15 +73,7 @@ public class PhSecureStorePlugin extends Plugin {
             return;
         }
         try {
-            byte[] blob = Base64.decode(stored, Base64.NO_WRAP);
-            ByteBuffer buf = ByteBuffer.wrap(blob);
-            byte[] iv = new byte[IV_BYTES];
-            buf.get(iv);
-            byte[] data = new byte[buf.remaining()];
-            buf.get(data);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(TAG_BITS, iv));
-            ret.put("value", new String(cipher.doFinal(data), StandardCharsets.UTF_8));
+            ret.put("value", new String(SecureBox.open(stored), StandardCharsets.UTF_8));
             call.resolve(ret);
         } catch (Exception e) {
             // Ключ Keystore утерян (сброс блокировки экрана, восстановление из бэкапа) — запись
@@ -118,14 +94,7 @@ public class PhSecureStorePlugin extends Plugin {
             return;
         }
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, key());
-            byte[] iv = cipher.getIV();
-            byte[] data = cipher.doFinal(value.getBytes(StandardCharsets.UTF_8));
-            ByteBuffer buf = ByteBuffer.allocate(iv.length + data.length);
-            buf.put(iv);
-            buf.put(data);
-            prefs().edit().putString(k, Base64.encodeToString(buf.array(), Base64.NO_WRAP)).apply();
+            prefs().edit().putString(k, SecureBox.seal(value.getBytes(StandardCharsets.UTF_8))).apply();
             call.resolve();
         } catch (Exception e) {
             call.reject("secure store write failed");
@@ -311,6 +280,141 @@ public class PhSecureStorePlugin extends Plugin {
             if (ks.containsAlias(alias)) ks.deleteEntry(alias);
         } catch (Exception e) {
             // Нечего удалять — ключ уже недоступен.
+        }
+        call.resolve();
+    }
+
+    // ── Push с ПК (TASK-140.3, decision-115): UnifiedPush, свой ключ RFC 8291 у каждого ПК ──
+
+    private static PhSecureStorePlugin current;
+    /** Уведомление, по которому открыли приложение: какой ПК показать. */
+    private static JSObject launchTarget;
+
+    @Override
+    public void load() {
+        current = this;
+        if (getActivity() != null) deliverLaunch(getActivity().getIntent());
+    }
+
+    /** Нажатие уведомления: MainActivity передаёт намерение сюда, клиент переключается на этот ПК. */
+    static void deliverLaunch(Intent intent) {
+        if (intent == null || !PushNotifier.ACTION_OPEN.equals(intent.getAction())) return;
+        String instance = intent.getStringExtra(PushNotifier.EXTRA_INSTANCE);
+        if (instance == null || instance.isEmpty()) return;
+        JSObject target = new JSObject();
+        target.put("instance", instance);
+        target.put("requestId", intent.getStringExtra(PushNotifier.EXTRA_REQUEST));
+        launchTarget = target;
+        // Повторная доставка того же намерения после поворота экрана не нужна.
+        intent.setAction(Intent.ACTION_MAIN);
+        if (current != null) current.notifyListeners("launchTarget", target, true);
+    }
+
+    static void notifyEndpointChanged(String instance, String endpoint) {
+        if (current == null) return;
+        JSObject data = new JSObject();
+        data.put("instance", instance);
+        data.put("endpoint", endpoint);
+        current.notifyListeners("pushEndpoint", data);
+    }
+
+    @PluginMethod
+    public void takeLaunchTarget(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("target", launchTarget);
+        launchTarget = null;
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void pushDistributors(PluginCall call) {
+        JSArray list = new JSArray();
+        for (String pkg : UnifiedPush.distributors(getContext())) list.put(pkg);
+        JSObject ret = new JSObject();
+        ret.put("distributors", list);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestNotifications(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 33 || getPermissionState("notifications") == PermissionState.GRANTED) {
+            JSObject ret = new JSObject();
+            ret.put("granted", true);
+            call.resolve(ret);
+            return;
+        }
+        requestPermissionForAlias("notifications", call, "notificationsResult");
+    }
+
+    @PermissionCallback
+    private void notificationsResult(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("granted", getPermissionState("notifications") == PermissionState.GRANTED);
+        call.resolve(ret);
+    }
+
+    /**
+     * Включить push с одного ПК: новые ключи, регистрация у дистрибьютора, ответ — адрес и открытые ключи для
+     * `push_register` на этом ПК. Закрытый ключ остаётся в хранилище телефона.
+     */
+    @PluginMethod
+    public void pushRegister(PluginCall call) {
+        String instance = call.getString("instance");
+        if (instance == null || !instance.matches("[A-Za-z0-9_.-]{1,96}")) {
+            call.reject("instance is required", "bad_instance");
+            return;
+        }
+        List<String> distributors = UnifiedPush.distributors(getContext());
+        String distributor = call.getString("distributor");
+        if (distributor == null || !distributors.contains(distributor)) distributor = distributors.isEmpty() ? null : distributors.get(0);
+        if (distributor == null) {
+            call.reject("no UnifiedPush distributor", "no_distributor");
+            return;
+        }
+        final PushRegistry.Reg reg;
+        try {
+            reg = PushRegistry.create(getContext(), instance, call.getString("label", "ProjectHub"), distributor);
+        } catch (Exception e) {
+            call.reject("push keys failed", "failed");
+            return;
+        }
+        final AtomicBoolean settled = new AtomicBoolean(false);
+        final Handler handler = new Handler(Looper.getMainLooper());
+        handler.postDelayed(() -> {
+            if (settled.compareAndSet(false, true)) {
+                UnifiedPush.cancelWait(reg.token);
+                call.reject("distributor did not answer", "timeout");
+            }
+        }, 20_000);
+        UnifiedPush.register(getContext(), reg, "ProjectHub: " + reg.label, new UnifiedPush.EndpointListener() {
+            @Override
+            public void onEndpoint(String endpoint) {
+                if (!settled.compareAndSet(false, true)) return;
+                JSObject ret = new JSObject();
+                ret.put("kind", "unifiedpush");
+                ret.put("endpoint", endpoint);
+                ret.put("p256dh", PushRegistry.b64(reg.publicPoint));
+                ret.put("auth", PushRegistry.b64(reg.auth));
+                ret.put("actionKey", PushRegistry.b64(reg.actionKey));
+                ret.put("distributor", reg.distributor);
+                call.resolve(ret);
+            }
+
+            @Override
+            public void onFailed(String reason) {
+                if (!settled.compareAndSet(false, true)) return;
+                call.reject("registration failed: " + reason, "failed");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void pushUnregister(PluginCall call) {
+        String instance = call.getString("instance");
+        PushRegistry.Reg reg = instance == null ? null : PushRegistry.get(getContext(), instance);
+        if (reg != null) {
+            UnifiedPush.unregister(getContext(), reg);
+            PushRegistry.remove(getContext(), instance);
         }
         call.resolve();
     }

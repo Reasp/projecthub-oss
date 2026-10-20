@@ -25,6 +25,25 @@
 
         </activity>
 
+        <!-- Push через UnifiedPush без сервисов Google (TASK-140.3, decision-115): дистрибьютор (ntfy и др.) шлёт сюда
+             адрес и шифртекст; приёмник работает и при закрытом приложении. -->
+        <receiver
+            android:name=".UnifiedPushReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.MESSAGE" />
+                <action android:name="org.unifiedpush.android.connector.UNREGISTERED" />
+                <action android:name="org.unifiedpush.android.connector.NEW_ENDPOINT" />
+                <action android:name="org.unifiedpush.android.connector.REGISTRATION_FAILED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Кнопки уведомления: только свои PendingIntent, снаружи не вызывается. -->
+        <receiver
+            android:name=".PushActionReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -45,4 +64,13 @@
     <!-- Подпись решений HITL высокого риска ключом с биометрией (TASK-140.6, decision-114). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
+    <!-- Уведомления о запросах агентов (TASK-140.3). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Дистрибьюторы UnifiedPush видны приложению только через объявленный запрос (Android 11+). -->
+    <queries>
+        <intent>
+            <action android:name="org.unifiedpush.android.distributor.REGISTER" />
+        </intent>
+    </queries>
 </manifest>

@@ -25,6 +25,7 @@ import {
   appendLog,
   confirmErrorText,
   dropHitl,
+  pushErrorText,
   hitlFromEvent,
   hitlConfirmPayload,
   hitlFromPending,
@@ -34,7 +35,7 @@ import {
   type HitlItem
 } from '../protocol/models';
 import type { ClientSnapshot, RpcMethod } from '../protocol/remoteClient';
-import type { ConfirmPort } from '../platform/types';
+import type { ConfirmPort, PushPort } from '../platform/types';
 import { uploadInChunks, type PreparedAttachment } from '../protocol/attachments';
 
 /**
@@ -76,6 +77,8 @@ export interface AppState {
   /** Задачи агентов всех проектов хоста, ждущие подтверждения. */
   agentTasks: RemotePendingAgentTask[];
   studio: StudioState;
+  /** Push с этого ПК на этот телефон (TASK-140.3): `null` — ещё не спрашивали хост. */
+  push: { enabled: boolean; busy: boolean } | null;
   toast: Toast | null;
 }
 
@@ -108,7 +111,9 @@ export class AppStore {
     private readonly prefs: PrefsPort = noopPrefs,
     private readonly debounceMs = 400,
     /** Подпись решений `high` биометрией (TASK-140.6); только в приложении с нативным плагином. */
-    private readonly confirm: ConfirmPort | null = null
+    private readonly confirm: ConfirmPort | null = null,
+    /** Push с ПК (TASK-140.3); только в приложении с нативным плагином. */
+    private readonly push: PushPort | null = null
   ) {
     this.state = AppStore.initialState(client.getSnapshot());
     this.unsubscribers.push(
@@ -134,6 +139,7 @@ export class AppStore {
       hitl: [],
       agentTasks: [],
       studio: emptyStudio(),
+      push: null,
       toast: null
     };
   }
@@ -553,6 +559,63 @@ export class AppStore {
 
   setStudioMode(mode: StudioMode): void {
     this.setStudio({ mode });
+  }
+
+  // ── push с этого ПК (TASK-140.3, decision-115) ──
+
+  canPush(): boolean {
+    return Boolean(this.push);
+  }
+
+  async refreshPush(): Promise<void> {
+    if (!this.push) return;
+    const res = await this.call<{ enabled: boolean }>('push_status', {}, true);
+    if (res) this.set({ push: { enabled: Boolean(res.enabled), busy: false } });
+  }
+
+  /**
+   * Включить push с открытого ПК: разрешение на уведомления, регистрация у дистрибьютора UnifiedPush с новыми ключами,
+   * `push_register` на этом ПК. Другие ПК не затрагиваются — у каждого своя регистрация (`instance` — id профиля).
+   */
+  async enablePush(instance: string, label: string): Promise<boolean> {
+    if (!this.push) return false;
+    this.set({ push: { enabled: this.state.push?.enabled ?? false, busy: true } });
+    const done = (enabled: boolean, text?: string, kind: Toast['kind'] = 'error') => {
+      this.set({ push: { enabled, busy: false } });
+      if (text) this.showToast(text, kind);
+      return enabled;
+    };
+    if (!(await this.push.requestPermission())) return done(false, 'Разрешите уведомления для ProjectHub в настройках телефона');
+    let data;
+    try {
+      data = await this.push.register(instance, label);
+    } catch (err) {
+      return done(false, pushErrorText(err));
+    }
+    const res = await this.call<{ ok: boolean }>('push_register', {
+      kind: data.kind,
+      endpoint: data.endpoint,
+      p256dh: data.p256dh,
+      auth: data.auth,
+      actionKey: data.actionKey
+    });
+    if (!res?.ok) {
+      await this.push.unregister(instance);
+      return done(false);
+    }
+    return done(true, `Уведомления с «${label}» включены`, 'success');
+  }
+
+  async disablePush(instance: string): Promise<void> {
+    if (!this.push) return;
+    this.set({ push: { enabled: this.state.push?.enabled ?? false, busy: true } });
+    await this.call('push_unregister', {}, true);
+    await this.push.unregister(instance);
+    this.set({ push: { enabled: false, busy: false } });
+  }
+
+  async testPush(): Promise<void> {
+    if (await this.call('push_test', {})) this.showToast('Проверочное уведомление отправлено', 'success');
   }
 
   /** Вложение в промпт (TASK-140.6): файл сохраняется в проект на хосте, возвращается путь в проекте. */

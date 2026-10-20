@@ -37,6 +37,8 @@ export interface PairedDevice {
   delegatedBy?: string;
   /** Устройство зарегистрировало ключ подтверждения биометрией (decision-112): может одобрять `high`. */
   biometricConfirm?: boolean;
+  /** Push на устройство включён с этого ПК (TASK-140.3): вид доставки. */
+  push?: 'unifiedpush' | 'fcm' | 'apns';
 }
 
 export interface RemoteControlConfig {
@@ -51,6 +53,8 @@ export interface RemoteControlConfig {
   machineName?: string;
   autoStart?: boolean;
   tunnelUrl?: string;
+  /** Шлюз `ph-push` для FCM и APNs (TASK-140.3, decision-115). */
+  pushGatewayUrl?: string;
   /**
    * Общий секрет федерации (TASK-66): задаётся одинаковым на всех машинах пользователя, из него
    * выводится `ownerId` каталога на релее. Хранится в safeStorage, не в plaintext-конфиге.
@@ -190,6 +194,8 @@ export interface RemoteControlStatus {
   telegramMiniAppUrl?: string;
   /** Адреса хоста для телефона: LAN, VPN, туннель (TASK-140.9). Релей — в `relayServerUrl`. */
   endpoints?: RemoteEndpoint[];
+  /** Шлюз `ph-push` для FCM и APNs (TASK-140.3); пустой — push только через UnifiedPush. */
+  pushGatewayUrl?: string;
 }
 
 /** Пакет протокола v1: AES-256-GCM общим ключом хоста. Пакеты v2 — `SessionFrameV2` из `remoteSessionV2.ts`. */
@@ -266,7 +272,12 @@ export type RemoteRpcMethod =
   | 'approve_agent_tasks'
   // Несколько хостов в телефоне (TASK-140.2, decision-111): доступ к соседу по федерации через этот ПК
   | 'federation_enroll'
-  | 'enroll_device';
+  | 'enroll_device'
+  // Зашифрованные push с этого ПК (TASK-140.3, decision-115): включаются отдельно для каждого ПК
+  | 'push_register'
+  | 'push_unregister'
+  | 'push_status'
+  | 'push_test';
 
 /** Ответ `federation_enroll` / `enroll_device`: всё, что нужно телефону для отдельного профиля соседнего хоста. */
 export interface RemoteEnrollment {
