@@ -96,6 +96,11 @@ export interface ConnectionServiceInfo {
   oauthAppHelpUrl?: string;
   /** Подпись поля имени пользователя для Basic: «Почта» у Jira Cloud. */
   usernameHint?: string;
+  /**
+   * Подсказка к полю токена (TASK-138.6): `slackApp` — токен приложения `xapp-…` для Socket Mode, `webhook` — в поле
+   * вставляется адрес вебхука целиком (Teams Workflows), он и есть секрет.
+   */
+  tokenHint?: 'slackApp' | 'webhook';
 }
 
 export type ConnectionFlowState = 'pending' | 'exchanging' | 'done' | 'error' | 'cancelled';

@@ -91,6 +91,8 @@ export interface AppNotification {
   hostId?: string;
   /** Запрос HITL, если уведомление о нём: решение по нему снимает уведомление во всех каналах. */
   requestId?: string;
+  /** Класс риска запроса HITL (decision-112): каналы с кнопками предупреждают, что high одобряется только на ПК. */
+  risk?: 'low' | 'moderate' | 'high';
   sessionId?: string;
   action?: NotificationAction;
   /** Пачка задач агента, которую можно подтвердить кнопкой в Telegram (TASK-155, decision-89 п. 11). */

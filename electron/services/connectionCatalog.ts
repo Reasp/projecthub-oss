@@ -46,6 +46,16 @@ export interface ConnectionServiceDef extends ConnectionServiceInfo {
   oauth?: OAuthSpec;
   /** Где отозвать доступ вручную. */
   manualRevokeUrl?: (baseUrl: string, method: ConnectionAuthMethod) => string;
+  /**
+   * Хосты, на которые можно открыть WebSocket по полному адресу, выданному API сервиса (Slack Socket Mode, TASK-138.6).
+   * Токен на такой адрес не уходит: доступ даёт одноразовый билет в самом адресе.
+   */
+  socketHosts?: RegExp[];
+  /**
+   * Секрет — адрес вебхука целиком (Teams Workflows, TASK-138.6): запрос идёт ровно на него, без заголовка
+   * `Authorization`, и только на перечисленные хосты.
+   */
+  webhookHosts?: RegExp[];
 }
 
 function obj(value: unknown): Record<string, unknown> | null {
@@ -264,6 +274,29 @@ export const CONNECTION_SERVICES: readonly ConnectionServiceDef[] = [
     rejectedBody: (json) => obj(json)?.ok === false && ['invalid_auth', 'not_authed', 'account_inactive', 'token_revoked', 'token_expired'].includes(String(obj(json)?.error)),
     manualRevokeUrl: () => 'https://api.slack.com/apps'
   },
+  // Кнопки решений HITL в Slack без входящего адреса (TASK-138.6, decision-113): токен приложения `xapp-…` со scope
+  // `connections:write` открывает исходящий WebSocket Socket Mode.
+  {
+    id: 'slack-app',
+    label: 'Slack: кнопки (Socket Mode)',
+    categories: ['chat'],
+    methods: ['token'],
+    defaultBaseUrl: 'https://slack.com',
+    selfHosted: false,
+    scopes: [],
+    clientSecretRequired: {},
+    tokenHelpUrl: 'https://api.slack.com/apis/socket-mode',
+    tokenHint: 'slackApp',
+    apiBase: () => 'https://slack.com/api',
+    tokenStyle: 'bearer',
+    verifyPath: '/apps.connections.open',
+    verifyBody: '{}',
+    parseAccount: (json) => (obj(json)?.ok === true ? { login: 'socket-mode' } : null),
+    rejectedBody: (json) =>
+      obj(json)?.ok === false && ['invalid_auth', 'not_authed', 'not_allowed_token_type', 'token_revoked', 'token_expired'].includes(String(obj(json)?.error)),
+    socketHosts: [/(^|\.)slack\.com$/i],
+    manualRevokeUrl: () => 'https://api.slack.com/apps'
+  },
   {
     id: 'mattermost',
     label: 'Mattermost',
@@ -277,8 +310,43 @@ export const CONNECTION_SERVICES: readonly ConnectionServiceDef[] = [
     verifyPath: '/users/me',
     parseAccount: (json) => accountFrom(json, ['id'], ['username'], ['nickname', 'first_name']),
     manualRevokeUrl: (base) => `${base}/my_account/security`
+  },
+  // MS Teams (TASK-138.6, decision-113): уведомления через Workflows «когда получен запрос вебхука». Кнопок решений нет:
+  // ответ из Teams требует бота с публичным адресом.
+  {
+    id: 'teams',
+    label: 'Microsoft Teams (Workflows)',
+    categories: ['chat'],
+    methods: ['token'],
+    defaultBaseUrl: 'https://teams.microsoft.com',
+    selfHosted: false,
+    scopes: [],
+    clientSecretRequired: {},
+    tokenHelpUrl: 'https://support.microsoft.com/office/creating-incoming-webhooks-with-workflows-for-microsoft-teams-8ae491c7-0394-4861-ba59-055e33f75498',
+    tokenHint: 'webhook',
+    apiBase: () => 'https://teams.microsoft.com',
+    tokenStyle: 'raw',
+    verifyPath: '',
+    parseAccount: () => null,
+    webhookHosts: [/\.logic\.azure\.com$/i, /\.api\.powerplatform\.com$/i, /\.webhook\.office\.com$/i],
+    manualRevokeUrl: () => 'https://make.powerautomate.com'
   }
 ];
+
+/**
+ * Адрес вебхука для сервиса с `webhookHosts`: только `https` и только на хосты сервиса, иначе `null`. Секрет — весь
+ * адрес, поэтому в сообщениях об ошибке он не печатается.
+ */
+export function webhookTarget(service: ConnectionServiceDef, token: string): URL | null {
+  if (!service.webhookHosts) return null;
+  try {
+    const url = new URL(token.trim());
+    if (url.protocol !== 'https:' || !service.webhookHosts.some((re) => re.test(url.hostname))) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
 
 export function findConnectionService(id: string): ConnectionServiceDef | undefined {
   return CONNECTION_SERVICES.find((s) => s.id === id);
@@ -298,7 +366,8 @@ export function connectionServiceInfos(): ConnectionServiceInfo[] {
     builtinClientId: s.builtinClientId,
     tokenHelpUrl: s.tokenHelpUrl,
     oauthAppHelpUrl: s.oauthAppHelpUrl,
-    usernameHint: s.usernameHint
+    usernameHint: s.usernameHint,
+    ...(s.tokenHint ? { tokenHint: s.tokenHint } : {})
   }));
 }
 

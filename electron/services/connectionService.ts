@@ -7,6 +7,7 @@ import {
   findConnectionService,
   normalizeBaseUrl,
   resolveScopes,
+  webhookTarget,
   type ConnectionServiceDef,
   type OAuthSpec
 } from './connectionCatalog.js';
@@ -63,10 +64,21 @@ export interface ConnectionSecretsStore {
   delete(key: string): Promise<boolean>;
 }
 
+/** Сокет подключения (TASK-138.6): то немногое, что нужно интеграциям от WebSocket. */
+export interface ConnectionSocket {
+  send(data: string): void;
+  close(): void;
+  onOpen(cb: () => void): void;
+  onMessage(cb: (text: string) => void): void;
+  onClose(cb: (code: number, reason: string) => void): void;
+}
+
 export interface ConnectionServiceDeps {
   dir: () => string;
   secrets: ConnectionSecretsStore;
   fetch: typeof fetch;
+  /** Исходящий WebSocket: адрес и заголовки уже проверены и собраны сервисом подключений. */
+  openSocket?: (url: string, headers: Record<string, string>) => ConnectionSocket;
   openExternal: (url: string) => Promise<void> | void;
   now?: () => number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
@@ -464,7 +476,12 @@ export class ConnectionService {
     const secret: ConnectionSecret = { token };
     registerSensitiveValue(token);
     try {
-      const verified = await this.fetchAccount(service, baseUrl, authorizationHeader(service, input.method, secret, username));
+      // Вебхук (Teams Workflows) проверяется по форме адреса: пробный запрос опубликовал бы сообщение в канал.
+      const hook = service.webhookHosts ? webhookTarget(service, token) : undefined;
+      if (hook === null) throw new Error(`${service.label}: вставьте адрес вебхука https://… из Workflows`);
+      const verified = hook
+        ? { rejected: false, account: { login: hook.hostname.split('.')[0] } }
+        : await this.fetchAccount(service, baseUrl, authorizationHeader(service, input.method, secret, username));
       if (verified.rejected) throw new Error('Сервис отклонил токен: проверьте значение и права');
       const record = await this.store(
         reconnectId,
@@ -787,6 +804,7 @@ export class ConnectionService {
     const record = await this.getRecord(id);
     if (record.status === 'needsReauth') throw new ConnectionAuthError(id, 'Подключение требует повторного входа');
     const service = this.serviceOf(record);
+    if (service.webhookHosts) return this.webhookFetch(record, service, target, init);
     const apiBase = service.apiBase(record.baseUrl);
     const apiOrigin = new URL(apiBase).origin;
     const url = /^https?:\/\//i.test(target) ? new URL(target) : new URL(`${apiBase}${target.startsWith('/') ? '' : '/'}${target}`);
@@ -825,12 +843,56 @@ export class ConnectionService {
     throw new ConnectionAuthError(id, 'Сервис отклонил токен, нужно войти заново');
   }
 
+  /** Запрос на вебхук (секрет — адрес целиком): только на сам адрес, без `Authorization`, без перехода по редиректу. */
+  private async webhookFetch(record: ConnectionRecord, service: ConnectionServiceDef, target: string, init: RequestInit): Promise<Response> {
+    if (target && target !== '/') throw new Error('У вебхука один адрес: путь запроса не указывается');
+    const secret = await this.freshSecret(record);
+    const url = webhookTarget(service, secret.token);
+    if (!url) throw new Error(`${service.label}: адрес вебхука не прошёл проверку — переподключите`);
+    try {
+      return await this.deps.fetch(url.toString(), { ...init, redirect: 'manual' });
+    } catch (err) {
+      throw networkError(err);
+    }
+  }
+
+  /**
+   * Исходящий WebSocket подключения (TASK-138.6, decision-113). Путь — относительно API сервиса, токен уходит в
+   * `Authorization` (Mattermost `/websocket`). Полный адрес `wss://` — только на `socketHosts` сервиса и без токена:
+   * Slack Socket Mode выдаёт адрес с одноразовым билетом через `apps.connections.open`.
+   */
+  async openWebSocket(id: string, target: string): Promise<ConnectionSocket> {
+    if (!this.deps.openSocket) throw new Error('WebSocket недоступен');
+    const record = await this.getRecord(id);
+    if (record.status === 'needsReauth') throw new ConnectionAuthError(id, 'Подключение требует повторного входа');
+    const service = this.serviceOf(record);
+    if (/^wss?:\/\//i.test(target)) {
+      const url = new URL(target);
+      if (url.protocol !== 'wss:' || !service.socketHosts?.some((re) => re.test(url.hostname))) {
+        throw new Error('Сокет подключения разрешён только к адресам его сервиса');
+      }
+      return this.deps.openSocket(url.toString(), {});
+    }
+    const api = new URL(service.apiBase(record.baseUrl));
+    const url = new URL(`${api.toString().replace(/\/$/, '')}${target.startsWith('/') ? '' : '/'}${target}`);
+    url.protocol = api.protocol === 'http:' ? 'ws:' : 'wss:';
+    const secret = await this.freshSecret(record);
+    return this.deps.openSocket(url.toString(), { Authorization: authorizationHeader(service, record.method, secret, record.username) });
+  }
+
   /** Проверить подключение: запрос профиля, обновление аккаунта и статуса. */
   async check(id: string): Promise<ConnectionView> {
     const record = await this.getRecord(id);
     const service = this.serviceOf(record);
     try {
       if (record.status === 'needsReauth') return this.viewOf(id);
+      if (service.webhookHosts) {
+        // Проверка вебхука без публикации: адрес на месте и проходит проверку формы.
+        const secret = await this.freshSecret(record);
+        const ok = Boolean(webhookTarget(service, secret.token));
+        await this.update(id, { status: ok ? 'connected' : 'error', statusDetail: ok ? undefined : 'webhook_invalid', lastCheckedAt: this.now() });
+        return this.viewOf(id);
+      }
       const res = await this.authorizedFetch(
         id,
         service.verifyPath,

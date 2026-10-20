@@ -242,6 +242,13 @@ async function applyHitlDecision(query, decision, requestId) {
         text: approved ? 'Разрешено' : 'Отклонено'
       });
       await editDecidedMessage(query, approved ? '✅ Разрешено из Telegram' : '⛔ Отклонено из Telegram');
+    } else if (res.status === 409 && data.reason === 'confirmation_required') {
+      // Высокий риск (decision-112): запрос по-прежнему ждёт — сообщение не закрываем, его можно отклонить здесь.
+      await tgApi('answerCallbackQuery', {
+        callback_query_id: query.id,
+        text: 'Высокий риск: одобрить можно только в ProjectHub на ПК или в приложении с биометрией. Отклонить можно здесь.',
+        show_alert: true
+      });
     } else if (res.status === 409) {
       await tgApi('answerCallbackQuery', {
         callback_query_id: query.id,

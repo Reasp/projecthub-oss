@@ -4,7 +4,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useProjectStore } from '../../store/useProjectStore';
 import type { ChatKind, ChatSubscription, ConnectionView, NotificationKind } from '../../types/electron';
 
-const CHAT_LABELS: Record<ChatKind, string> = { slack: 'Slack', mattermost: 'Mattermost', telegram: 'Telegram' };
+const CHAT_LABELS: Record<ChatKind, string> = { slack: 'Slack', mattermost: 'Mattermost', telegram: 'Telegram', teams: 'Microsoft Teams' };
 const DEFAULT_KINDS: NotificationKind[] = ['hitl', 'prMerged', 'prChecksFailed', 'agentFailed', 'swarmFinished'];
 
 function cleanIpcError(err: unknown): string {
@@ -13,11 +13,12 @@ function cleanIpcError(err: unknown): string {
 
 type Draft = Omit<ChatSubscription, 'id'> & { id?: string };
 
-const emptyDraft = (): Draft => ({ enabled: true, kind: 'slack', channel: '', kinds: [...DEFAULT_KINDS], projects: [], details: false });
+const emptyDraft = (): Draft => ({ enabled: true, kind: 'slack', channel: '', kinds: [...DEFAULT_KINDS], projects: [], details: false, deciders: [] });
 
 /**
- * Подписки чатов команды (TASK-138.4, decision-110): Slack и Mattermost через подключения, группа Telegram через бота.
- * События — те же виды, что в матрице уведомлений; проекты — из каталога, пусто — все.
+ * Подписки чатов команды (TASK-138.4, decision-110): Slack, Mattermost и Teams через подключения, группа Telegram через
+ * бота. События — те же виды, что в матрице уведомлений; проекты — из каталога, пусто — все. Кнопки решений HITL в Slack
+ * и Mattermost (TASK-138.6, decision-113) — для людей из списка подписки.
  */
 export const TeamChatsSection: React.FC<{ kinds: NotificationKind[] }> = ({ kinds }) => {
   const { t } = useTranslation();
@@ -27,12 +28,14 @@ export const TeamChatsSection: React.FC<{ kinds: NotificationKind[] }> = ({ kind
   const [connections, setConnections] = useState<ConnectionView[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [targets, setTargets] = useState<Array<{ id: string; name: string }>>([]);
+  // Список решающих — строкой, как его набирает человек: запятая и пробел не должны пропадать при вводе.
+  const [decidersText, setDecidersText] = useState('');
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const reload = useCallback(async () => {
     const [list, conns] = await Promise.all([window.api.chat.list(), window.api.connections.list()]);
     setSubs(list);
-    setConnections(conns.filter((c) => c.serviceId === 'slack' || c.serviceId === 'mattermost'));
+    setConnections(conns.filter((c) => ['slack', 'slack-app', 'mattermost', 'teams'].includes(c.serviceId)));
   }, []);
 
   useEffect(() => {
@@ -43,7 +46,20 @@ export const TeamChatsSection: React.FC<{ kinds: NotificationKind[] }> = ({ kind
 
   const setKind = (kind: ChatKind) => {
     setTargets([]);
-    setDraft((d) => (d ? { ...d, kind, channel: '', channelLabel: undefined, connectionId: kind === 'telegram' ? undefined : connectionsOf(kind)[0]?.id } : d));
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            kind,
+            // У Teams канал задаёт сам Workflow: адрес вебхука ведёт в один канал.
+            channel: kind === 'teams' ? 'workflow' : '',
+            channelLabel: kind === 'teams' ? 'Workflow' : undefined,
+            connectionId: kind === 'telegram' ? undefined : connectionsOf(kind)[0]?.id,
+            deciders: kind === 'slack' || kind === 'mattermost' ? d.deciders : [],
+            appConnectionId: kind === 'slack' ? d.appConnectionId : undefined
+          }
+        : d
+    );
   };
 
   const loadTargets = async () => {
@@ -96,6 +112,7 @@ export const TeamChatsSection: React.FC<{ kinds: NotificationKind[] }> = ({ kind
               const d = emptyDraft();
               d.connectionId = connectionsOf('slack')[0]?.id;
               setDraft(d);
+              setDecidersText('');
               setMessage(null);
             }}
             data-testid="team-chats-add"
@@ -159,15 +176,18 @@ export const TeamChatsSection: React.FC<{ kinds: NotificationKind[] }> = ({ kind
                       ))}
                     </select>
                   </label>
-                  <button type="button" onClick={() => void loadTargets()} className="px-2 py-0.5 rounded border border-border hover:bg-secondary" data-testid="team-chat-load">
-                    {tc.loadChannels}
-                  </button>
+                  {draft.kind !== 'teams' && (
+                    <button type="button" onClick={() => void loadTargets()} className="px-2 py-0.5 rounded border border-border hover:bg-secondary" data-testid="team-chat-load">
+                      {tc.loadChannels}
+                    </button>
+                  )}
                 </>
               ) : (
                 <span className="text-amber-400 text-[11px]">{tc.noConnection.replace('{chat}', CHAT_LABELS[draft.kind])}</span>
               ))}
           </div>
 
+          {draft.kind !== 'teams' && (
           <div className="flex flex-wrap items-center gap-2">
             {targets.length > 0 && draft.kind !== 'telegram' ? (
               <label className="flex items-center gap-1">
@@ -196,7 +216,49 @@ export const TeamChatsSection: React.FC<{ kinds: NotificationKind[] }> = ({ kind
               />
             )}
           </div>
+          )}
           {draft.kind === 'telegram' && <p className="text-[11px] text-muted-foreground">{tc.telegramHint}</p>}
+          {draft.kind === 'teams' && <p className="text-[11px] text-muted-foreground">{tc.teamsHint}</p>}
+
+          {(draft.kind === 'slack' || draft.kind === 'mattermost') && (
+            <div className="space-y-1" data-testid="team-chat-buttons">
+              {draft.kind === 'slack' && (
+                <label className="flex items-center gap-1">
+                  {tc.appConnection}
+                  <select
+                    value={draft.appConnectionId ?? ''}
+                    onChange={(e) => setDraft({ ...draft, appConnectionId: e.target.value || undefined })}
+                    className="bg-secondary border border-border rounded px-1.5 py-0.5"
+                    data-testid="team-chat-app-connection"
+                  >
+                    <option value="">{tc.appConnectionNone}</option>
+                    {connections
+                      .filter((c) => c.serviceId === 'slack-app')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
+              <label className="flex items-center gap-1">
+                {tc.deciders}
+                <input
+                  value={decidersText}
+                  onChange={(e) => {
+                    setDecidersText(e.target.value);
+                    setDraft({ ...draft, deciders: e.target.value.split(/[\s,]+/).filter(Boolean) });
+                  }}
+                  className="flex-1 min-w-[200px] bg-secondary border border-border rounded px-2 py-0.5 font-mono"
+                  data-testid="team-chat-deciders"
+                />
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                {tc.decidersHint} {draft.kind === 'slack' ? tc.buttonsHint : tc.mattermostButtonsHint}
+              </p>
+            </div>
+          )}
 
           <div>
             <div className="text-[11px] text-muted-foreground mb-1">{tc.events}</div>

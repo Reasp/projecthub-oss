@@ -428,7 +428,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ services, reconnect, on
 
       {!isOAuth && (
         <div>
-          <label className="block text-slate-300 mb-1">{method === 'basic' ? tc.form.password : tc.form.token}</label>
+          <label className="block text-slate-300 mb-1">{method === 'basic' ? tc.form.password : service.tokenHint === 'webhook' ? tc.form.webhookLabel : tc.form.token}</label>
           <input
             className={inputClass}
             type="password"
@@ -437,6 +437,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ services, reconnect, on
             autoComplete="off"
             data-testid="connection-token"
           />
+          {service.tokenHint && <p className="mt-1 text-slate-500">{tc.form.tokenHints[service.tokenHint]}</p>}
           {service.tokenHelpUrl && (
             <button type="button" onClick={() => openLink(service.tokenHelpUrl)} className="mt-1 flex items-center gap-1 text-indigo-300 hover:text-indigo-200">
               <ExternalLink className="w-3 h-3" />

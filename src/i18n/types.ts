@@ -2867,6 +2867,13 @@ export interface TranslationDictionary {
       channelId: string;
       telegramChatId: string;
       telegramHint: string;
+      deciders: string;
+      decidersHint: string;
+      appConnection: string;
+      appConnectionNone: string;
+      buttonsHint: string;
+      mattermostButtonsHint: string;
+      teamsHint: string;
       events: string;
       projects: string;
       allProjects: string;
@@ -3474,6 +3481,8 @@ export interface TranslationDictionary {
       token: string;
       password: string;
       tokenHelp: string;
+      tokenHints: { slackApp: string; webhook: string };
+      webhookLabel: string;
       clientIdHint: string;
       clientIdHintDevice: string;
       oauthAppHelp: string;

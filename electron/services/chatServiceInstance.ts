@@ -1,5 +1,6 @@
 import { ChatService } from './chatService';
 import { connectionService } from './connectionServiceInstance';
+import { hitlService } from './hitlService';
 import { telegramService } from './telegramService';
 import { getStatePath } from './appPaths';
 import { redactSecrets } from './hitlAudit';
@@ -10,9 +11,25 @@ import { logger } from './logger';
 export const chatService = new ChatService({
   statePath: () => getStatePath('chat.json'),
   connections: {
-    list: async () => (await connectionService.list()).map((c) => ({ id: c.id, serviceId: c.serviceId, label: c.label })),
+    list: async () => (await connectionService.list()).map((c) => ({ id: c.id, serviceId: c.serviceId, label: c.label, accountId: c.account?.id })),
     authorizedFetch: (connectionId, target, init) => connectionService.authorizedFetch(connectionId, target, init)
   },
+  // Кнопки решений HITL (TASK-138.6, decision-113): сокет — через слой подключений, решение — через единый контур.
+  sockets: { open: (connectionId, target) => connectionService.openWebSocket(connectionId, target) },
+  decide: (requestId, approved, who) => {
+    const res = hitlService.decide(
+      requestId,
+      { approved },
+      { kind: 'remote', deviceId: `${who.chat.toLowerCase()}:${who.userId}`, deviceName: `${who.chat} (${who.userName})`, confirm: 'chat' }
+    );
+    return res.ok ? { ok: true } : { ok: false, reason: res.reason, ...(res.risk ? { risk: res.risk } : {}) };
+  },
+  setTimer: (fn, ms) => {
+    const t = setTimeout(fn, ms);
+    t.unref?.();
+    return t;
+  },
+  clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   telegram: {
     configured: () => telegramService.isBotTokenConfigured,
     send: (notification, chatId, text) => telegramService.sendNotification(notification, { chatId, text })

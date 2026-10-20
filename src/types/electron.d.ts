@@ -846,7 +846,7 @@ export interface PRProviderInfo {
 
 // ─────────────────── Рабочие чаты (TASK-138.4) — зеркало electron/services/chatSubscriptions.ts ───────────────────
 
-export type ChatKind = 'slack' | 'mattermost' | 'telegram';
+export type ChatKind = 'slack' | 'mattermost' | 'telegram' | 'teams';
 
 export interface ChatSubscription {
   id: string;
@@ -861,6 +861,10 @@ export interface ChatSubscription {
   projects: string[];
   /** Текст события целиком (команда HITL, путь файла). */
   details: boolean;
+  /** Кто решает HITL кнопками (TASK-138.6): id пользователей Slack или Mattermost; пусто — никто. */
+  deciders: string[];
+  /** Slack: подключение приложения (Socket Mode) для кнопок. */
+  appConnectionId?: string;
 }
 
 // ─────────────────── CI/CD (TASK-138.3) — зеркало electron/services/ciProviders.ts и ciService.ts ───────────────────
@@ -2423,6 +2427,8 @@ export interface ConnectionServiceInfo {
   tokenHelpUrl?: string;
   oauthAppHelpUrl?: string;
   usernameHint?: string;
+  /** Подсказка к полю токена (TASK-138.6). */
+  tokenHint?: 'slackApp' | 'webhook';
 }
 
 export interface ConnectionFlowView {

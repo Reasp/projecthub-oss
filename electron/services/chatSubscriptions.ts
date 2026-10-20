@@ -1,14 +1,15 @@
 import path from 'node:path';
 import { NOTIFICATION_KINDS, type AppNotification, type NotificationKind } from './notificationTypes.js';
 import type { ChatMessage } from './chatAdapters.js';
+import { HIGH_RISK_LINE } from './chatButtons.js';
 
 /**
  * Подписки рабочих чатов (TASK-138.4, decision-110): какие события, в какой канал, для каких проектов. Чистый модуль:
  * разбор настроек, сопоставление уведомления с подпиской и текст сообщения без секретов.
  */
 
-export type ChatKind = 'slack' | 'mattermost' | 'telegram';
-export const CHAT_KINDS: readonly ChatKind[] = ['slack', 'mattermost', 'telegram'];
+export type ChatKind = 'slack' | 'mattermost' | 'telegram' | 'teams';
+export const CHAT_KINDS: readonly ChatKind[] = ['slack', 'mattermost', 'telegram', 'teams'];
 
 export interface ChatSubscription {
   id: string;
@@ -26,6 +27,19 @@ export interface ChatSubscription {
   projects: string[];
   /** Текст события целиком: команда HITL, путь файла. По умолчанию — только заголовок и проект. */
   details: boolean;
+  /**
+   * Кто может решать запросы HITL кнопками (TASK-138.6): id пользователей Slack (`U…`) или Mattermost. Пусто — никто,
+   * кнопок нет: в общем канале без списка решение досталось бы любому участнику.
+   */
+  deciders: string[];
+  /** Slack: подключение приложения (`xapp-…`) для Socket Mode. Без него кнопок в Slack нет. */
+  appConnectionId?: string;
+}
+
+/** В подписке есть кнопки решений HITL. */
+export function hasDecisionButtons(sub: ChatSubscription): boolean {
+  if (!sub.deciders.length || !sub.kinds.includes('hitl')) return false;
+  return sub.kind === 'mattermost' || (sub.kind === 'slack' && Boolean(sub.appConnectionId));
 }
 
 /** Что подписка получает по умолчанию: события, ради которых команде стоит отвлечься. */
@@ -49,6 +63,12 @@ export function normalizeSubscription(raw: unknown): ChatSubscription | null {
   if (kind === 'telegram' && !/^-?\d+$/.test(channel)) return null;
   const connectionId = str(r.connectionId);
   if (kind !== 'telegram' && !connectionId) return null;
+  // Решающие — только у Slack и Mattermost: id без пробелов и запятых, не больше 50.
+  const deciders =
+    (kind === 'slack' || kind === 'mattermost') && Array.isArray(r.deciders)
+      ? [...new Set(r.deciders.map(str).filter((d) => /^[A-Za-z0-9._-]{1,64}$/.test(d)))].slice(0, 50)
+      : [];
+  const appConnectionId = kind === 'slack' ? str(r.appConnectionId) : '';
   const kinds = Array.isArray(r.kinds) ? [...new Set(r.kinds.map(str).filter((k): k is NotificationKind => (NOTIFICATION_KINDS as string[]).includes(k)))] : [];
   const projects = Array.isArray(r.projects) ? [...new Set(r.projects.map(str).filter(Boolean))] : [];
   return {
@@ -60,7 +80,9 @@ export function normalizeSubscription(raw: unknown): ChatSubscription | null {
     ...(str(r.channelLabel) ? { channelLabel: str(r.channelLabel).slice(0, 120) } : {}),
     kinds: kinds.length ? kinds : [...CHAT_DEFAULT_KINDS],
     projects,
-    details: r.details === true
+    details: r.details === true,
+    deciders,
+    ...(appConnectionId ? { appConnectionId } : {})
   };
 }
 
@@ -78,13 +100,16 @@ export function matchesSubscription(sub: ChatSubscription, notification: AppNoti
  * строка «решение — в ProjectHub». Остальные тела (заголовок PR, задачи, итог роя) идут как есть. Всё — через
  * маскировку секретов.
  */
-export function chatMessageFor(notification: AppNotification, details: boolean, mask: (text: string) => string): ChatMessage {
+export function chatMessageFor(notification: AppNotification, details: boolean, mask: (text: string) => string, buttons = false): ChatMessage {
   const lines: string[] = [];
-  if (notification.kind === 'hitl' && !details) {
+  // С кнопками решения команда видит, что решает: тело запроса (команда, путь) идёт всегда, через маскировку секретов.
+  if (notification.kind === 'hitl' && !details && !buttons) {
     if (notification.projectName) lines.push(`Проект: ${notification.projectName}`);
     lines.push('Решение — в ProjectHub, на телефоне или кнопками Telegram.');
   } else if (notification.body) {
+    if (notification.kind === 'hitl' && buttons && notification.projectName) lines.push(`Проект: ${notification.projectName}`);
     lines.push(mask(notification.body));
+    if (notification.kind === 'hitl' && buttons && notification.risk === 'high') lines.push(HIGH_RISK_LINE);
   }
   const url = notification.action && 'url' in notification.action ? notification.action.url : undefined;
   return {

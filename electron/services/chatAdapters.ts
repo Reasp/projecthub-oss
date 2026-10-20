@@ -1,13 +1,23 @@
 import { PrHostingError, describeHttpError, type PrHttp } from './prHosting.js';
+import { MATTERMOST_ALLOW_EMOJI, MATTERMOST_DENY_EMOJI, mattermostHitlMessage, slackHitlBlocks, slackResolvedBlocks } from './chatButtons.js';
 
 /**
  * Адаптеры рабочих чатов (TASK-138.4, decision-110): отправка уведомления в канал, правка сообщения после решения,
  * список каналов для выбора. Чистый модуль без Electron: сеть — только через `http` подключения (decision-102 п. 10).
- * Формы — по документации Slack Web API (`chat.postMessage`, `chat.update`, `conversations.list`) и Mattermost API v4
- * (`POST /posts`, `PUT /posts/{id}/patch`, `/users/me/teams/{team}/channels`).
+ * Формы — по документации Slack Web API (`chat.postMessage`, `chat.update`, `chat.postEphemeral`, `conversations.list`),
+ * Mattermost API v4 (`POST /posts`, `PUT /posts/{id}/patch`, `POST /reactions`, `POST /posts/ephemeral`,
+ * `/users/me/teams/{team}/channels`) и Teams Workflows (POST адаптивной карточки на вебхук, TASK-138.6).
  */
 
-export type ChatAdapterId = 'slack' | 'mattermost';
+export type ChatAdapterId = 'slack' | 'mattermost' | 'teams';
+
+/** Кнопки решения HITL в сообщении (TASK-138.6): `requestId` запроса и id бота (Mattermost ставит реакции от него). */
+export interface ChatSendOptions {
+  hitlRequestId?: string;
+  /** Запрос `high`: кнопки и реакции только «отклонить». */
+  hitlDenyOnly?: boolean;
+  botUserId?: string;
+}
 
 /** Сообщение без разметки конкретного чата: заголовок, строки текста и ссылка. */
 export interface ChatMessage {
@@ -33,9 +43,13 @@ export interface ChatAdapter {
   label: string;
   /** Сервис слоя подключений. */
   serviceId: ChatAdapterId;
-  send(http: PrHttp, channel: string, message: ChatMessage): Promise<ChatMessageRef>;
+  /** Умеет ли чат принимать решения HITL без входящего адреса. */
+  decisions: boolean;
+  send(http: PrHttp, channel: string, message: ChatMessage, options?: ChatSendOptions): Promise<ChatMessageRef>;
   /** Дописать в сообщение строку (исход решения HITL). */
   append(http: PrHttp, ref: ChatMessageRef, message: ChatMessage, line: string): Promise<void>;
+  /** Сообщение только этому человеку: почему его нажатие не применено. */
+  notifyUser?(http: PrHttp, channel: string, userId: string, text: string): Promise<void>;
   listTargets(http: PrHttp): Promise<ChatTarget[]>;
 }
 
@@ -87,12 +101,25 @@ export const slackChatAdapter: ChatAdapter = {
   id: 'slack',
   label: 'Slack',
   serviceId: 'slack',
-  async send(http, channel, message) {
-    const json = await slackCall(http, 'chat.postMessage', { channel, text: slackText(message), unfurl_links: false, unfurl_media: false });
+  decisions: true,
+  async send(http, channel, message, options) {
+    const mrkdwn = slackText(message);
+    const json = await slackCall(http, 'chat.postMessage', {
+      channel,
+      text: mrkdwn,
+      ...(options?.hitlRequestId ? { blocks: slackHitlBlocks(mrkdwn, options.hitlRequestId, !options.hitlDenyOnly) } : {}),
+      unfurl_links: false,
+      unfurl_media: false
+    });
     return { channel: text(json.channel) || channel, id: text(json.ts) };
   },
   async append(http, ref, message, line) {
-    await slackCall(http, 'chat.update', { channel: ref.channel, ts: ref.id, text: slackText(message, line) });
+    // Блоки заменяются текстом с исходом: кнопок после решения нет.
+    const mrkdwn = slackText(message, line);
+    await slackCall(http, 'chat.update', { channel: ref.channel, ts: ref.id, text: mrkdwn, blocks: slackResolvedBlocks(mrkdwn) });
+  },
+  async notifyUser(http, channel, userId, note) {
+    await slackCall(http, 'chat.postEphemeral', { channel, user: userId, text: slackEscape(note) });
   },
   async listTargets(http) {
     const json = await slackCall(http, 'conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200');
@@ -114,9 +141,21 @@ export const mattermostChatAdapter: ChatAdapter = {
   id: 'mattermost',
   label: 'Mattermost',
   serviceId: 'mattermost',
-  async send(http, channel, message) {
-    const json = obj(await callJson(http, '/posts', jsonInit('POST', { channel_id: channel, message: mattermostText(message) })));
-    return { channel, id: text(json.id) };
+  decisions: true,
+  async send(http, channel, message, options) {
+    const body = options?.hitlRequestId ? mattermostHitlMessage(message, !options.hitlDenyOnly) : message;
+    const json = obj(await callJson(http, '/posts', jsonInit('POST', { channel_id: channel, message: mattermostText(body) })));
+    const id = text(json.id);
+    // Бот сам ставит реакции-решения: человеку остаётся нажать. Не вышло — решение реакцией всё равно работает.
+    if (options?.hitlRequestId && options.botUserId && id) {
+      for (const emoji of options.hitlDenyOnly ? [MATTERMOST_DENY_EMOJI[0]] : [MATTERMOST_ALLOW_EMOJI[0], MATTERMOST_DENY_EMOJI[0]]) {
+        await callJson(http, '/reactions', jsonInit('POST', { user_id: options.botUserId, post_id: id, emoji_name: emoji })).catch(() => undefined);
+      }
+    }
+    return { channel, id };
+  },
+  async notifyUser(http, channel, userId, note) {
+    await callJson(http, '/posts/ephemeral', jsonInit('POST', { user_id: userId, post: { channel_id: channel, message: note } }));
   },
   async append(http, ref, message, line) {
     await callJson(http, `/posts/${encodeURIComponent(ref.id)}/patch`, jsonInit('PUT', { message: mattermostText(message, line) }));
@@ -136,7 +175,53 @@ export const mattermostChatAdapter: ChatAdapter = {
   }
 };
 
-export const CHAT_ADAPTERS: readonly ChatAdapter[] = [slackChatAdapter, mattermostChatAdapter];
+// ─────────────────────────── Microsoft Teams ───────────────────────────
+
+/** Адаптивная карточка для вебхука Workflows: заголовок, строки и ссылка. */
+export function teamsCard(message: ChatMessage): Record<string, unknown> {
+  const url = message.url && /^https?:\/\//.test(message.url) ? message.url : undefined;
+  return {
+    type: 'message',
+    attachments: [
+      {
+        contentType: 'application/vnd.microsoft.card.adaptive',
+        contentUrl: null,
+        content: {
+          $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+          type: 'AdaptiveCard',
+          version: '1.4',
+          body: [
+            { type: 'TextBlock', text: message.title, weight: 'Bolder', wrap: true },
+            ...message.lines.map((line) => ({ type: 'TextBlock', text: line, wrap: true }))
+          ],
+          ...(url ? { actions: [{ type: 'Action.OpenUrl', title: message.urlLabel || 'Открыть', url }] } : {})
+        }
+      }
+    ]
+  };
+}
+
+export const teamsChatAdapter: ChatAdapter = {
+  id: 'teams',
+  label: 'Microsoft Teams',
+  serviceId: 'teams',
+  // Ответ из Teams требует бота с публичным адресом — local-first приложению принимать его некуда (decision-113).
+  decisions: false,
+  async send(http, _channel, message) {
+    const res = await http('', jsonInit('POST', teamsCard(message)));
+    if (!res.ok) throw new PrHostingError(res.status, describeHttpError(res.status, await res.text().catch(() => '')));
+    // Workflows не возвращает id сообщения: дописать исход нельзя.
+    return { channel: 'workflow', id: '' };
+  },
+  async append() {
+    // нечего править: у сообщения Workflows нет id
+  },
+  async listTargets() {
+    return [{ id: 'workflow', name: 'Канал из Workflow' }];
+  }
+};
+
+export const CHAT_ADAPTERS: readonly ChatAdapter[] = [slackChatAdapter, mattermostChatAdapter, teamsChatAdapter];
 
 export function findChatAdapter(id: string): ChatAdapter | undefined {
   return CHAT_ADAPTERS.find((a) => a.id === id);
