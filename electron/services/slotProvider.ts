@@ -110,26 +110,6 @@ export function providerConfigFromSpec(spec: ProviderSpec | undefined): Partial<
   return out;
 }
 
-/**
- * Провайдер ревьюера Arena: провайдер или профиль из настроек ревьюера целиком заменяют провайдера
- * роли (смешивать профиль роли с провайдером настроек нельзя); модель — из настроек, а без своего
- * провайдера у ревьюера — затем из роли.
- */
-export function reviewerProviderSpec(
-  reviewer: ProviderSpec | undefined,
-  role: ProviderSpec | undefined
-): ProviderSpec {
-  const ownTarget = Boolean(clean(reviewer?.profile) || clean(reviewer?.provider));
-  const source = ownTarget ? reviewer : role;
-  // Модель роли относится к провайдеру роли — со своим провайдером ревьюера она не берётся.
-  const model = ownTarget ? clean(reviewer?.model) : clean(reviewer?.model) ?? clean(role?.model);
-  return {
-    ...(clean(source?.profile) ? { profile: clean(source?.profile) } : {}),
-    ...(clean(source?.provider) ? { provider: clean(source?.provider) } : {}),
-    ...(model ? { model } : {})
-  };
-}
-
 function sameLegacyTarget(slot: Partial<AIProviderConfig>, global: AIProviderConfig): boolean {
   return slot.provider === global.provider;
 }
@@ -265,6 +245,20 @@ export function apiConfigProblem(config: AIProviderConfig): string | null {
   }
   if (!model || isDefaultAlias(model)) return `в AI Studio не выбрана модель провайдера «${config.provider}»`;
   return null;
+}
+
+/**
+ * API-слот Swarm, который не сможет ответить: его адресат — Anthropic без ключа (TASK-134.4). Чаще всего
+ * так выходит, когда основная модель — Claude Code по подписке, а у слота оставлен движок «API».
+ * Совет — какой движок или профиль выбрать, а не просьба указать ключ.
+ */
+export function apiSlotProblem(config: AIProviderConfig, main: AIProviderConfig): string | null {
+  if (config.provider !== 'anthropic' || clean(config.apiKey)) return null;
+  return usesClaudeCli(main)
+    ? 'у слота движок «API», а основная модель — Claude Code по подписке, ключа Anthropic API нет. ' +
+        'Выберите у слота движок «Claude Code CLI» или профиль LLM со своим ключом'
+    : 'у Anthropic нет API-ключа. Укажите ключ в настройках AI Studio, выберите у слота движок «Claude Code CLI» ' +
+        'или профиль LLM со своим ключом';
 }
 
 /** Короткая подпись провайдера для логов и экспорта: «профиль «Ollama» (локальная)» или «deepseek». */

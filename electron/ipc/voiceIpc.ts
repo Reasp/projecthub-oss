@@ -15,7 +15,8 @@ import { voiceHotkeyService } from '../services/voiceHotkeyService';
 import { aiAgentService, type AIMessage } from '../services/aiAgentService';
 import { computerUseService } from '../services/computerUseService';
 import { claudeBridgeService } from '../services/claudeBridgeService';
-import { usesClaudeCli } from '../services/modelTarget';
+import { modelCallService } from '../services/modelCallService';
+import { ModelRouteError, assertModelUsable } from '../services/modelRouter';
 import type { ToolExecutionResult } from '../services/apiToolLoop';
 import {
   VoiceClassifierCache,
@@ -324,9 +325,10 @@ export function registerVoiceIpc(ctx: IpcContext) {
   // ─────────────── Классификатор свободных команд (TASK-83 п. 2) ───────────────
 
   /**
-   * Фраза, которую не узнал разбор регулярками, уходит настроенной модели. Ошибка модели —
-   * штатный исход: вызывающий код показывает «не понял команду», а не падает. Провайдера и
-   * модель выбирает пользователь, своих дефолтов здесь нет ([[decision-26]] п. 0).
+   * Фраза, которую не узнал разбор регулярками, уходит модели назначения «Голос: разбор команды»
+   * (TASK-134.4, по умолчанию тир `cheap`, без тиров — основная модель). Ошибка модели — штатный
+   * исход: вызывающий код показывает «не понял команду», а не падает. Непригодная цель назначения
+   * приходит с `modelProblem` — её текст называет назначение. Своих дефолтов здесь нет ([[decision-26]] п. 0).
    */
   ipcMain.handle('voice:classifyCommand', async (_event, payload: unknown) => {
     const request = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
@@ -348,8 +350,11 @@ export function registerVoiceIpc(ctx: IpcContext) {
         computerUseEnabled: computerUseService.isEnabled()
       });
 
-      const completion = await aiAgentService.complete({
+      const completion = await modelCallService.complete({
+        purpose: 'voice.classify',
         prompt,
+        // Аккаунт Claude Code — активного проекта (decision-87), без него — профиль по умолчанию.
+        ...(typeof request.projectPath === 'string' && request.projectPath ? { projectPath: request.projectPath } : {}),
         maxTokens: CLASSIFY_MAX_TOKENS,
         temperature: 0,
         timeoutMs: CLASSIFY_TIMEOUT_MS
@@ -367,7 +372,12 @@ export function registerVoiceIpc(ctx: IpcContext) {
         provider: completion.provider
       };
     } catch (err) {
-      return { ok: false, result: null, error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        result: null,
+        error: err instanceof Error ? err.message : String(err),
+        ...(err instanceof ModelRouteError ? { modelProblem: true } : {})
+      };
     }
   });
 
@@ -390,15 +400,22 @@ export function registerVoiceIpc(ctx: IpcContext) {
     const tools = computerUseService.listProxyTools();
     if (tools.length === 0) return { ok: false, error: 'computer_use_unavailable' };
 
-    const config = await aiAgentService.getConfig();
+    // Модель — назначения «Голос: команда компьютеру» (TASK-134.4); без настройки — основная модель.
+    const resolved = await modelCallService.resolve({ purpose: 'voice.computer' });
+    try {
+      assertModelUsable(resolved);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err), modelProblem: true };
+    }
+    const config = resolved.config!;
     const sessionId = `voice-computer-${Date.now()}`;
     const messages: AIMessage[] = [
       { id: sessionId, role: 'user', content: task, timestamp: new Date().toISOString() }
     ];
 
-    return await new Promise<{ ok: boolean; text?: string; error?: string }>((resolve) => {
+    return await new Promise<{ ok: boolean; text?: string; error?: string; modelProblem?: boolean }>((resolve) => {
       let settled = false;
-      const finish = (value: { ok: boolean; text?: string; error?: string }) => {
+      const finish = (value: { ok: boolean; text?: string; error?: string; modelProblem?: boolean }) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -410,7 +427,7 @@ export function registerVoiceIpc(ctx: IpcContext) {
       // Claude Code по подписке (decision-35, decision-74): задача уходит в CLI-сессию.
       // Встроенные инструменты CLI отключены, остаются только MCP-инструменты computer_* прокси
       // ProjectHub — с тем же HITL, allowlist, аудитом и kill-switch, что и в API-пути.
-      if (usesClaudeCli(config)) {
+      if (resolved.engine === 'claude-cli') {
         void claudeBridgeService.runAgentTask(
           {
             sessionId,
@@ -484,7 +501,9 @@ export function registerVoiceIpc(ctx: IpcContext) {
     let text = raw;
     if (request.punctuate === true) {
       try {
-        const completion = await aiAgentService.complete({
+        const completion = await modelCallService.complete({
+          purpose: 'voice.punctuate',
+          ...(projectPath ? { projectPath } : {}),
           prompt:
             'Расставь в тексте знаки препинания и заглавные буквы. Слова, их порядок и язык не меняй, ' +
             'ничего не добавляй и не убирай, не комментируй. Верни только исправленный текст.\n\n' +

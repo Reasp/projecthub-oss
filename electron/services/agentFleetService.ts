@@ -19,7 +19,8 @@ import { getUserDataDir, getHandoffReportsDir } from './appPaths.js';
 import { loadRoles } from './roleService.js';
 import { llmProfileService } from './llmProfileService.js';
 import { normalizeReasoningEffort } from './reasoningEffort.js';
-import { apiConfigProblem, describeProviderInfo, providerConfigFromSpec, resolveSlotProviderConfig } from './slotProvider.js';
+import { apiConfigProblem, apiSlotProblem, describeProviderInfo, providerConfigFromSpec, resolveSlotProviderConfig } from './slotProvider.js';
+import { purposeLabel } from './modelPurposes.js';
 import {
   ProviderError,
   classifyClaudeCliError,
@@ -2380,6 +2381,12 @@ export class AgentFleetService extends EventEmitter {
     );
     agentState.providerInfo = info;
     this.log(session, agentState, `[Swarm] Провайдер: ${describeProviderInfo(info)}, модель: ${info.model || '—'}`);
+    // Без ключа слот упал бы на «модель не выбрана» или «API ключ не указан» — до запроса объясняем,
+    // какой движок или профиль выбрать у слота (TASK-134.4).
+    const slotProblem = apiSlotProblem(config, globalConfig);
+    if (slotProblem) {
+      throw providerConfigError(`Назначение «${purposeLabel('agent')}», слот «${agentState.config.name}»: ${slotProblem}.`, 'no_key');
+    }
 
     // Системный промпт роли идёт отдельным полем (buildSystemPrompt), а не в тело сообщения —
     // так он одинаково применяется независимо от того, есть ли у роли `tools` (decision-9).

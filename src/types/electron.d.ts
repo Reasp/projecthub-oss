@@ -510,6 +510,8 @@ export interface VoiceClassifyRequest {
   /** Открытые проекты — подсказка модели для «переключись на …». */
   projectNames?: string[];
   hasPendingApproval?: boolean;
+  /** Активный проект: по нему Claude Code берёт аккаунт (decision-87). */
+  projectPath?: string;
 }
 
 export interface VoiceClassifyResponse {
@@ -522,6 +524,8 @@ export interface VoiceClassifyResponse {
   model?: string;
   provider?: string;
   error?: string;
+  /** Цель назначения «Голос: разбор команды» непригодна: `error` называет назначение (TASK-134.4). */
+  modelProblem?: boolean;
 }
 
 /** Голосовая команда управления компьютером: один ход агента с инструментами computer_* (TASK-83). */
@@ -536,6 +540,8 @@ export interface VoiceComputerTaskResponse {
   text?: string;
   /** Код причины (`computer_use_disabled`, `timeout`, …) либо сообщение об ошибке. */
   error?: string;
+  /** Цель назначения «Голос: команда компьютеру» непригодна: `error` называет назначение (TASK-134.4). */
+  modelProblem?: boolean;
 }
 
 /** Системная диктовка: распознанный текст печатается в активное окно (TASK-83). */
@@ -1092,6 +1098,8 @@ export interface IElectronAPI {
   saveModelAssignments: (settings: ModelAssignments) => Promise<ModelAssignmentState>;
   /** «Сейчас» для каждого назначения на черновике окна: ничего не сохраняет. */
   previewModelAssignments: (draft?: { assignments?: ModelAssignments; main?: Partial<AIProviderConfig> }) => Promise<Record<ModelPurpose, ModelRouteView>>;
+  /** Черновик описания и критериев задачи моделью назначения `task.draft` (TASK-134.4). */
+  generateTaskDraft: (request: TaskDraftRequest) => Promise<TaskDraftResponse>;
   getClaudeAuthStatus: (query?: { projectPath?: string; accountId?: string; force?: boolean }) => Promise<ClaudeAuthStatus>;
   claudeLogout: (query?: { projectPath?: string; accountId?: string }) => Promise<boolean>;
   /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
@@ -2424,6 +2432,26 @@ export type ProviderErrorReason =
   | 'no_profile'
   | 'provider'
   | 'engine';
+
+export interface TaskDraftRequest {
+  title: string;
+  /** Проект задачи: по нему Claude Code берёт аккаунт (decision-87). */
+  projectPath?: string;
+  description?: string;
+  existingCriteria?: string[];
+  language?: 'ru' | 'en';
+}
+
+export interface TaskDraftResponse {
+  ok: boolean;
+  draft?: { description: string; criteria: string[] };
+  model?: string;
+  /** `empty_title`, `unparsed` (ответ не похож на черновик) или текст ошибки. */
+  error?: string;
+  /** Цель назначения «Черновик описания задачи» непригодна: `error` называет назначение. */
+  modelProblem?: boolean;
+  providerError?: ProviderErrorInfo;
+}
 
 export interface ProviderErrorInfo {
   kind: ProviderErrorKind;

@@ -14,11 +14,11 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { executeCheck } from './checkRunner.js';
 import { visualArtifactService } from './visualArtifactService.js';
-import { aiAgentService, type AIMessage, type AIProviderConfig } from './aiAgentService.js';
+import type { AIMessage } from './aiAgentService.js';
 import { loadRoles } from './roleService.js';
-import { llmProfileService } from './llmProfileService.js';
-import { providerConfigFromSpec, resolveSlotProviderConfig, reviewerProviderSpec } from './slotProvider.js';
-import { apiToolNamesForCategories } from './roleEngineAdapter.js';
+import { modelCallService } from './modelCallService.js';
+import { describeResolvedModel, type ResolvedModel } from './modelRouter.js';
+import { reviewerSlotTarget, targetFromRole } from './modelTarget.js';
 import { findTaskFile } from './taskFileLookup.js';
 import { parseTaskBody, stripCriterionPrefix } from './backlogTaskFormat.js';
 import { fetchDiffImpact } from './gitNexusClient.js';
@@ -30,7 +30,7 @@ import { securityScoreInput, securitySummaryText } from './slotSecurity.js';
 import { maskSecretsInPatch } from './diffSecretScan.js';
 import type { ArenaConfig, CheckDefinition, CheckRunResult, JudgeState, ReviewerVerdict } from './arenaTypes.js';
 import type { AgentSlotState, SwarmSession } from './swarmTypes.js';
-import { ProviderError, providerErrorInfoOf } from './providerErrors.js';
+import { providerErrorInfoOf } from './providerErrors.js';
 
 /** Сколько ждать ответа ревьюера, прежде чем признать отзыв несостоявшимся. */
 export const REVIEWER_TIMEOUT_MS = 5 * 60 * 1000;
@@ -363,32 +363,28 @@ export class ArenaJudgeService {
     signal: AbortSignal
   ): Promise<void> {
     const role = await this.resolveReviewerRole(session.projectPath, config.reviewer.roleSlug);
-    // Провайдер и модель: настройки ревьюера, затем роль, затем AI Studio — без модели вендора (decision-40).
-    let providerConfig: AIProviderConfig;
-    try {
-      const spec = providerConfigFromSpec({ ...reviewerProviderSpec(config.reviewer, role), temperature: 0 });
-      const resolved = resolveSlotProviderConfig(spec, await aiAgentService.getConfig(), await llmProfileService.listProfiles());
-      providerConfig = { ...resolved.config, temperature: 0 };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const providerError = providerErrorInfoOf(err);
+    // Модель выбирает резолвер (TASK-134.4, decision-99): `arena.reviewer` проекта → роль → назначение
+    // «Арена: ревьюер» → основная модель. Claude Code по подписке тоже годится — ход идёт через CLI.
+    const resolved = await modelCallService.resolve({
+      purpose: 'arena.reviewer',
+      slot: reviewerSlotTarget(config.reviewer, role),
+      role: targetFromRole(role)
+    });
+    const reviewerModel = resolved.model ?? describeResolvedModel(resolved);
+    if (resolved.problem) {
       for (const agent of candidates) {
-        agent.review = {
-          agentId: agent.id,
-          status: 'failed',
-          model: config.reviewer.model ?? role?.model ?? '',
-          error: message,
-          ...(providerError ? { providerError } : {})
-        };
-        hooks.log(agent, `[Судья] Ревьюер недоступен: ${message}`);
+        agent.review = { agentId: agent.id, status: 'failed', model: reviewerModel, error: resolved.problem.message };
+        hooks.log(agent, `[Судья] Ревьюер недоступен: ${resolved.problem.message}`);
         hooks.onUpdate(agent.id);
       }
       return;
     }
+    // API-путь — с нулевой температурой: ответ ревьюера разбирается как структура.
+    const reviewer: ResolvedModel = resolved.config ? { ...resolved, config: { ...resolved.config, temperature: 0 } } : resolved;
 
     for (const agent of candidates) {
       if (signal.aborted) return;
-      agent.review = { agentId: agent.id, status: 'running', model: providerConfig.model };
+      agent.review = { agentId: agent.id, status: 'running', model: reviewerModel };
       hooks.onUpdate(agent.id);
 
       const prompt = buildReviewerPrompt({
@@ -413,12 +409,12 @@ export class ArenaJudgeService {
 
       const startedAt = Date.now();
       try {
-        const { text, costUsd } = await this.askReviewer(session, agent, prompt, providerConfig, role?.systemPrompt, signal);
+        const { text, costUsd } = await this.askReviewer(session, agent, prompt, reviewer, role, signal);
         const parsed = parseReviewerResponse(text, criteria);
         const verdict: ReviewerVerdict = {
           agentId: agent.id,
           status: parsed.ok ? 'done' : 'failed',
-          model: providerConfig.model,
+          model: reviewerModel,
           durationMs: Date.now() - startedAt,
           ...(costUsd !== undefined ? { costUsd } : {}),
           ...(parsed.summary ? { summary: parsed.summary } : {}),
@@ -441,7 +437,7 @@ export class ArenaJudgeService {
         agent.review = {
           agentId: agent.id,
           status: signal.aborted ? 'skipped' : 'failed',
-          model: providerConfig.model,
+          model: reviewerModel,
           durationMs: Date.now() - startedAt,
           error: message,
           ...(providerError ? { providerError } : {})
@@ -463,76 +459,33 @@ export class ArenaJudgeService {
   }
 
   /**
-   * Один вызов LLM-ревьюера. Ревьюер только читает: инструменты записи и команд ему не даются,
+   * Один ход LLM-ревьюера. Ревьюер только читает: инструменты записи и команд ему не даются,
    * `projectPath` указывает на worktree кандидата, а сам дифф уже в промпте.
    */
-  private askReviewer(
+  private async askReviewer(
     session: SwarmSession,
     agent: AgentSlotState,
     prompt: string,
-    config: AIProviderConfig,
-    roleSystemPrompt: string | undefined,
+    resolved: ResolvedModel,
+    role: { slug?: string; systemPrompt?: string } | undefined,
     signal: AbortSignal
   ): Promise<{ text: string; costUsd?: number }> {
-    const sessionId = `judge-${agent.id}`;
     const messages: AIMessage[] = [
       { id: `msg-${Date.now()}`, role: 'user', content: prompt, timestamp: new Date().toISOString() }
     ];
-
-    return new Promise((resolve, reject) => {
-      let buffer = '';
-      let costUsd: number | undefined;
-      let settled = false;
-
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        aiAgentService.abortStream(sessionId);
-        reject(new Error(`Ревьюер не ответил за ${Math.round(REVIEWER_TIMEOUT_MS / 1000)} с`));
-      }, REVIEWER_TIMEOUT_MS);
-      timer.unref?.();
-
-      const onAbort = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        aiAgentService.abortStream(sessionId);
-        reject(new Error('Прогон судьи отменён'));
-      };
-      signal.addEventListener('abort', onAbort, { once: true });
-
-      const done = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        signal.removeEventListener('abort', onAbort);
-        fn();
-      };
-
-      aiAgentService
-        .streamChat(
-          {
-            sessionId,
-            projectPath: agent.worktreePath || session.projectPath,
-            messages,
-            config,
-            mode: 'chat',
-            roleSystemPrompt,
-            allowedToolNames: apiToolNamesForCategories(['read', 'search']),
-            taskId: session.taskId
-          },
-          (chunk) => {
-            if (chunk.text) buffer += chunk.text;
-            if (chunk.usage?.costUsd !== undefined) costUsd = chunk.usage.costUsd;
-          },
-          (finalMsg) => {
-            if (finalMsg.usage?.costUsd !== undefined) costUsd = finalMsg.usage.costUsd;
-            done(() => resolve({ text: finalMsg.content || buffer, ...(costUsd !== undefined ? { costUsd } : {}) }));
-          },
-          (err, info) => done(() => reject(info ? new ProviderError(info) : new Error(err)))
-        )
-        .catch((err) => done(() => reject(err instanceof Error ? err : new Error(String(err)))));
+    const { text, costUsd } = await modelCallService.turn({
+      purpose: 'arena.reviewer',
+      resolved,
+      sessionId: `judge-${agent.id}`,
+      projectPath: agent.worktreePath || session.projectPath,
+      messages,
+      ...(role?.systemPrompt ? { roleSystemPrompt: role.systemPrompt } : {}),
+      ...(role?.slug ? { roleSlug: role.slug } : {}),
+      ...(session.taskId ? { taskId: session.taskId } : {}),
+      timeoutMs: REVIEWER_TIMEOUT_MS,
+      signal
     });
+    return { text, ...(costUsd !== undefined ? { costUsd } : {}) };
   }
 
   // ─────────────────────────────── Скоринг ───────────────────────────────

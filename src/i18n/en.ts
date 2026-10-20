@@ -240,7 +240,8 @@ export const en: TranslationDictionary = {
       dictationTyped: 'Typed: "{text}"',
       dictationFailed: 'Could not type the text: {error}',
       computerTaskRunning: 'Working on the computer…',
-      computerTaskFailed: 'Could not run the command on the computer'
+      computerTaskFailed: 'Could not run the command on the computer',
+      modelProblem: 'No usable model. {error}'
     },
     settingsModal: {
       title: 'Voice Control',
@@ -760,6 +761,10 @@ export const en: TranslationDictionary = {
     aiAssistant: 'AI Assistant',
     generateDesc: 'Generate Description',
     generateCriteria: 'Generate Criteria',
+    draftFailed: 'No draft: {error}',
+    draftUnparsed: 'The model did not answer in the draft format — try again or pick another model for drafts.',
+    draftNothingNew: 'The model suggested no new criteria.',
+    draftSettings: 'Model settings',
     saving: 'Saving...',
     reviewWarningRule5: 'Warning (Rule 5 Backlog.md): It is recommended to move task to "Review" status first before closing to "Done".',
     agentCreatedTitle: 'Created by an agent ({reporter})',

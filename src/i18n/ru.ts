@@ -241,7 +241,8 @@ export const ru: TranslationDictionary = {
       dictationTyped: 'Напечатано: «{text}»',
       dictationFailed: 'Не удалось напечатать текст: {error}',
       computerTaskRunning: 'Выполняю на компьютере…',
-      computerTaskFailed: 'Не удалось выполнить команду на компьютере'
+      computerTaskFailed: 'Не удалось выполнить команду на компьютере',
+      modelProblem: 'Нет подходящей модели. {error}'
     },
     settingsModal: {
       title: 'Голосовое управление',
@@ -761,6 +762,10 @@ export const ru: TranslationDictionary = {
     aiAssistant: 'AI-Ассистент',
     generateDesc: 'Сгенерировать описание',
     generateCriteria: 'Сгенерировать критерии',
+    draftFailed: 'Черновик не получен: {error}',
+    draftUnparsed: 'Модель ответила не в формате черновика — попробуйте ещё раз или выберите другую модель для черновиков.',
+    draftNothingNew: 'Новых критериев модель не предложила.',
+    draftSettings: 'Настроить модель',
     saving: 'Сохранение...',
     reviewWarningRule5: 'Внимание (Правило 5 Backlog.md): Рекомендуется сначала перевести задачу в статус "Review" для проверки перед закрытием в "Done".',
     agentCreatedTitle: 'Задачу завёл агент ({reporter})',

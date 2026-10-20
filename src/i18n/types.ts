@@ -246,6 +246,8 @@ export interface TranslationDictionary {
       dictationFailed: string;
       computerTaskRunning: string;
       computerTaskFailed: string;
+      /** Модель назначения голоса непригодна: `{error}` называет назначение и где настроить (TASK-134.4). */
+      modelProblem: string;
     };
     settingsModal: {
       title: string;
@@ -656,6 +658,11 @@ export interface TranslationDictionary {
     aiAssistant: string;
     generateDesc: string;
     generateCriteria: string;
+    /** Черновик моделью назначения «Черновик описания задачи» (TASK-134.4). */
+    draftFailed: string;
+    draftUnparsed: string;
+    draftNothingNew: string;
+    draftSettings: string;
     saving: string;
     reviewWarningRule5: string;
     agentCreatedTitle: string;

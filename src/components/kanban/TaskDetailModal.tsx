@@ -36,7 +36,8 @@ import { isTaskDraftDirty } from '../../utils/taskDraft';
 import { useFederationStore } from '../../store/useFederationStore';
 import { useDialog } from '../../hooks/useDialog';
 import { useDialogStore } from '../../store/useDialogStore';
-import { generateTaskDraft } from '../../services/aiAssistantService';
+import { mergeTaskDraft } from '../../lib/taskDraftMerge';
+import { requestOpenAiSettings } from '../../lib/modelRouteText';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { PlanPanel } from './PlanPanel';
 import {
@@ -65,7 +66,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onDelete,
   onToggleCriterion
 }) => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const dialog = useDialog();
   const {
     milestones,
@@ -93,6 +94,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [previewMode, setPreviewMode] = useState(true);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  /** Ошибка черновика: текст и признак, что дело в выборе модели (тогда ведём в настройки). */
+  const [draftNotice, setDraftNotice] = useState<{ text: string; settings: boolean } | null>(null);
   const [isWorktreeLoading, setIsWorktreeLoading] = useState(false);
   const [isRunningAssignedAgent, setIsRunningAssignedAgent] = useState(false);
 
@@ -203,10 +206,30 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const handleAIGenerate = async () => {
     if (!title.trim()) return;
     setIsGeneratingAI(true);
+    setDraftNotice(null);
     try {
-      const draft = await generateTaskDraft(title);
-      setDescription(draft.description);
-      setCriteria(draft.criteria);
+      // Модель — назначения «Черновик описания задачи» в main-процессе (TASK-134.4); шаблона вместо модели нет.
+      const response = await window.api.generateTaskDraft({
+        title,
+        ...(selectedProject?.path ? { projectPath: selectedProject.path } : {}),
+        description,
+        existingCriteria: criteria.map((c) => c.text),
+        language: language === 'en' ? 'en' : 'ru'
+      });
+      if (!response.ok || !response.draft) {
+        setDraftNotice(
+          response.error === 'unparsed'
+            ? { text: t.taskDetail.draftUnparsed, settings: true }
+            : { text: t.taskDetail.draftFailed.replace('{error}', response.error || '—'), settings: Boolean(response.modelProblem || response.providerError) }
+        );
+        return;
+      }
+      const merged = mergeTaskDraft({ description, criteria }, response.draft);
+      setDescription(merged.description);
+      setCriteria(merged.criteria);
+      if (merged.added === 0) setDraftNotice({ text: t.taskDetail.draftNothingNew, settings: false });
+    } catch (err) {
+      setDraftNotice({ text: t.taskDetail.draftFailed.replace('{error}', err instanceof Error ? err.message : String(err)), settings: false });
     } finally {
       setIsGeneratingAI(false);
     }
@@ -229,6 +252,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     setRawContent(task.content ?? null);
     setActiveTab('editor');
     setWarningMessage(null);
+    setDraftNotice(null);
     setPreviewMode(true);
     setIsDescriptionExpanded(false);
   }, [task]);
@@ -656,6 +680,21 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     </span>
                   </div>
                 </div>
+
+                {draftNotice && (
+                  <div className="flex items-start justify-between gap-2 rounded-lg border border-amber-700/50 bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-200" data-testid="task-draft-notice">
+                    <span className="min-w-0 break-words">{draftNotice.text}</span>
+                    {draftNotice.settings && (
+                      <button
+                        type="button"
+                        onClick={() => requestOpenAiSettings({ purpose: 'task.draft' })}
+                        className="shrink-0 px-2 py-0.5 rounded border border-amber-700/50 bg-black/30 hover:bg-black/50 text-[10px] transition"
+                      >
+                        {t.taskDetail.draftSettings}
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
                   {criteria.length === 0 ? (

@@ -36,8 +36,14 @@ import { pricingService } from '../services/pricingService';
 import { modelTierService } from '../services/modelTierService';
 import { modelAssignmentService } from '../services/modelAssignmentService';
 import { modelCallService } from '../services/modelCallService';
+import { ModelRouteError } from '../services/modelRouter';
+import { buildTaskDraftPrompt, parseTaskDraft } from '../services/taskDraftPrompt';
 import { providerErrorInfoOf } from '../services/providerErrors';
 import type { IpcContext } from './types';
+
+/** Черновик задачи: Claude Code по подписке отвечает за 6–20 с, на загруженной машине дольше. */
+const TASK_DRAFT_TIMEOUT_MS = 90_000;
+const TASK_DRAFT_MAX_TOKENS = 1200;
 
 export function registerAiIpc(ctx: IpcContext) {
   // PTY Terminals
@@ -119,6 +125,48 @@ export function registerAiIpc(ctx: IpcContext) {
       ...(draft?.main && typeof draft.main === 'object' ? { main: draft.main as Partial<AIProviderConfig> } : {})
     })
   );
+
+  // Черновик описания задачи (TASK-134.4, decision-99): модель назначения «Черновик описания задачи»,
+  // вызов только из main. Неразобранный ответ — ошибка, а не шаблон вместо модели.
+  ipcMain.handle('ai:taskDraft', async (_event, payload: unknown) => {
+    const request = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+    const title = typeof request.title === 'string' ? request.title.trim() : '';
+    if (!title) return { ok: false, error: 'empty_title' };
+    const existingCriteria = Array.isArray(request.existingCriteria)
+      ? request.existingCriteria.filter((c): c is string => typeof c === 'string')
+      : [];
+    // Проект задачи — для аккаунта Claude Code (decision-87); незарегистрированный путь не принимается.
+    const projectPath =
+      typeof request.projectPath === 'string' && request.projectPath
+        ? await assertRegisteredProject(request.projectPath).catch(() => undefined)
+        : undefined;
+    try {
+      const completion = await modelCallService.complete({
+        purpose: 'task.draft',
+        prompt: buildTaskDraftPrompt({
+          title,
+          ...(typeof request.description === 'string' ? { description: request.description } : {}),
+          existingCriteria,
+          language: request.language === 'en' ? 'en' : 'ru'
+        }),
+        maxTokens: TASK_DRAFT_MAX_TOKENS,
+        temperature: 0.2,
+        timeoutMs: TASK_DRAFT_TIMEOUT_MS,
+        ...(projectPath ? { projectPath } : {})
+      });
+      const draft = parseTaskDraft(completion.text);
+      if (!draft) return { ok: false, error: 'unparsed', model: completion.model };
+      return { ok: true, draft, model: completion.model };
+    } catch (err) {
+      const providerError = providerErrorInfoOf(err);
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        ...(err instanceof ModelRouteError ? { modelProblem: true } : {}),
+        ...(providerError ? { providerError } : {})
+      };
+    }
+  });
 
   // Аккаунт Claude Code (TASK-152, decision-87): статус и выход — по проекту или явному профилю.
   ipcMain.handle('ai:getClaudeAuthStatus', async (_event, query?: { projectPath?: string; accountId?: string; force?: boolean }) => {

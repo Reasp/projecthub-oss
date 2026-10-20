@@ -644,12 +644,17 @@ export const VoiceControlWidget: React.FC = () => {
         transcript: gate.command,
         language: transcriptLang,
         projectNames: projects.filter((p) => activeProjectPaths.includes(p.path)).map((p) => p.name),
-        hasPendingApproval: (pendingApprovals[selectedProject?.path || ''] || []).length > 0
+        hasPendingApproval: (pendingApprovals[selectedProject?.path || ''] || []).length > 0,
+        ...(selectedProject?.path ? { projectPath: selectedProject.path } : {})
       })
       .catch(() => null);
 
     if (!response?.ok || !response.result) {
-      setLastFeedback(dict.voice.feedback.modelUnavailable);
+      setLastFeedback(
+        response?.modelProblem && response.error
+          ? dict.voice.feedback.modelProblem.replace('{error}', response.error)
+          : dict.voice.feedback.modelUnavailable
+      );
       return;
     }
 
@@ -690,7 +695,12 @@ export const VoiceControlWidget: React.FC = () => {
           ? dict.voice.feedback.computerUseDisabled
           : dict.voice.feedback.computerTaskFailed;
 
-      setLastFeedback(spoken);
+      // Текст про назначение длинный — на экран, а голосом только короткая причина.
+      setLastFeedback(
+        taskResponse?.modelProblem && taskResponse.error
+          ? dict.voice.feedback.modelProblem.replace('{error}', taskResponse.error)
+          : spoken
+      );
       // Ответ агента читается голосом его языка, строка интерфейса — языком интерфейса
       void voiceService.speak(spoken, fromAgent ? undefined : speakLang);
       return;

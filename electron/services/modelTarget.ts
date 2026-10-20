@@ -120,6 +120,23 @@ export function targetFromRole(role: RoleTargetFields | undefined): ModelTarget 
   return role ? normalizeModelTarget(role) : undefined;
 }
 
+/**
+ * Проектное переопределение ревьюера арены (`arena.reviewer` в `.projecthub.json`) — цель слота: оно
+ * важнее назначения «Арена: ревьюер» и роли (TASK-134.4). Модель без своего профиля или провайдера
+ * относится к адресату роли, как и до резолвера ([[decision-40]]).
+ */
+export function reviewerSlotTarget(
+  reviewer: Pick<ModelTarget, 'profile' | 'provider' | 'model'> | undefined,
+  role: RoleTargetFields | undefined
+): ModelTarget | undefined {
+  if (!reviewer) return undefined;
+  if (clean(reviewer.profile) || clean(reviewer.provider)) {
+    return normalizeModelTarget({ profile: reviewer.profile, provider: reviewer.provider, model: reviewer.model });
+  }
+  if (!cleanModelId(reviewer.model)) return undefined;
+  return normalizeModelTarget({ engine: role?.engine, profile: role?.profile, provider: role?.provider, model: reviewer.model });
+}
+
 /** Поля слота Swarm, из которых складывается цель. */
 export interface SlotTargetFields {
   engine?: ModelEngine;
