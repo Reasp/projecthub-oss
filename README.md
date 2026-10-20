@@ -265,7 +265,7 @@ Project documentation is currently written in Russian.
 - [Deploying the infrastructure to a new project](backlog/docs/doc-4%20-%20Deployment-Guide.md)
 - [Security review and feature roadmap](backlog/docs/doc-6%20-%20Comprehensive-Review-Security-And-Feature-Roadmap.md)
 - [ADR-1: architecture and tech stack choice](backlog/decisions/decision-1%20-%20Vybor-Arkhitektury-I-Tekhnologicheskogo-Steka.md)
-- [Infrastructure rules for agents](infra-dev.md)
+- [Infrastructure rules for agents](infra-dev.md) — the source: `npm run sync-rules` copies them into `CLAUDE.md`, `GEMINI.md`, `AGENTS.md` and `.agents/rules/`
 
 ---
 

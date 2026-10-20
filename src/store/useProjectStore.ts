@@ -54,6 +54,7 @@ export function isProcessOfAction(p: ManagedProcess, workspaceRoot: string, def:
   return processWorkspaceRoot(p) === workspaceRoot && (p.name === def.name || p.command === def.command);
 }
 import { getDictionary, type Language } from '../i18n';
+import { LANGUAGE_STORAGE_KEY, resolveInitialLanguage } from '../i18n/initialLanguage';
 import { fallbackStatusConfig, type BacklogProjectConfig } from '../utils/taskStatus';
 import { buildRenumberMessage } from '../utils/renumberMessage';
 import { useDialogStore } from './useDialogStore';
@@ -599,6 +600,25 @@ const saveActiveProjects = (paths: string[]) => {
   }
 };
 
+/** Атрибут `lang` у `<html>` — по языку интерфейса (TASK-59). */
+const applyDocumentLanguage = (language: Language) => {
+  if (typeof document !== 'undefined') document.documentElement.lang = language;
+};
+
+/** Выбранный язык, иначе язык системы, иначе английский (TASK-59). */
+const startupLanguage = (): Language => {
+  if (typeof window === 'undefined') return 'en';
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  } catch {
+    // Хранилище недоступно — берём язык системы.
+  }
+  const language = resolveInitialLanguage(stored, navigator.languages ?? [navigator.language]);
+  applyDocumentLanguage(language);
+  return language;
+};
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProject: null,
@@ -641,11 +661,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   terminalHeight: 220,
   isHotkeysHelpOpen: false,
 
-  language: (typeof window !== 'undefined' && (localStorage.getItem('projecthub_lang') as Language)) || 'en',
+  language: startupLanguage(),
   setLanguage: (language: Language) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('projecthub_lang', language);
+      try {
+        localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+      } catch {
+        // Хранилище недоступно — язык действует до перезапуска.
+      }
     }
+    applyDocumentLanguage(language);
     set({ language });
   },
 

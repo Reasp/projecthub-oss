@@ -263,7 +263,7 @@ ProjectHub/
 - [Развёртывание инфраструктуры на новом проекте](backlog/docs/doc-4%20-%20Deployment-Guide.md)
 - [Ревью безопасности и дорожная карта](backlog/docs/doc-6%20-%20Comprehensive-Review-Security-And-Feature-Roadmap.md)
 - [ADR-1: выбор архитектуры и стека](backlog/decisions/decision-1%20-%20Vybor-Arkhitektury-I-Tekhnologicheskogo-Steka.md)
-- [Правила работы с инфраструктурой для агентов](infra-dev.md)
+- [Правила работы с инфраструктурой для агентов](infra-dev.md) — источник: `npm run sync-rules` рассылает их в `CLAUDE.md`, `GEMINI.md`, `AGENTS.md` и `.agents/rules/`
 
 ---
 
