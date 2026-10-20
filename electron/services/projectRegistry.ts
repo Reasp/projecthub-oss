@@ -75,6 +75,7 @@ function buildDefaultConfig(): RegistryConfig {
 class ProjectRegistry {
   private configPath: string;
   private cachedConfig: RegistryConfig | null = null;
+  private loading: Promise<RegistryConfig> | null = null;
 
   constructor() {
     const hubDir = path.join(getHomeDir(), '.projecthub');
@@ -109,12 +110,26 @@ class ProjectRegistry {
     }
   }
 
+  /**
+   * Одно чтение файла на всех, пока кэша нет (TASK-162). Раньше каждый вызов читал файл сам и
+   * перезаписывал кэш: чтение, начатое до `addProject` и закончившееся после, возвращало в кэш старый
+   * список, и только что добавленный проект пропадал. Под нагрузкой это окно — сотни миллисекунд.
+   */
   async getConfig(): Promise<RegistryConfig> {
     if (this.cachedConfig) return this.cachedConfig;
+    this.loading ??= this.loadConfig().finally(() => {
+      this.loading = null;
+    });
+    return this.loading;
+  }
+
+  private async loadConfig(): Promise<RegistryConfig> {
     await this.ensureConfigFile();
     const defaults = buildDefaultConfig();
     try {
       const raw = await fs.readFile(this.configPath, 'utf-8');
+      // Пока шло чтение, кэш мог заполнить `saveConfig`: он новее файла, прочитанного до записи.
+      if (this.cachedConfig) return this.cachedConfig;
       const parsed: RegistryConfig = JSON.parse(raw);
       this.cachedConfig = {
         ...defaults,
