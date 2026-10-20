@@ -134,12 +134,13 @@ parentPort.on('message', async (msg) => {
         spokenLanguage = detection.language;
       }
 
+      // Подсказку словарём (initial_prompt / prompt_ids) transformers.js 3.x не поддерживает и молча
+      // игнорирует — до TASK-164.3 она передавалась здесь впустую
       const output = await asrPipeline(floatArray, {
         language: whisperLanguageName(spokenLanguage),
         task: 'transcribe',
         chunk_length_s: 30,
-        stride_length_s: 5,
-        initial_prompt: 'ProjectHub, project, tab, chat, session, switch, next, prev, back, close, new, проект, вкладка, чат, сессия, диалог, следующий, предыдущий, закрой, новый'
+        stride_length_s: 5
       });
 
       const text = (output?.text || '').trim();

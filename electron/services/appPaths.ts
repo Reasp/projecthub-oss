@@ -97,6 +97,18 @@ export function getBuiltinTemplateDir(): string | null {
   return devRoot ? path.join(devRoot, 'template') : null;
 }
 
+/**
+ * Встроенные модели подготовки звука (Silero VAD, шумодав, TASK-164.2): в упакованном приложении —
+ * `resources/voice-models` (extraResources), в dev-режиме — `resources/voice-models` репозитория.
+ */
+export function getBundledVoiceModelsDir(): string | null {
+  if (isPackagedApp()) {
+    return process.resourcesPath ? path.join(process.resourcesPath, 'voice-models') : null;
+  }
+  const devRoot = getDevRepoRoot();
+  return devRoot ? path.join(devRoot, 'resources', 'voice-models') : null;
+}
+
 /** Единый кэш моделей (RAG-эмбеддинги и Whisper): userData/models. */
 export function getModelsCacheDir(): string {
   return path.join(getUserDataDir(), 'models');

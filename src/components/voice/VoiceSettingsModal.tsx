@@ -35,9 +35,12 @@ import {
 import { DEFAULT_QWEN_VOICE_ID } from '../../services/ttsEngineChain';
 import { QwenTtsSettings } from './QwenTtsSettings';
 import type {
+  AsrDownloadProgress,
+  AsrModelStatus,
   LocalWhisperStatusInfo,
   PushToTalkSettings,
   PushToTalkStatus,
+  SpeechPrepStatusInfo,
   TtsDownloadProgress,
   TtsStatusInfo,
   TtsVoiceListItem
@@ -258,6 +261,61 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
       if (timer) clearTimeout(timer);
     };
   }, [isOpen, activeTab, voiceConfig.engine, voiceConfig.whisperProvider]);
+
+  // Локальная модель для русской речи — GigaAM (TASK-164.4): скачана ли, прогресс загрузки
+  const [asrModels, setAsrModels] = useState<AsrModelStatus[]>([]);
+  const [asrProgress, setAsrProgress] = useState<AsrDownloadProgress | null>(null);
+  const [asrError, setAsrError] = useState<string | null>(null);
+  const gigaam = asrModels.find((m) => m.id === 'gigaam-v3-ru');
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'recognition' || !window.api?.listAsrModels) return;
+    let cancelled = false;
+    window.api
+      .listAsrModels()
+      .then((models) => {
+        if (!cancelled) setAsrModels(models);
+      })
+      .catch(() => {});
+    const off = window.api.onAsrDownloadProgress((progress) => {
+      setAsrProgress(progress.phase === 'done' ? null : progress);
+    });
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, [isOpen, activeTab]);
+
+  const handleDownloadGigaam = async () => {
+    setAsrError(null);
+    setAsrProgress({ modelId: 'gigaam-v3-ru', phase: 'download', receivedBytes: 0, totalBytes: 0 });
+    const res = await window.api.downloadAsrModel('gigaam-v3-ru');
+    setAsrProgress(null);
+    setAsrModels(await window.api.listAsrModels());
+    if (!res.ok) {
+      setAsrError(`${t.voice.settingsModal.russianModelDownloadFailed} ${res.error ?? ''}`.trim());
+      return;
+    }
+    // Скачали ради того, чтобы пользоваться: сразу выбираем
+    voiceService.saveConfig({ localRussianModel: 'gigaam-v3-ru' });
+    setVoiceConfig((c) => ({ ...c, localRussianModel: 'gigaam-v3-ru' }));
+  };
+
+  // Подготовка звука (TASK-164.2): есть ли модели в сборке и жив ли процесс
+  const [speechPrepStatus, setSpeechPrepStatus] = useState<SpeechPrepStatusInfo | null>(null);
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'recognition' || !window.api?.getSpeechPrepStatus) return;
+    let cancelled = false;
+    window.api
+      .getSpeechPrepStatus()
+      .then((st) => {
+        if (!cancelled) setSpeechPrepStatus(st);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, activeTab]);
 
   const loadDevices = async () => {
     setIsLoadingDevices(true);
@@ -929,6 +987,61 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                 )}
               </div>
 
+              {/* Подготовка звука перед распознаванием: шлюз Silero VAD и шумодав (TASK-164.2) */}
+              {voiceConfig.engine === 'whisper' && (
+                <div className="space-y-3 p-4 rounded-lg bg-ph-panel border border-ph-line">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-slate-300 font-semibold">{t.voice.settingsModal.speechGateLabel}</div>
+                      <div className="text-[11px] text-slate-500 mt-1">{t.voice.settingsModal.speechGateHint}</div>
+                    </div>
+                    <button
+                      type="button"
+                      aria-pressed={voiceConfig.speechGate !== false}
+                      aria-label={t.voice.settingsModal.speechGateLabel}
+                      onClick={() => {
+                        const next = voiceConfig.speechGate === false;
+                        voiceService.saveConfig({ speechGate: next });
+                        setVoiceConfig((c) => ({ ...c, speechGate: next }));
+                      }}
+                      className={`w-12 h-6 rounded-full transition p-0.5 flex items-center shrink-0 ${
+                        voiceConfig.speechGate !== false ? 'bg-indigo-600 justify-end' : 'bg-slate-800 justify-start'
+                      }`}
+                    >
+                      <span className="w-5 h-5 rounded-full bg-white shadow-md" />
+                    </button>
+                  </div>
+                  <div>
+                    <label htmlFor="voice-noise-reduction" className="block text-slate-300 font-semibold mb-1.5">
+                      {t.voice.settingsModal.noiseReductionLabel}
+                    </label>
+                    <select
+                      id="voice-noise-reduction"
+                      value={voiceConfig.noiseReduction ?? 'off'}
+                      onChange={(e) => {
+                        const noiseReduction = e.target.value === 'gtcrn' || e.target.value === 'dpdfnet' ? e.target.value : 'off';
+                        voiceService.saveConfig({ noiseReduction });
+                        setVoiceConfig((c) => ({ ...c, noiseReduction }));
+                      }}
+                      className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="off">{t.voice.settingsModal.noiseReductionOff}</option>
+                      <option value="gtcrn">{t.voice.settingsModal.noiseReductionGtcrn}</option>
+                      <option value="dpdfnet" disabled={speechPrepStatus ? !speechPrepStatus.models.dpdfnet : false}>
+                        {t.voice.settingsModal.noiseReductionDpdfnet}
+                      </option>
+                    </select>
+                    <p className="text-[11px] text-slate-500 mt-1.5">{t.voice.settingsModal.noiseReductionHint}</p>
+                  </div>
+                  {speechPrepStatus?.status === 'unavailable' && (
+                    <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-500/30 text-[11px] text-amber-200 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <span>{t.voice.settingsModal.speechPrepUnavailable}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Язык распознавания отдельно от языка интерфейса (TASK-117) */}
               <div className="space-y-2 p-4 rounded-lg bg-ph-panel border border-ph-line">
                 <label htmlFor="voice-recognition-language" className="block text-slate-300 font-semibold mb-1.5">
@@ -1037,6 +1150,54 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
                       >
                         {t.voice.settingsModal.whisperWarmup}
                       </button>
+                    </div>
+
+                    {/* Модель для русской речи: Whisper или GigaAM (TASK-164.4) */}
+                    <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 space-y-2 text-[11px]">
+                      <label htmlFor="voice-russian-model" className="block text-slate-200 font-semibold">
+                        {t.voice.settingsModal.russianModelLabel}
+                      </label>
+                      <select
+                        id="voice-russian-model"
+                        value={gigaam?.installed ? voiceConfig.localRussianModel ?? 'whisper' : 'whisper'}
+                        onChange={(e) => {
+                          const localRussianModel = e.target.value === 'gigaam-v3-ru' ? 'gigaam-v3-ru' : 'whisper';
+                          voiceService.saveConfig({ localRussianModel });
+                          setVoiceConfig((c) => ({ ...c, localRussianModel }));
+                        }}
+                        className="w-full bg-ph-raised border border-slate-700 rounded-md px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="whisper">{t.voice.settingsModal.russianModelWhisper}</option>
+                        <option value="gigaam-v3-ru" disabled={!gigaam?.installed}>
+                          {t.voice.settingsModal.russianModelGigaam}
+                        </option>
+                      </select>
+                      <p className="text-slate-400">{t.voice.settingsModal.russianModelHint}</p>
+                      {gigaam && !gigaam.installed && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleDownloadGigaam()}
+                            disabled={Boolean(asrProgress) || gigaam.downloading}
+                            className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white font-semibold shrink-0 transition"
+                          >
+                            {t.voice.settingsModal.russianModelDownload.replace(
+                              '{size}',
+                              String(Math.round(gigaam.archiveBytes / 1_000_000))
+                            )}
+                          </button>
+                          {asrProgress && (
+                            <span className="text-slate-400">
+                              {asrProgress.phase === 'download'
+                                ? asrProgress.totalBytes > 0
+                                  ? `${Math.round((asrProgress.receivedBytes / asrProgress.totalBytes) * 100)}%`
+                                  : `${Math.round(asrProgress.receivedBytes / 1_000_000)} MB`
+                                : t.voice.settingsModal.russianModelUnpacking}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {asrError && <div className="text-red-300">{asrError}</div>}
                     </div>
                   </div>
                 )}

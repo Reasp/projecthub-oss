@@ -23,6 +23,7 @@
     "mobile:android:install": "node scripts/mobile/android.mjs install",
     "pack:win": "node scripts/pack-win.mjs",
     "selfcheck:ui": "node scripts/visual/selfcheck.mjs",
+    "voice-bench:record": "node scripts/voice-bench/record-server.mjs",
     "pack:mac": "node scripts/pack-mac.mjs",
     "install:mac": "node scripts/pack-mac.mjs --install",
     "dist:win": "npm run build && electron-builder --win portable && node scripts/patch-exe-icon.mjs",
@@ -71,6 +72,13 @@
       {
         "from": "build/build-info.json",
         "to": "build-info.json"
+      },
+      {
+        "from": "resources/voice-models",
+        "to": "voice-models",
+        "filter": [
+          "*.onnx"
+        ]
       }
     ],
     "npmRebuild": false,

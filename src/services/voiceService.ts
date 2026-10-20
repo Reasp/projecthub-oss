@@ -75,7 +75,8 @@ import {
   type TtsAttemptFailure,
   type TtsNotice
 } from './ttsReplyPolicy';
-import type { LocalWhisperStatusInfo, TtsSpeakRequest } from '../types/electron';
+import { isLikelyHallucination } from './whisperHallucination';
+import type { AsrModelId, LocalWhisperStatusInfo, NoiseReduction, TtsSpeakRequest } from '../types/electron';
 
 /** Итог прогрева голоса Qwen3-TTS: состояние движка из main или причина сбоя вызова. */
 type QwenWarmupState = { status?: string; modelKind?: string | null; error?: string; errorCode?: string };
@@ -117,6 +118,18 @@ export interface VoiceConfig {
   ttsQwenHfEndpoint?: string;
   handsFree: boolean; // Continuous listening without touching buttons
   vadSilenceThresholdMs: number; // Silence duration before cutting chunk (default: 480ms)
+  /**
+   * Шлюз речи перед распознаванием (TASK-164.2): Silero VAD отсекает фразы без речи и обрезает
+   * тишину по краям — Whisper не выдумывает текст на шуме. Отсутствует в старых настройках — включён.
+   */
+  speechGate?: boolean;
+  /** Нейросетевое шумоподавление фразы перед распознаванием (TASK-164.2). */
+  noiseReduction?: NoiseReduction;
+  /**
+   * Чем распознавать русскую речь при локальном движке (TASK-164.4): Whisper или скачанная модель
+   * sherpa (GigaAM). Английский и автоопределение языка остаются на Whisper.
+   */
+  localRussianModel?: 'whisper' | AsrModelId;
   customCommandPhrases?: Record<string, string[]>;
   audioInputDeviceId?: string; // ID of selected microphone (empty string = system default)
   audioOutputDeviceId?: string; // ID of selected output (empty string = system default)
@@ -165,6 +178,9 @@ const DEFAULT_CONFIG: VoiceConfig = {
   ttsQwenHfEndpoint: '',
   handsFree: true, // Hands-Free by default
   vadSilenceThresholdMs: 480,
+  speechGate: true,
+  noiseReduction: 'off',
+  localRussianModel: 'whisper',
   customCommandPhrases: getDefaultCommandPhrases(),
   audioInputDeviceId: '',
   audioOutputDeviceId: '',
@@ -1266,6 +1282,29 @@ class VoiceService {
    * локального Whisper); облачный путь его не сообщает, язык тогда виден по тексту.
    */
   private async dispatchToWhisper(
+    phrase: Float32Array,
+    requested: RecognitionRequestLanguage
+  ): Promise<{ text: string; language?: VoiceLanguage }> {
+    // Русская речь — локальной моделью GigaAM, если она выбрана (TASK-164.4). Не вышло — Whisper
+    const sherpaModel = this.config.localRussianModel;
+    if (this.config.whisperProvider === 'local' && requested === 'ru' && sherpaModel && sherpaModel !== 'whisper') {
+      const recognized = await this.recognizeWithSherpa(phrase, sherpaModel);
+      if (recognized) return recognized;
+    }
+
+    const pcmSamples = await this.prepareSpeech(phrase);
+    if (!pcmSamples) return { text: '' };
+
+    const result = await this.transcribeWithWhisper(pcmSamples, requested);
+    // Подписи к звукам и титры вместо речи (TASK-164.3) — не команда и не диктовка
+    if (result.text && isLikelyHallucination(result.text)) {
+      console.log(`[VoiceService] Отброшена галлюцинация Whisper: "${result.text.trim()}"`);
+      return { text: '' };
+    }
+    return result;
+  }
+
+  private async transcribeWithWhisper(
     pcmSamples: Float32Array,
     requested: RecognitionRequestLanguage
   ): Promise<{ text: string; language?: VoiceLanguage }> {
@@ -1283,6 +1322,70 @@ class VoiceService {
 
     // 2. Cloud Whisper Fallback (WAV buffer)
     return { text: await this.transcribePcmWithCloud(pcmSamples, requested) };
+  }
+
+  /**
+   * Подготовка и распознавание моделью sherpa в процессе подготовки звука (TASK-164.4). `null` —
+   * модель не установлена или процесс недоступен: фраза уходит в Whisper.
+   */
+  private async recognizeWithSherpa(phrase: Float32Array, modelId: AsrModelId): Promise<{ text: string; language: VoiceLanguage } | null> {
+    if (!window.api?.recognizeSherpa) return null;
+    try {
+      const res = await window.api.recognizeSherpa(phrase, {
+        gate: this.config.speechGate !== false,
+        denoise: this.config.noiseReduction ?? 'off',
+        modelId
+      });
+      if (!res.ok) {
+        console.warn(`[VoiceService] ${modelId} недоступна, распознаю Whisper: ${res.error}`);
+        return null;
+      }
+      if (!res.speech) {
+        console.log(`[VoiceService] VAD: в фразе нет речи (${(phrase.length / 16000).toFixed(2)} с), не распознаём`);
+        return { text: '', language: 'ru' };
+      }
+      console.log(
+        `[VoiceService] ${modelId}: речь ${res.speechSec.toFixed(2)} с, распознавание ${res.asrMs} мс (VAD ${res.vadMs} мс)`
+      );
+      if (res.text && isLikelyHallucination(res.text)) {
+        console.log(`[VoiceService] Отброшена галлюцинация: "${res.text}"`);
+        return { text: '', language: 'ru' };
+      }
+      return { text: res.text, language: 'ru' };
+    } catch (err) {
+      console.warn(`[VoiceService] ${modelId} не ответила, распознаю Whisper:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Шумодав и шлюз Silero VAD перед распознаванием (TASK-164.2, decision-94). `null` — в фразе нет
+   * речи, распознавать нечего. Процесс подготовки недоступен или ответил ошибкой — фраза уходит как
+   * есть: необязательная обработка не должна ломать распознавание.
+   */
+  private async prepareSpeech(phrase: Float32Array): Promise<Float32Array | null> {
+    const gate = this.config.speechGate !== false;
+    const denoise = this.config.noiseReduction ?? 'off';
+    if ((!gate && denoise === 'off') || !window.api?.prepareSpeech) return phrase;
+    try {
+      const res = await window.api.prepareSpeech(phrase, { gate, denoise });
+      if (!res.ok) {
+        console.warn(`[VoiceService] Подготовка звука недоступна, фраза уходит без неё: ${res.error}`);
+        return phrase;
+      }
+      if (!res.speech) {
+        console.log(`[VoiceService] VAD: в фразе нет речи (${(phrase.length / 16000).toFixed(2)} с), не распознаём`);
+        return null;
+      }
+      console.log(
+        `[VoiceService] Подготовка звука: речь ${res.speechSec.toFixed(2)} с из ${(phrase.length / 16000).toFixed(2)} с` +
+          ` (VAD ${res.vadMs} мс${denoise !== 'off' ? `, шумодав ${denoise} ${res.denoiseMs} мс` : ''})`
+      );
+      return res.samples;
+    } catch (err) {
+      console.warn('[VoiceService] Подготовка звука не удалась, фраза уходит без неё:', err);
+      return phrase;
+    }
   }
 
   private async transcribePcmWithCloud(pcmSamples: Float32Array, requested: RecognitionRequestLanguage): Promise<string> {

@@ -85,7 +85,7 @@ IDE построена вокруг одного человека, которы�
 
 ### 📡 Управление откуда угодно
 
-- **Голосовое управление**: навигация, запуск процессов, коммиты, диктовка в AI Studio, hands-free режим. Web Speech API или локальный Whisper, настраиваемые фразы и синонимы, горячее переключение гарнитуры.
+- **Голосовое управление**: навигация, запуск процессов, коммиты, диктовка в AI Studio, hands-free режим. Web Speech API, локальный Whisper или GigaAM для русской речи, нейросетевой шлюз речи (Silero VAD) и шумоподавление, настраиваемые фразы и синонимы, горячее переключение гарнитуры.
 - **Remote Control**: мобильный веб-клиент для проектов, задач, процессов, терминала и AI Studio. Режимы LAN Direct и Server Relay (identity на Ed25519, per-device токены) со сквозным шифрованием AES-256-GCM, сопряжение по QR-коду.
 - **Федерация компьютеров**: несколько машин с ProjectHub видят друг друга в каталоге (через свой relay или прямо в локальной сети) и открываются одна из другой в hub-режиме — проекты, задачи, процессы, агенты и очередь HITL удалённой машины в том же интерфейсе. Задачу можно назначить агенту на конкретной машине: `assignee: agent:<роль>@<hostId>`.
 - **Telegram Mini App и бот**: полноценный клиент внутри Telegram с нативными компонентами WebApp, push-уведомления о падениях процессов и запросах HITL, автоматический HTTPS-туннель, объединение нескольких машин разработчика в единый Hub.
@@ -142,7 +142,7 @@ flowchart LR
 | Терминал и процессы | node-pty, @xterm/xterm, tree-kill |
 | AI и агенты | Anthropic API, Claude Code CLI, Codex CLI, OpenRouter, DeepSeek, Ollama, @modelcontextprotocol/sdk |
 | Знания | LanceDB, @huggingface/transformers (`multilingual-e5-small`), gray-matter, Mermaid |
-| Голос | Web Speech API, локальный Whisper, AudioWorklet |
+| Голос | Web Speech API, локальный Whisper, GigaAM и Silero VAD на sherpa-onnx, AudioWorklet |
 | Remote | WebSocket LAN Direct/Relay, Ed25519 identity, AES-256-GCM (Web Crypto), Telegram WebApp SDK |
 | Качество | ESLint (typescript-eslint, react-hooks), Vitest, валидатор документации, проверка externals бандла |
 

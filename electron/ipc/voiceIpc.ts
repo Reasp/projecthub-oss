@@ -1,5 +1,15 @@
 import { ipcMain, screen, type BrowserWindow } from 'electron';
 import { localWhisperService } from '../services/localWhisperService';
+import { speechPrepService } from '../services/speechPrepService';
+import {
+  cancelAsrDownload,
+  deleteAsrModel,
+  downloadAsrModel,
+  getInstalledAsrModel,
+  isAsrModelId,
+  listAsrModels,
+  type AsrDownloadProgress
+} from '../services/asrModelStore';
 import { logger } from '../services/logger';
 import { voiceHotkeyService } from '../services/voiceHotkeyService';
 import { aiAgentService, type AIMessage } from '../services/aiAgentService';
@@ -242,6 +252,61 @@ export function registerVoiceIpc(ctx: IpcContext) {
     localWhisperService.initBackground();
     return localWhisperService.getState();
   });
+
+  // Шумодав и Silero VAD перед распознаванием (TASK-164.2, decision-94)
+  ipcMain.handle('voice:prepareSpeech', async (_event, payload: unknown) => {
+    const { samples, gate, denoise } = (payload ?? {}) as { samples?: unknown; gate?: unknown; denoise?: unknown };
+    if (!(samples instanceof Float32Array)) return { ok: false, error: 'samples must be a Float32Array' };
+    return speechPrepService.prepare({
+      samples,
+      gate: gate === true,
+      denoise: denoise === 'gtcrn' || denoise === 'dpdfnet' ? denoise : 'off'
+    });
+  });
+
+  ipcMain.handle('voice:getSpeechPrepStatus', async () => speechPrepService.getState());
+
+  // Локальная модель распознавания на sherpa — GigaAM для русского (TASK-164.4)
+  ipcMain.handle('voice:recognizeSherpa', async (_event, payload: unknown) => {
+    const { samples, gate, denoise, modelId } = (payload ?? {}) as {
+      samples?: unknown;
+      gate?: unknown;
+      denoise?: unknown;
+      modelId?: unknown;
+    };
+    if (!(samples instanceof Float32Array)) return { ok: false, error: 'samples must be a Float32Array' };
+    if (!isAsrModelId(modelId)) return { ok: false, error: 'unknown model' };
+    const asr = await getInstalledAsrModel(modelId);
+    if (!asr) return { ok: false, error: 'model_not_installed' };
+    return speechPrepService.recognize({
+      samples,
+      gate: gate === true,
+      denoise: denoise === 'gtcrn' || denoise === 'dpdfnet' ? denoise : 'off',
+      asr
+    });
+  });
+
+  ipcMain.handle('asr:listModels', async () => listAsrModels());
+
+  ipcMain.handle('asr:downloadModel', async (_event, modelId: unknown) => {
+    if (!isAsrModelId(modelId)) return { ok: false, error: 'unknown model' };
+    const send = (progress: AsrDownloadProgress) => {
+      const win = ctx.getMainWindow();
+      if (win && !win.isDestroyed()) win.webContents.send('asr:downloadProgress', progress);
+    };
+    try {
+      await downloadAsrModel(modelId, send);
+      return { ok: true };
+    } catch (err) {
+      console.warn(`[ASR] Download of ${modelId} failed:`, err);
+      send({ modelId, phase: 'done', receivedBytes: 0, totalBytes: 0 });
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('asr:cancelDownload', async (_event, modelId: unknown) => (isAsrModelId(modelId) ? cancelAsrDownload(modelId) : false));
+
+  ipcMain.handle('asr:deleteModel', async (_event, modelId: unknown) => (isAsrModelId(modelId) ? deleteAsrModel(modelId) : false));
 
   // ─────────────── Push-to-talk: глобальная горячая клавиша (TASK-83 п. 1) ───────────────
 

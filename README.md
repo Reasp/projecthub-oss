@@ -85,7 +85,7 @@ One screen instead of a dozen terminals, browser tabs and Git client windows.
 
 ### 📡 Control from anywhere
 
-- **Voice control**: navigation, starting processes, commits, dictation into AI Studio, hands-free mode. Web Speech API or local Whisper, customizable phrases and synonyms, hot-swapping headsets.
+- **Voice control**: navigation, starting processes, commits, dictation into AI Studio, hands-free mode. Web Speech API, local Whisper or GigaAM for Russian, neural speech gate (Silero VAD) and noise reduction, customizable phrases and synonyms, hot-swapping headsets.
 - **Remote Control**: a mobile web client for projects, tasks, processes, terminal and AI Studio. LAN Direct and Server Relay modes (Ed25519 identity, per-device tokens) with end-to-end AES-256-GCM encryption, QR code pairing.
 - **Machine federation**: several machines running ProjectHub see each other in a directory (via your own relay or directly on the local network) and can open one another in hub mode — the remote machine's projects, tasks, processes, agents and HITL queue in the same UI. A task can be assigned to an agent on a specific machine: `assignee: agent:<role>@<hostId>`.
 - **Telegram Mini App and bot**: a full client inside Telegram with native WebApp components, push notifications about crashed processes and HITL requests, an automatic HTTPS tunnel, and combining several developer machines into a single hub.
@@ -142,7 +142,7 @@ Every project managed by ProjectHub follows the same template: `backlog/` for ta
 | Terminal and processes | node-pty, @xterm/xterm, tree-kill |
 | AI and agents | Anthropic API, Claude Code CLI, Codex CLI, OpenRouter, DeepSeek, Ollama, @modelcontextprotocol/sdk |
 | Knowledge | LanceDB, @huggingface/transformers (`multilingual-e5-small`), gray-matter, Mermaid |
-| Voice | Web Speech API, local Whisper, AudioWorklet |
+| Voice | Web Speech API, local Whisper, GigaAM and Silero VAD via sherpa-onnx, AudioWorklet |
 | Remote | WebSocket LAN Direct/Relay, Ed25519 identity, AES-256-GCM (Web Crypto), Telegram WebApp SDK |
 | Quality | ESLint (typescript-eslint, react-hooks), Vitest, documentation validator, bundle externals check |
 

@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 /** Полезная нагрузка события pty:removed — автоудаление завершившейся сессии (TASK-50). */
 type PtyRemovedPayload = { sessionId: string; title: string; reason: 'ttl' };
 import type {
+  AsrDownloadProgress,
   StudioRemoteRequestPayload,
   ArenaSettings,
   ProviderErrorInfo,
@@ -527,6 +528,26 @@ const api: IElectronAPI = {
   getLocalWhisperStatus: () => ipcRenderer.invoke('voice:getLocalWhisperStatus'),
   // Ленивый прогрев модели: вызывается при первом включении hands-free или из настроек
   warmupLocalWhisper: () => ipcRenderer.invoke('voice:warmupLocalWhisper'),
+  // Шумодав и Silero VAD перед распознаванием (TASK-164.2): фраза 16 кГц туда и обратно без копий в массив
+  prepareSpeech: (samples: Float32Array, options: { gate: boolean; denoise: 'off' | 'gtcrn' | 'dpdfnet' }) =>
+    ipcRenderer.invoke('voice:prepareSpeech', { samples, gate: options.gate, denoise: options.denoise }),
+  getSpeechPrepStatus: () => ipcRenderer.invoke('voice:getSpeechPrepStatus'),
+  // Локальная модель sherpa (GigaAM, TASK-164.4): подготовка и распознавание одним вызовом
+  recognizeSherpa: (
+    samples: Float32Array,
+    options: { gate: boolean; denoise: 'off' | 'gtcrn' | 'dpdfnet'; modelId: string }
+  ) => ipcRenderer.invoke('voice:recognizeSherpa', { samples, ...options }),
+  listAsrModels: () => ipcRenderer.invoke('asr:listModels'),
+  downloadAsrModel: (modelId: string) => ipcRenderer.invoke('asr:downloadModel', modelId),
+  cancelAsrDownload: (modelId: string) => ipcRenderer.invoke('asr:cancelDownload', modelId),
+  deleteAsrModel: (modelId: string) => ipcRenderer.invoke('asr:deleteModel', modelId),
+  onAsrDownloadProgress: (callback: (progress: AsrDownloadProgress) => void) => {
+    const handler = (_event: IpcRendererEvent, progress: AsrDownloadProgress) => callback(progress);
+    ipcRenderer.on('asr:downloadProgress', handler);
+    return () => {
+      ipcRenderer.removeListener('asr:downloadProgress', handler);
+    };
+  },
 
   // Глобальный push-to-talk и LLM-классификатор свободных команд (TASK-83)
   getPushToTalkStatus: () => ipcRenderer.invoke('voice:getPushToTalkStatus'),

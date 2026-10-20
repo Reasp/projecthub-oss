@@ -6,6 +6,7 @@ import { claudeBridgeService } from './services/claudeBridgeService';
 import { localWhisperService } from './services/localWhisperService';
 import { ragWorkerClient } from './services/ragWorkerClient';
 import { piperTtsService } from './services/piperTtsService';
+import { speechPrepService } from './services/speechPrepService';
 import { qwenTtsService } from './services/qwenTtsService';
 import { qwenTtsInstaller } from './services/qwenTtsInstaller';
 import { mcpServerService } from './services/mcpServerService';
@@ -657,6 +658,12 @@ async function performGracefulShutdown() {
     await piperTtsService.dispose();
   } catch (e) {
     console.warn('[Main] Error disposing local TTS worker:', e);
+  }
+
+  try {
+    speechPrepService.dispose();
+  } catch (e) {
+    console.warn('[Main] Error disposing speech prep process:', e);
   }
 
   try {

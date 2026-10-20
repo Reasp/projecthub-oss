@@ -379,6 +379,46 @@ export interface LocalWhisperStatusInfo {
   respawnAttempts?: number;
 }
 
+// ─── Подготовка звука перед распознаванием (TASK-164.2), зеркало speechPrepService ───
+
+export type NoiseReduction = 'off' | 'gtcrn' | 'dpdfnet';
+
+export type SpeechPrepResult =
+  | { ok: true; speech: false; vadMs: number; denoiseMs: number }
+  | { ok: true; speech: true; samples: Float32Array; speechSec: number; vadMs: number; denoiseMs: number }
+  | { ok: false; error: string };
+
+export type SpeechRecognizeResult =
+  | { ok: true; speech: false; vadMs: number; denoiseMs: number }
+  | { ok: true; speech: true; text: string; speechSec: number; vadMs: number; denoiseMs: number; asrMs: number }
+  | { ok: false; error: string };
+
+/** Локальные модели распознавания на sherpa (TASK-164.4), зеркало asrModelStore. */
+export type AsrModelId = 'gigaam-v3-ru';
+
+export interface AsrModelStatus {
+  id: AsrModelId;
+  label: string;
+  installed: boolean;
+  downloading: boolean;
+  archiveBytes: number;
+}
+
+export interface AsrDownloadProgress {
+  modelId: AsrModelId;
+  phase: 'download' | 'verify' | 'extract' | 'done';
+  receivedBytes: number;
+  totalBytes: number;
+}
+
+export interface SpeechPrepStatusInfo {
+  status: 'idle' | 'ready' | 'unavailable';
+  workerActive: boolean;
+  models: { vad: boolean; gtcrn: boolean; dpdfnet: boolean };
+  respawnAttempts: number;
+  error?: string;
+}
+
 // ─── Push-to-talk и LLM-классификатор голосовых команд (TASK-83), зеркало pushToTalkPolicy/voiceCommandClassifier ───
 
 export type PushToTalkMode = 'hold' | 'toggle';
@@ -1198,6 +1238,17 @@ export interface IElectronAPI {
   ) => Promise<{ text: string; timeMs: number; language?: 'ru' | 'en' }>;
   getLocalWhisperStatus: () => Promise<LocalWhisperStatusInfo>;
   warmupLocalWhisper: () => Promise<LocalWhisperStatusInfo>;
+  prepareSpeech: (samples: Float32Array, options: { gate: boolean; denoise: NoiseReduction }) => Promise<SpeechPrepResult>;
+  getSpeechPrepStatus: () => Promise<SpeechPrepStatusInfo>;
+  recognizeSherpa: (
+    samples: Float32Array,
+    options: { gate: boolean; denoise: NoiseReduction; modelId: AsrModelId }
+  ) => Promise<SpeechRecognizeResult>;
+  listAsrModels: () => Promise<AsrModelStatus[]>;
+  downloadAsrModel: (modelId: AsrModelId) => Promise<{ ok: boolean; error?: string }>;
+  cancelAsrDownload: (modelId: AsrModelId) => Promise<boolean>;
+  deleteAsrModel: (modelId: AsrModelId) => Promise<boolean>;
+  onAsrDownloadProgress: (callback: (progress: AsrDownloadProgress) => void) => () => void;
 
   // Глобальный push-to-talk и классификатор свободных команд (TASK-83)
   getPushToTalkStatus: () => Promise<PushToTalkStatus>;
