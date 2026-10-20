@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw } from '../common/i
 import type { ProviderErrorInfo } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { providerErrorView } from '../../lib/providerErrorView';
+import { requestOpenAiSettings } from '../../lib/modelRouteText';
 
 /** Текст совета, где команды в `…` показаны как код (`ollama pull <модель>`). */
 export const AdviceText: React.FC<{ text: string }> = ({ text }) => (
@@ -56,6 +57,17 @@ export const ProviderErrorCard: React.FC<ProviderErrorCardProps> = ({ error, inf
           )}
           {view && <p className="text-[11px] text-rose-300/70">{view.retryHint}</p>}
         </div>
+        {/* Ошибка выбора модели называет назначение — переход прямо к его строке (TASK-134.3). */}
+        {info?.purpose && (
+          <button
+            type="button"
+            onClick={() => requestOpenAiSettings({ purpose: info.purpose })}
+            data-testid="provider-error-open-assignments"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-700/80 hover:bg-slate-600 text-white text-[11px] font-semibold shrink-0"
+          >
+            {t.modelAssignments.openSettings}
+          </button>
+        )}
         {onRetry && (
           <button
             type="button"

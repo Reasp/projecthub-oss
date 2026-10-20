@@ -30,8 +30,6 @@ export interface EffortTargetInput {
   /** Движок слота; для сессии AI Studio не задан. */
   engine?: string;
   provider?: string;
-  /** Есть ли ключ Anthropic (без ключа AI Studio работает через Claude CLI). */
-  hasApiKey?: boolean;
   /** `compat.reasoning` выбранного профиля. */
   profileReasoning?: string;
 }
@@ -44,8 +42,8 @@ export function effortTargetKind(input: EffortTargetInput): EffortTargetKind {
     case '':
       return 'studio';
     case 'anthropic':
-      // Слот с Anthropic берёт ключ AI Studio; `hasApiKey` задаёт только сессия.
-      return input.hasApiKey === false ? 'claude-cli' : 'anthropic-api';
+      // Подписку задаёт движок (`engine: 'claude-cli'` — выше): правило подписки — только в mainEngineOf (decision-74 п. 2).
+      return 'anthropic-api';
     case 'openai-compatible':
       return input.profileReasoning && input.profileReasoning !== 'none' ? 'openai-compatible' : 'not-sent';
     case 'ollama':

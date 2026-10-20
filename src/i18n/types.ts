@@ -1609,6 +1609,12 @@ export interface TranslationDictionary {
       saved: string;
       accountInfo: string;
       apiKeyPlaceholderAnthropic: string;
+    /** Пункты основной модели: подписка и API-ключ Anthropic — разные (TASK-134.3). */
+    providerSubscription: string;
+    providerSubscriptionHint: string;
+    providerAnthropicApi: string;
+    providerAnthropicApiHint: string;
+    subscriptionNoKey: string;
       dpapiEncryptionHint: string;
       allowedCategoriesLabel: string;
       readPatternPlaceholder: string;
@@ -3075,6 +3081,39 @@ export interface TranslationDictionary {
     runStatusLabels: Record<'completed' | 'failed' | 'stopped' | 'budget_exceeded' | 'interrupted' | 'running', string>;
   };
   /** Тиры моделей и fallback-цепочка (TASK-79, decision-44). */
+  /** Вкладка «Назначения» настроек AI Studio (TASK-134.3, decision-96). */
+  modelAssignments: {
+    tabLabel: string;
+    title: string;
+    subtitle: string;
+    columnPurpose: string;
+    columnMode: string;
+    columnNow: string;
+    mode: Record<'default' | 'main' | 'tier' | 'custom', string>;
+    /** Подпись режима «по умолчанию»: «По умолчанию — {value}». */
+    defaultOf: string;
+    catalogMain: string;
+    catalogTier: string;
+    fixed: string;
+    engine: string;
+    target: string;
+    model: string;
+    modelPlaceholder: string;
+    effort: string;
+    emptyTarget: string;
+    nowLoading: string;
+    willFail: string;
+    previewError: string;
+    save: string;
+    saving: string;
+    saved: string;
+    unsaved: string;
+    loadError: string;
+    problems: string;
+    filePath: string;
+    openSettings: string;
+    purposes: Record<'studio' | 'agent' | 'plan.architect' | 'plan.node' | 'arena.reviewer' | 'pr.review' | 'voice.classify' | 'voice.punctuate' | 'voice.computer' | 'task.draft', string>;
+  };
   modelTiers: {
     tabLabel: string;
     title: string;

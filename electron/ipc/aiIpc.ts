@@ -34,6 +34,8 @@ import { llmModelCatalogService } from '../services/llmModelCatalogService';
 import { LLM_PROVIDER_PRESETS, profileFromLegacyConfig } from '../services/llmProfiles';
 import { pricingService } from '../services/pricingService';
 import { modelTierService } from '../services/modelTierService';
+import { modelAssignmentService } from '../services/modelAssignmentService';
+import { modelCallService } from '../services/modelCallService';
 import { providerErrorInfoOf } from '../services/providerErrors';
 import type { IpcContext } from './types';
 
@@ -107,6 +109,16 @@ export function registerAiIpc(ctx: IpcContext) {
   ipcMain.handle('modelTiers:get', () => modelTierService.getState());
   ipcMain.handle('modelTiers:save', (_event, settings: unknown) => modelTierService.save(settings));
   ipcMain.handle('modelTiers:seed', (_event, draft?: unknown) => modelTierService.seed(draft));
+
+  // Назначения моделей (TASK-134.3, decision-74 п. 5): <userData>/model-assignments.json и «Сейчас» по черновику окна.
+  ipcMain.handle('modelAssignments:get', () => modelAssignmentService.getState());
+  ipcMain.handle('modelAssignments:save', (_event, settings: unknown) => modelAssignmentService.save(settings));
+  ipcMain.handle('modelAssignments:preview', (_event, draft?: { assignments?: unknown; main?: unknown }) =>
+    modelCallService.previewPurposes({
+      assignments: draft?.assignments,
+      ...(draft?.main && typeof draft.main === 'object' ? { main: draft.main as Partial<AIProviderConfig> } : {})
+    })
+  );
 
   // Аккаунт Claude Code (TASK-152, decision-87): статус и выход — по проекту или явному профилю.
   ipcMain.handle('ai:getClaudeAuthStatus', async (_event, query?: { projectPath?: string; accountId?: string; force?: boolean }) => {

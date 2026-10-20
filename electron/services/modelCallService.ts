@@ -15,9 +15,19 @@ import { buildAgentContext } from './contextBuilder.js';
 import { llmProfileService } from './llmProfileService.js';
 import { modelAssignmentService } from './modelAssignmentService.js';
 import { modelTierService } from './modelTierService.js';
-import { emptyModelAssignments, purposeLabel } from './modelPurposes.js';
+import { emptyModelAssignments, purposeLabel, type ModelPurpose } from './modelPurposes.js';
 import { emptyModelTierSettings } from './modelTiers.js';
-import { assertModelUsable, describeResolvedModel, resolveModel, type ModelRouteContext, type ModelRouteInput, type ResolvedModel } from './modelRouter.js';
+import {
+  assertModelUsable,
+  describeResolvedModel,
+  previewPurposeRoutes,
+  resolveModel,
+  type ModelRouteContext,
+  type ModelRouteInput,
+  type ModelRouteView,
+  type ResolvedModel,
+  type RoutePreviewDraft
+} from './modelRouter.js';
 import { buildClaudeCliTurnCommand, parseClaudeCliTurnOutput } from './claudeCliTurn.js';
 import { ProviderError, providerConfigError, timeoutError } from './providerErrors.js';
 import { claudeCliEffortArgs } from './reasoningEffort.js';
@@ -267,6 +277,11 @@ export class ModelCallService {
   /** Чем сейчас обслуживается назначение. Не бросает: непригодная цель возвращается с `problem`. */
   async resolve(input: ModelRouteInput): Promise<ResolvedModel> {
     return resolveModel(input, await this.deps.loadContext());
+  }
+
+  /** «Сейчас» для каждого назначения на черновике окна «Назначения» (TASK-134.3); ключ в ответ не попадает. */
+  async previewPurposes(draft: RoutePreviewDraft = {}): Promise<Record<ModelPurpose, ModelRouteView>> {
+    return previewPurposeRoutes(await this.deps.loadContext(), draft);
   }
 
   async complete(req: ModelCompleteRequest): Promise<ModelCompleteResult> {

@@ -27,7 +27,9 @@ import {
   type ModelTierSettings
 } from './modelTiers.js';
 import {
+  MODEL_PURPOSES,
   MODEL_PURPOSE_SPECS,
+  normalizeModelAssignments,
   purposeEngines,
   purposeLabel,
   type ModelAssignments,
@@ -459,6 +461,33 @@ export function modelRouteView(resolved: ResolvedModel): ModelRouteView {
     notes: [...resolved.notes],
     ...(resolved.problem ? { problem: resolved.problem } : {})
   };
+}
+
+/** Черновик окна «Назначения» (TASK-134.3): назначения и основная модель до «Сохранить». */
+export interface RoutePreviewDraft {
+  assignments?: unknown;
+  main?: Partial<AIProviderConfig>;
+}
+
+/** Поля основной модели, от которых зависит выбор; остальное (политика одобрений) в предпросмотр не берётся. */
+const MAIN_ROUTE_FIELDS = ['provider', 'engine', 'apiKey', 'model', 'profileId', 'baseUrl', 'reasoningEffort'] as const;
+
+/**
+ * «Сейчас» для каждого назначения каталога на черновике настроек (TASK-134.3): назначения и основная модель
+ * из окна подменяют сохранённые, тиры и профили — сохранённые. Ничего не вызывает и не сохраняет.
+ */
+export function previewPurposeRoutes(ctx: ModelRouteContext, draft: RoutePreviewDraft = {}): Record<ModelPurpose, ModelRouteView> {
+  const main = { ...ctx.main };
+  if (draft.main) {
+    for (const key of MAIN_ROUTE_FIELDS) {
+      if (key in draft.main) (main as Record<string, unknown>)[key] = draft.main[key];
+    }
+  }
+  const assignments = draft.assignments === undefined ? ctx.assignments : normalizeModelAssignments(draft.assignments).settings;
+  const preview = { ...ctx, main, assignments };
+  return Object.fromEntries(
+    MODEL_PURPOSES.map((purpose) => [purpose, modelRouteView(resolveModel({ purpose }, preview))])
+  ) as Record<ModelPurpose, ModelRouteView>;
 }
 
 /** Поля слота fleet, которыми задаётся движок и модель агента. */

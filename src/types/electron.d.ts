@@ -1047,6 +1047,11 @@ export interface IElectronAPI {
   saveModelTiers: (settings: ModelTierSettings) => Promise<ModelTierState>;
   /** «Заполнить из настроенного» поверх черновика; ничего не сохраняет. */
   seedModelTiers: (draft?: ModelTierSettings) => Promise<ModelTierSeedResult>;
+  /** Назначения моделей (TASK-134.3, decision-74 п. 5). */
+  getModelAssignments: () => Promise<ModelAssignmentState>;
+  saveModelAssignments: (settings: ModelAssignments) => Promise<ModelAssignmentState>;
+  /** «Сейчас» для каждого назначения на черновике окна: ничего не сохраняет. */
+  previewModelAssignments: (draft?: { assignments?: ModelAssignments; main?: Partial<AIProviderConfig> }) => Promise<Record<ModelPurpose, ModelRouteView>>;
   getClaudeAuthStatus: (query?: { projectPath?: string; accountId?: string; force?: boolean }) => Promise<ClaudeAuthStatus>;
   claudeLogout: (query?: { projectPath?: string; accountId?: string }) => Promise<boolean>;
   /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
@@ -3429,6 +3434,37 @@ export interface ModelRouteView {
   local?: boolean;
   notes: string[];
   problem?: { code: 'engine_unsupported' | 'no_key' | 'no_profile' | 'no_model' | 'provider'; message: string };
+}
+
+/** Цель назначения — зеркало `ModelTarget` (`electron/services/modelTarget.ts`, decision-74 п. 1). */
+export interface ModelTargetSpec {
+  engine?: TierEngine;
+  /** Профиль LLM по имени или id; прежний провайдер — `provider`. */
+  profile?: string;
+  provider?: string;
+  model?: string;
+  modelTier?: ModelTier;
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'max';
+}
+
+/** Чем обслуживать назначение — зеркало `PurposeAssignment` (`modelPurposes.ts`, decision-74 п. 5). */
+export type PurposeAssignment =
+  | { mode: 'main' }
+  | { mode: 'tier'; tier: ModelTier }
+  | { mode: 'custom'; target: ModelTargetSpec };
+
+export interface ModelAssignments {
+  version: 1;
+  updatedAt?: string;
+  /** Только изменённые пользователем; остальные — по каталогу. */
+  assignments: Partial<Record<ModelPurpose, PurposeAssignment>>;
+}
+
+export interface ModelAssignmentState {
+  settings: ModelAssignments;
+  filePath: string;
+  loadError?: string;
+  problems: string[];
 }
 
 /** Чем план будет построен и исполнен при текущих настройках (decision-75). */

@@ -21,6 +21,7 @@ import {
   History,
   DollarSign,
   Layers,
+  Network,
 } from '../common/icons';
 import { BrandLogo, ClaudeLogo } from '../common/BrandLogo';
 import { useAIStudioStore, DEFAULT_AUTO_APPROVE_RULES } from '../../store/useAIStudioStore';
@@ -35,10 +36,18 @@ import { useLlmProfiles } from './ProviderProfileSelect';
 import { ReasoningEffortSelect } from './ReasoningEffortSelect';
 import { ClaudeAccountsPanel } from './ClaudeAccountsPanel';
 import { effortTargetKind } from '../../lib/reasoningEffort';
+import { mainChoiceOf, mainChoicePatch, mainEngineOfForm, type MainChoice } from '../../lib/modelAssignmentEditor';
+import { ModelAssignmentsSection } from './ModelAssignmentsSection';
+
+export type AISettingsTab = 'general' | 'autoApprove' | 'pricing' | 'tiers' | 'assignments';
 
 interface AISettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Вкладка при открытии; переход из ошибки выбора модели открывает «Назначения» (TASK-134.3). */
+  initialTab?: AISettingsTab;
+  /** Назначение, строку которого показать на вкладке «Назначения». */
+  focusPurpose?: string;
 }
 
 // Справочные подсказки поля «Модель», а не рекомендация: модель выбирает пользователь (decision-26 п. 0).
@@ -75,12 +84,12 @@ const MODEL_PRESETS: Record<string, string[]> = {
   ]
 };
 
-export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose }) => {
+export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose, initialTab, focusPurpose }) => {
   const { t } = useTranslation();
   const { config, saveConfig } = useAIStudioStore();
   const openHitlCenter = useHitlStore((s) => s.openCenter);
 
-  const [activeTab, setActiveTab] = useState<'general' | 'autoApprove' | 'pricing' | 'tiers'>('general');
+  const [activeTab, setActiveTab] = useState<AISettingsTab>(initialTab ?? 'general');
   const [form, setForm] = useState<AIProviderConfig>({
     ...config,
     autoApproveRules: config.autoApproveRules || { ...DEFAULT_AUTO_APPROVE_RULES }
@@ -124,6 +133,10 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
       setSavedSuccess(false);
     }
   }, [isOpen, config]);
+
+  useEffect(() => {
+    if (isOpen && initialTab) setActiveTab(initialTab);
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -184,20 +197,27 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
     updateRules({ commandDenyList: current.filter((p) => p !== pat) });
   };
 
-  const handleProviderChange = (provider: AIProviderConfig['provider']) => {
+  /**
+   * Пункт списка «Провайдер». «Claude Code (подписка)» и «Anthropic (API-ключ)» — один провайдер с явным движком
+   * (decision-74 п. 2, TASK-134.3): выбор пункта пишет `engine`, сохранённый ключ при подписке не мешает.
+   */
+  const handleProviderChange = (choice: MainChoice) => {
+    const { provider, engine } = mainChoicePatch(choice);
     let defaultBaseUrl = form.baseUrl;
     if (provider === 'ollama') defaultBaseUrl = 'http://127.0.0.1:11434';
     if (provider === 'deepseek') defaultBaseUrl = 'https://api.deepseek.com';
 
     // Модель прежнего провайдера новому не подходит, а MODEL_PRESETS — подсказки поля, не выбор
     // (decision-26 п. 0): модель выбирает пользователь, пустая даёт понятную ошибку при запросе (TASK-92).
-    setForm((prev) => ({
-      ...prev,
-      provider,
-      model: provider === prev.provider ? prev.model : '',
-      baseUrl: defaultBaseUrl
-    }));
+    setForm((prev) => {
+      const next: AIProviderConfig = { ...prev, provider, model: provider === prev.provider ? prev.model : '', baseUrl: defaultBaseUrl };
+      if (engine) next.engine = engine;
+      else delete next.engine;
+      return next;
+    });
   };
+  const mainChoice = mainChoiceOf(form);
+  const subscription = mainChoice === 'claude-subscription';
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -288,6 +308,20 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
             <Layers className="w-3.5 h-3.5 text-violet-400" />
             <span>{t.modelTiers.tabLabel}</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('assignments')}
+            data-testid="ai-settings-tab-assignments"
+            className={`pb-2.5 px-3 border-b-2 text-xs font-semibold flex items-center gap-2 transition ${
+              activeTab === 'assignments'
+                ? 'border-sky-500 text-sky-300'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Network className="w-3.5 h-3.5 text-sky-400" />
+            <span>{t.modelAssignments.tabLabel}</span>
+          </button>
         </div>
 
         {/* Body Form */}
@@ -311,21 +345,31 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   {t.aiStudio.settingsModal.provider}:
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleProviderChange('anthropic')}
-                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
-                      form.provider === 'anthropic'
-                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
-                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
-                      <ClaudeLogo className="w-3.5 h-3.5" />
-                      Anthropic Claude
-                    </span>
-                    <span className="text-[11px] text-slate-400">Claude CLI / Messages API</span>
-                  </button>
+                  {(['claude-subscription', 'anthropic-api'] as const).map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      onClick={() => handleProviderChange(choice)}
+                      data-testid={`ai-provider-${choice}`}
+                      className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
+                        mainChoice === choice
+                          ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
+                          : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
+                        <ClaudeLogo className="w-3.5 h-3.5" />
+                        {choice === 'claude-subscription'
+                          ? t.aiStudio.settingsModal.providerSubscription
+                          : t.aiStudio.settingsModal.providerAnthropicApi}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {choice === 'claude-subscription'
+                          ? t.aiStudio.settingsModal.providerSubscriptionHint
+                          : t.aiStudio.settingsModal.providerAnthropicApiHint}
+                      </span>
+                    </button>
+                  ))}
 
                   <button
                     type="button"
@@ -432,8 +476,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                 <p className={`text-[11px] ${legacyImport.error ? 'text-rose-400' : 'text-emerald-400'}`}>{legacyImport.message}</p>
               )}
 
-              {/* API Key */}
-              {form.provider !== 'ollama' && form.provider !== 'openai-compatible' && (
+              {/* API Key: у подписки ключа нет — запросы идут через Claude Code CLI (TASK-134.3) */}
+              {subscription && (
+                <p className="text-[11px] text-slate-400 flex items-center gap-1.5" data-testid="ai-subscription-no-key">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  {t.aiStudio.settingsModal.subscriptionNoKey}
+                </p>
+              )}
+              {!subscription && form.provider !== 'ollama' && form.provider !== 'openai-compatible' && (
                 <div>
                   <label className="font-medium text-slate-200 text-[11px] block mb-1.5 flex items-center gap-1.5">
                     <Key className="w-3.5 h-3.5 text-indigo-400" />
@@ -519,8 +569,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                     value={form.reasoningEffort}
                     onChange={(reasoningEffort) => setForm({ ...form, reasoningEffort })}
                     target={effortTargetKind({
+                      engine: mainEngineOfForm(form),
                       provider: form.provider,
-                      hasApiKey: Boolean(form.apiKey?.trim()),
                       profileReasoning: llmProfiles.find((p) => p.id === form.profileId)?.compat.reasoning
                     })}
                     className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
@@ -907,6 +957,9 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
           {/* Тиры моделей сохраняются своей кнопкой (TASK-79, decision-44). */}
           {activeTab === 'tiers' && <ModelTiersSection />}
 
+          {/* Назначения моделей сохраняются своей кнопкой; «Сейчас» — по черновику основной модели (TASK-134.3). */}
+          {activeTab === 'assignments' && <ModelAssignmentsSection mainDraft={form} focusPurpose={focusPurpose} />}
+
           {/* Footer Actions */}
           <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-2">
             <button
@@ -914,9 +967,9 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               onClick={onClose}
               className="ph-btn ph-btn-secondary"
             >
-              {activeTab === 'pricing' || activeTab === 'tiers' ? t.pricing.close : t.common.cancel}
+              {activeTab === 'pricing' || activeTab === 'tiers' || activeTab === 'assignments' ? t.pricing.close : t.common.cancel}
             </button>
-            {activeTab !== 'pricing' && activeTab !== 'tiers' && (
+            {activeTab !== 'pricing' && activeTab !== 'tiers' && activeTab !== 'assignments' && (
             <button
               type="submit"
               className="ph-btn ph-btn-primary"

@@ -337,6 +337,9 @@ const api: IElectronAPI = {
   getModelTiers: () => ipcRenderer.invoke('modelTiers:get'),
   saveModelTiers: (settings: unknown) => ipcRenderer.invoke('modelTiers:save', settings),
   seedModelTiers: (draft?: unknown) => ipcRenderer.invoke('modelTiers:seed', draft),
+  getModelAssignments: () => ipcRenderer.invoke('modelAssignments:get'),
+  saveModelAssignments: (settings: unknown) => ipcRenderer.invoke('modelAssignments:save', settings),
+  previewModelAssignments: (draft?: unknown) => ipcRenderer.invoke('modelAssignments:preview', draft),
   getClaudeAuthStatus: (query?: { projectPath?: string; accountId?: string; force?: boolean }) =>
     ipcRenderer.invoke('ai:getClaudeAuthStatus', query),
   claudeLogout: (query?: { projectPath?: string; accountId?: string }) => ipcRenderer.invoke('ai:claudeLogout', query),
