@@ -7,6 +7,7 @@ import { trayService } from './trayService.js';
 import { telegramService } from './telegramService.js';
 import { getUserDataDir } from './appPaths.js';
 import { logger } from './logger.js';
+import { stateFields, withVersion } from './stateFiles.js';
 import {
   NotificationDeduper,
   computeTrayState,
@@ -35,6 +36,8 @@ import type {
  */
 
 export const NOTIFICATION_SETTINGS_FILE = 'notifications.json';
+/** Версия формата файла (decision-104). */
+export const NOTIFICATION_SETTINGS_VERSION = 1;
 
 /** Кнопки решения в системном уведомлении поддерживает только macOS. */
 export const OS_ACTIONS_SUPPORTED = process.platform === 'darwin';
@@ -70,7 +73,7 @@ class NotificationService {
     this.settingsPath = path.join(getUserDataDir(), NOTIFICATION_SETTINGS_FILE);
     try {
       const raw = await fs.readFile(this.settingsPath, 'utf-8');
-      this.settings = normalizeSettings(JSON.parse(raw));
+      this.settings = normalizeSettings(stateFields(JSON.parse(raw), NOTIFICATION_SETTINGS_VERSION));
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
         logger.warn(`[Notifications] Failed to read settings: ${err instanceof Error ? err.message : String(err)}`);
@@ -275,7 +278,7 @@ class NotificationService {
   private persist(): Promise<void> {
     if (!this.settingsPath) return Promise.resolve();
     const target = this.settingsPath;
-    const data = JSON.stringify(this.settings, null, 2);
+    const data = JSON.stringify(withVersion(NOTIFICATION_SETTINGS_VERSION, this.settings), null, 2);
     this.saveQueue = this.saveQueue
       .then(() => fs.writeFile(target, data, 'utf-8'))
       .catch((err) => {

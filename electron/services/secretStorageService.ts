@@ -2,8 +2,7 @@ import { safeStorage } from 'electron';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { getUserDataDir } from './appPaths.js';
+import { getLegacyStateDir, getUserDataDir } from './appPaths.js';
 import type {
   SecretBackupPreview,
   SecretIssue,
@@ -65,7 +64,8 @@ const safeStorageCipher: SecretCipher = {
 function defaultOptions(): SecretStorageOptions {
   return {
     dir: () => getUserDataDir(),
-    legacyFile: () => path.join(os.homedir(), '.projecthub', SECRETS_FILE_NAME),
+    // Источник разового переноса (decision-88 п. 2), а не путь хранения: прежний общий каталог.
+    legacyFile: () => path.join(getLegacyStateDir(), SECRETS_FILE_NAME),
     cipher: safeStorageCipher
   };
 }

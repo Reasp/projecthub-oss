@@ -44,6 +44,7 @@ import {
   type ScreenshotMapping
 } from './computerCoords.js';
 import { HumanTakeoverDetector } from './humanTakeover.js';
+import { stateFields, withVersion } from './stateFiles.js';
 
 /**
  * Управление компьютером через MCP-прокси ProjectHub (TASK-82, decision-27).
@@ -65,6 +66,8 @@ export const COMPUTER_USE_RUNTIME_PACKAGE = '@zavora-ai/computer-use-mcp';
 export const COMPUTER_USE_RUNTIME_VERSION = '7.4.0';
 
 const SETTINGS_FILE = 'computer-use.json';
+/** Версия формата `computer-use.json` (decision-104). У кэша инструментов своё поле `version` — версия рантайма. */
+const COMPUTER_USE_SETTINGS_VERSION = 1;
 const TOOLS_CACHE_FILE = 'computer-use-tools.json';
 /** Первый запуск npx может скачивать пакет. */
 const RUNTIME_START_TIMEOUT_MS = 180_000;
@@ -244,7 +247,7 @@ class ComputerUseService extends EventEmitter {
     this.auditDir = options.auditDir;
     try {
       const raw = await fs.readFile(path.join(this.dir, SETTINGS_FILE), 'utf-8');
-      this.settings = sanitizeComputerUseSettings(JSON.parse(raw));
+      this.settings = sanitizeComputerUseSettings(stateFields(JSON.parse(raw), COMPUTER_USE_SETTINGS_VERSION));
     } catch {
       this.settings = sanitizeComputerUseSettings({});
     }
@@ -297,7 +300,11 @@ class ComputerUseService extends EventEmitter {
     this.settings = sanitizeComputerUseSettings(merged);
     if (this.dir) {
       await fs.mkdir(this.dir, { recursive: true });
-      await fs.writeFile(path.join(this.dir, SETTINGS_FILE), JSON.stringify(this.settings, null, 2), 'utf-8');
+      await fs.writeFile(
+        path.join(this.dir, SETTINGS_FILE),
+        JSON.stringify(withVersion(COMPUTER_USE_SETTINGS_VERSION, this.settings), null, 2),
+        'utf-8'
+      );
     }
     if (this.settings.enabled) {
       this.registerHotkey();

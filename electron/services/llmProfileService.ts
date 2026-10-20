@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
+import { getStatePath } from './appPaths.js';
 import { secretStorageService, type SecretStorageService } from './secretStorageService.js';
 import { providerConfigError } from './providerErrors.js';
 import {
@@ -15,8 +15,8 @@ import {
 /**
  * Хранилище профилей OpenAI-совместимых провайдеров (TASK-70.1, [[decision-39]]).
  *
- * Файл `~/.projecthub/llm-profiles.json` лежит рядом с `ai-config.json` (там же и под той же
- * изоляцией тестов, decision-29). Ключ хранится в `secretStorageService` профиля (`userData`,
+ * Файл `<userData>/llm-profiles.json` лежит рядом с `ai-config.json` (decision-104; до него —
+ * `~/.projecthub`). Ключ хранится в `secretStorageService` профиля (`userData`,
  * decision-88 п. 4) и наружу (в renderer) не отдаётся: `listProfiles` возвращает только `hasApiKey`.
  */
 
@@ -59,9 +59,14 @@ export class LlmProfileService {
   private writeChain: Promise<unknown> = Promise.resolve();
 
   constructor(
-    private readonly filePath = path.join(os.homedir(), '.projecthub', 'llm-profiles.json'),
+    private readonly filePathOverride?: string,
     private readonly secrets: Pick<SecretStorageService, 'tryDecrypt' | 'setSecret' | 'getSecret' | 'deleteSecret' | 'reportUndecryptable'> = secretStorageService
   ) {}
+
+  /** `<userData>/llm-profiles.json` (decision-104): при первом обращении копируется из `~/.projecthub`. */
+  private get filePath(): string {
+    return this.filePathOverride ?? getStatePath('llm-profiles.json');
+  }
 
   private async readFile(): Promise<ProfilesFile> {
     let raw: string;

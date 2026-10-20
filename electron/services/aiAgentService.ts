@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { getStatePath } from './appPaths.js';
+import { upgradeState, withVersion } from './stateFiles.js';
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import treeKill from 'tree-kill';
 import { searchProjectDocs } from './ragSearch.js';
@@ -347,12 +349,17 @@ export interface ClaudeAuthStatus {
   error?: string;
 }
 
-const CONFIG_FILE = path.join(os.homedir(), '.projecthub', 'ai-config.json');
+/** `ai-config.json` в userData профиля (decision-104); при первом обращении копируется из `~/.projecthub`. */
+const configFile = () => getStatePath('ai-config.json');
+/** Версия формата `ai-config.json` (decision-104): 1 — прежние поля с `version`. */
+export const AI_CONFIG_VERSION = 1;
 /** Ключ API провайдера в хранилище секретов профиля (decision-88 п. 4). */
 const AI_API_KEY_SECRET = 'ai.apiKey';
 
 class AIAgentService {
   private activeControllers = new Map<string, AbortController>();
+  /** Версия для записи `ai-config.json`: не ниже прочитанной из файла (decision-104). */
+  private configVersion = AI_CONFIG_VERSION;
   /** Возможности моделей из Models API: успешный ответ — на время жизни процесса, ошибка — на минуту. */
   private modelCapabilities = new Map<string, { caps: AnthropicModelCapabilities; expiresAt: number }>();
 
@@ -362,7 +369,7 @@ class AIAgentService {
 
   private ensureConfigDir() {
     // Синхронно: промис fs.mkdir без await внутри try не ловится и становится unhandled rejection
-    const dir = path.dirname(CONFIG_FILE);
+    const dir = path.dirname(configFile());
     if (!existsSync(dir)) {
       try {
         mkdirSync(dir, { recursive: true });
@@ -412,9 +419,9 @@ class AIAgentService {
   }
 
   /**
-   * Ключ API лежал полем `apiKey` в общем `~/.projecthub/ai-config.json`, зашифрованный ключом своего
-   * `userData` (decision-88 п. 4). Свой ключ переносится в хранилище секретов профиля, чужой
-   * (не расшифровывается) остаётся в файле нетронутым — его заберёт профиль-владелец.
+   * Ключ API лежал полем `apiKey` в `ai-config.json`, зашифрованный ключом своего `userData` (decision-88 п. 4).
+   * Свой ключ переносится в хранилище секретов профиля. Чужой (файл скопирован из общего `~/.projecthub`,
+   * decision-104) откладывается в резервную копию хранилища и при следующей записи конфига из файла уходит.
    */
   private async migrateInlineApiKey(parsed: Record<string, unknown>): Promise<void> {
     const inline = typeof parsed.apiKey === 'string' ? parsed.apiKey : '';
@@ -426,26 +433,31 @@ class AIAgentService {
     }
     await secretStorageService.setSecret(AI_API_KEY_SECRET, result.value);
     const { apiKey: _inline, ...rest } = parsed;
-    await fs.writeFile(CONFIG_FILE, JSON.stringify(rest, null, 2), 'utf-8');
+    await fs.writeFile(configFile(), JSON.stringify(withVersion(this.configVersion, rest), null, 2), 'utf-8');
   }
 
-  /** Поле `apiKey` общего файла, которое этот профиль расшифровать не может (ключ другого профиля). */
-  private async readForeignInlineApiKey(): Promise<string | null> {
+  /** Чужое поле `apiKey` перед перезаписью конфига — в резервную копию хранилища секретов (decision-88 п. 5). */
+  private async backupForeignInlineApiKey(): Promise<void> {
     try {
-      const parsed = JSON.parse(await fs.readFile(CONFIG_FILE, 'utf-8')) as { apiKey?: unknown };
+      const parsed = JSON.parse(await fs.readFile(configFile(), 'utf-8')) as { apiKey?: unknown };
       const inline = typeof parsed?.apiKey === 'string' ? parsed.apiKey : '';
-      return inline && !secretStorageService.tryDecrypt(inline).ok ? inline : null;
+      if (inline && !secretStorageService.tryDecrypt(inline).ok) {
+        await secretStorageService.reportUndecryptable(AI_API_KEY_SECRET, inline, 'ai-config');
+      }
     } catch {
-      return null;
+      // файла нет или он битый — откладывать нечего
     }
   }
 
   public async getConfig(): Promise<AIProviderConfig> {
     try {
-      if (existsSync(CONFIG_FILE)) {
-        const raw = await fs.readFile(CONFIG_FILE, 'utf-8');
+      if (existsSync(configFile())) {
+        const raw = await fs.readFile(configFile(), 'utf-8');
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object') return parsed;
+        // Версия — служебное поле файла, в настройки рендерера не уходит; запись не понижает её (decision-104).
+        this.configVersion = upgradeState(parsed, { version: AI_CONFIG_VERSION, normalize: () => null }).version;
+        delete parsed.version;
         await this.migrateInlineApiKey(parsed);
         const apiKey = await secretStorageService.getSecret(AI_API_KEY_SECRET);
         if (apiKey) parsed.apiKey = apiKey;
@@ -471,9 +483,12 @@ class AIAgentService {
     // Как и раньше, конфиг без ключа означает «ключ удалён».
     if (apiKey) await secretStorageService.setSecret(AI_API_KEY_SECRET, apiKey);
     else await secretStorageService.deleteSecret(AI_API_KEY_SECRET);
-    // Чужой нерасшифрованный ключ в общем файле сохраняется для профиля-владельца (decision-88 п. 4).
-    const foreign = await this.readForeignInlineApiKey();
-    await fs.writeFile(CONFIG_FILE, JSON.stringify(foreign ? { ...toSave, apiKey: foreign } : toSave, null, 2), 'utf-8');
+    // Файл теперь свой у профиля (decision-104): чужой нерасшифрованный ключ не сохраняется в нём, а
+    // остаётся в резервной копии хранилища секретов.
+    await this.backupForeignInlineApiKey();
+    const { version: _v, ...fields } = toSave as AIProviderConfig & { version?: unknown };
+    void _v;
+    await fs.writeFile(configFile(), JSON.stringify(withVersion(this.configVersion, fields), null, 2), 'utf-8');
   }
 
   public abortStream(sessionId: string): void {

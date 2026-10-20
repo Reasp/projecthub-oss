@@ -18,6 +18,7 @@ if (!parentPort) {
   throw new Error('ragWorker.mjs must be run in a Worker thread');
 }
 
+// Запасной путь для запуска воркера без main (кэш моделей, не состояние); main передаёт userData/models (TASK-165).
 const CACHE_DIR = workerData?.cacheDir || path.join(os.homedir(), '.cache', 'projecthub', 'models');
 
 let transformersModule = null;

@@ -1,15 +1,19 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 import { createHash } from 'node:crypto';
 import type { AISession, AIMessage, AIToolCall } from '../../src/types/electron';
+import { getStatePath } from './appPaths.js';
+import { stateFields, withVersion } from './stateFiles.js';
+
+/** Версия формата файла сессии и метки проекта (decision-104). */
+export const SESSION_FILE_VERSION = 1;
 
 /**
  * Файловое хранилище истории диалогов AI Studio (TASK-35, аудит 3.1).
  *
  * Раньше рендерер держал все сессии всех проектов в `localStorage` через zustand `persist` и
  * пересериализовывал их на каждый стриминговый чанк. Теперь каждая сессия — отдельный файл
- * `~/.projecthub/sessions/<hash(projectPath)>/<sessionId>.json`, а запись инициируется
+ * `<userData>/sessions/<hash(projectPath)>/<sessionId>.json` (до decision-104 — `~/.projecthub/sessions`), а запись инициируется
  * рендерером с дебаунсом. Тяжёлые поля (содержимое diff, вывод команд, аргументы инструментов)
  * усекаются при сохранении — полный текст живёт только в памяти текущей сессии.
  */
@@ -149,7 +153,12 @@ function isSessionLike(value: unknown): value is AISession {
 }
 
 export class AISessionStore {
-  constructor(private readonly baseDir: string = path.join(os.homedir(), '.projecthub', 'sessions')) {}
+  constructor(private readonly baseDirOverride?: string) {}
+
+  /** `<userData>/sessions` (decision-104): при первом обращении копируется из `~/.projecthub/sessions`. */
+  private get baseDir(): string {
+    return this.baseDirOverride ?? getStatePath('sessions');
+  }
 
   public projectDir(projectPath: string): string {
     return path.join(this.baseDir, hashProjectPath(projectPath));
@@ -167,7 +176,7 @@ export class AISessionStore {
     try {
       await fs.access(marker);
     } catch {
-      await fs.writeFile(marker, JSON.stringify({ projectPath }, null, 2), 'utf8').catch(() => undefined);
+      await fs.writeFile(marker, JSON.stringify(withVersion(SESSION_FILE_VERSION, { projectPath }), null, 2), 'utf8').catch(() => undefined);
     }
     return dir;
   }
@@ -188,7 +197,7 @@ export class AISessionStore {
       if (!isValidSessionId(id)) continue;
       try {
         const raw = await fs.readFile(path.join(dir, name), 'utf8');
-        const parsed = JSON.parse(raw);
+        const parsed = stateFields(JSON.parse(raw), SESSION_FILE_VERSION);
         if (isSessionLike(parsed) && parsed.id === id) sessions.push(parsed);
       } catch (e) {
         console.warn(`[AISessionStore] Пропущен повреждённый файл сессии ${name}:`, e);
@@ -202,7 +211,7 @@ export class AISessionStore {
   public async get(projectPath: string, sessionId: string): Promise<AISession | null> {
     if (!isValidSessionId(sessionId)) return null;
     try {
-      const parsed = JSON.parse(await fs.readFile(this.sessionFile(projectPath, sessionId), 'utf8'));
+      const parsed = stateFields(JSON.parse(await fs.readFile(this.sessionFile(projectPath, sessionId), 'utf8')), SESSION_FILE_VERSION);
       return isSessionLike(parsed) && parsed.id === sessionId ? parsed : null;
     } catch {
       return null;
@@ -217,7 +226,7 @@ export class AISessionStore {
     await this.ensureProjectDir(projectPath);
     const target = this.sessionFile(projectPath, session.id);
     const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-    const payload = JSON.stringify(compactSessionForStorage(session));
+    const payload = JSON.stringify(withVersion(SESSION_FILE_VERSION, compactSessionForStorage(session)));
     await fs.writeFile(tmp, payload, 'utf8');
     try {
       await fs.rename(tmp, target);

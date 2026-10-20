@@ -12,6 +12,7 @@ export function registerDiagnosticsIpc() {
 
   ipcMain.handle('diagnostics:collectArchive', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
+    // Домашний каталог законно: это место сохранения архива по умолчанию в диалоге, а не состояние (TASK-165).
     const defaultPath = path.join(
       os.homedir(),
       `projecthub-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`

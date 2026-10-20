@@ -2,8 +2,11 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { getUserDataDir } from './appPaths.js';
 import { emptyModelAssignments, normalizeModelAssignments, type ModelAssignments } from './modelPurposes.js';
+import { stateFields, withVersion } from './stateFiles.js';
 
 export const MODEL_ASSIGNMENTS_FILE = 'model-assignments.json';
+/** Версия формата файла (decision-104). */
+export const MODEL_ASSIGNMENTS_VERSION = 1;
 
 export interface ModelAssignmentState {
   settings: ModelAssignments;
@@ -76,7 +79,7 @@ export class ModelAssignmentService {
       return this.state;
     }
     try {
-      const { settings, problems } = normalizeModelAssignments(JSON.parse(raw));
+      const { settings, problems } = normalizeModelAssignments(stateFields(JSON.parse(raw), MODEL_ASSIGNMENTS_VERSION));
       if (problems.length > 0) console.warn(`[ModelAssignmentService] Пропущены назначения: ${problems.join('; ')}`);
       this.state = { settings, filePath: this.filePath, problems };
     } catch (err) {
@@ -91,7 +94,7 @@ export class ModelAssignmentService {
       settings.updatedAt = new Date().toISOString();
       await fs.mkdir(path.dirname(this.filePath), { recursive: true });
       const tmp = `${this.filePath}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(settings, null, 2), 'utf-8');
+      await fs.writeFile(tmp, JSON.stringify(withVersion(MODEL_ASSIGNMENTS_VERSION, settings), null, 2), 'utf-8');
       await fs.rename(tmp, this.filePath);
     });
     this.writeChain = run.catch(() => undefined);

@@ -45,8 +45,11 @@ import {
   type PushToTalkMode,
   type PushToTalkSettings
 } from './pushToTalkPolicy.js';
+import { stateFields, withVersion } from './stateFiles.js';
 
 const SETTINGS_FILE = 'voice-hotkey.json';
+/** Версия формата файла (decision-104). */
+const VOICE_HOTKEY_VERSION = 1;
 
 /**
  * Дольше клавишу-модификатор зажатой не считаем: рендерер сам отправляет фразу на 60-й секунде, а
@@ -130,7 +133,7 @@ class VoiceHotkeyService {
   private async readSettings(): Promise<unknown> {
     try {
       const raw = await fs.readFile(this.settingsPath, 'utf-8');
-      return JSON.parse(raw);
+      return stateFields(JSON.parse(raw), VOICE_HOTKEY_VERSION);
     } catch {
       // Файла нет или он повреждён — работаем на значениях по умолчанию.
       return null;
@@ -190,7 +193,7 @@ class VoiceHotkeyService {
     }
 
     try {
-      await fs.writeFile(this.settingsPath, JSON.stringify(this.settings, null, 2), 'utf-8');
+      await fs.writeFile(this.settingsPath, JSON.stringify(withVersion(VOICE_HOTKEY_VERSION, this.settings), null, 2), 'utf-8');
     } catch (err) {
       logger.warn(`[VoiceHotkey] Не удалось сохранить настройки: ${errorText(err)}`);
     }

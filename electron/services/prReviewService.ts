@@ -5,6 +5,7 @@ import type { AppBusEvent, ApprovalResponse, HitlRequest, RolePermissions } from
 import type { AgentSlotConfig, StartFanOutOptions, SwarmAutomationMeta, SwarmSession } from './swarmTypes.js';
 import type { PrReviewTarget } from './prService.js';
 import { normalizePathKey } from './automationRules.js';
+import { stateFields, withVersion } from './stateFiles.js';
 import {
   applyVerdicts,
   buildPrComment,
@@ -30,6 +31,8 @@ export const REVIEWERS_BUDGET_SHARE = 0.7;
 export const PUBLISH_APPROVAL_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_MANUAL_REVIEW_BUDGET_USD = 1;
 export const PR_REVIEWS_DIR = 'pr-reviews';
+/** Версия формата записи ревью (decision-104). */
+export const PR_REVIEW_RECORD_VERSION = 1;
 
 export type PublishState = 'none' | 'pending' | 'published' | 'declined' | 'blocked' | 'failed';
 
@@ -141,7 +144,7 @@ export class PrReviewService {
     const file = this.fileOf(record.projectPath, record.prNumber, record.headSha);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(record, null, 2), 'utf8');
+    await fs.writeFile(tmp, JSON.stringify(withVersion(PR_REVIEW_RECORD_VERSION, record), null, 2), 'utf8');
     try {
       await fs.rename(tmp, file);
     } catch (err) {
@@ -170,7 +173,7 @@ export class PrReviewService {
       if (!name.endsWith('.json')) continue;
       if (prNumber !== undefined && !name.startsWith(`${prNumber}-`)) continue;
       try {
-        out.push(JSON.parse(await fs.readFile(path.join(dir, name), 'utf8')) as PrReviewRecord);
+        out.push(stateFields(JSON.parse(await fs.readFile(path.join(dir, name), 'utf8')), PR_REVIEW_RECORD_VERSION) as unknown as PrReviewRecord);
       } catch {
         // битая запись пропускается
       }

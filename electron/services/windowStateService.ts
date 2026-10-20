@@ -1,7 +1,8 @@
 import { BrowserWindow, screen } from 'electron';
 import path from 'node:path';
-import os from 'node:os';
 import fs from 'node:fs';
+import { getStatePath } from './appPaths';
+import { upgradeState, withVersion, type StateSchema } from './stateFiles';
 
 export interface WindowState {
   width: number;
@@ -17,32 +18,42 @@ const DEFAULT_STATE: WindowState = {
   isMaximized: false
 };
 
+/** `window-state.json` (decision-104): версия 1 — прежний формат с полем `version`. */
+export const WINDOW_STATE_VERSION = 1;
+export const windowStateSchema: StateSchema<WindowState | null> = {
+  version: WINDOW_STATE_VERSION,
+  normalize: (parsed) =>
+    typeof parsed.width === 'number' && typeof parsed.height === 'number'
+      ? {
+          width: Math.max(1024, parsed.width),
+          height: Math.max(700, parsed.height),
+          x: typeof parsed.x === 'number' ? parsed.x : undefined,
+          y: typeof parsed.y === 'number' ? parsed.y : undefined,
+          isMaximized: Boolean(parsed.isMaximized)
+        }
+      : null
+};
+
 class WindowStateService {
-  private configPath: string;
   private state: WindowState = { ...DEFAULT_STATE };
+  private version = WINDOW_STATE_VERSION;
   private debounceTimer: NodeJS.Timeout | null = null;
 
   constructor() {
-    const homeDir = os.homedir();
-    const hubDir = path.join(homeDir, '.projecthub');
-    this.configPath = path.join(hubDir, 'window-state.json');
     this.loadState();
+  }
+
+  /** userData профиля: у стенда со своим `--user-data-dir` — своё окно (decision-104). */
+  private get configPath(): string {
+    return getStatePath('window-state.json');
   }
 
   private loadState(): void {
     try {
       if (fs.existsSync(this.configPath)) {
-        const raw = fs.readFileSync(this.configPath, 'utf8');
-        const parsed = JSON.parse(raw);
-        if (typeof parsed.width === 'number' && typeof parsed.height === 'number') {
-          this.state = {
-            width: Math.max(1024, parsed.width),
-            height: Math.max(700, parsed.height),
-            x: typeof parsed.x === 'number' ? parsed.x : undefined,
-            y: typeof parsed.y === 'number' ? parsed.y : undefined,
-            isMaximized: Boolean(parsed.isMaximized)
-          };
-        }
+        const upgraded = upgradeState(JSON.parse(fs.readFileSync(this.configPath, 'utf8')), windowStateSchema);
+        this.version = upgraded.version;
+        if (upgraded.data) this.state = upgraded.data;
       }
     } catch (e) {
       console.warn('[WindowStateService] Failed to load window state:', e);
@@ -100,7 +111,7 @@ class WindowStateService {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      fs.writeFileSync(this.configPath, JSON.stringify(this.state, null, 2), 'utf8');
+      fs.writeFileSync(this.configPath, JSON.stringify(withVersion(this.version, this.state), null, 2), 'utf8');
     } catch (e) {
       console.error('[WindowStateService] Failed to save window state:', e);
     }

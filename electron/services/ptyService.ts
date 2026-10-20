@@ -162,7 +162,8 @@ class PtyService {
       ...extraEnv
     };
 
-    // Fallback — домашний каталог, а не process.cwd(): в упакованном приложении cwd произволен (TASK-43)
+    // Fallback — домашний каталог, а не process.cwd(): в упакованном приложении cwd произволен (TASK-43).
+    // Домашний каталог здесь законно — рабочий каталог терминала, а не путь к состоянию (TASK-165).
     const effectiveTarget = options.cwd && existsSync(options.cwd) ? options.cwd : options.projectPath;
     const cwd = existsSync(effectiveTarget) ? effectiveTarget : os.homedir();
 

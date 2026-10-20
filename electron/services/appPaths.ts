@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { app } from 'electron';
+import { migrateLegacyStatePath } from './stateFiles.js';
 
 /**
  * Единая точка вычисления путей приложения (TASK-43).
@@ -107,6 +108,29 @@ export function getBundledVoiceModelsDir(): string | null {
   }
   const devRoot = getDevRepoRoot();
   return devRoot ? path.join(devRoot, 'resources', 'voice-models') : null;
+}
+
+/**
+ * Прежний общий каталог состояния `~/.projecthub` (до TASK-165). Отсюда копируются файлы при первом
+ * обращении к новому пути; реестр проектов и каталог Claude по умолчанию остаются здесь намеренно (decision-104).
+ */
+export function getLegacyStateDir(): string {
+  return path.join(getHomeDir(), '.projecthub');
+}
+
+const statePathsReady = new Set<string>();
+
+/**
+ * Путь файла или каталога состояния в userData (decision-7 п. 2, decision-104). При первом обращении, если
+ * по новому пути пусто, копирует прежний `~/.projecthub/<name>`; прежний не удаляется.
+ */
+export function getStatePath(name: string): string {
+  const target = path.join(getUserDataDir(), name);
+  if (!statePathsReady.has(target)) {
+    statePathsReady.add(target);
+    migrateLegacyStatePath(target, path.join(getLegacyStateDir(), name));
+  }
+  return target;
 }
 
 /** Единый кэш моделей (RAG-эмбеддинги и Whisper): userData/models. */

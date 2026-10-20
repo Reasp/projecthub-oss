@@ -11,6 +11,7 @@ if (!parentPort) {
 // Модель и каталог кэша передаёт main-процесс (единый userData/models, TASK-43);
 // fallback на старое расположение — только если воркер запущен без workerData.
 const MODEL_NAME = workerData?.modelName || 'Xenova/whisper-base';
+// Запасной путь для запуска воркера без main (кэш моделей, не состояние); main передаёт userData/models (TASK-165).
 const CACHE_DIR = workerData?.cacheDir || path.join(os.homedir(), '.cache', 'projecthub', 'whisper');
 
 let asrPipeline = null;

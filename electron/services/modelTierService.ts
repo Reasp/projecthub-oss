@@ -13,8 +13,11 @@ import {
   type ModelTierSettings,
   type TierSeedInput
 } from './modelTiers.js';
+import { stateFields, withVersion } from './stateFiles.js';
 
 export const MODEL_TIERS_FILE = 'model-tiers.json';
+/** Версия формата файла (decision-104). */
+export const MODEL_TIERS_VERSION = 1;
 
 export interface ModelTierState {
   settings: ModelTierSettings;
@@ -123,7 +126,7 @@ export class ModelTierService {
       return this.firstRun();
     }
     try {
-      const { settings, problems } = normalizeModelTierSettings(JSON.parse(raw));
+      const { settings, problems } = normalizeModelTierSettings(stateFields(JSON.parse(raw), MODEL_TIERS_VERSION));
       if (problems.length > 0) console.warn(`[ModelTierService] Пропущены записи тиров: ${problems.join('; ')}`);
       this.state = { settings, filePath: this.filePath, problems };
     } catch (err) {
@@ -157,7 +160,7 @@ export class ModelTierService {
       settings.updatedAt = new Date().toISOString();
       await fs.mkdir(path.dirname(this.filePath), { recursive: true });
       const tmp = `${this.filePath}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(settings, null, 2), 'utf-8');
+      await fs.writeFile(tmp, JSON.stringify(withVersion(MODEL_TIERS_VERSION, settings), null, 2), 'utf-8');
       await fs.rename(tmp, this.filePath);
     });
     this.writeChain = run.catch(() => undefined);

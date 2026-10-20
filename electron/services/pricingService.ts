@@ -3,8 +3,11 @@ import path from 'path';
 import { BUILTIN_PRICE_TABLE, mergePriceTables, type PriceTable } from './agentCost.js';
 import { parseOpenRouterModels, sanitizePriceOverrides, type OpenRouterImportResult, type PriceOverrides } from './agentPricing.js';
 import { getUserDataDir } from './appPaths.js';
+import { stateFields, withVersion } from './stateFiles.js';
 
 export const AGENT_PRICING_FILE = 'agent-pricing.json';
+/** Версия формата файла (decision-104). */
+export const AGENT_PRICING_VERSION = 1;
 export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 const OPENROUTER_TIMEOUT_MS = 30_000;
 
@@ -71,7 +74,7 @@ export class PricingService {
       const data: PriceOverrides = { updatedAt: overrides.updatedAt ?? new Date().toISOString().slice(0, 10), models: overrides.models };
       await fs.mkdir(path.dirname(this.filePath), { recursive: true });
       const tmp = `${this.filePath}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
+      await fs.writeFile(tmp, JSON.stringify(withVersion(AGENT_PRICING_VERSION, data), null, 2), 'utf-8');
       await fs.rename(tmp, this.filePath);
       this.apply(data);
       this.loadError = undefined;
@@ -117,7 +120,7 @@ export class PricingService {
       return;
     }
     try {
-      this.apply(sanitizePriceOverrides(JSON.parse(raw)));
+      this.apply(sanitizePriceOverrides(stateFields(JSON.parse(raw), AGENT_PRICING_VERSION)));
       this.loadError = undefined;
       console.log(`[PricingService] Загружены переопределения цен: ${Object.keys(this.overrides.models).length} моделей`);
     } catch (err) {

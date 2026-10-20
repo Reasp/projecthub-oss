@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
+import { getStatePath } from './appPaths.js';
 import { llmProfileService, type LlmProfileService } from './llmProfileService.js';
 import { buildProfileHeaders, modelsUrl } from './llmProfiles.js';
 import { isCatalogFresh, parseModelList, type ModelCatalogEntry, type ModelCatalogResult } from './llmModelCatalog.js';
@@ -18,7 +18,7 @@ import {
 const CATALOG_FETCH_TIMEOUT_MS = 15_000;
 
 /**
- * Каталог моделей профилей с кэшем в `~/.projecthub/llm-model-catalog.json` (TASK-70.2,
+ * Каталог моделей профилей с кэшем в `<userData>/llm-model-catalog.json` (TASK-70.2,
  * [[decision-39]]). Ошибка сервера не стирает прежний список — он возвращается вместе с ошибкой.
  */
 export class LlmModelCatalogService {
@@ -26,9 +26,17 @@ export class LlmModelCatalogService {
 
   constructor(
     private readonly profiles: LlmProfileService = llmProfileService,
-    private readonly filePath = path.join(os.homedir(), '.projecthub', 'llm-model-catalog.json'),
+    private readonly filePathOverride?: string,
     private readonly fetchImpl: typeof fetch = (...args) => fetch(...args)
   ) {}
+
+  /**
+   * Кэш `<userData>/llm-model-catalog.json` (decision-104). Это кэш, а не состояние: плоский словарь
+   * «профиль → список» без поля `version`, при сбое чтения список просто запрашивается заново.
+   */
+  private get filePath(): string {
+    return this.filePathOverride ?? getStatePath('llm-model-catalog.json');
+  }
 
   private async loadCache(): Promise<Record<string, ModelCatalogEntry>> {
     if (this.cache) return this.cache;

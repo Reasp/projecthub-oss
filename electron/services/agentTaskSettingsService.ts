@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeAgentTaskLimits, type AgentTaskLimits } from './agentTaskPolicy.js';
+import { stateFields, withVersion } from './stateFiles.js';
 
 /**
  * Настройки задач, заведённых агентами (TASK-155, decision-89 п. 6): лимиты за сессию и за 24 часа на проект.
@@ -9,6 +10,8 @@ import { normalizeAgentTaskLimits, type AgentTaskLimits } from './agentTaskPolic
  * агент может переписать сам и поднять себе лимит.
  */
 export const AGENT_TASK_SETTINGS_FILE = 'agent-tasks.json';
+/** Версия формата файла (decision-104). */
+export const AGENT_TASK_SETTINGS_VERSION = 1;
 
 export interface AgentTaskSettings {
   limits: AgentTaskLimits;
@@ -31,7 +34,7 @@ export class AgentTaskSettingsService {
   public async get(): Promise<AgentTaskSettings> {
     if (this.cached) return this.cached;
     try {
-      this.cached = normalizeAgentTaskSettings(JSON.parse(await fs.readFile(this.file, 'utf-8')));
+      this.cached = normalizeAgentTaskSettings(stateFields(JSON.parse(await fs.readFile(this.file, 'utf-8')), AGENT_TASK_SETTINGS_VERSION));
     } catch {
       this.cached = normalizeAgentTaskSettings(null);
     }
@@ -43,7 +46,7 @@ export class AgentTaskSettingsService {
     const target = this.file;
     await fs.mkdir(path.dirname(target), { recursive: true });
     const tmp = `${target}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8');
+    await fs.writeFile(tmp, `${JSON.stringify(withVersion(AGENT_TASK_SETTINGS_VERSION, settings), null, 2)}\n`, 'utf-8');
     await fs.rename(tmp, target);
     this.cached = settings;
     return settings;

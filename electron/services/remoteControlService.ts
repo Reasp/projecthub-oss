@@ -124,6 +124,8 @@ interface DeviceTokenRecord {
   approved?: boolean;
 }
 
+/** Версия формата `remote-control.json` (decision-104). */
+const REMOTE_CONTROL_CONFIG_VERSION = 1;
 const PIN_MAX_ATTEMPTS = 5;
 const PIN_LOCKOUT_MS = 5 * 60 * 1000;
 const EVENT_LOG_MAX = 200;
@@ -470,6 +472,7 @@ class RemoteControlService {
       if (existsSync(cfgPath)) {
         const raw = readFileSync(cfgPath, 'utf8');
         const data = JSON.parse(raw);
+        delete data.version;
         if (data.hostId) this.hostId = data.hostId;
         if (data.machineName) this.machineName = data.machineName;
         // Legacy plaintext secretKey/pairingPin/telegramBotToken (до TASK-65) — переносятся в
@@ -499,6 +502,7 @@ class RemoteControlService {
       // secretKey/pairingPin/telegramBotToken НЕ пишутся сюда (decision-5 п.4) — только через
       // secretStorageService (loadPersistedSecrets/updateConfig).
       const data = {
+        version: REMOTE_CONTROL_CONFIG_VERSION,
         hostId: this.hostId,
         machineName: this.machineName,
         port: this.port,
