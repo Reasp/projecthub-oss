@@ -7,6 +7,7 @@ import {
   type EnvEntryStatus,
   type EnvIdentityEntry
 } from './envRegistryIdentity';
+import { windowsSnapshotSource } from './windowsProcessSnapshot';
 
 /**
  * Добивание потомков оболочки, переживших tree-kill (TASK-97, decision-37).
@@ -27,13 +28,27 @@ export interface ProcessEntry {
 /** Допуск на расхождение времени создания процесса и отметки `Date.now()` перед spawn. */
 export const SWEEP_CREATION_SLACK_MS = 2000;
 
-/** Разбирает строки `pid,ppid,createdAtMs` из снимка процессов; мусорные строки пропускаются. */
+/** Разница эпох FILETIME (1601-01-01) и Unix, мс. */
+const FILETIME_UNIX_EPOCH_MS = 11_644_473_600_000;
+
+/**
+ * FILETIME (сотни наносекунд с 1601 года, десятичной строкой) в мс Unix с отбрасыванием долей — как
+ * `DateTimeOffset.ToUnixTimeMilliseconds()` и `Process.StartTime`. Число FILETIME больше 2^53, поэтому делим строкой.
+ * `0` и время до 1970 года — 0 («неизвестно»).
+ */
+export function fileTimeToUnixMs(fileTime: string): number {
+  if (fileTime.length <= 4) return 0;
+  const ms = Number(fileTime.slice(0, -4)) - FILETIME_UNIX_EPOCH_MS;
+  return ms > 0 ? ms : 0;
+}
+
+/** Разбирает строки `pid,ppid,FILETIME` из снимка процессов (decision-97); мусорные строки пропускаются. */
 export function parseProcessList(text: string): ProcessEntry[] {
   const out: ProcessEntry[] = [];
   for (const line of text.split(/\r?\n/)) {
     const m = /^\s*(\d+),(\d+),(\d+)\s*$/.exec(line);
     if (!m) continue;
-    out.push({ pid: Number(m[1]), ppid: Number(m[2]), createdAt: Number(m[3]) });
+    out.push({ pid: Number(m[1]), ppid: Number(m[2]), createdAt: fileTimeToUnixMs(m[3]) });
   }
   return out;
 }
@@ -72,31 +87,19 @@ export function collectDescendantPids(
   return result;
 }
 
-const LIST_PROCESSES_SCRIPT =
-  'Get-CimInstance Win32_Process | ForEach-Object { ' +
-  '$t = if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }; ' +
-  '"$($_.ProcessId),$($_.ParentProcessId),$t" }';
-
 /** Предельное время снимка процессов для статусов и остановки записей env-tools (показ не должен висеть). */
 export const LIST_PROCESSES_TIMEOUT_MS = 15_000;
 
 /**
  * Предельное время снимка при добивании потомков после остановки (decision-93 п. 9). Снимок идёт уже после выхода
- * оболочки и никого не блокирует, а сдавшийся обход оставляет сирот. Под нагрузкой машины снимок медленный: 0,55 с
- * на свободной машине, ~5 с при 8 busy-процессах на 16 ядрах, до 42 с при 12 (TASK-159), — 15 с не хватало.
+ * оболочки и никого не блокирует, а сдавшийся обход оставляет сирот. Первый снимок включает запуск помощника
+ * PowerShell (decision-97): при 24 busy-процессах на 16 ядрах это ~3 с, разовый CIM запасного пути — до 21 с.
  */
 export const SWEEP_SNAPSHOT_TIMEOUT_MS = 30_000;
 
-/** Снимок процессов Windows (pid, ppid, время создания). */
-export function listWindowsProcesses(timeoutMs = LIST_PROCESSES_TIMEOUT_MS): Promise<ProcessEntry[]> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', LIST_PROCESSES_SCRIPT],
-      { timeout: timeoutMs, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout) => (err ? reject(err) : resolve(parseProcessList(String(stdout))))
-    );
-  });
+/** Снимок процессов Windows (pid, ppid, время создания) через общий помощник (decision-97). */
+export async function listWindowsProcesses(timeoutMs = LIST_PROCESSES_TIMEOUT_MS): Promise<ProcessEntry[]> {
+  return parseProcessList(await windowsSnapshotSource.snapshot(timeoutMs));
 }
 
 /**
