@@ -38,6 +38,8 @@ export interface ConnectionServiceDef extends ConnectionServiceInfo {
   tokenStyle: TokenStyle;
   /** Путь проверки аккаунта относительно `apiBase`. */
   verifyPath: string;
+  /** Тело JSON для проверки аккаунта: запрос идёт POST (GraphQL Linear). Без него — GET. */
+  verifyBody?: string;
   parseAccount: (json: unknown) => ConnectionAccount | null;
   oauth?: OAuthSpec;
   /** Где отозвать доступ вручную. */
@@ -181,6 +183,33 @@ export const CONNECTION_SERVICES: readonly ConnectionServiceDef[] = [
       tokenRequest: 'query'
     },
     manualRevokeUrl: () => 'https://app.clickup.com/settings/apps'
+  },
+  {
+    id: 'linear',
+    label: 'Linear',
+    categories: ['tracker'],
+    methods: ['token', 'oauth-browser'],
+    defaultBaseUrl: 'https://linear.app',
+    selfHosted: false,
+    // Синку нужна запись: `write` предлагается в окне, по умолчанию — только чтение.
+    scopes: [{ id: 'read', default: true }, { id: 'write' }],
+    clientSecretRequired: {},
+    tokenHelpUrl: 'https://linear.app/settings/account/security',
+    oauthAppHelpUrl: 'https://linear.app/settings/api/applications/new',
+    apiBase: () => 'https://api.linear.app',
+    // Личный API-ключ Linear передаётся без префикса `Bearer`; OAuth-токен — с ним.
+    tokenStyle: 'raw',
+    verifyPath: '/graphql',
+    verifyBody: JSON.stringify({ query: '{ viewer { id name email } }' }),
+    parseAccount: (json) => accountFrom(obj(obj(json)?.data)?.viewer, ['id'], ['email'], ['name']),
+    oauth: {
+      authorizeUrl: () => 'https://linear.app/oauth/authorize',
+      tokenUrl: () => 'https://api.linear.app/oauth/token',
+      pkce: true,
+      scopeSeparator: ',',
+      tokenRequest: 'form'
+    },
+    manualRevokeUrl: () => 'https://linear.app/settings/account/security'
   },
   {
     id: 'jira',

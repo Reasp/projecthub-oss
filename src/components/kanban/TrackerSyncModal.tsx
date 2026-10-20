@@ -106,10 +106,10 @@ export const TrackerSyncModal: React.FC<Props> = ({ projectPath, isOpen, onClose
       setTimeout(() => setSaved(false), 1500);
     });
 
-  // Списки и статусы читаются через сохранённое подключение: сначала сохраняем выбор.
+  // Списки и статусы читаются через сохранённые трекер и подключение: сначала сохраняем выбор.
   const loadTargets = () =>
     act('targets', async () => {
-      await window.api.trackerSync.save(projectPath, { connectionId: connectionId || null });
+      await window.api.trackerSync.save(projectPath, { ...(draft ? { config: draft } : {}), connectionId: connectionId || null });
       setGroups(await window.api.trackerSync.targets(projectPath));
     });
 
@@ -158,6 +158,28 @@ export const TrackerSyncModal: React.FC<Props> = ({ projectPath, isOpen, onClose
         ) : (
           <div className="p-4 overflow-y-auto space-y-4 text-xs">
             <p className="text-slate-400">{ts.intro}</p>
+
+            <section className="space-y-1.5">
+              <label className="block text-slate-300 font-medium">{ts.tracker}</label>
+              <select
+                className={inputClass}
+                value={draft.adapter}
+                onChange={(e) => {
+                  // Другой трекер — другие подключение, цель и статусы (decision-106).
+                  setDraft({ ...draft, adapter: e.target.value, target: null, statusMap: {} });
+                  setConnectionId('');
+                  setGroups(null);
+                  setStatuses(null);
+                }}
+                data-testid="tracker-adapter"
+              >
+                {(status?.adapters ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </section>
 
             <section className="space-y-1.5">
               <label className="block text-slate-300 font-medium">{ts.connection}</label>

@@ -3338,6 +3338,7 @@ export interface TranslationDictionary {
     connectionNone: string;
     manageConnections: string;
     noConnections: string;
+    tracker: string;
     target: string;
     targetNone: string;
     loadTargets: string;

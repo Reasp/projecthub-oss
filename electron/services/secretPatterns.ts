@@ -28,6 +28,8 @@ export const REDACTION_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   // App password Bitbucket и API-токен Atlassian (Bitbucket, Jira; TASK-138.2)
   [/\bATBB[A-Za-z0-9]{24,}/g, 'ATBB***'],
   [/\bATATT[A-Za-z0-9_=-]{20,}/g, 'ATATT***'],
+  // Ключ API и OAuth-токен Linear (TASK-129)
+  [/\blin_(?:api|oauth)_[A-Za-z0-9]{20,}/g, 'lin_***'],
   // Токен Telegram-бота: <id бота>:<35 символов>
   [/\b(\d{8,10}:)[A-Za-z0-9_-]{35}\b/g, '$1***'],
   // Пароли в URL: https://user:pass@host

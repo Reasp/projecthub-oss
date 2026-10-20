@@ -11,7 +11,7 @@ export const trackerSyncService = new TrackerSyncService({
   authorizedFetch: (connectionId, target, init) => connectionService.authorizedFetch(connectionId, target, init),
   getConnection: async (connectionId) => {
     const found = (await connectionService.list()).find((c) => c.id === connectionId);
-    return found ? { serviceId: found.serviceId, label: found.label } : null;
+    return found ? { serviceId: found.serviceId, label: found.label, baseUrl: found.baseUrl } : null;
   },
   listProjectRoots: async () => (await projectRegistry.getProjects()).map((p) => p.path)
 });

@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { findTrackerAdapter, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerHttp } from './clickupAdapter.js';
+import { findTrackerAdapter, TRACKER_ADAPTERS } from './trackerAdapters.js';
+import type { TrackerAdapter, TrackerHttp, TrackerLinkContext } from './trackerAdapter.js';
 import { planSync, suggestStatusMap, type PlanAction } from './trackerSyncPlan.js';
 import {
   createLocalTaskFromRemote,
@@ -43,8 +44,8 @@ const SCHEDULER_TICK_MS = 60_000;
 export interface TrackerSyncDeps {
   userDataDir: () => string;
   authorizedFetch: (connectionId: string, target: string, init?: RequestInit) => Promise<Response>;
-  /** Описание подключения для журнала и проверки сервиса; `null` — подключения нет. */
-  getConnection: (connectionId: string) => Promise<{ serviceId: string; label: string } | null>;
+  /** Описание подключения для журнала, проверки сервиса и ссылок (decision-106 п. 2); `null` — подключения нет. */
+  getConnection: (connectionId: string) => Promise<{ serviceId: string; label: string; baseUrl?: string } | null>;
   listProjectRoots?: () => Promise<string[]>;
   adapters?: readonly TrackerAdapter[];
   now?: () => number;
@@ -203,7 +204,7 @@ export class TrackerSyncService {
     };
   }
 
-  /** Сохранить настройку проекта и/или машинное состояние. Смена цели сбрасывает базу сверки. */
+  /** Сохранить настройку проекта и/или машинное состояние. Смена цели или трекера сбрасывает базу сверки. */
   async saveSettings(
     projectPath: string,
     patch: { config?: Partial<TrackerSyncConfig>; connectionId?: string | null; intervalMinutes?: number }
@@ -214,7 +215,8 @@ export class TrackerSyncService {
       if (!findTrackerAdapter(next.adapter, this.adapters)) throw new Error(`Неизвестный трекер: ${next.adapter}`);
       await writeJsonAtomic(path.join(projectPath, PROJECT_CONFIG_PATH), next);
       this.configs.set(path.resolve(projectPath), next);
-      if (current.target?.id !== next.target?.id) {
+      // Другая цель или другой трекер — прежняя база сверки к ним не относится.
+      if (current.target?.id !== next.target?.id || current.adapter !== next.adapter) {
         const state = await this.readState(projectPath);
         state.base = {};
         await this.saveState(state);
@@ -229,8 +231,10 @@ export class TrackerSyncService {
     return this.getStatus(projectPath);
   }
 
-  /** Адаптер, подключение и функция сети для проекта. */
-  private async context(projectPath: string): Promise<{ config: TrackerSyncConfig; state: TrackerSyncLocalState; adapter: TrackerAdapter; http: TrackerHttp }> {
+  /** Адаптер, подключение, функция сети и контекст ссылок для проекта. */
+  private async context(
+    projectPath: string
+  ): Promise<{ config: TrackerSyncConfig; state: TrackerSyncLocalState; adapter: TrackerAdapter; http: TrackerHttp; link: TrackerLinkContext }> {
     const config = await this.readConfig(projectPath);
     const state = await this.readState(projectPath);
     const adapter = findTrackerAdapter(config.adapter, this.adapters);
@@ -240,7 +244,13 @@ export class TrackerSyncService {
     if (!connection) throw new Error('Подключение не найдено: выберите другое');
     if (connection.serviceId !== adapter.serviceId) throw new Error(`Подключение не к ${adapter.label}`);
     const connectionId = state.connectionId;
-    return { config, state, adapter, http: (target, init) => this.deps.authorizedFetch(connectionId, target, init) };
+    return {
+      config,
+      state,
+      adapter,
+      http: (target, init) => this.deps.authorizedFetch(connectionId, target, init),
+      link: { webBase: connection.baseUrl ?? '' }
+    };
   }
 
   async listTargets(projectPath: string): Promise<TrackerTargetGroup[]> {
@@ -299,7 +309,7 @@ export class TrackerSyncService {
     } catch (err) {
       return finish(false, errorText(err));
     }
-    const { config, state, adapter, http } = ctx;
+    const { config, state, adapter, http, link } = ctx;
     if (!config.target) return finish(false, 'Выберите список трекера', state);
     if (!dryRun && !config.enabled) return finish(false, 'Синхронизация выключена в настройках проекта', state);
 
@@ -310,7 +320,7 @@ export class TrackerSyncService {
       const [remoteStatuses, remote, local] = await Promise.all([
         adapter.getStatuses(http, config.target),
         adapter.listTasks(http, config.target),
-        readLocalTasks(projectPath, (ref) => adapter.parseLink(ref))
+        readLocalTasks(projectPath, (ref) => adapter.parseLink(ref, link))
       ]);
       localStatuses = await projectStatuses(projectPath);
       for (const t of local) localById.set(t.id, t);
@@ -325,7 +335,7 @@ export class TrackerSyncService {
 
     for (const action of actions) {
       try {
-        await this.apply(action, { projectPath, dryRun, state, adapter, http, config, localById, localOf, localStatuses, entries });
+        await this.apply(action, { projectPath, dryRun, state, adapter, http, link, config, localById, localOf, localStatuses, entries });
       } catch (err) {
         if (err instanceof ConnectionAuthError) {
           entries.push({ kind: 'error', detail: errorText(err) });
@@ -347,6 +357,7 @@ export class TrackerSyncService {
       state: TrackerSyncLocalState;
       adapter: TrackerAdapter;
       http: TrackerHttp;
+      link: TrackerLinkContext;
       config: TrackerSyncConfig;
       localById: Map<string, { filePath: string; title: string }>;
       localOf: Map<string, string>;
@@ -415,7 +426,7 @@ export class TrackerSyncService {
             title: r.title,
             description: r.description,
             status,
-            reference: adapter.linkFor(r.id),
+            reference: adapter.linkFor(r.id, { ...c.link, url: r.url }),
             ...(parentTaskId ? { parentTaskId } : {})
           });
           taskId = created.id;
@@ -441,7 +452,7 @@ export class TrackerSyncService {
             ...(parentExternal ? { parentId: parentExternal } : {})
           });
           externalId = created.id;
-          await updateLocalTaskFile(file.filePath, { addReference: adapter.linkFor(created.id) });
+          await updateLocalTaskFile(file.filePath, { addReference: adapter.linkFor(created.id, { ...c.link, url: created.url }) });
           c.localOf.set(created.id, l.id);
           setBase(created.id, l.id, { title: l.title, description: l.description, status: l.status }, remoteFields(created));
         }

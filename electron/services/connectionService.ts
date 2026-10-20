@@ -376,7 +376,12 @@ export class ConnectionService {
     signal?: AbortSignal
   ): Promise<{ rejected: boolean; account: ConnectionAccount | null }> {
     const res = await this.send(
-      { url: `${service.apiBase(baseUrl)}${service.verifyPath}`, method: 'GET', headers: { Authorization: header, Accept: 'application/json' } },
+      {
+        url: `${service.apiBase(baseUrl)}${service.verifyPath}`,
+        method: service.verifyBody ? 'POST' : 'GET',
+        headers: { Authorization: header, Accept: 'application/json', ...(service.verifyBody ? { 'Content-Type': 'application/json' } : {}) },
+        ...(service.verifyBody ? { body: service.verifyBody } : {})
+      },
       signal
     );
     if (res.status === 401 || res.status === 403) return { rejected: true, account: null };
@@ -825,7 +830,11 @@ export class ConnectionService {
     const service = this.serviceOf(record);
     try {
       if (record.status === 'needsReauth') return this.viewOf(id);
-      const res = await this.authorizedFetch(id, service.verifyPath);
+      const res = await this.authorizedFetch(
+        id,
+        service.verifyPath,
+        service.verifyBody ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: service.verifyBody } : {}
+      );
       if (!res.ok) {
         await this.update(id, { status: 'error', statusDetail: `http_${res.status}`, lastCheckedAt: this.now() });
       } else {

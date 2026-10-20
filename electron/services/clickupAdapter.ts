@@ -1,46 +1,12 @@
-import type { FieldValues, RemoteStatus, RemoteTask, TrackerTarget, TrackerTargetGroup } from './trackerTypes.js';
+import type { RemoteStatus, RemoteTask, TrackerTarget, TrackerTargetGroup } from './trackerTypes.js';
+import { TrackerHttpError, type TrackerAdapter, type TrackerHttp } from './trackerAdapter.js';
 
 /**
- * Модель адаптеров трекеров (TASK-128, decision-103 п. 1) и первый адаптер — ClickUp API v2.
- * Сеть адаптер получает функцией `http` поверх подключения (decision-102 п. 7) и токенов не видит.
+ * Адаптер ClickUp API v2 (TASK-128, decision-103). Модель адаптеров — `trackerAdapter.ts`, список — `trackerAdapters.ts`.
  */
 
-export type TrackerHttp = (path: string, init?: RequestInit) => Promise<Response>;
-
-export interface NewRemoteTask {
-  title: string;
-  description: string;
-  status?: string;
-  parentId?: string;
-}
-
-export interface TrackerAdapter {
-  id: string;
-  label: string;
-  /** Сервис слоя подключений (decision-102). */
-  serviceId: string;
-  listTargets(http: TrackerHttp): Promise<TrackerTargetGroup[]>;
-  getStatuses(http: TrackerHttp, target: TrackerTarget): Promise<RemoteStatus[]>;
-  listTasks(http: TrackerHttp, target: TrackerTarget): Promise<RemoteTask[]>;
-  getTask(http: TrackerHttp, id: string): Promise<RemoteTask | null>;
-  createTask(http: TrackerHttp, target: TrackerTarget, task: NewRemoteTask): Promise<RemoteTask>;
-  updateTask(http: TrackerHttp, id: string, fields: Partial<FieldValues>): Promise<RemoteTask>;
-  /** Ссылка для `references` задачи (decision-103 п. 2). */
-  linkFor(id: string): string;
-  /** id внешней задачи из ссылки; `null` — ссылка не этого адаптера. */
-  parseLink(reference: string): string | null;
-}
-
-export class TrackerHttpError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
-    this.name = 'TrackerHttpError';
-  }
-}
+export { TrackerHttpError };
+export type { NewRemoteTask, TrackerAdapter, TrackerHttp, TrackerLinkContext } from './trackerAdapter.js';
 
 export interface ClickUpAdapterOptions {
   sleep?: (ms: number) => Promise<void>;
@@ -224,10 +190,4 @@ export function createClickUpAdapter(options: ClickUpAdapterOptions = {}): Track
     linkFor: (id) => `https://app.clickup.com/t/${id}`,
     parseLink: (reference) => LINK_RE.exec(reference.trim())?.[1] ?? null
   };
-}
-
-export const TRACKER_ADAPTERS: readonly TrackerAdapter[] = [createClickUpAdapter()];
-
-export function findTrackerAdapter(id: string, adapters: readonly TrackerAdapter[] = TRACKER_ADAPTERS): TrackerAdapter | undefined {
-  return adapters.find((a) => a.id === id);
 }
