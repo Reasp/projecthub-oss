@@ -13,6 +13,7 @@ import { ProcessesScreen } from '../screens/ProcessesScreen';
 import { StudioScreen } from '../screens/StudioScreen';
 import { TasksScreen } from '../screens/TasksScreen';
 import { useAppState, useHostSummaries, useServices } from './context';
+import { useInboxFeed } from './useInbox';
 
 type Tab = 'inbox' | 'agents' | 'tasks' | 'processes' | 'studio';
 
@@ -88,8 +89,8 @@ function Shell() {
   const status = useAppState((s) => s.status);
   const projects = useAppState((s) => s.projects);
   const projectPath = useAppState((s) => s.projectPath);
-  // Счётчик вкладки «Входящие»: решения HITL и задачи агентов на подтверждение (TASK-155).
-  const hitlCount = useAppState((s) => s.hitl.length + s.agentTasks.length);
+  // Счётчик вкладки «Входящие»: что ждёт решения на всех ПК — HITL, задачи агентов, задачи в Review (TASK-140.5).
+  const hitlCount = useInboxFeed().actionable;
   const conn = useAppState((s) => s.conn);
   // Решения, которые ждут на других компьютерах телефона (TASK-140.2): видно, не открывая переключатель.
   const summaries = useHostSummaries();

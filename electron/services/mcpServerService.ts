@@ -22,6 +22,8 @@ import { secretStorageService } from './secretStorageService.js';
 import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { computerUseService, type ComputerCallContext } from './computerUseService.js';
 import { jsonSchemaToZodShape } from './jsonSchemaToZod.js';
+import { NOTIFY_TOOL_DEFINITION } from './remoteInbox.js';
+import { notifyHuman } from './agentNotifier.js';
 import { MEMORY_TOOL_DEFINITIONS, callMemoryTool, type MemoryToolContext } from './memoryTools.js';
 import { memoryToolDeps } from './memoryToolDeps.js';
 import { automationEngine } from './automationService.js';
@@ -745,6 +747,11 @@ class McpServerService {
     }
 
     // ─────────────────────────────────────────────────────────────
+    // 11b. Позвать человека на телефоне (TASK-140.5, decision-117 п. 8)
+    // ─────────────────────────────────────────────────────────────
+    this.registerNotifyTool(server, (args) => this.memoryCallContext(hitlSessionId, args));
+
+    // ─────────────────────────────────────────────────────────────
     // 11a. Задачи, документы и поиск по документации (TASK-136.6, decision-78 п. 12)
     // ─────────────────────────────────────────────────────────────
     this.registerProjectTools(server, true, (args) => {
@@ -886,6 +893,7 @@ class McpServerService {
     const server = new McpServer({ name: 'projecthub', version: '2.5.0' });
     const ctx = { sessionPath: projectRoot, sessionId: `agent-${sseSessionId}`, origin: 'terminal' as const };
     this.registerProjectTools(server, false, () => ctx);
+    this.registerNotifyTool(server, () => ctx);
     for (const def of MEMORY_TOOL_DEFINITIONS) {
       server.registerTool(
         def.name,
@@ -897,6 +905,27 @@ class McpServerService {
       );
     }
     return server;
+  }
+
+  /** `projecthub_notify`: лимит частоты по сессии, текст — только в ленту и шифрованный push (decision-117 п. 8). */
+  private registerNotifyTool(server: McpServer, contextFor: (args: Record<string, unknown>) => MemoryToolContext | null): void {
+    server.registerTool(
+      NOTIFY_TOOL_DEFINITION.name,
+      { title: NOTIFY_TOOL_DEFINITION.name, description: NOTIFY_TOOL_DEFINITION.description, inputSchema: jsonSchemaToZodShape(NOTIFY_TOOL_DEFINITION.input_schema) },
+      async (args: Record<string, unknown>) => {
+        const ctx = contextFor(args);
+        const res = await notifyHuman(
+          {
+            sessionId: ctx?.sessionId ?? 'external-mcp',
+            ...(ctx?.sessionPath ? { projectPath: ctx.sessionPath } : {}),
+            ...(ctx?.agentName ? { agentName: ctx.agentName } : {}),
+            ...(ctx?.role ? { role: ctx.role } : {})
+          },
+          args
+        );
+        return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
+      }
+    );
   }
 
   /**

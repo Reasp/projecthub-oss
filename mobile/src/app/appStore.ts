@@ -37,6 +37,7 @@ import {
 import type { ClientSnapshot, RpcMethod } from '../protocol/remoteClient';
 import type { ConfirmPort, PushPort } from '../platform/types';
 import { uploadInChunks, type PreparedAttachment } from '../protocol/attachments';
+import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox';
 
 /**
  * Состояние экранов и действия мобильного клиента (TASK-140.1). Без React: экраны читают его
@@ -79,6 +80,8 @@ export interface AppState {
   studio: StudioState;
   /** Push с этого ПК на этот телефон (TASK-140.3): `null` — ещё не спрашивали хост. */
   push: { enabled: boolean; busy: boolean } | null;
+  /** Лента «Входящих» открытого ПК (TASK-140.5): Review с отчётами и журнал; HITL и задачи агентов — в полях выше. */
+  inbox: InboxSnapshot | null;
   toast: Toast | null;
 }
 
@@ -140,6 +143,7 @@ export class AppStore {
       agentTasks: [],
       studio: emptyStudio(),
       push: null,
+      inbox: null,
       toast: null
     };
   }
@@ -231,6 +235,7 @@ export class AppStore {
     await Promise.all([
       this.refreshHosts(),
       this.refreshHitl(),
+      this.refreshInbox(),
       this.refreshAgentTasks(),
       this.refreshTasks(),
       this.refreshProcesses(),
@@ -339,6 +344,33 @@ export class AppStore {
     }
     this.showToast(approve ? 'Одобрено' : 'Отклонено', 'success');
     return true;
+  }
+
+  // ── «Входящие» (TASK-140.5, decision-117) ──
+
+  /** RPC открытого ПК без тоста — для действий «Входящих», которые сами показывают итог. */
+  request<T = unknown>(method: RpcMethod, params: Record<string, unknown> = {}): Promise<T> {
+    return this.client.rpc<T>(method, params);
+  }
+
+  async refreshInbox(): Promise<void> {
+    try {
+      const inbox = await loadInbox(((method, params) => this.client.rpc(method, params)) as InboxRpc);
+      this.set({ inbox });
+    } catch {
+      // нет связи — остаётся прежний снимок
+    }
+  }
+
+  /** Убрать записи журнала сразу на экране; ошибка хоста возвращает их. */
+  async dismissInbox(ids: string[]): Promise<boolean> {
+    const prev = this.state.inbox;
+    if (!prev || ids.length === 0) return false;
+    const drop = new Set(ids);
+    this.set({ inbox: { ...prev, events: prev.events.filter((e) => !drop.has(e.id)) } });
+    const res = await this.call<{ removed: number }>('inbox_dismiss', { ids });
+    if (!res) this.set({ inbox: prev });
+    return Boolean(res);
   }
 
   // ── задачи агентов, ждущие подтверждения (TASK-155, decision-89 п. 11) ──
@@ -724,6 +756,14 @@ export class AppStore {
       case 'ai:hitlDecided':
         if (typeof d.requestId === 'string') this.set({ hitl: dropHitl(this.state.hitl, d.requestId) });
         return;
+      case 'inbox:changed':
+        this.debounced('inbox', () => void this.refreshInbox());
+        return;
+      case 'agent:finished':
+      case 'agent:failed':
+        this.debounced('inbox', () => void this.refreshInbox());
+        this.debounced('swarms', () => void this.refreshSwarms());
+        return;
       case 'process:logChunk':
         if (typeof d.processId === 'string' && typeof d.text === 'string') {
           const prev = this.state.logs[d.processId] ?? '';
@@ -735,8 +775,9 @@ export class AppStore {
         return;
       case 'backlog:changed':
         if (!d.projectPath || d.projectPath === this.state.projectPath) this.debounced('tasks', () => void this.refreshTasks());
-        // Задачи агентов во «Входящих» — по всем проектам хоста (TASK-155).
+        // Задачи агентов и Review во «Входящих» — по всем проектам хоста (TASK-155, TASK-140.5).
         this.debounced('agentTasks', () => void this.refreshAgentTasks());
+        this.debounced('inbox', () => void this.refreshInbox());
         return;
       case 'notification':
         if (d.kind === 'agentTask') this.debounced('agentTasks', () => void this.refreshAgentTasks());

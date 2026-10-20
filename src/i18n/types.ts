@@ -2648,6 +2648,8 @@ export interface TranslationDictionary {
     requireApproval: string;
     sessionV2Only: string;
     sessionV2OnlyHint: string;
+    keepAwake: string;
+    keepAwakeHint: string;
     pushGatewayUrl: string;
     pushGatewayUrlHint: string;
     saveSettings: string;

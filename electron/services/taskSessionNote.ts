@@ -125,14 +125,26 @@ async function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<
  * завершённой сессией.
  */
 export async function appendSessionNoteToTask(projectPath: string, taskId: string, note: string): Promise<boolean> {
+  return updateTaskFile(projectPath, taskId, (data, content) => ({ data, content: applyImplementationNote(content, note) }));
+}
+
+/**
+ * Правка файла задачи основного дерева: frontmatter и тело под блокировкой файла, `updated_date` — как у правок из
+ * GUI, запись атомарно. Нет файла задачи — false. Общий путь заметки хода и проверки задачи с телефона (TASK-140.5).
+ */
+export async function updateTaskFile(
+  projectPath: string,
+  taskId: string,
+  mutate: (data: Record<string, unknown>, content: string) => { data: Record<string, unknown>; content: string }
+): Promise<boolean> {
   const task = await findTaskFile(projectPath, taskId);
   if (!task) return false;
   return withFileLock(task.filePath, async () => {
     const raw = await fs.readFile(task.filePath, 'utf-8');
     const eol = raw.includes('\r\n') ? '\r\n' : '\n';
     const parsed = matter(raw.replace(/\r\n/g, '\n'), {});
-    const content = applyImplementationNote(parsed.content, note);
-    const text = matter.stringify(content, normalizeFrontmatter(withUpdatedDate({ ...parsed.data })));
+    const next = mutate({ ...parsed.data }, parsed.content);
+    const text = matter.stringify(next.content, normalizeFrontmatter(withUpdatedDate(next.data)));
     // Атомарно: writeFile сначала обнуляет файл, и вотчер Backlog, UI или тест прочли бы пустую задачу
     const tmp = `${task.filePath}.${process.pid}.${Date.now()}.tmp`;
     await fs.writeFile(tmp, eol === '\n' ? text : text.replace(/\n/g, eol), 'utf-8');

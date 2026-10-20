@@ -117,7 +117,22 @@ export interface TestPushPayload {
   ts: number;
 }
 
-export type PushPayload = HitlPushPayload | HitlDonePushPayload | TestPushPayload;
+/** Сообщение агента `projecthub_notify` (TASK-140.5, decision-117 п. 8): текст только внутри шифртекста. */
+export interface NotePushPayload {
+  v: 1;
+  t: 'note';
+  hid: string;
+  host: string;
+  /** Id записи ленты: нажатие открывает «Входящие» этого ПК. */
+  nid: string;
+  text: string;
+  lvl: 'info' | 'success' | 'warning' | 'error';
+  proj?: string;
+  agent?: string;
+  ts: number;
+}
+
+export type PushPayload = HitlPushPayload | HitlDonePushPayload | TestPushPayload | NotePushPayload;
 
 function projectName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
@@ -154,8 +169,15 @@ export function hitlPushPayload(
 export function encodePushPayload(payload: PushPayload, limit = WEB_PUSH_MAX_PLAINTEXT): Buffer {
   const fits = (p: PushPayload) => Buffer.byteLength(JSON.stringify(p), 'utf8') <= limit;
   if (fits(payload)) return Buffer.from(JSON.stringify(payload), 'utf8');
-  if (payload.t !== 'hitl') throw new Error('Push слишком большой');
   const cut = (s: string | undefined, n: number) => (s && s.length > n ? `${s.slice(0, n)}…` : s);
+  if (payload.t === 'note') {
+    for (const n of [300, 120]) {
+      const p: NotePushPayload = { ...payload, text: cut(payload.text, n)!, proj: cut(payload.proj, 60), agent: cut(payload.agent, 60) };
+      if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');
+    }
+    throw new Error('Push слишком большой');
+  }
+  if (payload.t !== 'hitl') throw new Error('Push слишком большой');
   for (const n of [1200, 600, 300, 160, 80]) {
     const p: HitlPushPayload = { ...payload, title: cut(payload.title, n)!, cmd: cut(payload.cmd, n), file: cut(payload.file, n), why: cut(payload.why, 120) };
     if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');

@@ -10,6 +10,7 @@ import { processManager } from './processManager.js';
 import type { ComputerOrigin } from './computerPolicy.js';
 import { callMemoryTool as runMemoryTool } from './memoryTools.js';
 import { memoryToolDeps } from './memoryToolDeps.js';
+import { notifyHuman } from './agentNotifier.js';
 
 /**
  * Боевые зависимости исполнителя API-инструментов Swarm и Agents Studio (decision-46 п. 1, decision-47): единая
@@ -62,6 +63,18 @@ export function createApiToolExecutorDeps(): ApiToolExecutorDeps {
       const text = res.content.map((c) => (c.type === 'text' ? c.text : '')).filter(Boolean).join('\n');
       const images = res.content.flatMap((c) => (c.type === 'image' ? [{ mimeType: c.mimeType, data: c.data }] : []));
       return { content: text, isError: res.isError, images };
+    },
+    callNotifyTool: async (args, ctx) => {
+      const res = await notifyHuman(
+        {
+          sessionId: ctx.sessionId,
+          projectPath: ctx.projectPath,
+          ...(ctx.agentName ? { agentName: ctx.agentName } : {}),
+          ...(ctx.role ? { role: ctx.role } : {})
+        },
+        args
+      );
+      return { content: res.text, isError: res.isError };
     },
     callMemoryTool: async (name, args, ctx) => {
       // Память всегда в основном дереве проекта, даже если агент работает в worktree (decision-51 п. 3)

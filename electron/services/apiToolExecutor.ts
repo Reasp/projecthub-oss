@@ -48,6 +48,8 @@ export interface ApiToolExecutorDeps {
   callComputerTool?(name: string, args: Record<string, unknown>, ctx: ApiToolContext): Promise<ToolExecutionResult>;
   /** Инструменты памяти проекта (TASK-76): корень проекта, проверки и аудит — в `memoryTools`. */
   callMemoryTool?(name: string, args: Record<string, unknown>, ctx: ApiToolContext): Promise<ToolExecutionResult>;
+  /** `projecthub_notify` (TASK-140.5, decision-117 п. 8): сообщение во «Входящие» телефона и push. */
+  callNotifyTool?(args: Record<string, unknown>, ctx: ApiToolContext): Promise<ToolExecutionResult>;
 }
 
 /** Статус вызова для чата: те же значения, что у `AIToolCall.status`, кроме `pending`. */
@@ -194,6 +196,15 @@ export class ApiToolExecutor {
       ctx.onToolUpdate?.(call, { kind: plan.kind, status: 'running' });
       const result = await this.deps.callMemoryTool(call.name, args, ctx);
       return { result, status: result.isError ? 'error' : call.name === 'memory_search' ? 'done' : 'accepted' };
+    }
+
+    if (plan.kind === 'notify' && plan.verdict !== 'deny') {
+      if (!this.deps.callNotifyTool) {
+        return { result: { content: '«Входящие» телефона агенту недоступны.', isError: true }, status: 'error' };
+      }
+      ctx.onExecute?.(call, plan);
+      const result = await this.deps.callNotifyTool(args, ctx);
+      return { result, status: result.isError ? 'error' : 'done' };
     }
 
     const meta = this.meta(ctx, call.name);

@@ -21,6 +21,7 @@ import { App } from './App';
 import { AppStore, type PrefsPort } from './appStore';
 import { ServicesProvider, type AppServices } from './context';
 import { HostPool } from './hostPool';
+import { InboxActions } from './inboxActions';
 
 /** Несекретные настройки интерфейса (выбранный проект) — в хранилище страницы. Ключи сюда не пишутся. */
 function createPrefs(): PrefsPort {
@@ -115,6 +116,8 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       )
   );
 
+  const [inbox] = useState(() => new InboxActions(store, pool));
+
   useEffect(() => {
     pool.sync(list.profiles, target.adding ? null : (target.profile.id ?? null));
   }, [pool, list, target]);
@@ -184,6 +187,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       client,
       store,
       pool,
+      inbox,
       profiles: list,
       pair(next) {
         const updated = upsertPairedProfile(listRef.current, next, platform.deviceIdPrefix);
@@ -235,7 +239,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
         open(profile ?? { ...freshDraft(platform), lanAddress: platform.pageHostAddress() });
       }
     }),
-    [platform, client, store, pool, list, commit, open]
+    [platform, client, store, pool, inbox, list, commit, open]
   );
 
   return (

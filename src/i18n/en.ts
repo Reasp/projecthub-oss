@@ -2852,6 +2852,8 @@ export const en: TranslationDictionary = {
     requireApproval: 'Require host approval on first device connection',
     sessionV2Only: 'Secure protocol v2 only',
     sessionV2OnlyHint: 'Clients on the shared key (old apps, hubs of earlier versions) are refused. Phones without the host key must be paired again by QR.',
+    keepAwake: 'Keep the PC awake while an agent waits for a decision',
+    keepAwakeHint: 'While an approval request is pending or an agent started from the phone is running, the computer does not go to sleep. The screen still turns off as usual.',
     pushGatewayUrl: 'Push gateway for FCM and APNs',
     pushGatewayUrlHint: 'ph-push address, e.g. https://push.example.com. Empty — push only via UnifiedPush (ntfy) on Android.',
     saveSettings: 'Save Settings'

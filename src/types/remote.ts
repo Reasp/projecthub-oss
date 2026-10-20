@@ -57,6 +57,8 @@ export interface RemoteControlConfig {
   pushGatewayUrl?: string;
   /** Только протокол v2: клиенты v1 и ключ в URL отклоняются (decision-116). */
   sessionV2Only?: boolean;
+  /** Не давать ПК уснуть, пока ждёт решения HITL или работает агент с телефона (decision-117 п. 9). */
+  keepAwake?: boolean;
   /**
    * Общий секрет федерации (TASK-66): задаётся одинаковым на всех машинах пользователя, из него
    * выводится `ownerId` каталога на релее. Хранится в safeStorage, не в plaintext-конфиге.
@@ -204,6 +206,9 @@ export interface RemoteControlStatus {
   pushGatewayUrl?: string;
   /** Хост принимает только протокол v2 (decision-116). */
   sessionV2Only?: boolean;
+  /** Выключатель запрета сна (decision-117 п. 9) и держится ли запрет прямо сейчас. */
+  keepAwake?: boolean;
+  keepAwakeActive?: boolean;
 }
 
 /** Пакет протокола v1: AES-256-GCM общим ключом хоста. Пакеты v2 — `SessionFrameV2` из `remoteSessionV2.ts`. */
@@ -285,7 +290,12 @@ export type RemoteRpcMethod =
   | 'push_register'
   | 'push_unregister'
   | 'push_status'
-  | 'push_test';
+  | 'push_test'
+  // «Входящие» телефона (TASK-140.5, decision-117): лента со всех проектов хоста и проверка задач из Review
+  | 'get_inbox'
+  | 'inbox_dismiss'
+  | 'review_task'
+  | 'get_review_screenshot';
 
 /** Ответ `federation_enroll` / `enroll_device`: всё, что нужно телефону для отдельного профиля соседнего хоста. */
 export interface RemoteEnrollment {
@@ -541,6 +551,118 @@ export interface RemotePendingAgentTask {
 export interface RemoteAgentTaskApproval {
   approved: string[];
   notPending: string[];
+}
+
+// ── «Входящие» (TASK-140.5, decision-117) ──
+
+/** Запись журнала ленты: итог агента, сбой Automations, сообщение агента `projecthub_notify`. */
+export type RemoteInboxEventKind = 'agent_done' | 'agent_failed' | 'automation_failed' | 'automation_suspended' | 'agent_note';
+
+export type RemoteNoteLevel = 'info' | 'success' | 'warning' | 'error';
+
+export interface RemoteInboxEvent {
+  id: string;
+  kind: RemoteInboxEventKind;
+  at: number;
+  title: string;
+  /** Ошибка, причина сбоя или текст сообщения агента. */
+  body?: string;
+  level?: RemoteNoteLevel;
+  projectPath?: string;
+  agentName?: string;
+  role?: string;
+  taskId?: string;
+  swarmId?: string;
+  agentId?: string;
+}
+
+export interface RemoteReviewCheck {
+  name: string;
+  kind: string;
+  status: string;
+  blocking: boolean;
+  passedTests?: number;
+  failedTests?: number;
+  errorCount?: number;
+  /** Причина `skipped`/`error` или последние строки вывода упавшей проверки. */
+  detail?: string;
+}
+
+export interface RemoteReviewScreenshot {
+  /** Путь внутри `<userData>/visual`: по нему `get_review_screenshot` отдаёт файл. */
+  relPath: string;
+  name: string;
+  checkName?: string;
+  bytes?: number;
+}
+
+export interface RemoteReviewCriterion {
+  index: number;
+  text: string;
+  /** Отмечен в файле задачи. */
+  completed: boolean;
+  /** Вердикт цикла: засчитан ProjectHub, что заявил агент, его evidence. */
+  accepted?: boolean;
+  reported?: string;
+  evidence?: string;
+  reason?: string;
+  ui?: boolean;
+  screenshots?: RemoteReviewScreenshot[];
+}
+
+/** Последний отчёт цикла «до готовности» по задаче (decision-28, decision-55). */
+export interface RemoteReviewReport {
+  swarmId: string;
+  outcome?: string;
+  reason?: string;
+  finishedAt?: number;
+  iterations: number;
+  summary?: string;
+  costUsd?: number;
+  checks: RemoteReviewCheck[];
+  screenshots: RemoteReviewScreenshot[];
+  /** Роль агента — её можно перезапустить при возврате задачи. */
+  roleSlug?: string;
+  agentName?: string;
+}
+
+export interface RemoteReviewItem {
+  projectPath: string;
+  id: string;
+  title: string;
+  priority?: string;
+  updated?: string;
+  criteria: RemoteReviewCriterion[];
+  report?: RemoteReviewReport;
+  /** Роль, которая работала по задаче: при возврате её можно перезапустить. Нет — только вернуть с комментарием. */
+  roleSlug?: string;
+}
+
+/** Ответ `get_inbox`: всё, что ждёт человека на этом ПК, по всем проектам. */
+export interface RemoteInbox {
+  hostId: string;
+  machineName: string;
+  generatedAt: number;
+  hitl: RemotePendingApproval[];
+  agentTasks: RemotePendingAgentTask[];
+  review: RemoteReviewItem[];
+  events: RemoteInboxEvent[];
+}
+
+/** Ответ `review_task`. */
+export interface RemoteReviewResult {
+  ok: true;
+  status: string;
+  /** Агент перезапущен: id новой сессии роя. */
+  swarmId?: string;
+}
+
+/** Часть скриншота (`get_review_screenshot`): base64 и сколько всего байт. */
+export interface RemoteScreenshotChunk {
+  mime: string;
+  total: number;
+  offset: number;
+  data: string;
 }
 
 /** Ответ хоста на сопряжение/переподключение (`handshake_ack`). */

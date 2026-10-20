@@ -11,7 +11,7 @@ import { isMemoryToolName } from './memoryTools.js';
  */
 
 /** Инструменты API-движка (`aiAgentService.getAnthropicTools`), которые умеет исполнять общий исполнитель. */
-export type ApiToolKind = 'read' | 'list' | 'search' | 'write' | 'command' | 'question' | 'computer' | 'memory' | 'unknown';
+export type ApiToolKind = 'read' | 'list' | 'search' | 'write' | 'command' | 'question' | 'computer' | 'memory' | 'notify' | 'unknown';
 
 /** Префикс инструментов прокси управления компьютером (`computerToolCatalog.COMPUTER_TOOL_PREFIX`). */
 const COMPUTER_PREFIX = 'computer_';
@@ -25,7 +25,8 @@ const KIND_BY_NAME: Record<string, ApiToolKind> = {
   write_to_file: 'write',
   run_command: 'command',
   bash: 'command',
-  ask_question: 'question'
+  ask_question: 'question',
+  projecthub_notify: 'notify'
 };
 
 /**
@@ -38,7 +39,9 @@ const CLAUDE_ALIASES: Record<Exclude<ApiToolKind, 'computer' | 'memory' | 'unkno
   search: ['Grep'],
   write: ['Write', 'Edit'],
   command: ['Bash'],
-  question: ['AskUserQuestion']
+  question: ['AskUserQuestion'],
+  // Позвать человека — тот же канал, что вопрос (decision-117 п. 8).
+  notify: ['AskUserQuestion']
 };
 
 export function apiToolKind(name: string): ApiToolKind {
@@ -114,6 +117,10 @@ export function planApiToolCall(
   // Формат, секреты, дубликаты и аудит проверяет сервис памяти (decision-51 п. 4–5) — карточки HITL нет.
   if (kind === 'memory') {
     return { kind, verdict: 'allow', rule: 'memory', approvalType: name === 'memory_search' ? 'question' : 'file_write' };
+  }
+  // Сообщение человеку: без карточки, лимит частоты и проверку текста делает сервис ленты (decision-117 п. 8).
+  if (kind === 'notify') {
+    return { kind, verdict: 'allow', rule: 'notify', approvalType: 'question' };
   }
 
   // Allow-список уже проверен с алиасами — дальше политика видит его пустым, чтобы не отклонить

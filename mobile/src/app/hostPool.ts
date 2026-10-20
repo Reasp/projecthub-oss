@@ -1,5 +1,6 @@
 import type { RemotePendingApproval, RemoteHostStatus } from '../../../src/types/remote';
 import type { EndpointKind } from '../../../src/utils/remoteEndpoints';
+import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox';
 import { profileProblems, type HostProfile } from '../protocol/pairing';
 import type { ClientSnapshot, ConnectionState, RpcMethod } from '../protocol/remoteClient';
 
@@ -8,9 +9,17 @@ import type { ClientSnapshot, ConnectionState, RpcMethod } from '../protocol/rem
  * путь связи и число ожидающих решений HITL каждого хоста, а не только открытого. Соединения держатся, только пока
  * интерфейс на экране (`pause`/`resume` по видимости страницы): в фоне WebView всё равно засыпает, а о новых
  * решениях скажет push ([[TASK-140.3]]). Не больше `MAX_BACKGROUND_HOSTS` соединений сразу.
+ *
+ * Для «Входящих» ([[TASK-140.5]], [[decision-117]] п. 7) пул держит снимок ленты каждого ПК. Последний снимок
+ * остаётся и после разрыва — запись видна с пометкой «нет связи», пока профиль не забыт.
  */
 
 export const MAX_BACKGROUND_HOSTS = 8;
+/** Пауза перед перечитыванием ленты после события: пачка событий — один запрос. */
+export const INBOX_REFRESH_MS = 600;
+
+/** События хоста, после которых лента устарела. */
+const INBOX_EVENTS = new Set(['ai:hitl', 'ai:hitlDecided', 'backlog:changed', 'inbox:changed', 'notification', 'projects:changed']);
 
 /** То, что пулу нужно от `RemoteClient`. */
 export interface PoolClient {
@@ -36,6 +45,7 @@ interface Entry {
   connKey: string;
   pending: Set<string>;
   unsubscribe: Array<() => void>;
+  inboxTimer: unknown;
 }
 
 /** Поля, смена которых требует нового подключения; смена адресов и прав — нет. */
@@ -46,16 +56,67 @@ function connectionKey(p: HostProfile): string {
 export class HostPool {
   private entries = new Map<string, Entry>();
   private summaries: Record<string, HostSummary> = {};
+  /** Последний снимок ленты по `id` профиля — живёт дольше соединения. */
+  private inboxes: Record<string, InboxSnapshot> = {};
   private listeners = new Set<() => void>();
   private paused = false;
   private wanted: HostProfile[] = [];
 
   constructor(
     private readonly createClient: (onProfileChange: (profile: HostProfile) => void) => PoolClient,
-    private readonly onProfileChange: (profile: HostProfile) => void
+    private readonly onProfileChange: (profile: HostProfile) => void,
+    // Стрелки, а не сами функции: вызов `this.timers.setTimeout` с чужим `this` в браузере — «Illegal invocation».
+    private readonly timers: { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (t: unknown) => void } = {
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (t) => clearTimeout(t as ReturnType<typeof setTimeout>)
+    }
   ) {}
 
   getSummaries = (): Record<string, HostSummary> => this.summaries;
+
+  getInboxes = (): Record<string, InboxSnapshot> => this.inboxes;
+
+  /** Есть ли живое соединение с ПК: действие над его записью уйдёт только так. */
+  isReady(id: string): boolean {
+    return this.entries.has(id) && this.summaries[id]?.state === 'ready';
+  }
+
+  /** RPC к фоновому ПК его соединением и токеном его сопряжения — решение не уйдёт другому ПК. */
+  rpc<T = unknown>(id: string, method: RpcMethod, params: Record<string, unknown> = {}): Promise<T> {
+    const entry = this.entries.get(id);
+    if (!entry || this.summaries[id]?.state !== 'ready') return Promise.reject(new Error('Нет связи с этим компьютером'));
+    return entry.client.rpc<T>(method, params);
+  }
+
+  /** Перечитать ленту ПК сейчас (после действия или «потянуть для обновления»). */
+  async refreshInbox(id: string): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry || this.summaries[id]?.state !== 'ready') return;
+    try {
+      const snap = await loadInbox(((method, params) => entry.client.rpc(method, params)) as InboxRpc);
+      if (this.entries.get(id) !== entry) return;
+      this.inboxes = { ...this.inboxes, [id]: snap };
+      entry.pending = new Set(snap.hitl.map((r) => r.requestId));
+      this.setSummary(id, { pending: entry.pending.size });
+      this.emit();
+    } catch {
+      // нет прав или связи — остаётся прежний снимок
+    }
+  }
+
+  async refreshAllInboxes(): Promise<void> {
+    await Promise.all([...this.entries.keys()].map((id) => this.refreshInbox(id)));
+  }
+
+  private scheduleInbox(id: string): void {
+    const entry = this.entries.get(id);
+    if (!entry) return;
+    if (entry.inboxTimer) this.timers.clearTimeout(entry.inboxTimer);
+    entry.inboxTimer = this.timers.setTimeout(() => {
+      entry.inboxTimer = null;
+      void this.refreshInbox(id);
+    }, INBOX_REFRESH_MS);
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -65,6 +126,12 @@ export class HostPool {
   /** Список профилей изменился: соединения ко всем полным профилям, кроме открытого (у него свой клиент). */
   sync(profiles: HostProfile[], activeId: string | null): void {
     this.wanted = profiles.filter((p) => p.id && p.id !== activeId && profileProblems(p).length === 0).slice(0, MAX_BACKGROUND_HOSTS);
+    // Снимок забытого ПК и открытого (его лента — в сторе) больше не нужен.
+    const keep = new Set(this.wanted.map((p) => p.id!));
+    if (Object.keys(this.inboxes).some((id) => !keep.has(id))) {
+      this.inboxes = Object.fromEntries(Object.entries(this.inboxes).filter(([id]) => keep.has(id)));
+      this.emit();
+    }
     if (this.paused) return;
     this.apply();
   }
@@ -107,7 +174,7 @@ export class HostPool {
       if (entry) entry.profile = { ...p, id };
       this.onProfileChange({ ...p, id });
     });
-    const entry: Entry = { client, profile, connKey: connectionKey(profile), pending: new Set(), unsubscribe: [] };
+    const entry: Entry = { client, profile, connKey: connectionKey(profile), pending: new Set(), unsubscribe: [], inboxTimer: null };
     this.entries.set(id, entry);
     entry.unsubscribe.push(
       client.subscribe((snap) => this.setSummary(id, { state: snap.state, route: snap.route, error: snap.error })),
@@ -121,6 +188,7 @@ export class HostPool {
     const entry = this.entries.get(id);
     if (!entry) return;
     this.entries.delete(id);
+    if (entry.inboxTimer) this.timers.clearTimeout(entry.inboxTimer);
     for (const u of entry.unsubscribe) u();
     entry.client.disconnect();
     const { [id]: _gone, ...rest } = this.summaries;
@@ -143,19 +211,24 @@ export class HostPool {
       entry.pending.delete(d.requestId);
       this.setSummary(id, { pending: entry.pending.size });
     }
+    if (INBOX_EVENTS.has(event) || event === 'agent:finished' || event === 'agent:failed') this.scheduleInbox(id);
   }
 
-  /** После подключения: очередь HITL целиком и имя компьютера (оно нужно переключателю). */
+  /** После подключения: лента (с ней — очередь HITL) и имя компьютера (оно нужно переключателю). */
   private async refresh(id: string): Promise<void> {
     const entry = this.entries.get(id);
     if (!entry) return;
-    try {
-      const list = await entry.client.rpc<RemotePendingApproval[]>('get_pending_approvals');
-      if (this.entries.get(id) !== entry || !Array.isArray(list)) return;
-      entry.pending = new Set(list.map((r) => r.requestId));
-      this.setSummary(id, { pending: entry.pending.size });
-    } catch {
-      // нет прав или связи — счётчик останется прежним
+    await this.refreshInbox(id);
+    if (this.entries.get(id) !== entry) return;
+    if (!this.inboxes[id]) {
+      try {
+        const list = await entry.client.rpc<RemotePendingApproval[]>('get_pending_approvals');
+        if (this.entries.get(id) !== entry || !Array.isArray(list)) return;
+        entry.pending = new Set(list.map((r) => r.requestId));
+        this.setSummary(id, { pending: entry.pending.size });
+      } catch {
+        // нет прав или связи — счётчик останется прежним
+      }
     }
     try {
       const status = await entry.client.rpc<RemoteHostStatus>('get_status');

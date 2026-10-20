@@ -73,6 +73,8 @@ export const RemoteControlBadge: React.FC = () => {
   const [readOnly, setReadOnly] = useState<boolean>(false);
   const [requireApproval, setRequireApproval] = useState<boolean>(true);
   const [sessionV2Only, setSessionV2Only] = useState<boolean>(false);
+  // Не давать ПК уснуть, пока ждёт решения (decision-117 п. 9); по умолчанию включено.
+  const [keepAwake, setKeepAwake] = useState<boolean>(true);
   const [pushGatewayUrl, setPushGatewayUrl] = useState<string>('');
   // Федерация компьютеров (TASK-66): общий секрет каталога и автозапуск назначенных задач.
   const [federationSecret, setFederationSecret] = useState<string>('');
@@ -111,6 +113,7 @@ export const RemoteControlBadge: React.FC = () => {
         setRequireApproval(st.requireApproval);
         setReadOnly(st.readOnly);
         setSessionV2Only(Boolean(st.sessionV2Only));
+        setKeepAwake(st.keepAwake !== false);
         setPushGatewayUrl(st.pushGatewayUrl ?? '');
       } catch (e) {
         console.error('Failed to get remote control status:', e);
@@ -136,6 +139,7 @@ export const RemoteControlBadge: React.FC = () => {
       setRequireApproval(next.requireApproval);
       setReadOnly(next.readOnly);
       setSessionV2Only(Boolean(next.sessionV2Only));
+      setKeepAwake(next.keepAwake !== false);
       setPushGatewayUrl(next.pushGatewayUrl ?? '');
     });
     return () => {
@@ -218,6 +222,7 @@ export const RemoteControlBadge: React.FC = () => {
         federationSecret,
         autoStartAssignedTasks,
         sessionV2Only,
+        keepAwake,
         pushGatewayUrl
       });
       setStatus(updated);
@@ -1014,6 +1019,20 @@ export const RemoteControlBadge: React.FC = () => {
                       <span>
                         {t.remote.sessionV2Only}
                         <span className="block text-[11px] text-slate-500">{t.remote.sessionV2OnlyHint}</span>
+                      </span>
+                    </label>
+
+                    <label className="flex items-start gap-2 text-slate-300 cursor-pointer" title={t.remote.keepAwakeHint}>
+                      <input
+                        type="checkbox"
+                        data-testid="remote-keep-awake"
+                        checked={keepAwake}
+                        onChange={(e) => setKeepAwake(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0"
+                      />
+                      <span>
+                        {t.remote.keepAwake}
+                        <span className="block text-[11px] text-slate-500">{t.remote.keepAwakeHint}</span>
                       </span>
                     </label>
 

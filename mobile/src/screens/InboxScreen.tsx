@@ -1,14 +1,28 @@
-import { useState } from 'react';
-import { CheckIcon, FingerprintIcon, ListChecksIcon, ShieldCheckIcon, TrayIcon, XIcon } from '@phosphor-icons/react';
+import { useState, type ReactNode } from 'react';
+import {
+  BellIcon,
+  CheckIcon,
+  ClipboardTextIcon,
+  FingerprintIcon,
+  GearSixIcon,
+  ListChecksIcon,
+  RobotIcon,
+  ShieldCheckIcon,
+  TrayIcon,
+  WarningIcon,
+  WifiSlashIcon,
+  XIcon
+} from '@phosphor-icons/react';
+import clsx from 'clsx';
 import { HitlReviewSheet } from './HitlReviewSheet';
+import { ReviewSheet } from './ReviewSheet';
 import { useAppState, useServices } from '../app/context';
+import { useInboxFeed } from '../app/useInbox';
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../components/ui';
 import { Screen } from '../components/Screen';
-import { RISK_TEXT, canApproveInApp, capabilitiesFor, groupAgentTasks, type AgentTaskGroup, type HitlItem } from '../protocol/models';
-
-function projectName(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() || path;
-}
+import { checksSummary, criteriaDone, projectName, timeAgo, type FeedSource } from '../protocol/inbox';
+import { RISK_TEXT, canApproveInApp, capabilitiesFor, type AgentTaskGroup, type HitlItem } from '../protocol/models';
+import type { RemoteInboxEvent, RemoteReviewItem } from '../../../src/types/remote';
 
 /** Почему нет кнопки для `high`: в браузере биометрии нет вовсе, в приложении ключ регистрируется при сопряжении по QR. */
 function highRiskHint(app: boolean): string {
@@ -17,19 +31,43 @@ function highRiskHint(app: boolean): string {
     : 'Высокий риск: одобрить можно на ПК или в приложении с биометрией';
 }
 
-function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
-  const { store, platform } = useServices();
+/** Имя компьютера у записи, когда ПК больше одного; без связи — пометка «нет связи». */
+function HostTag({ source, multi }: { source: FeedSource; multi: boolean }) {
+  if (!multi && source.online) return null;
+  return (
+    <span data-testid="inbox-host" className={clsx('inline-flex items-center gap-1', !source.online && 'text-amber-300')}>
+      {!source.online && <WifiSlashIcon size={12} />}
+      <Badge tone={source.online ? 'accent' : 'warning'}>{source.online ? source.machineName : `${source.machineName} · нет связи`}</Badge>
+    </span>
+  );
+}
+
+function canDecideOn(source: FeedSource): boolean {
+  return source.online && capabilitiesFor(source.rights, Boolean(source.hostReadOnly)).decide;
+}
+
+function NoRightsHint({ source }: { source: FeedSource }) {
+  return (
+    <div className="mt-2 text-[12px] text-slate-400">
+      {source.online ? 'У этого устройства нет права на решения — решите на ПК.' : `Нет связи с «${source.machineName}» — решить можно, когда он снова в сети.`}
+    </div>
+  );
+}
+
+function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem; multi: boolean }) {
+  const { store, platform, inbox, switchHost } = useServices();
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   // Подписка на соединение: кнопка появляется, как только хост подтвердит ключ подтверждения этого сопряжения.
-  const biometric = useAppState((s) => s.conn.biometricConfirm) && store.canConfirmBiometric();
+  const biometric = useAppState((s) => s.conn.biometricConfirm) && source.active && store.canConfirmBiometric();
   const decide = async (approve: boolean) => {
     setBusy(true);
     platform.haptic(approve ? 'success' : 'warning');
-    await store.decideHitl(item.requestId, approve);
+    await inbox.decideHitl(source, item, approve);
     setBusy(false);
   };
   const who = [item.agentName, item.role].filter(Boolean).join(' · ');
+  const canDecide = canDecideOn(source);
   return (
     <Card className="mb-2 border-amber-900/60">
       <div className="flex items-start gap-2">
@@ -37,6 +75,7 @@ function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-medium leading-snug">{item.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
+            <HostTag source={source} multi={multi} />
             {who && <span>{who}</span>}
             {item.projectPath && <Badge>{projectName(item.projectPath)}</Badge>}
             {item.tool && <Badge tone="warning">{item.tool}</Badge>}
@@ -64,6 +103,11 @@ function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
             <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => decide(true)}>
               <CheckIcon size={18} /> Одобрить
             </Button>
+          ) : !source.active ? (
+            // Высокий риск с другого ПК: запрос целиком и биометрия — на открытом ПК (decision-117 п. 7).
+            <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => switchHost(source.profileId)}>
+              <FingerprintIcon size={18} /> <span data-testid="hitl-open-host">Открыть ПК</span>
+            </Button>
           ) : canApproveInApp(item, biometric) ? (
             // Высокий риск: сначала запрос целиком, затем биометрия (decision-114).
             <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => setReviewing(true)}>
@@ -74,7 +118,7 @@ function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
           )}
         </div>
       ) : (
-        <div className="mt-2 text-[12px] text-slate-400">У этого устройства нет права на решения — решите на ПК.</div>
+        <NoRightsHint source={source} />
       )}
       {reviewing && <HitlReviewSheet item={item} open={reviewing} onClose={() => setReviewing(false)} />}
     </Card>
@@ -85,16 +129,17 @@ function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
  * Задачи, которые завёл агент: исполнение ждёт человека (decision-89). Подтверждаются ровно те задачи,
  * что видны в карточке, — по id (TASK-155). Отклонить — удалить задачу на ПК, как и в окне.
  */
-function AgentTaskCard({ group, canDecide }: { group: AgentTaskGroup; canDecide: boolean }) {
-  const { store, platform } = useServices();
+function AgentTaskCard({ source, group, multi }: { source: FeedSource; group: AgentTaskGroup; multi: boolean }) {
+  const { inbox, platform } = useServices();
   const [busy, setBusy] = useState(false);
   const approve = async (ids: string[]) => {
     setBusy(true);
     platform.haptic('success');
-    await store.approveAgentTasks(group.projectPath, ids);
+    await inbox.approveAgentTasks(source, group.projectPath, ids);
     setBusy(false);
   };
   const all = group.tasks.map((t) => t.id);
+  const canDecide = canDecideOn(source);
   return (
     <Card className="mb-2 border-violet-900/60">
       <div className="flex items-start gap-2">
@@ -104,6 +149,7 @@ function AgentTaskCard({ group, canDecide }: { group: AgentTaskGroup; canDecide:
             {group.tasks.length > 1 ? `Агент завёл задачи: ${group.tasks.length}` : 'Агент завёл задачу'}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
+            <HostTag source={source} multi={multi} />
             {group.reporter && <span>{group.reporter}</span>}
             <Badge>{projectName(group.projectPath)}</Badge>
           </div>
@@ -129,60 +175,186 @@ function AgentTaskCard({ group, canDecide }: { group: AgentTaskGroup; canDecide:
           </Button>
         </div>
       ) : (
-        <div className="mt-2 text-[12px] text-slate-400">У этого устройства нет права на решения — подтвердите на ПК.</div>
+        <NoRightsHint source={source} />
       )}
     </Card>
   );
 }
 
+/** Задача в Review: прогресс критериев и чеков; по нажатию — проверка целиком. */
+function ReviewCard({ source, item, multi }: { source: FeedSource; item: RemoteReviewItem; multi: boolean }) {
+  const [open, setOpen] = useState(false);
+  const crit = criteriaDone(item);
+  const checks = checksSummary(item);
+  const shots = item.report?.screenshots.length ?? 0;
+  return (
+    <>
+      <Card className="mb-2 border-violet-900/40" onClick={() => setOpen(true)}>
+        <div className="flex items-start gap-2" data-testid="review-card">
+          <ClipboardTextIcon size={20} className="mt-0.5 shrink-0 text-purple-300" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-medium leading-snug">
+              <span className="font-mono text-[12px] text-slate-400">{item.id}</span> {item.title}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
+              <HostTag source={source} multi={multi} />
+              <Badge>{projectName(item.projectPath)}</Badge>
+              {crit.total > 0 && (
+                <Badge tone={crit.done === crit.total ? 'success' : 'review'}>
+                  критерии {crit.done}/{crit.total}
+                </Badge>
+              )}
+              {checks && <Badge tone={checks.failed > 0 ? 'danger' : 'success'}>{checks.text}</Badge>}
+              {shots > 0 && <Badge>скриншотов: {shots}</Badge>}
+            </div>
+          </div>
+        </div>
+      </Card>
+      {open && <ReviewSheet source={source} item={item} open={open} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+const EVENT_ICON: Record<RemoteInboxEvent['kind'], ReactNode> = {
+  agent_done: <RobotIcon size={18} className="shrink-0 text-emerald-400" />,
+  agent_failed: <RobotIcon size={18} className="shrink-0 text-rose-400" />,
+  automation_failed: <GearSixIcon size={18} className="shrink-0 text-rose-400" />,
+  automation_suspended: <GearSixIcon size={18} className="shrink-0 text-amber-400" />,
+  agent_note: <BellIcon size={18} className="shrink-0 text-indigo-300" />
+};
+
+function EventRow({ source, event, multi }: { source: FeedSource; event: RemoteInboxEvent; multi: boolean }) {
+  const { inbox } = useServices();
+  const note = event.kind === 'agent_note';
+  const warn = event.level === 'error' || event.level === 'warning';
+  return (
+    <div className="mb-2 flex items-start gap-2 rounded-xl border border-ph-line bg-ph-elevated p-3" data-testid={`inbox-event-${event.kind}`}>
+      {note && warn ? <WarningIcon size={18} className="shrink-0 text-amber-400" /> : EVENT_ICON[event.kind]}
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] font-medium leading-snug">{event.title}</div>
+        {event.body && <div className={clsx('selectable mt-0.5 whitespace-pre-wrap break-words text-[13px]', note ? 'text-slate-200' : 'text-slate-400')}>{event.body}</div>}
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+          <HostTag source={source} multi={multi} />
+          {event.projectPath && <Badge>{projectName(event.projectPath)}</Badge>}
+          {event.taskId && <span className="font-mono">{event.taskId}</span>}
+          <span>{timeAgo(event.at)}</span>
+        </div>
+      </div>
+      {canDecideOn(source) && (
+        <button type="button" aria-label="Убрать" data-testid="inbox-dismiss" onClick={() => void inbox.dismiss(source, [event.id])} className="-mr-1 rounded-full p-1.5 text-slate-500 active:bg-ph-hover">
+          <XIcon size={16} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 /**
- * «Входящие» — всё, что ждёт человека. Сейчас здесь очередь HITL, задачи агентов на подтверждение и задачи
- * в Review; полная лента с критериями, чеками и событиями агентов — [[TASK-140.5]].
+ * «Входящие» — всё, что ждёт человека, со всех ПК телефона (TASK-140.5, [[decision-117]]): запросы HITL, задачи
+ * агентов на подтверждение, задачи в Review с критериями и чеками, итоги агентов, сбои Automations и сообщения
+ * агентов. У записи — имя компьютера; действие уходит тому ПК, с которого она пришла.
  */
 export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
-  const { store } = useServices();
-  const hitl = useAppState((s) => s.hitl);
-  const agentTasks = useAppState((s) => s.agentTasks);
+  const { store, pool, inbox } = useServices();
+  const [filter, setFilter] = useState<string | null>(null);
+  const feed = useInboxFeed(filter);
   const tasks = useAppState((s) => s.tasks);
-  const conn = useAppState((s) => s.conn);
-  const caps = capabilitiesFor(conn.rights, conn.readOnly);
-  const review = tasks.filter((t) => t.status === 'Review');
-  const agentGroups = groupAgentTasks(agentTasks);
+  const multi = feed.hosts.length > 1;
+  const legacyReview = feed.legacyActive && (!filter || feed.sources.find((s) => s.active)?.profileId === filter) ? tasks.filter((t) => t.status === 'Review') : [];
+  const empty = feed.hitl.length === 0 && feed.agentGroups.length === 0 && feed.review.length === 0 && feed.events.length === 0 && legacyReview.length === 0;
+  const dismissAll = async () => {
+    for (const source of feed.sources) {
+      const ids = feed.events.filter((e) => e.source.profileId === source.profileId).map((e) => e.item.id);
+      if (ids.length > 0 && canDecideOn(source)) await inbox.dismiss(source, ids);
+    }
+  };
 
   return (
-    <Screen onRefresh={() => Promise.all([store.refreshHitl(), store.refreshAgentTasks(), store.refreshTasks()]).then(() => undefined)}>
-      <SectionTitle>Ждут решения</SectionTitle>
-      {hitl.length === 0 && agentGroups.length === 0 ? (
-        <EmptyState icon={<TrayIcon size={40} />} title="Агентам ничего не нужно" hint="Запросы на одобрение появятся здесь." />
-      ) : (
-        hitl.map((item) => <HitlCard key={item.requestId} item={item} canDecide={caps.decide} />)
+    <Screen
+      onRefresh={() =>
+        Promise.all([store.refreshHitl(), store.refreshAgentTasks(), store.refreshInbox(), store.refreshTasks(), pool.refreshAllInboxes()]).then(() => undefined)
+      }
+    >
+      {multi && (
+        <div className="-mx-3 mb-2 flex gap-1.5 overflow-x-auto px-3 pb-1" role="tablist" data-testid="inbox-hosts">
+          {[{ profileId: null as string | null, machineName: 'Все', online: true, count: feed.hosts.reduce((n, h) => n + h.count, 0) }, ...feed.hosts].map((h) => (
+            <button
+              key={h.profileId ?? 'all'}
+              type="button"
+              role="tab"
+              aria-selected={filter === h.profileId}
+              onClick={() => setFilter(h.profileId)}
+              className={clsx(
+                'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[13px]',
+                filter === h.profileId ? 'border-indigo-500 bg-indigo-950 text-indigo-200' : 'border-ph-line bg-ph-elevated text-slate-300'
+              )}
+            >
+              {!h.online && <WifiSlashIcon size={12} className="text-amber-300" />}
+              {h.machineName}
+              {h.count > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-black">{h.count}</span>}
+            </button>
+          ))}
+        </div>
       )}
 
-      {agentGroups.length > 0 && (
+      {empty && <EmptyState icon={<TrayIcon size={40} />} title="Агентам ничего не нужно" hint="Запросы на одобрение, задачи на проверке и сообщения агентов появятся здесь." />}
+
+      {feed.hitl.length > 0 && (
         <>
-          <SectionTitle>Задачи от агентов</SectionTitle>
-          {agentGroups.map((group) => (
-            <AgentTaskCard key={`${group.projectPath}\n${group.reporter}`} group={group} canDecide={caps.decide} />
+          <SectionTitle>Ждут решения</SectionTitle>
+          {feed.hitl.map(({ source, item }) => (
+            <HitlCard key={`${source.profileId}:${item.requestId}`} source={source} item={item} multi={multi} />
           ))}
         </>
       )}
 
-      {review.length > 0 && (
+      {feed.agentGroups.length > 0 && (
+        <>
+          <SectionTitle>Задачи от агентов</SectionTitle>
+          {feed.agentGroups.map(({ source, item }) => (
+            <AgentTaskCard key={`${source.profileId}:${item.projectPath}\n${item.reporter}`} source={source} group={item} multi={multi} />
+          ))}
+        </>
+      )}
+
+      {feed.review.length > 0 && (
+        <>
+          <SectionTitle>На проверке</SectionTitle>
+          {feed.review.map(({ source, item }) => (
+            <ReviewCard key={`${source.profileId}:${item.projectPath}:${item.id}`} source={source} item={item} multi={multi} />
+          ))}
+        </>
+      )}
+
+      {legacyReview.length > 0 && (
         <>
           <SectionTitle>На проверке</SectionTitle>
           <Card onClick={onOpenReview}>
             <div className="flex items-center justify-between">
               <span className="text-[15px]">Задачи в Review</span>
-              <Badge tone="review">{review.length}</Badge>
+              <Badge tone="review">{legacyReview.length}</Badge>
             </div>
-            <div className="mt-1 truncate text-[13px] text-slate-400">{review.map((t) => t.id).join(', ')}</div>
+            <div className="mt-1 truncate text-[13px] text-slate-400">{legacyReview.map((t) => t.id).join(', ')}</div>
           </Card>
         </>
       )}
 
-      <div className="mt-6 rounded-xl border border-dashed border-ph-line p-3 text-[12px] leading-snug text-slate-400">
-        Скоро здесь же: проверка задач по критериям приёмки и скриншотам, завершившиеся агенты и сбои Automations.
-      </div>
+      {feed.events.length > 0 && (
+        <>
+          <SectionTitle
+            action={
+              <button type="button" onClick={() => void dismissAll()} className="text-[12px] text-slate-400 active:text-slate-200" data-testid="inbox-dismiss-all">
+                Очистить
+              </button>
+            }
+          >
+            События
+          </SectionTitle>
+          {feed.events.map(({ source, item }) => (
+            <EventRow key={`${source.profileId}:${item.id}`} source={source} event={item} multi={multi} />
+          ))}
+        </>
+      )}
     </Screen>
   );
 }

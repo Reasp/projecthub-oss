@@ -54,6 +54,7 @@ const PROJECTHUB_TOOLS: Record<string, RiskAssessment> = {
   docs_search: { risk: 'low', reason: 'поиск в документации' },
   task_list: { risk: 'low', reason: 'чтение задач' },
   task_view: { risk: 'low', reason: 'чтение задач' },
+  projecthub_notify: { risk: 'low', reason: 'сообщение человеку во «Входящие» телефона' },
   tracker_sync_preview: { risk: 'low', reason: 'предпросмотр синхронизации трекера' },
   tracker_sync_status: { risk: 'low', reason: 'статус синхронизации трекера' },
   ci_rerun: { risk: 'moderate', reason: 'перезапуск CI' },

@@ -5,6 +5,7 @@ import type { ProfileList } from '../protocol/profiles';
 import type { RemoteClient } from '../protocol/remoteClient';
 import type { AppState, AppStore } from './appStore';
 import type { HostPool, HostSummary } from './hostPool';
+import type { InboxActions } from './inboxActions';
 
 export interface AppServices {
   platform: Platform;
@@ -12,6 +13,8 @@ export interface AppServices {
   store: AppStore;
   /** Фоновые соединения к остальным хостам (статус и ожидающие решения в переключателе). */
   pool: HostPool;
+  /** Действия «Входящих» над записью любого ПК: уходят тому ПК, с которого пришла запись (TASK-140.5). */
+  inbox: InboxActions;
   /** Все сопряжённые хосты телефона (TASK-140.2). */
   profiles: ProfileList;
   /** Сопряжение по QR или ссылке: тот же хост обновляется, другой добавляется в список. */

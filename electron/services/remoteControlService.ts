@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { app, BrowserWindow, powerMonitor } from 'electron';
+import { app, BrowserWindow, powerMonitor, powerSaveBlocker } from 'electron';
 import { WebSocketServer, WebSocket } from 'ws';
 import type {
   RemoteConnectionMode,
@@ -56,7 +56,7 @@ import { gitService } from './gitService.js';
 import { guardedCommit } from './commitSecretGuard.js';
 import { summarizeSecretFindings } from './diffSecretScan.js';
 import { claudeBridgeService } from './claudeBridgeService.js';
-import { agentFleetService } from './agentFleetService.js';
+import { agentFleetService, isActiveSwarmStatus } from './agentFleetService.js';
 import { aiAgentService } from './aiAgentService.js';
 import { actionConfigService, type ActionDefinition } from './actionConfigService.js';
 import { createBacklogTaskFile } from './backlogTaskCreate.js';
@@ -65,6 +65,12 @@ import { confirmProofPayload, parseConfirmKey, verifyConfirmProof } from './hitl
 import { fitsPhoneReview, hitlDetailForPhone } from './remoteHitlDetail.js';
 import { parsePushAction, parsePushRegistration, verifyPushAction, type PushHostEndpoint, type PushRegistration } from './remotePush.js';
 import { RemotePushService, type PushTarget } from './remotePushService.js';
+import { RemoteInboxService, type InboxTask, type NoteContext } from './remoteInboxService.js';
+import { KeepAwakeController } from './keepAwake.js';
+import { setAgentNotifier } from './agentNotifier.js';
+import { updateTaskFile } from './taskSessionNote.js';
+import { applyImplementationNote, nowBacklogTimestamp } from './backlogTaskFormat.js';
+import { visualArtifactService } from './visualArtifactService.js';
 import {
   AttachmentUploads,
   parseAttachmentChunk,
@@ -80,7 +86,7 @@ import { loadRoles } from './roleService.js';
 import { secretStorageService } from './secretStorageService.js';
 import { appEventBus } from './eventBus.js';
 import { logger } from './logger.js';
-import { getUserDataDir, getDevRepoRoot, getAppRootDir } from './appPaths.js';
+import { getUserDataDir, getDevRepoRoot, getAppRootDir, getStatePath } from './appPaths.js';
 import { classifyLanAddresses, rankLanAddresses } from './lanAddresses.js';
 import { resolveTunnelCommand } from './tunnelCommand.js';
 import treeKill from 'tree-kill';
@@ -272,6 +278,65 @@ class RemoteControlService {
     },
     (deviceId) => this.dropPushRegistration(deviceId)
   );
+
+  /** «Входящие» телефона (TASK-140.5, decision-117): журнал ленты, проверка задач, `projecthub_notify`. */
+  private inbox = new RemoteInboxService({
+    now: () => Date.now(),
+    statePath: () => getStatePath('remote-inbox.json'),
+    projects: async () => (await projectRegistry.getProjects()).map((p) => p.path),
+    assertProject: (projectPath) => assertRegisteredProject(projectPath),
+    tasks: (projectPath) => this.loadBacklogTasks(projectPath) as Promise<InboxTask[]>,
+    pendingApprovals: () => this.pendingApprovals(),
+    agentTasks: async () =>
+      (await agentTaskApproval.listPending()).map(({ projectPath, id, title, reporter, created }) => ({
+        projectPath,
+        id,
+        title,
+        ...(reporter ? { reporter } : {}),
+        ...(created ? { created } : {})
+      })),
+    swarms: (projectPath) => agentFleetService.listSwarms(projectPath),
+    startAgent: async (o) => {
+      const res = await agentFleetService.startRoleAgent({
+        projectPath: o.projectPath,
+        taskId: o.taskId,
+        taskTitle: o.taskTitle,
+        roleSlug: o.roleSlug,
+        prompt: o.prompt,
+        origin: 'assigned',
+        ...(o.doneLoop ? { mode: 'doneLoop' as const } : {})
+      });
+      // У сессии роя тоже есть необязательное поле `error`: отказ запуска отличаем по отсутствию `agents`.
+      if (!('agents' in res)) return { error: res.error };
+      this.trackPhoneSwarm(res.id);
+      return { swarmId: res.id };
+    },
+    updateTask: (projectPath, taskId, mutate) => updateTaskFile(projectPath, taskId, mutate),
+    applyNote: (content, note) => applyImplementationNote(content, note),
+    timestamp: () => nowBacklogTimestamp(),
+    resolveVisual: (relPath) => visualArtifactService.resolveExisting(relPath),
+    pushNote: (note) => this.pushService.onNote(note),
+    changed: (reason) => {
+      if (this.enabled) this.broadcastEvent('inbox:changed', { reason });
+    },
+    log: (message) => logger.warn(message)
+  });
+
+  /** Не давать ПК уснуть, пока ждёт человека (decision-117 п. 9); по умолчанию включено. */
+  private keepAwake = true;
+  private keepAwakeController = new KeepAwakeController(
+    // Без `powerSaveBlocker` (заглушка Electron в тестах) запрет сна просто не держится.
+    {
+      start: () => powerSaveBlocker?.start?.('prevent-app-suspension') ?? -1,
+      stop: (id) => powerSaveBlocker?.stop?.(id),
+      isStarted: (id) => id >= 0 && Boolean(powerSaveBlocker?.isStarted?.(id))
+    },
+    (message) => logger.info(message)
+  );
+  /** Агенты, запущенные с телефона: сессии роя и сессии Studio, пока они работают. */
+  private phoneSwarms = new Set<string>();
+  private phoneStudioSessions = new Set<string>();
+  private keepAwakeTimer: NodeJS.Timeout | null = null;
 
   private telegramBotToken = '';
   private telegramChatId = '';
@@ -684,6 +749,7 @@ class RemoteControlService {
         if (data.telegramMiniAppUrl) this.telegramMiniAppUrl = data.telegramMiniAppUrl;
         if (typeof data.pushGatewayUrl === 'string') this.pushGatewayUrl = data.pushGatewayUrl;
         if (typeof data.sessionV2Only === 'boolean') this.sessionV2Only = data.sessionV2Only;
+        if (typeof data.keepAwake === 'boolean') this.keepAwake = data.keepAwake;
       }
     } catch (err: any) {
       logger.warn(`[RemoteControl] Failed to load config: ${err?.message || err}`);
@@ -710,7 +776,8 @@ class RemoteControlService {
         telegramBotUsername: this.telegramBotUsername,
         telegramMiniAppUrl: this.telegramMiniAppUrl,
         pushGatewayUrl: this.pushGatewayUrl,
-        sessionV2Only: this.sessionV2Only
+        sessionV2Only: this.sessionV2Only,
+        keepAwake: this.keepAwake
       };
       writeFileSync(cfgPath, JSON.stringify(data, null, 2), 'utf8');
     } catch (err: any) {
@@ -725,6 +792,9 @@ class RemoteControlService {
   private subscribeToEventBus(): void {
     if (this.busUnsubscribe) return;
     this.busUnsubscribe = appEventBus.subscribe((event) => {
+      // Журнал ленты ведётся и при выключенном Remote Control: телефон увидит итоги, когда подключится.
+      this.inbox.handleBus(event);
+      if (event.type.startsWith('hitl:') || event.type.startsWith('agent:') || event.type === 'swarm:finished') this.refreshKeepAwake();
       if (!this.enabled) return;
       if (event.type === 'hitl:requested') {
         const r = event.request;
@@ -791,6 +861,8 @@ class RemoteControlService {
   }
 
   public async initOnStartup(): Promise<void> {
+    await this.inbox.init();
+    setAgentNotifier((ctx, args) => this.notifyFromAgent(ctx, args));
     this.subscribeToEventBus();
     await this.loadPersistedSecrets();
     // Автозапуск назначенных задач живёт в backlog-вотчере и не зависит от того, включён ли
@@ -883,8 +955,83 @@ class RemoteControlService {
       telegramMiniAppUrl: this.telegramMiniAppUrl || (this.tunnelUrl ? `${this.tunnelUrl}/telegram` : ''),
       endpoints: this.getPhoneEndpoints(),
       pushGatewayUrl: this.pushGatewayUrl,
-      sessionV2Only: this.sessionV2Only
+      sessionV2Only: this.sessionV2Only,
+      keepAwake: this.keepAwake,
+      keepAwakeActive: this.keepAwakeController.active
     };
+  }
+
+  // ── «Входящие» и запрет сна (TASK-140.5, decision-117) ──
+
+  /** Сообщение агента `projecthub_notify` из встроенного MCP или tool-loop API-агента. */
+  public async notifyFromAgent(ctx: NoteContext, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> {
+    // Агент Swarm работает в worktree: в ленте нужен проект, к которому он относится.
+    let projectPath = ctx.projectPath;
+    if (projectPath) {
+      const norm = (p: string) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+      const own = (await projectRegistry.getProjects().catch(() => [])).find((p) => {
+        const rel = path.relative(norm(p.path), norm(projectPath!));
+        return !rel.startsWith('..') && !path.isAbsolute(rel);
+      });
+      const swarm = !own && ctx.sessionId.startsWith('swarm-')
+        ? agentFleetService.listSwarms().find((s) => s.agents.some((a) => `swarm-${a.id}` === ctx.sessionId))
+        : undefined;
+      projectPath = own?.path ?? swarm?.projectPath ?? projectPath;
+    }
+    return this.inbox.notify({ ...ctx, ...(projectPath ? { projectPath } : {}) }, args);
+  }
+
+  private pendingApprovals(filter: { projectPath?: string } = {}) {
+    return hitlService.listPending(filter).map((r) => ({
+      requestId: r.id,
+      sessionId: r.sessionId,
+      projectPath: r.projectPath,
+      origin: r.origin,
+      agentName: r.agentName,
+      role: r.role,
+      tool: r.tool,
+      type: r.type,
+      risk: r.risk,
+      riskReason: r.riskReason,
+      title: r.title,
+      details: r.details,
+      command: r.command,
+      filePath: r.filePath,
+      createdAt: r.createdAt,
+      expiresAt: r.expiresAt,
+      orphaned: r.orphaned
+    }));
+  }
+
+  private trackPhoneSwarm(swarmId: string): void {
+    this.phoneSwarms.add(swarmId);
+    this.refreshKeepAwake();
+  }
+
+  /**
+   * Пересчитать запрет сна: на событиях HITL и агентов, при смене настроек и раз в минуту, пока запрет держится
+   * (агент Studio мог закончить без события шины).
+   */
+  private refreshKeepAwake(): void {
+    for (const id of [...this.phoneSwarms]) {
+      const status = agentFleetService.getSwarm(id)?.status;
+      if (!status || !isActiveSwarmStatus(status)) this.phoneSwarms.delete(id);
+    }
+    for (const id of [...this.phoneStudioSessions]) if (!studioRemoteBridge.isRunning(id)) this.phoneStudioSessions.delete(id);
+    const active = this.keepAwakeController.apply({
+      enabled: this.keepAwake,
+      remoteEnabled: this.enabled,
+      pairedDevices: [...this.deviceTokens.values()].filter((r) => this.isTokenApproved(r)).length,
+      pendingHitl: hitlService.pendingCount(),
+      phoneAgents: this.phoneSwarms.size + this.phoneStudioSessions.size
+    });
+    if (active && !this.keepAwakeTimer) {
+      this.keepAwakeTimer = setInterval(() => this.refreshKeepAwake(), 60_000);
+      this.keepAwakeTimer.unref?.();
+    } else if (!active && this.keepAwakeTimer) {
+      clearInterval(this.keepAwakeTimer);
+      this.keepAwakeTimer = null;
+    }
   }
 
   /** Режим «только v2» включили: устройства на v1 отключаются с понятной ошибкой. */
@@ -1027,6 +1174,10 @@ class RemoteControlService {
       this.sessionV2Only = patch.sessionV2Only;
       // Уже открытые сессии v1 закрываются сразу: режим действует не со следующего подключения, а сейчас.
       if (this.sessionV2Only) this.dropV1Sessions();
+    }
+    if (patch.keepAwake !== undefined) {
+      this.keepAwake = patch.keepAwake;
+      this.refreshKeepAwake();
     }
     if (patch.pushGatewayUrl !== undefined) {
       const url = patch.pushGatewayUrl.trim();
@@ -1436,6 +1587,7 @@ class RemoteControlService {
         });
       }
 
+      this.refreshKeepAwake();
       logger.info(`[RemoteControl] Service started on port ${this.port} (mode: ${this.mode})`);
     } catch (err: any) {
       this.lastError = err?.message || String(err);
@@ -1447,6 +1599,7 @@ class RemoteControlService {
 
   public async stop(): Promise<void> {
     this.enabled = false;
+    this.refreshKeepAwake();
     this.disconnectFromRelay();
     this.stopTunnel();
     lanDiscoveryService.stop();
@@ -2578,8 +2731,12 @@ class RemoteControlService {
       'studio_abort',
       'studio_clear',
       // Выдача токена новому устройству — действие владельца хоста, только с правами full (decision-111).
-      'enroll_device'
+      'enroll_device',
+      // «Входящие» (decision-117 п. 3, 4): разбор ленты и решение по задаче из Review — решения человека, как HITL.
+      'inbox_dismiss',
+      'review_task'
     ]);
+    const hitlRightsMethods = new Set(['hitl_decision', 'approve_agent_tasks', 'inbox_dismiss', 'review_task']);
 
     if (this.readOnly && writeMethods.has(method)) {
       throw new Error(`Method ${method} is forbidden in Read-Only mode`);
@@ -2597,7 +2754,7 @@ class RemoteControlService {
         throw new Error(`Method ${method} is forbidden for this device (readOnly rights)`);
       }
       // Подтверждение задачи агента — такое же решение человека, как HITL (decision-89 п. 11).
-      if (rights === 'hitl' && method !== 'hitl_decision' && method !== 'approve_agent_tasks') {
+      if (rights === 'hitl' && !hitlRightsMethods.has(method)) {
         throw new Error(`Method ${method} is forbidden for this device (hitl-only rights)`);
       }
     }
@@ -2713,14 +2870,14 @@ class RemoteControlService {
 
       case 'update_task_status': {
         if (!params.filePath || !params.newStatus) throw new Error('filePath and newStatus are required');
-        await this.updateTaskStatusInFile(params.filePath, params.newStatus);
+        await this.updateTaskStatusInFile(await this.assertTaskFile(params.filePath), String(params.newStatus));
         this.broadcastEvent('backlog:changed', { projectPath: activePath });
         return { ok: true };
       }
 
       case 'toggle_task_criterion': {
         if (!params.filePath || params.index === undefined) throw new Error('filePath and index are required');
-        await this.toggleCriterionInFile(params.filePath, params.index, params.completed);
+        await this.toggleCriterionInFile(await this.assertTaskFile(params.filePath), params.index, params.completed);
         this.broadcastEvent('backlog:changed', { projectPath: activePath });
         return { ok: true };
       }
@@ -2942,6 +3099,8 @@ class RemoteControlService {
           deviceName: device.name
         });
         if (!reply.ok || !reply.sessionId) throw new Error(reply.error || 'Agents Studio не приняла промпт');
+        this.phoneStudioSessions.add(reply.sessionId);
+        this.refreshKeepAwake();
         return { sessionId: reply.sessionId, accepted: true };
       }
 
@@ -3017,6 +3176,7 @@ class RemoteControlService {
           useWorktrees: params.useWorktrees !== false
         });
         if ('error' in result) throw new Error(result.error);
+        this.trackPhoneSwarm(result.id);
         return { swarmId: result.id, status: result.status, hostId: this.hostId };
       }
 
@@ -3091,26 +3251,24 @@ class RemoteControlService {
       }
 
       case 'get_pending_approvals': {
-        return hitlService.listPending(params.projectPath ? { projectPath: String(params.projectPath) } : {}).map((r) => ({
-          requestId: r.id,
-          sessionId: r.sessionId,
-          projectPath: r.projectPath,
-          origin: r.origin,
-          agentName: r.agentName,
-          role: r.role,
-          tool: r.tool,
-          type: r.type,
-          risk: r.risk,
-          riskReason: r.riskReason,
-          title: r.title,
-          details: r.details,
-          command: r.command,
-          filePath: r.filePath,
-          createdAt: r.createdAt,
-          expiresAt: r.expiresAt,
-          orphaned: r.orphaned
-        }));
+        return this.pendingApprovals(params.projectPath ? { projectPath: String(params.projectPath) } : {});
       }
+
+      // «Входящие» (TASK-140.5, decision-117): всё, что ждёт человека, по всем проектам этого ПК.
+      case 'get_inbox':
+        return this.inbox.getInbox({ hostId: this.hostId, machineName: this.machineName || os.hostname() });
+
+      case 'inbox_dismiss':
+        return this.inbox.dismiss(params.ids);
+
+      case 'review_task': {
+        const res = await this.inbox.reviewTask(params, { name: device.name, rights: device.rights ?? 'full' });
+        this.broadcastEvent('backlog:changed', { projectPath: String(params.projectPath || '') });
+        return res;
+      }
+
+      case 'get_review_screenshot':
+        return this.inbox.screenshotChunk(params);
 
       default:
         throw new Error(`Unknown RPC method: ${method}`);
@@ -3163,7 +3321,8 @@ class RemoteControlService {
           status: data.status || 'To Do',
           priority: data.priority || 'medium',
           filePath,
-          criteria
+          criteria,
+          ...(data.updated_date ? { updated: String(data.updated_date) } : {})
         });
       } catch (err) {
         // ignore single corrupt file
@@ -3171,6 +3330,23 @@ class RemoteControlService {
     }
 
     return tasks;
+  }
+
+  /**
+   * Путь из RPC — файл задачи `backlog/tasks/*.md` внутри зарегистрированного проекта (decision-117 п. 6): с
+   * телефона нельзя переписать произвольный файл, подсунув путь.
+   */
+  private async assertTaskFile(raw: unknown): Promise<string> {
+    const filePath = path.resolve(String(raw || ''));
+    const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
+    const inTasks = /(^|[\\/])backlog[\\/]tasks[\\/][^\\/]+\.md$/i.test(filePath);
+    const projects = await projectRegistry.getProjects();
+    const owner = projects.find((p) => {
+      const rel = path.relative(norm(path.resolve(p.path)), norm(filePath));
+      return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    });
+    if (!inTasks || !owner) throw new Error('Файл задачи должен быть в backlog/tasks зарегистрированного проекта');
+    return filePath;
   }
 
   private async updateTaskStatusInFile(filePath: string, newStatus: string): Promise<void> {

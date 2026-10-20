@@ -111,6 +111,10 @@ final class PushNotifier {
             post(ctx, id, base(ctx).setContentTitle(host).setContentText("Уведомления с этого компьютера работают").setContentIntent(openIntent(ctx, reg.instance, null, id)));
             return;
         }
+        if ("note".equals(type)) {
+            showNote(ctx, reg, p, host);
+            return;
+        }
         if (!"hitl".equals(type)) return;
 
         String hid = p.optString("hid");
@@ -148,6 +152,40 @@ final class PushNotifier {
             }
         }
         post(ctx, id, b);
+    }
+
+    /**
+     * Сообщение агента `projecthub_notify` (TASK-140.5, decision-117 п. 8): отдельный канал «Сообщения агентов», чтобы
+     * его можно было приглушить, не теряя запросы решений. Нажатие открывает «Входящие» этого ПК.
+     */
+    private static void showNote(Context ctx, PushRegistry.Reg reg, JSONObject p, String host) {
+        ensureNoteChannel(ctx);
+        PushNoteFormat f = PushNoteFormat.of(host, p.optString("agent", ""), p.optString("text", ""), p.optString("lvl", "info"), p.optString("proj", ""));
+        int id = ("note\n" + p.optString("hid") + "\n" + p.optString("nid")).hashCode();
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, NOTE_CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_projecthub)
+            .setPriority(f.urgent ? NotificationCompat.PRIORITY_HIGH : NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setAutoCancel(true)
+            .setContentTitle(f.title)
+            .setContentText(f.text)
+            .setSubText(f.subText)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(f.text))
+            .setContentIntent(openIntent(ctx, reg.instance, null, id))
+            .setWhen(p.optLong("ts", System.currentTimeMillis()))
+            .setShowWhen(true);
+        post(ctx, id, b);
+    }
+
+    static final String NOTE_CHANNEL = "ph_note";
+
+    static void ensureNoteChannel(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        if (nm == null || nm.getNotificationChannel(NOTE_CHANNEL) != null) return;
+        NotificationChannel ch = new NotificationChannel(NOTE_CHANNEL, "Сообщения агентов", NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription("Агент на компьютере зовёт вас: готово, ошибка, нужно внимание");
+        nm.createNotificationChannel(ch);
     }
 
     /** Итог нажатия кнопки — заменяет уведомление и само исчезает. */

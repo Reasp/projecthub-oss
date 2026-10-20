@@ -46,7 +46,8 @@ const API_TOOLS_BY_CATEGORY: Record<ToolCategory, string[]> = {
   command: ['run_command'],
   search: ['search_rag'],
   subagent: [],
-  question: ['ask_question']
+  // Позвать человека на телефоне (decision-117 п. 8) — тот же канал «к человеку», что и вопрос.
+  question: ['ask_question', 'projecthub_notify']
 };
 
 function namesForCategories(map: Record<ToolCategory, string[]>, categories: ToolCategory[]): string[] {

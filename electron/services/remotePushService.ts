@@ -5,6 +5,7 @@ import {
   shouldSuppressPush,
   signGatewayRequest,
   type GatewayPushBody,
+  type NotePushPayload,
   type PushHostEndpoint,
   type PushPayload,
   type PushRegistration
@@ -38,6 +39,10 @@ export interface RemotePushDeps {
   gatewayUrl(): string;
   hostSigningKey(): Promise<{ hostKeyRaw: Buffer; privateKeyPem: string } | null>;
   log(message: string): void;
+}
+
+function projectName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
 /** Не больше 30 push в минуту на устройство: агент в цикле не завалит телефон. */
@@ -102,6 +107,34 @@ export class RemotePushService {
       if (!devices.has(target.deviceId)) continue;
       await this.deliver(target, { v: 1, t: 'hitl_done', hid: this.deps.hostId(), rid: requestId, ts: this.deps.now() }, requestId, 'normal');
     }
+  }
+
+  /**
+   * Сообщение агента `projecthub_notify` (decision-117 п. 8): каждому устройству с включённым push, с тем же
+   * подавлением, что у HITL, — открытое приложение увидит запись в ленте. Возвращает, скольким устройствам ушло.
+   */
+  async onNote(note: { id: string; text: string; level: NotePushPayload['lvl']; projectPath?: string; agent?: string }): Promise<number> {
+    const activity = this.deps.pcActivity();
+    let delivered = 0;
+    for (const target of this.deps.targets()) {
+      if (shouldSuppressPush({ ...activity, deviceOnline: this.deps.deviceOnline(target.deviceId) })) continue;
+      if (!this.allow(target.deviceId)) continue;
+      const payload: NotePushPayload = {
+        v: 1,
+        t: 'note',
+        hid: this.deps.hostId(),
+        host: this.deps.machineName(),
+        nid: note.id,
+        text: note.text,
+        lvl: note.level,
+        ...(note.projectPath ? { proj: projectName(note.projectPath) } : {}),
+        ...(note.agent ? { agent: note.agent } : {}),
+        ts: this.deps.now()
+      };
+      const res = await this.deliver(target, payload, note.id, note.level === 'error' || note.level === 'warning' ? 'high' : 'normal');
+      if (res.ok) delivered += 1;
+    }
+    return delivered;
   }
 
   /** Проверка из приложения: push приходит, даже если приложение открыто. */

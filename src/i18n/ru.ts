@@ -2854,6 +2854,8 @@ export const ru: TranslationDictionary = {
     requireApproval: 'Требовать подтверждение хоста при первом подключении устройства',
     sessionV2Only: 'Только защищённый протокол v2',
     sessionV2OnlyHint: 'Клиенты по общему ключу (старые приложения, hub прежних версий) отклоняются. Телефоны без ключа хоста нужно сопрячь заново по QR.',
+    keepAwake: 'Не давать ПК уснуть, пока агент ждёт решения',
+    keepAwakeHint: 'Пока есть запрос на одобрение или работает агент, запущенный с телефона, компьютер не уходит в сон. Экран гаснет как обычно.',
     pushGatewayUrl: 'Шлюз push для FCM и APNs',
     pushGatewayUrlHint: 'Адрес ph-push, например https://push.example.com. Пусто — push только через UnifiedPush (ntfy) на Android.',
     saveSettings: 'Сохранить настройки'
