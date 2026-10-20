@@ -23,6 +23,7 @@ export function registerFederationIpc() {
         transport: PeerTransport;
         address: string;
         secretKey?: string;
+        hostKey?: string;
         pin?: string;
         autoConnect?: boolean;
       }

@@ -12,7 +12,7 @@
  * полный ключ не помещается — туда идёт его 96-битный отпечаток (`kc_` + ключ E2EE + отпечаток).
  */
 
-import { encodeEndpointParam, relayEndpoint, type RemoteEndpoint } from './remoteEndpoints';
+import { decodeEndpointParam, encodeEndpointParam, relayEndpoint, type RemoteEndpoint } from './remoteEndpoints';
 
 /** hex → base64url без `=`. */
 export function hexToBase64Url(hex: string, encodeBase64: (s: string) => string = btoa): string {
@@ -96,4 +96,58 @@ export function buildEmbeddedPairingUrl(src: PairingSource): string {
 export function buildTelegramPairingUrl(src: PairingSource, botUsername?: string): string {
   if (botUsername) return `https://t.me/${botUsername}?startapp=${buildTelegramStartParam(src.key, src.hostKeyFingerprint)}`;
   return `${clientPageOrigin(src)}/telegram#${buildPairingHash(src)}`;
+}
+
+/** Что форма удалённого ПК (hub-режим, TASK-166) берёт из ссылки сопряжения другого ПК. */
+export interface PeerPairingFields {
+  hostId: string;
+  secretKey?: string;
+  /** Ключ сессий хоста `hk`: с ним hub сразу идёт по v2. */
+  hostKey?: string;
+  transport: 'lan' | 'relay';
+  /** LAN: `host:port`; relay: URL релея. */
+  address: string;
+}
+
+const HEX_KEY = /^[0-9a-f]{64}$/i;
+const HOST_KEY = /^[A-Za-z0-9_-]{87}$/;
+
+/**
+ * Ссылка сопряжения `http(s)://<адрес>/remote#hostId=…&key=…&hk=…&ep=…` другого ПК в поля формы. Адрес — хост самой
+ * ссылки, а если она ведёт на `localhost` — первый адрес LAN или VPN из `ep`; без них — релей. `null` — не ссылка.
+ */
+export function parsePeerPairingLink(text: string): PeerPairingFields | null {
+  let url: URL;
+  try {
+    url = new URL(text.trim());
+  } catch {
+    return null;
+  }
+  const params = new URLSearchParams(url.hash.replace(/^#/, ''));
+  const hostId = params.get('hostId')?.trim() ?? '';
+  if (!/^[A-Za-z0-9_.-]{3,128}$/.test(hostId)) return null;
+  const key = params.get('key')?.trim();
+  const hk = params.get('hk')?.trim();
+  const fields: PeerPairingFields = { hostId, transport: 'lan', address: '' };
+  if (key && HEX_KEY.test(key)) fields.secretKey = key.toLowerCase();
+  if (hk && HOST_KEY.test(hk)) fields.hostKey = hk;
+  const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(url.hostname);
+  if ((url.protocol === 'http:' || url.protocol === 'https:') && !pageIsLocal && url.host) {
+    fields.address = url.protocol === 'https:' ? url.origin : url.host;
+    return fields;
+  }
+  const direct = params
+    .getAll('ep')
+    .map(decodeEndpointParam)
+    .find((ep): ep is RemoteEndpoint => Boolean(ep && (ep.kind === 'lan' || ep.kind === 'vpn')));
+  if (direct) {
+    fields.address = new URL(direct.url).host;
+    return fields;
+  }
+  const relay = params.get('relay')?.trim();
+  if (relay && /^wss?:\/\//i.test(relay)) {
+    fields.transport = 'relay';
+    fields.address = relay;
+  }
+  return fields;
 }

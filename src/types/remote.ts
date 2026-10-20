@@ -55,6 +55,8 @@ export interface RemoteControlConfig {
   tunnelUrl?: string;
   /** Шлюз `ph-push` для FCM и APNs (TASK-140.3, decision-115). */
   pushGatewayUrl?: string;
+  /** Только протокол v2: клиенты v1 и ключ в URL отклоняются (decision-116). */
+  sessionV2Only?: boolean;
   /**
    * Общий секрет федерации (TASK-66): задаётся одинаковым на всех машинах пользователя, из него
    * выводится `ownerId` каталога на релее. Хранится в safeStorage, не в plaintext-конфиге.
@@ -147,6 +149,10 @@ export interface FederationPeerState {
   /** Токен получен — переподключение больше не требует PIN. */
   paired: boolean;
   autoConnect: boolean;
+  /** Протокол текущей сессии: 2 — forward secrecy, 1 — общий ключ (TASK-166, decision-116). */
+  sessionProtocol?: number;
+  /** Ключ сессий хоста закреплён: подключения идут по v2. */
+  hostKeyPinned?: boolean;
 }
 
 export interface RemoteControlStatus {
@@ -196,6 +202,8 @@ export interface RemoteControlStatus {
   endpoints?: RemoteEndpoint[];
   /** Шлюз `ph-push` для FCM и APNs (TASK-140.3); пустой — push только через UnifiedPush. */
   pushGatewayUrl?: string;
+  /** Хост принимает только протокол v2 (decision-116). */
+  sessionV2Only?: boolean;
 }
 
 /** Пакет протокола v1: AES-256-GCM общим ключом хоста. Пакеты v2 — `SessionFrameV2` из `remoteSessionV2.ts`. */

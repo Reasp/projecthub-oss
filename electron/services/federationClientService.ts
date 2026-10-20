@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import crypto, { webcrypto } from 'node:crypto';
 import { BrowserWindow } from 'electron';
 import { WebSocket } from 'ws';
 import type { DeviceRights, FederationPeerState, FederationPeerStatus, PlainPacket } from '../../src/types/remote.js';
@@ -6,10 +6,22 @@ import {
   buildPeerSocketUrl,
   checkPeerProtocol,
   framePacket,
+  isFatalPeerError,
   nextBackoffDelay,
   parseIncomingPacket,
+  peerHandshakeData,
   type PeerTransport
 } from './federationProtocol.js';
+import {
+  HandshakeError,
+  SESSION_PROTOCOL_V1,
+  SESSION_PROTOCOL_V2,
+  createClientHandshake,
+  isSessionFrameV2,
+  type ClientHandshake,
+  type WebSessionV2
+} from '../../src/utils/remoteSessionV2.js';
+import { isHostKey } from '../../src/utils/remoteSessionV2Node.js';
 import { secretStorageService } from './secretStorageService.js';
 import { logger } from './logger.js';
 import { appEventBus } from './eventBus.js';
@@ -31,6 +43,11 @@ interface PeerCredentials {
   /** LAN: `host:port`; relay: URL релея. */
   address: string;
   secretKey?: string;
+  /**
+   * Закреплённый ключ сессий хоста (ECDSA P-256, base64url, decision-111): из ссылки сопряжения или из `handshake_ack`
+   * первого подключения по общему ключу. С ним hub говорит с хостом по v2 с forward secrecy.
+   */
+  hostKey?: string;
   deviceToken?: string;
   /** Автоподключаться при старте приложения. */
   autoConnect?: boolean;
@@ -65,6 +82,15 @@ interface PeerConnection {
   handshakeWaiters: Array<{ resolve: () => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>;
   /** Пользователь отключил пира вручную — не переподключаться. */
   manualDisconnect: boolean;
+  /** Сессия v2 этого сокета; без неё пакеты идут общим ключом v1. */
+  session: WebSessionV2 | null;
+  /** Рукопожатие v2 ждёт `server_hello`. */
+  pendingHandshake: ClientHandshake | null;
+  /** Входящие кадры обрабатываются по очереди: расшифровка v2 асинхронна, порядок пакетов важен. */
+  inbox: Promise<void>;
+  sessionProtocol?: number;
+  /** Ошибка, после которой переподключение бессмысленно (PIN, ключ, подмена ключа хоста, «только v2»). */
+  fatal: boolean;
 }
 
 function errorText(err: unknown): string {
@@ -126,7 +152,11 @@ class FederationClientService {
       reconnectAttempt: 0,
       reconnectTimer: null,
       handshakeWaiters: [],
-      manualDisconnect: false
+      manualDisconnect: false,
+      session: null,
+      pendingHandshake: null,
+      inbox: Promise.resolve(),
+      fatal: false
     };
   }
 
@@ -158,7 +188,9 @@ class FederationClientService {
       lastEventId: peer.lastEventId,
       connectedAt: peer.connectedAt,
       paired: Boolean(peer.credentials.deviceToken),
-      autoConnect: Boolean(peer.credentials.autoConnect)
+      autoConnect: Boolean(peer.credentials.autoConnect),
+      ...(peer.sessionProtocol ? { sessionProtocol: peer.sessionProtocol } : {}),
+      hostKeyPinned: isHostKey(peer.credentials.hostKey)
     };
   }
 
@@ -172,11 +204,15 @@ class FederationClientService {
     transport: PeerTransport;
     address: string;
     secretKey?: string;
+    /** Ключ сессий хоста из ссылки сопряжения (`hk`): сразу v2, без первого подключения по общему ключу. */
+    hostKey?: string;
     pin?: string;
     autoConnect?: boolean;
   }): Promise<FederationPeerState> {
     await this.ensureLoaded();
     if (!options.hostId?.trim()) throw new Error('hostId удалённого хоста обязателен');
+    const hostKey = options.hostKey?.trim();
+    if (hostKey && !isHostKey(hostKey)) throw new Error('Ключ хоста (hk) не похож на ключ ProjectHub — скопируйте его из ссылки сопряжения целиком');
     if (options.hostId === this.localHostId) throw new Error('Нельзя добавить самого себя как удалённый хост');
 
     const existing = this.peers.get(options.hostId);
@@ -186,6 +222,8 @@ class FederationClientService {
       transport: options.transport,
       address: options.address.trim(),
       secretKey: options.secretKey?.trim() || existing?.credentials.secretKey,
+      // Новый ключ хоста — только явно из ссылки: подменить закреплённый ключ молча нельзя.
+      hostKey: hostKey || existing?.credentials.hostKey,
       deviceToken: existing?.credentials.deviceToken,
       autoConnect: options.autoConnect ?? existing?.credentials.autoConnect ?? true,
       addedAt: existing?.credentials.addedAt || Date.now()
@@ -196,6 +234,7 @@ class FederationClientService {
       existing.credentials = credentials;
       existing.pendingPin = options.pin;
       existing.manualDisconnect = false;
+      existing.fatal = false;
       await this.persistPeers();
       await this.openConnection(existing);
       return this.toState(existing);
@@ -225,6 +264,7 @@ class FederationClientService {
     const peer = this.peers.get(hostId);
     if (!peer) throw new Error(`Хост ${hostId} не найден среди удалённых`);
     peer.manualDisconnect = false;
+    peer.fatal = false;
     await this.openConnection(peer);
     return this.toState(peer);
   }
@@ -275,9 +315,96 @@ class FederationClientService {
     });
   }
 
+  /** Пакет в протоколе сокета: v2 — ключом сессии (по очереди `seq`), v1 — общим ключом хоста. */
   private send(peer: PeerConnection, payload: PlainPacket): void {
-    if (!peer.ws || peer.ws.readyState !== WebSocket.OPEN) return;
-    peer.ws.send(JSON.stringify(framePacket(payload, peer.credentials.secretKey)));
+    const ws = peer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const session = peer.session;
+    if (session) {
+      void session
+        .seal(payload)
+        .then((frame) => {
+          if (peer.ws === ws && peer.session === session && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
+        })
+        .catch(() => undefined);
+      return;
+    }
+    ws.send(JSON.stringify(framePacket(payload, peer.credentials.secretKey)));
+  }
+
+  /**
+   * Первое сообщение сокета. Ключ хоста закреплён — `client_hello` v2 и дальше `handshake` в сессии с forward secrecy.
+   * Нет ключа — `handshake` общим ключом v1: хост пришлёт свой ключ в `handshake_ack`, hub закрепит его и перейдёт на v2.
+   */
+  private async startHandshake(peer: PeerConnection, ws: WebSocket): Promise<void> {
+    if (isHostKey(peer.credentials.hostKey)) {
+      try {
+        const hs = await createClientHandshake(webcrypto.subtle as unknown as SubtleCrypto);
+        if (peer.ws !== ws) return;
+        peer.pendingHandshake = hs;
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(hs.hello));
+      } catch (err) {
+        this.failPeer(peer, `Не удалось начать рукопожатие v2: ${errorText(err)}`, true);
+      }
+      return;
+    }
+    if (!peer.credentials.secretKey) {
+      this.failPeer(peer, 'Нужен ключ хоста (hk) или ключ шифрования из ссылки сопряжения этого ПК', true);
+      return;
+    }
+    this.sendHandshake(peer);
+  }
+
+  private sendHandshake(peer: PeerConnection): void {
+    this.send(peer, {
+      type: 'handshake',
+      data: peerHandshakeData({
+        deviceName: this.localMachineName,
+        secretKey: peer.credentials.secretKey,
+        pin: peer.pendingPin,
+        deviceToken: peer.credentials.deviceToken
+      })
+    } as PlainPacket);
+  }
+
+  /** Ответ хоста на `client_hello`: подпись проверяется закреплённым ключом, дальше — `handshake` уже в сессии. */
+  private async onServerHello(peer: PeerConnection, serverHello: unknown): Promise<void> {
+    const hs = peer.pendingHandshake;
+    if (!hs) return;
+    peer.pendingHandshake = null;
+    try {
+      const result = await hs.finish(serverHello, {
+        deviceId: this.localHostId || 'projecthub-hub',
+        hostId: peer.credentials.hostId,
+        hostKey: peer.credentials.hostKey
+      });
+      peer.session = result.session;
+      peer.sessionProtocol = SESSION_PROTOCOL_V2;
+      this.sendHandshake(peer);
+    } catch (err) {
+      const code = err instanceof HandshakeError ? err.code : 'malformed';
+      const message =
+        code === 'host_key_mismatch' || code === 'bad_signature' || code === 'host_id_mismatch'
+          ? `Ключ хоста ${peer.credentials.machineName} не совпал с закреплённым (${code}) — возможна подмена. Если ключ на том ПК перевыпущен, добавьте хост заново по ссылке сопряжения`
+          : `Рукопожатие v2 не удалось: ${errorText(err)}`;
+      this.failPeer(peer, message, true);
+    }
+  }
+
+  private failPeer(peer: PeerConnection, message: string, fatal: boolean): void {
+    peer.error = message;
+    peer.status = 'error';
+    peer.fatal = peer.fatal || fatal;
+    logger.warn(`[Federation] ${message}`);
+    this.rejectHandshakeWaiters(peer, new Error(message));
+    this.notifyPeersChanged();
+    if (fatal) {
+      try {
+        peer.ws?.close();
+      } catch {
+        // уже закрыт
+      }
+    }
   }
 
   private closeSocket(peer: PeerConnection): void {
@@ -294,6 +421,8 @@ class FederationClientService {
       }
       peer.ws = null;
     }
+    peer.session = null;
+    peer.pendingHandshake = null;
     for (const [id, call] of peer.pending.entries()) {
       clearTimeout(call.timer);
       call.reject(new Error('Соединение с хостом закрыто'));
@@ -332,14 +461,14 @@ class FederationClientService {
       transport: peer.credentials.transport,
       address: peer.credentials.address,
       deviceId: this.localHostId || 'projecthub-hub',
-      deviceName: this.localMachineName,
-      secretKey: peer.credentials.secretKey,
-      pin: peer.pendingPin,
-      deviceToken: peer.credentials.deviceToken
+      deviceName: this.localMachineName
     });
 
     const ws = new WebSocket(url);
     peer.ws = ws;
+    peer.session = null;
+    peer.pendingHandshake = null;
+    peer.sessionProtocol = undefined;
 
     const handshakeDone = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -349,18 +478,19 @@ class FederationClientService {
     });
 
     ws.on('open', () => {
-      // LAN: учётные данные уже ушли в query, хост ответит `handshake_ack` сам.
-      // Relay: ждём `relay_ack`, затем отправляем зашифрованный `handshake` (decision-11 п.3).
-      if (peer.credentials.transport === 'lan') return;
+      // LAN: рукопожатие сразу. Relay: после `relay_ack` (decision-11 п.3).
+      if (peer.credentials.transport === 'lan') void this.startHandshake(peer, ws);
     });
 
     ws.on('message', (raw: unknown) => {
-      this.handlePeerMessage(peer, String(raw));
+      const text = String(raw);
+      peer.inbox = peer.inbox.then(() => (peer.ws === ws ? this.handlePeerMessage(peer, ws, text) : undefined)).catch(() => undefined);
     });
 
     ws.on('close', () => {
       const wasConnected = peer.status === 'connected';
-      peer.status = peer.manualDisconnect ? 'idle' : 'offline';
+      // Отказ хоста без шанса на повтор (ключ, «только v2») остаётся ошибкой, а не «не в сети».
+      peer.status = peer.manualDisconnect ? 'idle' : peer.fatal ? 'error' : 'offline';
       peer.connectedAt = undefined;
       this.rejectHandshakeWaiters(peer, new Error(peer.error || 'Соединение с хостом закрыто'));
       for (const [id, call] of peer.pending.entries()) {
@@ -383,22 +513,38 @@ class FederationClientService {
     await handshakeDone;
   }
 
-  private handlePeerMessage(peer: PeerConnection, raw: string): void {
-    const packet = parseIncomingPacket(raw, peer.credentials.secretKey);
-    if (!packet) return;
+  private async handlePeerMessage(peer: PeerConnection, ws: WebSocket, raw: string): Promise<void> {
+    let packet: PlainPacket | null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (isSessionFrameV2(parsed)) {
+      if (!peer.session) return;
+      try {
+        packet = (await peer.session.open(parsed)) as PlainPacket;
+      } catch {
+        // Повтор или чужой кадр — отбрасываем, соединение не рвём.
+        return;
+      }
+    } else if ((parsed as { type?: string })?.type === 'server_hello') {
+      await this.onServerHello(peer, parsed);
+      return;
+    } else if (peer.session && (parsed as { e2ee?: unknown })?.e2ee) {
+      // Сокет уже на v2: пакет v1 — попытка понизить версию.
+      return;
+    } else {
+      packet = parseIncomingPacket(raw, peer.credentials.secretKey);
+    }
+    if (!packet || peer.ws !== ws) return;
 
     const type = String((packet as PlainPacket).type || '');
 
-    // Релей подтвердил маршрут — предъявляем хосту PIN/ключ/токен внутри E2EE-пакета.
+    // Релей подтвердил маршрут — рукопожатие внутри E2EE.
     if (type === 'relay_ack') {
-      this.send(peer, {
-        type: 'handshake',
-        data: {
-          ...(peer.credentials.deviceToken ? { token: peer.credentials.deviceToken } : {}),
-          ...(peer.pendingPin ? { pin: peer.pendingPin } : {}),
-          ...(peer.credentials.secretKey ? { key: peer.credentials.secretKey } : {})
-        }
-      } as PlainPacket);
+      await this.startHandshake(peer, ws);
       return;
     }
 
@@ -409,10 +555,7 @@ class FederationClientService {
 
     if (type === 'error') {
       const message = String((packet as PlainPacket).error || 'Хост отклонил подключение');
-      peer.error = message;
-      peer.status = 'error';
-      this.rejectHandshakeWaiters(peer, new Error(message));
-      this.notifyPeersChanged();
+      this.failPeer(peer, message, isFatalPeerError(message));
       return;
     }
 
@@ -470,6 +613,21 @@ class FederationClientService {
       peer.pendingPin = undefined;
       void this.persistPeers();
     }
+    if (!peer.session) peer.sessionProtocol = SESSION_PROTOCOL_V1;
+
+    // Хост v1 → v2 (decision-111): ключ хоста пришёл по сессии под общим ключом — закрепляем его, следующее
+    // подключение пойдёт по v2. Переподключаемся сразу, когда текущие запросы этого сокета ответят.
+    const upgrade =
+      !peer.session &&
+      !isHostKey(peer.credentials.hostKey) &&
+      Array.isArray(result.protocols) &&
+      (result.protocols as unknown[]).includes(SESSION_PROTOCOL_V2) &&
+      isHostKey(result.hostKey);
+    if (upgrade) {
+      peer.credentials.hostKey = String(result.hostKey);
+      void this.persistPeers();
+      logger.info(`[Federation] Pinned v2 host key of ${peer.credentials.machineName}, switching to protocol v2`);
+    }
 
     peer.rights = (result.rights as DeviceRights) || peer.rights;
     peer.readOnly = Boolean(result.readOnly);
@@ -482,6 +640,16 @@ class FederationClientService {
     this.resolveHandshakeWaiters(peer);
     this.notifyPeersChanged();
     logger.info(`[Federation] Connected to peer ${peer.credentials.machineName} (${peer.credentials.transport})`);
+
+    if (upgrade) {
+      setTimeout(() => {
+        if (peer.session || peer.pending.size > 0 || peer.manualDisconnect) return;
+        this.closeSocket(peer);
+        peer.status = 'connecting';
+        this.openConnection(peer).catch(() => undefined);
+      }, 0);
+      return;
+    }
 
     // Догон событий, пропущенных за время разрыва (decision-11 п.6).
     if (peer.lastEventId > 0 && remoteLastEventId > peer.lastEventId) {
@@ -527,7 +695,7 @@ class FederationClientService {
   }
 
   private scheduleReconnect(peer: PeerConnection): void {
-    if (peer.manualDisconnect) return;
+    if (peer.manualDisconnect || peer.fatal) return;
     if (!peer.credentials.deviceToken && !peer.pendingPin) return;
     if (peer.reconnectTimer) clearTimeout(peer.reconnectTimer);
 

@@ -72,6 +72,8 @@ export const RemoteControlBadge: React.FC = () => {
   const [mode, setMode] = useState<'lan' | 'relay'>('lan');
   const [readOnly, setReadOnly] = useState<boolean>(false);
   const [requireApproval, setRequireApproval] = useState<boolean>(true);
+  const [sessionV2Only, setSessionV2Only] = useState<boolean>(false);
+  const [pushGatewayUrl, setPushGatewayUrl] = useState<string>('');
   // Федерация компьютеров (TASK-66): общий секрет каталога и автозапуск назначенных задач.
   const [federationSecret, setFederationSecret] = useState<string>('');
   const [autoStartAssignedTasks, setAutoStartAssignedTasks] = useState<boolean>(false);
@@ -105,6 +107,11 @@ export const RemoteControlBadge: React.FC = () => {
         if (st.telegramMiniAppUrl !== undefined) setTelegramMiniAppUrl(st.telegramMiniAppUrl);
         if (st.federationSecret !== undefined) setFederationSecret(st.federationSecret);
         if (st.autoStartAssignedTasks !== undefined) setAutoStartAssignedTasks(st.autoStartAssignedTasks);
+        // Без этого «Сохранить» отправлял значения по умолчанию и снимал «только чтение» с хоста.
+        setRequireApproval(st.requireApproval);
+        setReadOnly(st.readOnly);
+        setSessionV2Only(Boolean(st.sessionV2Only));
+        setPushGatewayUrl(st.pushGatewayUrl ?? '');
       } catch (e) {
         console.error('Failed to get remote control status:', e);
       }
@@ -126,6 +133,10 @@ export const RemoteControlBadge: React.FC = () => {
       if (next.telegramMiniAppUrl !== undefined) setTelegramMiniAppUrl(next.telegramMiniAppUrl);
       if (next.federationSecret !== undefined) setFederationSecret(next.federationSecret);
       if (next.autoStartAssignedTasks !== undefined) setAutoStartAssignedTasks(next.autoStartAssignedTasks);
+      setRequireApproval(next.requireApproval);
+      setReadOnly(next.readOnly);
+      setSessionV2Only(Boolean(next.sessionV2Only));
+      setPushGatewayUrl(next.pushGatewayUrl ?? '');
     });
     return () => {
       unsubscribe?.();
@@ -205,7 +216,9 @@ export const RemoteControlBadge: React.FC = () => {
         telegramBotUsername,
         telegramMiniAppUrl,
         federationSecret,
-        autoStartAssignedTasks
+        autoStartAssignedTasks,
+        sessionV2Only,
+        pushGatewayUrl
       });
       setStatus(updated);
       setTestNotificationResult(t.remote.settingsSavedSuccess);
@@ -988,6 +1001,31 @@ export const RemoteControlBadge: React.FC = () => {
                         className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0"
                       />
                       <span>{t.remote.requireApproval}</span>
+                    </label>
+
+                    <label className="flex items-start gap-2 text-slate-300 cursor-pointer" title={t.remote.sessionV2OnlyHint}>
+                      <input
+                        type="checkbox"
+                        data-testid="remote-v2-only"
+                        checked={sessionV2Only}
+                        onChange={(e) => setSessionV2Only(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0"
+                      />
+                      <span>
+                        {t.remote.sessionV2Only}
+                        <span className="block text-[11px] text-slate-500">{t.remote.sessionV2OnlyHint}</span>
+                      </span>
+                    </label>
+
+                    <label className="block text-slate-300">
+                      <span>{t.remote.pushGatewayUrl}</span>
+                      <input
+                        value={pushGatewayUrl}
+                        onChange={(e) => setPushGatewayUrl(e.target.value)}
+                        placeholder="https://push.example.com"
+                        className="mt-1 w-full px-2 py-1 rounded-md bg-slate-950 border border-slate-700 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                      />
+                      <span className="block text-[11px] text-slate-500">{t.remote.pushGatewayUrlHint}</span>
                     </label>
 
                     <label className="flex items-center gap-2 text-amber-300 cursor-pointer">

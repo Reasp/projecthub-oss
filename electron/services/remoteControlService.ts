@@ -179,6 +179,12 @@ interface DeviceTokenRecord {
 }
 
 /**
+ * Ответ хоста в режиме «только v2» (decision-116) на любой пакет v1 и на ключ в URL. Клиенты узнают его и не
+ * переподключаются: нужен клиент с v2 и ключом хоста из свежего QR.
+ */
+export const V2_REQUIRED_ERROR = 'This host accepts only protocol v2: update the app or pair again by QR';
+
+/**
  * Параметры, которыми с устройства можно было бы включить обход разрешений или auto-approve (decision-112 п. 6).
  * Ни один RPC их не принимает; запрос с ними отклоняется целиком, а не молча игнорируется.
  */
@@ -232,6 +238,8 @@ class RemoteControlService {
 
   /** Шлюз `ph-push` для FCM и APNs (decision-115); пустой — только UnifiedPush. */
   private pushGatewayUrl = '';
+  /** Только протокол v2 (decision-116): v1 с общим ключом отклоняется, в том числе ключ в URL и hub старых сборок. */
+  private sessionV2Only = false;
   private pushService = new RemotePushService(
     {
       now: () => Date.now(),
@@ -614,7 +622,7 @@ class RemoteControlService {
     const hostKey = this.getHostKey();
     return {
       sessionProtocol: v2 ? SESSION_PROTOCOL_V2 : SESSION_PROTOCOL_V1,
-      protocols: [...HOST_SESSION_PROTOCOLS],
+      protocols: this.sessionV2Only ? [SESSION_PROTOCOL_V2] : [...HOST_SESSION_PROTOCOLS],
       ...(hostKey ? { hostKey } : {})
     };
   }
@@ -675,6 +683,7 @@ class RemoteControlService {
         if (data.telegramBotUsername) this.telegramBotUsername = data.telegramBotUsername;
         if (data.telegramMiniAppUrl) this.telegramMiniAppUrl = data.telegramMiniAppUrl;
         if (typeof data.pushGatewayUrl === 'string') this.pushGatewayUrl = data.pushGatewayUrl;
+        if (typeof data.sessionV2Only === 'boolean') this.sessionV2Only = data.sessionV2Only;
       }
     } catch (err: any) {
       logger.warn(`[RemoteControl] Failed to load config: ${err?.message || err}`);
@@ -700,7 +709,8 @@ class RemoteControlService {
         telegramChatId: this.telegramChatId,
         telegramBotUsername: this.telegramBotUsername,
         telegramMiniAppUrl: this.telegramMiniAppUrl,
-        pushGatewayUrl: this.pushGatewayUrl
+        pushGatewayUrl: this.pushGatewayUrl,
+        sessionV2Only: this.sessionV2Only
       };
       writeFileSync(cfgPath, JSON.stringify(data, null, 2), 'utf8');
     } catch (err: any) {
@@ -872,8 +882,25 @@ class RemoteControlService {
       telegramBotUsername: this.telegramBotUsername,
       telegramMiniAppUrl: this.telegramMiniAppUrl || (this.tunnelUrl ? `${this.tunnelUrl}/telegram` : ''),
       endpoints: this.getPhoneEndpoints(),
-      pushGatewayUrl: this.pushGatewayUrl
+      pushGatewayUrl: this.pushGatewayUrl,
+      sessionV2Only: this.sessionV2Only
     };
+  }
+
+  /** Режим «только v2» включили: устройства на v1 отключаются с понятной ошибкой. */
+  private dropV1Sessions(): void {
+    for (const [deviceId, device] of this.connectedDevices.entries()) {
+      if (device.protocol === SESSION_PROTOCOL_V2) continue;
+      const conn = this.localClients.get(deviceId);
+      if (conn) {
+        try {
+          conn.ws.send(JSON.stringify({ type: 'error', error: V2_REQUIRED_ERROR }));
+          conn.ws.close(1008, 'v2 required');
+        } catch {
+          // сокет уже закрыт
+        }
+      }
+    }
   }
 
   // ── push (TASK-140.3, decision-115) ──
@@ -995,6 +1022,11 @@ class RemoteControlService {
     }
     if (patch.tunnelUrl !== undefined) {
       this.tunnelUrl = patch.tunnelUrl;
+    }
+    if (patch.sessionV2Only !== undefined) {
+      this.sessionV2Only = patch.sessionV2Only;
+      // Уже открытые сессии v1 закрываются сразу: режим действует не со следующего подключения, а сейчас.
+      if (this.sessionV2Only) this.dropV1Sessions();
     }
     if (patch.pushGatewayUrl !== undefined) {
       const url = patch.pushGatewayUrl.trim();
@@ -1795,6 +1827,13 @@ class RemoteControlService {
         return;
       }
 
+      // Ключ в URL — путь v1 (старые клиенты и hub прежних сборок): в режиме «только v2» не принимается.
+      if (this.sessionV2Only) {
+        ws.send(JSON.stringify({ type: 'error', error: V2_REQUIRED_ERROR }));
+        ws.close(1008, 'v2 required');
+        return;
+      }
+
       // Переподключение уже спаренного устройства — по его собственному токену, без PIN/ключа
       // (decision-5 п.5: per-device токены с отзывом вместо одного общего секрета навсегда).
       let issuedToken: string | null = null;
@@ -2281,6 +2320,10 @@ class RemoteControlService {
       } else if (this.sessionOf(deviceId, transport)) {
         // Сокет уже договорился о v2: пакет v1 на нём — попытка понизить версию, а не старый клиент.
         reply({ type: 'error', error: 'Protocol downgrade rejected' });
+        return;
+      } else if (this.sessionV2Only) {
+        // Режим «только v2» (decision-116): пакет общим ключом или открытым текстом не принимается.
+        reply({ type: 'error', error: V2_REQUIRED_ERROR });
         return;
       } else if ('e2ee' in parsed && parsed.e2ee) {
         isEncrypted = true;

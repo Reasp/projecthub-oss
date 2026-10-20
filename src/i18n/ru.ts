@@ -2813,6 +2813,10 @@ export const ru: TranslationDictionary = {
     wsRelayUrl: 'WebSocket Relay URL',
     useWsRelay: 'Использовать WebSocket Relay (для доступа из интернета без белого IP)',
     requireApproval: 'Требовать подтверждение хоста при первом подключении устройства',
+    sessionV2Only: 'Только защищённый протокол v2',
+    sessionV2OnlyHint: 'Клиенты по общему ключу (старые приложения, hub прежних версий) отклоняются. Телефоны без ключа хоста нужно сопрячь заново по QR.',
+    pushGatewayUrl: 'Шлюз push для FCM и APNs',
+    pushGatewayUrlHint: 'Адрес ph-push, например https://push.example.com. Пусто — push только через UnifiedPush (ntfy) на Android.',
     saveSettings: 'Сохранить настройки'
   },
   errorBoundary: {
@@ -3163,6 +3167,12 @@ export const ru: TranslationDictionary = {
     fieldAddressRelayHint: 'Адрес релея, например wss://relay.example.com',
     fieldSecretKey: 'Ключ шифрования хоста',
     fieldPin: 'PIN сопряжения',
+    fieldHostKey: 'Ключ хоста v2 (hk)',
+    fieldPairingLink: 'Ссылка сопряжения',
+    fieldPairingLinkHint: 'Вставьте ссылку из QR другого ПК — поля заполнятся сами',
+    pairingLinkInvalid: 'Это не ссылка сопряжения ProjectHub',
+    protocolV2: 'v2',
+    protocolV1: 'v1 — общий ключ',
     transportLan: 'Локальная сеть',
     transportRelay: 'Через релей',
     save: 'Подключиться',

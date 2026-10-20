@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { parsePeerPairingLink } from '../../utils/remotePairingLink';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -48,6 +49,7 @@ interface AddPeerForm {
   transport: FederationTransport;
   address: string;
   secretKey: string;
+  hostKey: string;
   pin: string;
 }
 
@@ -57,6 +59,7 @@ const emptyForm: AddPeerForm = {
   transport: 'lan',
   address: '',
   secretKey: '',
+  hostKey: '',
   pin: ''
 };
 
@@ -121,6 +124,7 @@ export const RemoteHostsModal: React.FC = () => {
       transport: form.transport,
       address: form.address.trim(),
       secretKey: form.secretKey.trim() || undefined,
+      hostKey: form.hostKey.trim() || undefined,
       pin: form.pin.trim() || undefined
     });
     setIsSubmitting(false);
@@ -434,6 +438,14 @@ export const RemoteHostsModal: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot[peer.status]}`} />
                           <span className="text-xs font-medium text-slate-200 truncate flex-1">{peer.machineName}</span>
+                          {peer.status === 'connected' && peer.sessionProtocol && (
+                            <span
+                              className={`text-[10px] px-1 rounded ${peer.sessionProtocol === 2 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}
+                              data-testid="peer-protocol"
+                            >
+                              {peer.sessionProtocol === 2 ? t.federation.protocolV2 : t.federation.protocolV1}
+                            </span>
+                          )}
                           {peer.transport === 'lan' ? (
                             <Wifi className="w-3 h-3 text-slate-500" />
                           ) : (
@@ -542,6 +554,32 @@ export const RemoteHostsModal: React.FC = () => {
             {isAdding ? (
               <div className="flex-1 overflow-y-auto p-5 space-y-3">
                 <h3 className="text-xs font-semibold text-slate-200">{t.federation.addPeerTitle}</h3>
+                <label className="block">
+                  <span className="text-[11px] text-slate-500">{t.federation.fieldPairingLink}</span>
+                  <input
+                    data-testid="peer-pairing-link"
+                    placeholder={t.federation.fieldPairingLinkHint}
+                    onChange={(e) => {
+                      const value = e.target.value.trim();
+                      if (!value) return;
+                      const parsed = parsePeerPairingLink(value);
+                      if (!parsed) {
+                        setFormError(t.federation.pairingLinkInvalid);
+                        return;
+                      }
+                      setFormError(null);
+                      setForm({
+                        ...form,
+                        hostId: parsed.hostId,
+                        transport: parsed.transport,
+                        address: parsed.address || form.address,
+                        secretKey: parsed.secretKey || form.secretKey,
+                        hostKey: parsed.hostKey || form.hostKey
+                      });
+                    }}
+                    className="mt-1 w-full px-2.5 py-1.5 rounded-md bg-ph-raised border border-slate-700 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                  />
+                </label>
                 {[
                   { key: 'hostId' as const, label: t.federation.fieldHostId },
                   { key: 'machineName' as const, label: t.federation.fieldMachineName }
@@ -575,6 +613,15 @@ export const RemoteHostsModal: React.FC = () => {
                     onChange={(e) => setForm({ ...form, address: e.target.value })}
                     placeholder={form.transport === 'lan' ? t.federation.fieldAddressLanHint : t.federation.fieldAddressRelayHint}
                     className="mt-1 w-full px-2.5 py-1.5 rounded-md bg-ph-raised border border-slate-700 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[11px] text-slate-500">{t.federation.fieldHostKey}</span>
+                  <input
+                    value={form.hostKey}
+                    onChange={(e) => setForm({ ...form, hostKey: e.target.value })}
+                    className="mt-1 w-full px-2.5 py-1.5 rounded-md bg-ph-raised border border-slate-700 font-mono text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500"
                   />
                 </label>
 

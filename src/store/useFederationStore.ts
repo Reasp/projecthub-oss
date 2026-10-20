@@ -93,6 +93,7 @@ interface FederationState {
     transport: FederationTransport;
     address: string;
     secretKey?: string;
+    hostKey?: string;
     pin?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   removePeer: (hostId: string) => Promise<void>;

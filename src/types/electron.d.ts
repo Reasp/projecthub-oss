@@ -1566,6 +1566,8 @@ export interface IElectronAPI {
     transport: FederationTransport;
     address: string;
     secretKey?: string;
+    /** Ключ сессий хоста (`hk` из ссылки сопряжения), TASK-166. */
+    hostKey?: string;
     pin?: string;
     autoConnect?: boolean;
   }) => Promise<FederationPeerState>;

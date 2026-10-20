@@ -2811,6 +2811,10 @@ export const en: TranslationDictionary = {
     wsRelayUrl: 'WebSocket Relay URL',
     useWsRelay: 'Use WebSocket Relay (for internet access without public IP)',
     requireApproval: 'Require host approval on first device connection',
+    sessionV2Only: 'Secure protocol v2 only',
+    sessionV2OnlyHint: 'Clients on the shared key (old apps, hubs of earlier versions) are refused. Phones without the host key must be paired again by QR.',
+    pushGatewayUrl: 'Push gateway for FCM and APNs',
+    pushGatewayUrlHint: 'ph-push address, e.g. https://push.example.com. Empty — push only via UnifiedPush (ntfy) on Android.',
     saveSettings: 'Save Settings'
   },
   errorBoundary: {
@@ -3161,6 +3165,12 @@ export const en: TranslationDictionary = {
     fieldAddressRelayHint: 'Relay address, e.g. wss://relay.example.com',
     fieldSecretKey: 'Host encryption key',
     fieldPin: 'Pairing PIN',
+    fieldHostKey: 'Host key v2 (hk)',
+    fieldPairingLink: 'Pairing link',
+    fieldPairingLinkHint: 'Paste the link from the other PC QR — the fields fill in',
+    pairingLinkInvalid: 'This is not a ProjectHub pairing link',
+    protocolV2: 'v2',
+    protocolV1: 'v1 — shared key',
     transportLan: 'Local network',
     transportRelay: 'Via relay',
     save: 'Connect',

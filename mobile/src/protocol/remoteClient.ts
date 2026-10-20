@@ -154,7 +154,15 @@ export function reconnectDelayMs(attempt: number): number {
  * упрётся в блокировку по частоте попыток) и отзыв устройства на ПК.
  */
 export function isFatalHostError(message: string): boolean {
-  return /Invalid pairing PIN or secret key|Too many failed attempts|Authentication failed|Rate limited/i.test(message);
+  return /Invalid pairing PIN or secret key|Too many failed attempts|Authentication failed|Rate limited|only protocol v2/i.test(message);
+}
+
+/** Хост в режиме «только v2» (decision-116), а у профиля нет ключа хоста или платформа без WebCrypto. */
+export const V2_REQUIRED_TEXT = 'Этот компьютер принимает только защищённый протокол v2. Сопрягите телефон с ним заново по QR-коду.';
+
+/** Понятный текст фатальной ошибки хоста; прочие — как есть. */
+export function fatalHostErrorText(message: string): string {
+  return /only protocol v2/i.test(message) ? V2_REQUIRED_TEXT : message;
 }
 
 /** Закрытие сокета хостом из списка устройств («Отключить» на ПК) — токен отозван. */
@@ -688,7 +696,7 @@ export class RemoteClient {
     }
     if (isFatalHostError(message)) {
       this.stopped = true;
-      this.update({ state: 'failed', error: message });
+      this.update({ state: 'failed', error: fatalHostErrorText(message) });
       socket.close();
       return;
     }

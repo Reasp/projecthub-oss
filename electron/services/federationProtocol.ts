@@ -31,11 +31,11 @@ export interface PeerConnectOptions {
 }
 
 /**
- * Строит URL сокета к удалённому хосту.
+ * Строит URL сокета к удалённому хосту. Секретов в URL нет (как у телефона, TASK-140.9): ключ, PIN и токен уходят
+ * первым зашифрованным пакетом `handshake` — в сессии v2 или общим ключом v1.
  *
- * LAN: клиент аутентифицируется query-параметрами (как мобильный клиент в `setupLocalWebSocketServer`).
- * Relay: в query только маршрутизация (`role=client&hostId=...`) — PIN/ключ/токен уходят
- * отдельным зашифрованным пакетом `handshake`, потому что релей чужой (decision-11 п.3).
+ * LAN: `?deviceId=…&auth=e2ee`, рукопожатие — сразу после открытия сокета.
+ * Relay: в query только маршрутизация (`role=client&hostId=...`), рукопожатие — после `relay_ack` (decision-11 п.3).
  */
 export function buildPeerSocketUrl(options: PeerConnectOptions): string {
   const base = normalizeWsBase(options.address);
@@ -50,11 +50,23 @@ export function buildPeerSocketUrl(options: PeerConnectOptions): string {
   }
 
   url.searchParams.set('deviceId', options.deviceId);
-  url.searchParams.set('name', options.deviceName);
-  if (options.secretKey) url.searchParams.set('key', options.secretKey);
-  if (options.deviceToken) url.searchParams.set('token', options.deviceToken);
-  else if (options.pin) url.searchParams.set('pin', options.pin);
+  url.searchParams.set('auth', 'e2ee');
   return url.toString();
+}
+
+/** Данные `handshake`: имя устройства и то, чем оно докажет право подключиться. */
+export function peerHandshakeData(options: Pick<PeerConnectOptions, 'deviceName' | 'secretKey' | 'pin' | 'deviceToken'>): Record<string, string> {
+  return {
+    name: options.deviceName,
+    ...(options.deviceToken ? { token: options.deviceToken } : {}),
+    ...(!options.deviceToken && options.pin ? { pin: options.pin } : {}),
+    ...(options.secretKey ? { key: options.secretKey } : {})
+  };
+}
+
+/** Ошибки хоста, после которых переподключаться бессмысленно: PIN, ключ, блокировка, «только v2». */
+export function isFatalPeerError(message: string): boolean {
+  return /Invalid pairing PIN or secret key|Too many failed attempts|only protocol v2|host_key_mismatch|bad_signature/i.test(message);
 }
 
 /** Приводит адрес (`host:port`, `http://…`, `ws://…`) к ws-URL без пути. */

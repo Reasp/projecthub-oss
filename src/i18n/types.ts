@@ -2606,6 +2606,10 @@ export interface TranslationDictionary {
     wsRelayUrl: string;
     useWsRelay: string;
     requireApproval: string;
+    sessionV2Only: string;
+    sessionV2OnlyHint: string;
+    pushGatewayUrl: string;
+    pushGatewayUrlHint: string;
     saveSettings: string;
   };
   errorBoundary: {
@@ -2917,6 +2921,12 @@ export interface TranslationDictionary {
     fieldAddressRelayHint: string;
     fieldSecretKey: string;
     fieldPin: string;
+    fieldHostKey: string;
+    fieldPairingLink: string;
+    fieldPairingLinkHint: string;
+    pairingLinkInvalid: string;
+    protocolV2: string;
+    protocolV1: string;
     transportLan: string;
     transportRelay: string;
     save: string;

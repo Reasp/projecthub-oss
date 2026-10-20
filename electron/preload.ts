@@ -866,6 +866,7 @@ const api: IElectronAPI = {
     transport: 'lan' | 'relay';
     address: string;
     secretKey?: string;
+    hostKey?: string;
     pin?: string;
     autoConnect?: boolean;
   }) => ipcRenderer.invoke('federation:addPeer', options),
