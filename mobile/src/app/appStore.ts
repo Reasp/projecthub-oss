@@ -3,6 +3,7 @@ import type {
   RemoteAgentOutput,
   RemoteAgentTaskApproval,
   RemoteEnrollment,
+  RemoteHitlDetail,
   RemotePendingAgentTask,
   RemoteHostStatus,
   RemotePendingApproval,
@@ -22,8 +23,10 @@ import { applyStudioChunk, emptyStudio, markRunning, type StudioMessage, type St
 import {
   addHitl,
   appendLog,
+  confirmErrorText,
   dropHitl,
   hitlFromEvent,
+  hitlConfirmPayload,
   hitlFromPending,
   hitlRejectReason,
   replaceHitl,
@@ -31,6 +34,8 @@ import {
   type HitlItem
 } from '../protocol/models';
 import type { ClientSnapshot, RpcMethod } from '../protocol/remoteClient';
+import type { ConfirmPort } from '../platform/types';
+import { uploadInChunks, type PreparedAttachment } from '../protocol/attachments';
 
 /**
  * Состояние экранов и действия мобильного клиента (TASK-140.1). Без React: экраны читают его
@@ -101,7 +106,9 @@ export class AppStore {
   constructor(
     private readonly client: RpcPort,
     private readonly prefs: PrefsPort = noopPrefs,
-    private readonly debounceMs = 400
+    private readonly debounceMs = 400,
+    /** Подпись решений `high` биометрией (TASK-140.6); только в приложении с нативным плагином. */
+    private readonly confirm: ConfirmPort | null = null
   ) {
     this.state = AppStore.initialState(client.getSnapshot());
     this.unsubscribers.push(
@@ -264,15 +271,54 @@ export class AppStore {
 
   /** Решение строго по `requestId` (TASK-57). Возвращает, принял ли его хост. */
   async decideHitl(requestId: string, approve: boolean, reason?: string): Promise<boolean> {
+    // Кнопка в открытом приложении (decision-112): хост сверит способ с классом риска запроса.
+    return this.sendHitlDecision(requestId, approve, { confirm: 'app', ...(reason ? { reason } : {}) });
+  }
+
+  /** Можно ли подписать решение биометрией: плагин есть, и хост знает ключ подтверждения этого сопряжения. */
+  canConfirmBiometric(): boolean {
+    return Boolean(this.confirm && this.state.conn.biometricConfirm && this.state.conn.deviceId);
+  }
+
+  /** Запрос целиком — команда и дифф — перед одобрением `high` (decision-114 п. 3). */
+  loadHitlDetail(requestId: string): Promise<RemoteHitlDetail | null> {
+    return this.call<RemoteHitlDetail>('get_hitl_detail', { requestId });
+  }
+
+  /**
+   * Одобрение с подписью ключом подтверждения (decision-112 п. 4): ОС спрашивает биометрию, ключ подписывает хост,
+   * запрос, решение и класс. Отмена биометрии — запрос остаётся в очереди.
+   */
+  async approveWithBiometric(requestId: string): Promise<boolean> {
+    const item = this.state.hitl.find((h) => h.requestId === requestId);
+    const hostId = this.state.conn.hostId || this.state.status?.hostId || '';
+    if (!item?.risk || !this.confirm || !this.canConfirmBiometric() || !hostId) {
+      this.showToast('Биометрия для этого компьютера не настроена: одобрите на ПК', 'error');
+      return false;
+    }
+    let proof: string;
+    try {
+      proof = await this.confirm.sign(this.state.conn.deviceId, hitlConfirmPayload(hostId, requestId, 'allow', item.risk), {
+        title: 'Одобрить действие агента',
+        subtitle: item.title.slice(0, 120),
+        description: item.command ? item.command.slice(0, 300) : (item.filePath ?? '')
+      });
+    } catch (err) {
+      const text = confirmErrorText(err);
+      if (text) this.showToast(text, 'error');
+      return false;
+    }
+    return this.sendHitlDecision(requestId, true, { confirm: 'biometric', proof });
+  }
+
+  private async sendHitlDecision(requestId: string, approve: boolean, extra: Record<string, unknown>): Promise<boolean> {
     const item = this.state.hitl.find((h) => h.requestId === requestId);
     this.set({ hitl: dropHitl(this.state.hitl, requestId) });
     const res = await this.call<{ ok: boolean; reason?: string }>('hitl_decision', {
       requestId,
       sessionId: item?.sessionId,
       decision: approve ? 'allow' : 'deny',
-      // Кнопка в открытом приложении (decision-112): хост сверит способ с классом риска запроса.
-      confirm: 'app',
-      ...(reason ? { reason } : {})
+      ...extra
     });
     if (!res) {
       // Ошибка доставки — запрос возвращается в очередь, решение можно повторить.
@@ -509,13 +555,26 @@ export class AppStore {
     this.setStudio({ mode });
   }
 
-  async sendPrompt(prompt: string): Promise<boolean> {
+  /** Вложение в промпт (TASK-140.6): файл сохраняется в проект на хосте, возвращается путь в проекте. */
+  async uploadAttachment(file: PreparedAttachment, onProgress?: (sent: number, total: number) => void): Promise<string | null> {
+    if (!this.state.projectPath) return null;
+    try {
+      return await uploadInChunks((params) => this.client.rpc('studio_attach', this.withProject(params)), file, onProgress);
+    } catch (err) {
+      this.showToast(`Вложение «${file.name}» не загружено: ${errorText(err)}`, 'error');
+      return null;
+    }
+  }
+
+  /** Промпт; `attachments` — пути уже загруженных вложений, хост допишет их в промпт для агента. */
+  async sendPrompt(prompt: string, attachments: readonly string[] = []): Promise<boolean> {
     const text = prompt.trim();
-    if (!text || !this.state.projectPath || this.state.studio.busy) return false;
+    if ((!text && attachments.length === 0) || !this.state.projectPath || this.state.studio.busy) return false;
     const studio = this.state.studio;
-    const userMsg: StudioMessage = { id: `u${Date.now()}`, role: 'user', text };
+    const shown = [text, ...attachments.map((p) => `📎 ${p.split('/').pop()}`)].filter(Boolean).join('\n');
+    const userMsg: StudioMessage = { id: `u${Date.now()}`, role: 'user', text: shown };
     const isNew = !studio.sessionId;
-    this.setStudio({ messages: [...studio.messages, userMsg], busy: true, ...(isNew ? { title: text.slice(0, 40) } : {}) });
+    this.setStudio({ messages: [...studio.messages, userMsg], busy: true, ...(isNew ? { title: shown.slice(0, 40) } : {}) });
     if (isNew) {
       this.awaitingNewSession = true;
       this.studioBuffer.clear();
@@ -524,6 +583,7 @@ export class AppStore {
       'studio_send',
       this.withProject({
         prompt: text,
+        ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
         ...(studio.sessionId ? { sessionId: studio.sessionId } : {}),
         ...(studio.selection ? { selection: studio.selection } : {}),
         mode: studio.mode

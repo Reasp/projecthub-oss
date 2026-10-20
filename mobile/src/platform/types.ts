@@ -26,6 +26,23 @@ export interface HostDefaults {
   mode?: RemoteConnectionMode;
 }
 
+/** Почему подпись подтверждения не получилась: отмена человеком или ключ, который больше не годится. */
+export type ConfirmErrorCode = 'cancelled' | 'lockout' | 'invalidated' | 'no_key' | 'unavailable' | 'failed';
+
+/**
+ * Ключ подтверждения решений HITL биометрией (TASK-140.6, [[decision-112]] п. 4, [[decision-114]]): ECDSA P-256 в
+ * Keystore/Secure Enclave, свой у каждого сопряжения (`id` — `deviceId` профиля). Закрытая часть не выходит из ОС.
+ */
+export interface ConfirmPort {
+  /** Есть ли сильная биометрия: без неё ключ не создаётся. */
+  status(): Promise<{ available: boolean; reason?: string }>;
+  /** Новый ключ сопряжения; прежний с тем же `id` заменяется. SPKI DER в base64url или `null`, если биометрии нет. */
+  createKey(id: string): Promise<string | null>;
+  /** Подпись строки после биометрии; ошибка — `ConfirmError`. Подпись DER в base64url. */
+  sign(id: string, payload: string, prompt: { title: string; subtitle?: string; description?: string }): Promise<string>;
+  deleteKey(id: string): Promise<void>;
+}
+
 export interface Platform {
   target: ClientTarget;
   deviceIdPrefix: string;
@@ -43,4 +60,6 @@ export interface Platform {
   cryptoAvailable(): boolean;
   /** Тёмные цвета шапки и фона у оболочки (Telegram). */
   applyChrome?: () => void;
+  /** Подпись решений `high` биометрией — только в приложении с нативным плагином. */
+  confirm?: ConfirmPort;
 }

@@ -135,11 +135,40 @@ export interface HitlItem {
 export const RISK_TEXT: Record<RemoteHitlRisk, string> = { low: 'низкий риск', moderate: 'средний риск', high: 'высокий риск' };
 
 /**
- * Можно ли одобрить запрос кнопкой в приложении (decision-112 п. 3): `high` — только с биометрией, которой у клиента
- * пока нет ([[TASK-140.6]]). Окончательно решает хост; клиент лишь не предлагает заведомо отклоняемое.
+ * Можно ли одобрить запрос кнопкой в приложении (decision-112 п. 3): `high` — только с биометрией (ключ подтверждения
+ * сопряжения, [[decision-114]]). Окончательно решает хост; клиент лишь не предлагает заведомо отклоняемое.
  */
 export function canApproveInApp(item: HitlItem, biometric = false): boolean {
   return item.risk !== 'high' || biometric;
+}
+
+/**
+ * Строка, которую подписывает ключ подтверждения (decision-112 п. 4). Та же, что `confirmProofPayload` хоста
+ * (`electron/services/hitlConfirmProof.ts`): хост, запрос, решение и класс — подпись не переносится на другой запрос.
+ */
+export function hitlConfirmPayload(hostId: string, requestId: string, decision: 'allow' | 'deny', risk: RemoteHitlRisk): string {
+  return ['projecthub-hitl-confirm-v1', hostId, requestId, decision, risk].join('\n');
+}
+
+/** Вид строки унифицированного диффа для подсветки. */
+export function diffLineKind(line: string): 'add' | 'del' | 'hunk' | 'meta' | 'context' {
+  if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff ') || line.startsWith('index ')) return 'meta';
+  if (line.startsWith('@@')) return 'hunk';
+  if (line.startsWith('+')) return 'add';
+  if (line.startsWith('-')) return 'del';
+  return 'context';
+}
+
+/** Текст ошибки биометрии; отмена человеком — `null`, без сообщения. */
+export function confirmErrorText(err: unknown): string | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === 'cancelled') return null;
+  if (code === 'lockout') return 'Биометрия заблокирована после неудачных попыток — разблокируйте телефон и повторите или одобрите на ПК';
+  if (code === 'invalidated' || code === 'no_key') {
+    return 'Ключ подтверждения больше не действует (изменили отпечатки или блокировку экрана). Сопрягите телефон с ПК заново по QR';
+  }
+  if (code === 'unavailable') return 'Биометрия недоступна на этом телефоне — одобрите на ПК';
+  return 'Не удалось подтвердить биометрией — одобрите на ПК';
 }
 
 export function hitlFromEvent(data: unknown): HitlItem | null {

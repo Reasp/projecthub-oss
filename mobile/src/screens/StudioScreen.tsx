@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  CameraIcon,
   CaretDownIcon,
   ChartBarIcon,
   CheckIcon,
@@ -8,12 +9,16 @@ import {
   LightningIcon,
   DesktopIcon,
   DeviceMobileIcon,
+  FileIcon,
+  ImageIcon,
   MagnifyingGlassIcon,
+  PaperclipIcon,
   PaperPlaneRightIcon,
   PlusIcon,
   SparkleIcon,
   StopIcon,
-  WrenchIcon
+  WrenchIcon,
+  XIcon
 } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import type { RemoteStudioSessionSummary, StudioMode } from '../../../src/types/remote';
@@ -32,6 +37,19 @@ import { Markdown } from '../components/Markdown';
 import { Button, EmptyState, SectionTitle, Sheet, Spinner } from '../components/ui';
 import { copyText } from '../platform/clipboard';
 import { capabilitiesFor } from '../protocol/models';
+import { ATTACH_MAX_PER_PROMPT, formatBytes } from '../protocol/attachments';
+import { prepareAttachment } from '../components/attachmentFile';
+
+/** Вложение в поле ввода: грузится сразу после выбора, в промпт уходит путь в проекте на хосте. */
+interface Attachment {
+  id: number;
+  name: string;
+  size: number;
+  progress: number;
+  path?: string;
+}
+
+let attachmentSeq = 0;
 
 /**
  * Agents Studio на ПК с телефона (TASK-140.10, decision-83): те же сессии, что во вкладках ProjectHub. Можно
@@ -48,8 +66,36 @@ export function StudioScreen() {
   const [modelOpen, setModelOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachMenu, setAttachMenu] = useState(false);
+  const cameraInput = useRef<HTMLInputElement>(null);
+  const galleryInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const suggestions = matchStudioCommands(text);
+  const uploading = attachments.some((a) => !a.path);
+  const ready = attachments.filter((a) => a.path).map((a) => a.path!);
+
+  // Фото и файлы в промпт (TASK-140.6): загружаются сразу, к отправке промпта уже лежат в проекте на хосте.
+  const addFiles = async (files: FileList | null) => {
+    setAttachMenu(false);
+    const picked = Array.from(files ?? []).slice(0, Math.max(0, ATTACH_MAX_PER_PROMPT - attachments.length));
+    for (const file of picked) {
+      const id = ++attachmentSeq;
+      setAttachments((prev) => [...prev, { id, name: file.name || 'файл', size: file.size, progress: 0 }]);
+      const prepared = await prepareAttachment(file).catch(() => null);
+      if (!prepared) {
+        store.showToast(`Не удалось прочитать «${file.name}»`, 'error');
+        setAttachments((prev) => prev.filter((a) => a.id !== id));
+        continue;
+      }
+      setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, name: prepared.name, size: prepared.bytes.length } : a)));
+      const path = await store.uploadAttachment(prepared, (sent, total) =>
+        setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, progress: sent / total } : a)))
+      );
+      setAttachments((prev) => (path ? prev.map((a) => (a.id === id ? { ...a, path, progress: 1 } : a)) : prev.filter((a) => a.id !== id)));
+    }
+  };
 
   // Лимиты для бейджа на кнопке Usage — из кэша хоста, без запуска `claude -p /usage` при каждом заходе.
   useEffect(() => {
@@ -87,9 +133,14 @@ export function StudioScreen() {
       return;
     }
     const value = text;
+    const sent = attachments;
     setText('');
-    const ok = await store.sendPrompt(value);
-    if (!ok) setText(value);
+    setAttachments([]);
+    const ok = await store.sendPrompt(value, ready);
+    if (!ok) {
+      setText(value);
+      setAttachments(sent);
+    }
   };
 
   if (!projectPath) return <EmptyState icon={<SparkleIcon size={40} />} title="Проект не выбран" />;
@@ -211,6 +262,49 @@ export function StudioScreen() {
           ))}
         </div>
       )}
+      {canWrite && (attachments.length > 0 || attachMenu) && (
+        <div className="border-t border-ph-line bg-ph-panel px-3 py-2">
+          {attachMenu && (
+            <div className="mb-2 flex gap-2">
+              <Button variant="secondary" size="sm" className="flex-1" onClick={() => cameraInput.current?.click()}>
+                <CameraIcon size={16} /> Камера
+              </Button>
+              <Button variant="secondary" size="sm" className="flex-1" onClick={() => galleryInput.current?.click()}>
+                <ImageIcon size={16} /> Фото
+              </Button>
+              <Button variant="secondary" size="sm" className="flex-1" onClick={() => fileInput.current?.click()}>
+                <FileIcon size={16} /> Файл
+              </Button>
+            </div>
+          )}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5" data-testid="studio-attachments">
+              {attachments.map((a) => (
+                <span key={a.id} className="flex max-w-full items-center gap-1 rounded-full border border-ph-line bg-ph-raised py-1 pl-2.5 pr-1 text-[12px]">
+                  <PaperclipIcon size={12} className="shrink-0 text-slate-400" />
+                  <span className="truncate">{a.name}</span>
+                  <span className="shrink-0 text-slate-500">{a.path ? formatBytes(a.size) : `${Math.round(a.progress * 100)}%`}</span>
+                  <button
+                    type="button"
+                    aria-label={`Убрать ${a.name}`}
+                    onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                    className="shrink-0 rounded-full p-1 text-slate-400 active:bg-ph-hover"
+                  >
+                    <XIcon size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {canWrite && (
+        <>
+          <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => void addFiles(e.target.files).finally(() => (e.target.value = ''))} />
+          <input ref={galleryInput} type="file" accept="image/*" multiple hidden onChange={(e) => void addFiles(e.target.files).finally(() => (e.target.value = ''))} />
+          <input ref={fileInput} type="file" multiple hidden data-testid="studio-file-input" onChange={(e) => void addFiles(e.target.files).finally(() => (e.target.value = ''))} />
+        </>
+      )}
       {canWrite ? (
         <div className="flex items-end gap-2 border-t border-ph-line bg-ph-chrome px-3 py-2">
           <button
@@ -225,6 +319,17 @@ export function StudioScreen() {
           >
             <LightningIcon size={22} />
           </button>
+          <button
+            type="button"
+            aria-label="Вложить фото или файл"
+            onClick={() => {
+              platform.haptic('selection');
+              setAttachMenu((v) => !v);
+            }}
+            className={clsx('-ml-2 mb-1 shrink-0 rounded-full p-2 active:bg-ph-hover', attachMenu ? 'text-indigo-300' : 'text-slate-300')}
+          >
+            <PaperclipIcon size={22} />
+          </button>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -237,7 +342,14 @@ export function StudioScreen() {
               <StopIcon size={20} weight="fill" />
             </Button>
           ) : (
-            <Button variant="primary" className="h-11 w-11 shrink-0 rounded-full !px-0" disabled={!text.trim()} haptic="medium" aria-label="Отправить" onClick={send}>
+            <Button
+              variant="primary"
+              className="h-11 w-11 shrink-0 rounded-full !px-0"
+              disabled={uploading || (!text.trim() && ready.length === 0)}
+              haptic="medium"
+              aria-label="Отправить"
+              onClick={send}
+            >
               <PaperPlaneRightIcon size={20} weight="fill" />
             </Button>
           )}

@@ -2,7 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { isCameraScanAvailable, scanQrWithCamera } from '../components/qrScanner';
 import { isWebCryptoAvailable } from '../protocol/webCodec';
-import { createCapacitorStore, type SecureStorePlugin } from './secureStore';
+import { createCapacitorStore, createConfirmPort, type SecureStorePlugin } from './secureStore';
 import type { HapticKind, Platform } from './types';
 
 /**
@@ -42,6 +42,7 @@ export function createCapacitorPlatform(): Platform {
     pageHostAddress: () => undefined,
     scanQr: isCameraScanAvailable() ? scanQrWithCamera : undefined,
     hostDefaults: () => ({}),
-    cryptoAvailable: () => isWebCryptoAvailable()
+    cryptoAvailable: () => isWebCryptoAvailable(),
+    confirm: createConfirmPort(secure) ?? undefined
   };
 }

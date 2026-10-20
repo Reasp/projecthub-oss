@@ -43,6 +43,25 @@ function createPrefs(): PrefsPort {
   };
 }
 
+/**
+ * Ключ подтверждения создаётся один раз на `deviceId` за запуск (TASK-140.6): перебор адресов при сопряжении не
+ * должен плодить ключи, а хост запомнит тот, что пришёл с PIN или ключом из QR.
+ */
+const confirmKeys = new Map<string, Promise<string | null>>();
+
+function confirmKeyFor(platform: Platform): ((deviceId: string) => Promise<string | null>) | undefined {
+  const confirm = platform.confirm;
+  if (!confirm) return undefined;
+  return (deviceId) => {
+    let key = confirmKeys.get(deviceId);
+    if (!key) {
+      key = confirm.createKey(deviceId);
+      confirmKeys.set(deviceId, key);
+    }
+    return key;
+  };
+}
+
 function makeClient(platform: Platform, onProfileChange: (p: HostProfile) => void): RemoteClient {
   return new RemoteClient({
     // Браузерный WebSocket совместим с SocketLike по поведению; типы обработчиков у DOM строже.
@@ -52,6 +71,7 @@ function makeClient(platform: Platform, onProfileChange: (p: HostProfile) => voi
     deviceName: platform.deviceName,
     // На HTTPS-странице (встроенный клиент через туннель, Mini App) ws:// в LAN — mixed content.
     secureOnly: typeof location !== 'undefined' && location.protocol === 'https:',
+    confirmKey: confirmKeyFor(platform),
     onProfileChange
   });
 }
@@ -86,7 +106,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       if (p.id) commit(updateProfile(listRef.current, p));
     })
   );
-  const [store] = useState(() => new AppStore(client, createPrefs()));
+  const [store] = useState(() => new AppStore(client, createPrefs(), undefined, platform.confirm ?? null));
   const [pool] = useState(
     () =>
       new HostPool(
@@ -172,7 +192,13 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
         const id = profileId ?? listRef.current.activeId;
         if (!id) return;
         const wasActive = id === listRef.current.activeId;
+        const removed = listRef.current.profiles.find((p) => p.id === id);
         const next = removeProfile(listRef.current, id);
+        // Ключ подтверждения принадлежит сопряжению: забытый компьютер им больше не проверит ничего.
+        if (removed?.deviceId && platform.confirm) {
+          confirmKeys.delete(removed.deviceId);
+          void platform.confirm.deleteKey(removed.deviceId);
+        }
         commit(next);
         if (!wasActive) return;
         client.disconnect();

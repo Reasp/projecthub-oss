@@ -62,6 +62,14 @@ import { actionConfigService, type ActionDefinition } from './actionConfigServic
 import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { hitlService } from './hitlService.js';
 import { confirmProofPayload, parseConfirmKey, verifyConfirmProof } from './hitlConfirmProof.js';
+import { fitsPhoneReview, hitlDetailForPhone } from './remoteHitlDetail.js';
+import {
+  AttachmentUploads,
+  parseAttachmentChunk,
+  promptWithAttachments,
+  resolvePromptAttachments,
+  writeAttachmentFile
+} from './studioAttachments.js';
 import { parseConfirmMethod } from './hitlRisk.js';
 import { agentTaskApproval } from './agentTaskApprovalInstance.js';
 import { assignedTaskRunner } from './assignedTaskRunner.js';
@@ -249,6 +257,8 @@ class RemoteControlService {
 
   /** Per-device токены выданные при сопряжении: deviceId -> запись (TASK-65). */
   private deviceTokens = new Map<string, DeviceTokenRecord>();
+  /** Вложения в промпт Studio, которые телефон шлёт частями (TASK-140.6, decision-114 п. 5). */
+  private attachmentUploads = new AttachmentUploads({ now: () => Date.now(), write: writeAttachmentFile });
   /** Rate-limit подбора PIN/ключа по IP (decision-5 п.5). */
   private pinAttempts = new Map<string, { count: number; lockedUntil: number }>();
   /** Кольцевой буфер последних событий для догона по `lastEventId` (decision-11 п.6). */
@@ -495,6 +505,7 @@ class RemoteControlService {
       }
     }
     if (removed.length > 0) this.persistDeviceTokens().catch(() => {});
+    for (const id of removed) this.attachmentUploads.dropDevice(id);
     return removed;
   }
 
@@ -2194,6 +2205,7 @@ class RemoteControlService {
               protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
               rights: device.rights,
               lastEventId: this.eventLogNextId - 1,
+              ...(existingRecord.confirmKey ? { biometricConfirm: true } : {}),
               ...endpointsInfo,
               ...protocolInfo
             }
@@ -2236,6 +2248,7 @@ class RemoteControlService {
             rights: issued.rights,
             deviceToken: issued.token,
             lastEventId: this.eventLogNextId - 1,
+            ...(issued.confirmKey ? { biometricConfirm: true } : {}),
             ...endpointsInfo,
             ...protocolInfo
           }
@@ -2384,6 +2397,7 @@ class RemoteControlService {
       'start_assigned_agent',
       'stop_swarm',
       'studio_send',
+      'studio_attach',
       'studio_abort',
       'studio_clear',
       // Выдача токена новому устройству — действие владельца хоста, только с правами full (decision-111).
@@ -2409,6 +2423,10 @@ class RemoteControlService {
       if (rights === 'hitl' && method !== 'hitl_decision' && method !== 'approve_agent_tasks') {
         throw new Error(`Method ${method} is forbidden for this device (hitl-only rights)`);
       }
+    }
+    // Дифф запроса — код проекта: его видит только тот, кто может решать (decision-114 п. 3).
+    if (method === 'get_hitl_detail' && (device.rights ?? 'full') === 'readOnly') {
+      throw new Error(`Method ${method} is forbidden for this device (readOnly rights)`);
     }
 
     const activePath = params.projectPath || this.activeProjectPath;
@@ -2563,8 +2581,10 @@ class RemoteControlService {
         if (confirm === 'biometric') {
           const pendingRequest = hitlService.getPending(requestId);
           const record = this.deviceTokens.get(device.id);
+          // Усечённый на телефоне дифф биометрией не одобряется: человек подтвердил бы то, чего не видел.
           confirmVerified = Boolean(
             pendingRequest?.risk &&
+              (!approved || fitsPhoneReview(pendingRequest)) &&
               record?.confirmKey &&
               verifyConfirmProof(record.confirmKey, confirmProofPayload(this.hostId, requestId, approved ? 'allow' : 'deny', pendingRequest.risk), params.proof)
           );
@@ -2729,7 +2749,9 @@ class RemoteControlService {
       case 'studio_send': {
         const projectPath = String(params.projectPath || activePath || '');
         await assertRegisteredProject(projectPath);
-        const text = typeof params.prompt === 'string' ? params.prompt.trim() : '';
+        // Вложения — файлы, уже сохранённые в проект через `studio_attach`: агент получает их пути.
+        const attachments = await resolvePromptAttachments(projectPath, params.attachments);
+        const text = promptWithAttachments(typeof params.prompt === 'string' ? params.prompt : '', attachments);
         if (!text) throw new Error('prompt is required');
         if (text.length > 100_000) throw new Error('Промпт слишком длинный');
         const sessionId = typeof params.sessionId === 'string' && params.sessionId ? params.sessionId : undefined;
@@ -2744,6 +2766,12 @@ class RemoteControlService {
         });
         if (!reply.ok || !reply.sessionId) throw new Error(reply.error || 'Agents Studio не приняла промпт');
         return { sessionId: reply.sessionId, accepted: true };
+      }
+
+      // Часть вложения к промпту (TASK-140.6): файл пишется в `.projecthub/attachments/` проекта, когда пришёл целиком.
+      case 'studio_attach': {
+        const projectPath = await assertRegisteredProject(String(params.projectPath || activePath || ''));
+        return await this.attachmentUploads.put(device.id, projectPath, parseAttachmentChunk(params));
       }
 
       case 'studio_abort': {
@@ -2843,6 +2871,15 @@ class RemoteControlService {
       case 'get_events_since': {
         const sinceId = Number(params.sinceId) || 0;
         return { events: this.eventLog.filter((e) => e.id > sinceId), lastEventId: this.eventLogNextId - 1 };
+      }
+
+      // Полный запрос перед одобрением с телефона (TASK-140.6): команда целиком и дифф, только пока запрос ждёт.
+      case 'get_hitl_detail': {
+        const requestId = typeof params.requestId === 'string' ? params.requestId : '';
+        if (!requestId) throw new Error('requestId is required');
+        const pendingRequest = hitlService.getPending(requestId);
+        if (!pendingRequest) throw new Error('Запрос не найден — возможно, уже решён');
+        return hitlDetailForPhone(pendingRequest);
       }
 
       case 'get_pending_approvals': {

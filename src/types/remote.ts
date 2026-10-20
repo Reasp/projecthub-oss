@@ -239,6 +239,8 @@ export type RemoteRpcMethod =
   | 'send_ai_prompt'
   | 'hitl_decision'
   | 'get_pending_approvals'
+  // Полный запрос HITL с диффом перед одобрением биометрией (TASK-140.6, decision-114)
+  | 'get_hitl_detail'
   | 'run_action'
   | 'get_federation_hosts'
   | 'get_events_since'
@@ -254,6 +256,8 @@ export type RemoteRpcMethod =
   | 'studio_list_sessions'
   | 'studio_get_session'
   | 'studio_send'
+  // Вложение в промпт частями: файл сохраняется в проект на хосте (TASK-140.6, decision-114)
+  | 'studio_attach'
   | 'studio_abort'
   | 'studio_clear'
   | 'studio_get_usage'
@@ -488,6 +492,22 @@ export interface RemotePendingApproval {
   orphaned?: boolean;
 }
 
+/** Ответ `get_hitl_detail` (TASK-140.6, decision-114): запрос целиком — то, что человек одобряет биометрией. */
+export interface RemoteHitlDetail {
+  requestId: string;
+  title: string;
+  tool?: string;
+  risk?: RemoteHitlRisk;
+  riskReason?: string;
+  /** Команда целиком, без усечения. */
+  command?: string;
+  filePath?: string;
+  details?: string;
+  detailsTruncated?: boolean;
+  /** Унифицированный дифф; у нового файла — его строки с `+`. `truncated` — на телефоне не одобряется. */
+  diff?: { filePath: string; patch: string; truncated: boolean };
+}
+
 /** Задача агента, ждущая подтверждения человека (`get_pending_agent_tasks`, TASK-155). */
 export interface RemotePendingAgentTask {
   projectPath: string;
@@ -523,6 +543,8 @@ export interface RemoteHandshakeAck {
   protocols?: number[];
   /** Ключ сессий хоста в base64url: клиент v1 закрепляет его и переходит на v2. */
   hostKey?: string;
+  /** У устройства зарегистрирован ключ подтверждения (decision-112 п. 4): решение `high` подписывается биометрией. */
+  biometricConfirm?: boolean;
 }
 
 export interface RemoteEventPayloads {

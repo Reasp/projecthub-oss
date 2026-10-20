@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CheckIcon, ListChecksIcon, ShieldCheckIcon, TrayIcon, XIcon } from '@phosphor-icons/react';
+import { CheckIcon, FingerprintIcon, ListChecksIcon, ShieldCheckIcon, TrayIcon, XIcon } from '@phosphor-icons/react';
+import { HitlReviewSheet } from './HitlReviewSheet';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../components/ui';
 import { Screen } from '../components/Screen';
@@ -9,9 +10,19 @@ function projectName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
+/** Почему нет кнопки для `high`: в браузере биометрии нет вовсе, в приложении ключ регистрируется при сопряжении по QR. */
+function highRiskHint(app: boolean): string {
+  return app
+    ? 'Высокий риск: одобрить можно на ПК. Чтобы одобрять отпечатком, включите его в телефоне и сопрягите с ПК заново по QR'
+    : 'Высокий риск: одобрить можно на ПК или в приложении с биометрией';
+}
+
 function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
   const { store, platform } = useServices();
   const [busy, setBusy] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  // Подписка на соединение: кнопка появляется, как только хост подтвердит ключ подтверждения этого сопряжения.
+  const biometric = useAppState((s) => s.conn.biometricConfirm) && store.canConfirmBiometric();
   const decide = async (approve: boolean) => {
     setBusy(true);
     platform.haptic(approve ? 'success' : 'warning');
@@ -53,13 +64,19 @@ function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
             <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => decide(true)}>
               <CheckIcon size={18} /> Одобрить
             </Button>
+          ) : canApproveInApp(item, biometric) ? (
+            // Высокий риск: сначала запрос целиком, затем биометрия (decision-114).
+            <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => setReviewing(true)}>
+              <FingerprintIcon size={18} /> <span data-testid="hitl-review-open">Проверить и одобрить</span>
+            </Button>
           ) : (
-            <div className="flex-1 self-center text-[12px] leading-snug text-slate-400">Высокий риск: одобрить можно на ПК или в приложении с биометрией</div>
+            <div className="flex-1 self-center text-[12px] leading-snug text-slate-400">{highRiskHint(platform.confirm !== undefined)}</div>
           )}
         </div>
       ) : (
         <div className="mt-2 text-[12px] text-slate-400">У этого устройства нет права на решения — решите на ПК.</div>
       )}
+      {reviewing && <HitlReviewSheet item={item} open={reviewing} onClose={() => setReviewing(false)} />}
     </Card>
   );
 }

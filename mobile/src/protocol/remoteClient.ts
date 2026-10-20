@@ -99,6 +99,10 @@ export interface ClientSnapshot {
   retryInMs: number | null;
   /** Версия текущей сессии: 2 — forward secrecy, 1 — общий ключ; `null` до рукопожатия. */
   protocol: number | null;
+  /** `deviceId` профиля — им же назван ключ подтверждения в Keystore. */
+  deviceId: string;
+  /** Хост знает ключ подтверждения этого устройства: решение `high` можно подписать биометрией (decision-114). */
+  biometricConfirm: boolean;
 }
 
 /** Метод мобильного клиента — тот же набор, что объявлен в `RemoteRpcMethod`. */
@@ -127,6 +131,11 @@ export interface RemoteClientOptions {
    * вернулся домой — связь переходит на локальную сеть. 0 — не проверять.
    */
   upgradeProbeMs?: number;
+  /**
+   * Открытый ключ подтверждения для первого сопряжения (TASK-140.6, decision-112 п. 4): платформа создаёт ключ с
+   * биометрией под `deviceId`. Хост принимает его только вместе с PIN или ключом из QR, поэтому по токену не шлём.
+   */
+  confirmKey?: (deviceId: string) => Promise<string | null | undefined>;
 }
 
 /** После неудачного перехода на адрес лучше не пробовать его снова столько, мс. */
@@ -267,7 +276,8 @@ export function handshakeErrorMessage(err: unknown): string {
 }
 
 export class RemoteClient {
-  private readonly opts: Required<Omit<RemoteClientOptions, 'onProfileChange' | 'v2'>> & Pick<RemoteClientOptions, 'onProfileChange' | 'v2'>;
+  private readonly opts: Required<Omit<RemoteClientOptions, 'onProfileChange' | 'v2' | 'confirmKey'>> &
+    Pick<RemoteClientOptions, 'onProfileChange' | 'v2' | 'confirmKey'>;
   private profile: HostProfile | null = null;
   private codec: PacketCodec | null = null;
   /** Сессия v2 текущего сокета и начатое на нём рукопожатие. */
@@ -298,7 +308,9 @@ export class RemoteClient {
     endpoint: null,
     lastEventId: 0,
     retryInMs: null,
-    protocol: null
+    protocol: null,
+    deviceId: '',
+    biometricConfirm: false
   };
   /** Адреса текущего цикла перебора и номер пробуемого. */
   private candidates: RemoteEndpoint[] = [];
@@ -520,6 +532,7 @@ export class RemoteClient {
       route: endpoint.kind,
       endpoint: describeEndpoint(endpoint),
       hostId: profile.hostId,
+      deviceId: profile.deviceId,
       retryInMs: null,
       protocol: null
     });
@@ -701,6 +714,11 @@ export class RemoteClient {
     if (profile.key) data.key = profile.key;
     if (profile.pin) data.pin = profile.pin;
     if (profile.deviceToken) data.token = profile.deviceToken;
+    else if ((profile.key || profile.pin) && this.opts.confirmKey) {
+      const confirmKey = await this.opts.confirmKey(profile.deviceId).catch(() => null);
+      if (this.socket !== socket) return;
+      if (confirmKey) data.confirmKey = confirmKey;
+    }
     try {
       await this.sendEncrypted(socket, { type: 'handshake', data });
     } catch (err) {
@@ -789,7 +807,8 @@ export class RemoteClient {
       hostId: profile.hostId,
       rights: ack.rights ?? profile.rights ?? null,
       readOnly: Boolean(ack.readOnly),
-      protocol: this.session ? SESSION_PROTOCOL_V2 : SESSION_PROTOCOL_V1
+      protocol: this.session ? SESSION_PROTOCOL_V2 : SESSION_PROTOCOL_V1,
+      biometricConfirm: ack.biometricConfirm === true
     });
 
     if (ack.approved === false) {
