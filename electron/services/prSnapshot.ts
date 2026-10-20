@@ -25,7 +25,27 @@ export interface PrProjectSnapshot {
   /** Когда проект впервые опрошен: с этого момента PR сравниваются, а не принимаются как данность. */
   baselineAt: number;
   updatedAt: number;
+  /**
+   * PR, пропавшие из открытых, состояние которых ещё не узнали (TASK-138.5): номер → число неудачных
+   * запросов. Переживает перезапуск: слияние, пока не было сети, всё равно будет замечено.
+   */
+  closing?: Record<string, number>;
 }
+
+/** Состояние PR, пропавшего из открытых: слит, закрыт или всё ещё открыт (вышел за лимит списка). */
+export interface PrStateInfo {
+  number: number;
+  state: 'OPEN' | 'MERGED' | 'CLOSED';
+  title: string;
+  url: string;
+  headRef: string;
+  baseRef: string;
+  author?: string;
+}
+
+/** Сколько пропавших PR проверяется за один опрос проекта и сколько раз подряд можно не получить ответ. */
+export const MAX_CLOSE_CHECKS_PER_POLL = 5;
+export const MAX_CLOSE_CHECK_FAILURES = 3;
 
 export type PrChangeReason = 'new' | 'commits' | 'ready';
 
@@ -73,8 +93,9 @@ export function parseGhPrList(raw: string): PrInfo[] {
 
 /**
  * Что изменилось с прошлого опроса. Первый опрос проекта — только базовая линия: уже открытые PR
- * событий не дают, иначе включение правила запустило бы ревью всех старых PR разом. Закрытые PR
- * просто выпадают из снимка; повторно открытый PR снова даст `opened`.
+ * событий не дают, иначе включение правила запустило бы ревью всех старых PR разом. Пропавшие из
+ * открытых PR переходят в `closing`: их состояние наблюдатель узнаёт отдельным запросом (TASK-138.5).
+ * Повторно открытый PR снова даст `opened`.
  */
 export function diffPrSnapshot(
   prev: PrProjectSnapshot | undefined,
@@ -85,6 +106,11 @@ export function diffPrSnapshot(
   for (const pr of current) prs[String(pr.number)] = { headSha: pr.headSha, draft: pr.draft };
   const next: PrProjectSnapshot = { prs, baselineAt: prev?.baselineAt ?? now, updatedAt: now };
   if (!prev) return { changes: [], next };
+
+  const closing: Record<string, number> = {};
+  for (const [n, failures] of Object.entries(prev.closing ?? {})) if (!prs[n]) closing[n] = failures;
+  for (const n of Object.keys(prev.prs)) if (!prs[n] && closing[n] === undefined) closing[n] = 0;
+  if (Object.keys(closing).length) next.closing = closing;
 
   const changes: PrChange[] = [];
   for (const pr of current) {

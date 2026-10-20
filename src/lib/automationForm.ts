@@ -16,6 +16,7 @@ export const AUTOMATION_EVENTS: AutomationEventTrigger[] = [
   'pr.checksFailed',
   'pr.opened',
   'pr.updated',
+  'pr.merged',
   'device.connected'
 ];
 

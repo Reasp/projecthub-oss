@@ -31,6 +31,8 @@ export type NotificationKind =
   | 'processCrashed'
   | 'prCreated'
   | 'prChecksFailed'
+  /** PR слит; задачи переведены по настройке проекта (TASK-138.5). */
+  | 'prMerged'
   | 'deviceConnected'
   /** Слот переключил модель по fallback-цепочке тира (decision-44). */
   | 'modelFallback'
@@ -51,6 +53,7 @@ export const NOTIFICATION_KINDS: NotificationKind[] = [
   'processCrashed',
   'prCreated',
   'prChecksFailed',
+  'prMerged',
   'deviceConnected',
   'modelFallback',
   'automation',

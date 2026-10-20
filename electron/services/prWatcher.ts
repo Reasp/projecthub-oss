@@ -2,12 +2,22 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import type { AppBusEvent } from './hitlTypes.js';
 import { normalizePathKey } from './automationRules.js';
-import { diffPrSnapshot, type PrInfo, type PrProjectSnapshot } from './prSnapshot.js';
+import {
+  MAX_CLOSE_CHECK_FAILURES,
+  MAX_CLOSE_CHECKS_PER_POLL,
+  diffPrSnapshot,
+  type PrInfo,
+  type PrProjectSnapshot,
+  type PrStateInfo
+} from './prSnapshot.js';
 
 /**
- * Опрос открытых PR для событий `pr:opened` / `pr:updated` (TASK-81, decision-53 п. 1).
+ * Опрос открытых PR для событий `pr:opened` / `pr:updated` (TASK-81, decision-53 п. 1) и `pr:merged`
+ * (TASK-138.5): PR пропал из открытых — один запрос его состояния; слит — задачи переводятся по
+ * настройке проекта, событие уходит в шину.
  *
- * Опрашиваются только проекты, которым это нужно (их задаёт движок Automations). Снимок хранится в
+ * Опрашиваются только проекты, которым это нужно: их задают движок Automations и настройка перевода
+ * задач при слиянии, каждый своим источником. Снимок хранится в
  * `<userData>/pr-watch.json`, поэтому PR, открытый при закрытом приложении, даёт событие при
  * следующем запуске. Нет `gh`, авторизации или сети — проект встаёт на паузу с растущим интервалом
  * и одной записью в лог на смену состояния, а не падает на каждом опросе.
@@ -17,8 +27,18 @@ export const PR_POLL_INTERVAL_MS = 3 * 60 * 1000;
 export const PR_POLL_MAX_BACKOFF_MS = 30 * 60 * 1000;
 export const PR_WATCH_FILE = 'pr-watch.json';
 
+/** Результат перевода задач слитого PR (TASK-138.5). */
+export interface PrMergeOutcome {
+  taskIds: string[];
+  movedTasks: Array<{ taskId: string; from: string; to: string }>;
+}
+
 export interface PrWatcherDeps {
   listOpenPrs(projectRoot: string): Promise<PrInfo[]>;
+  /** Состояние PR, пропавшего из открытых. Без него пропавшие PR не проверяются. */
+  getPrState?(projectRoot: string, number: number): Promise<PrStateInfo>;
+  /** Слитый PR: перевести связанные задачи. Вызывается до публикации `pr:merged`. */
+  onMerged?(projectRoot: string, pr: PrStateInfo): Promise<PrMergeOutcome>;
   publish(event: AppBusEvent): void;
   stateDir: string;
   now(): number;
@@ -37,6 +57,8 @@ export function prPollBackoffMs(failures: number): number {
 }
 
 export class PrWatcher {
+  /** Источник (Automations, настройка слияния) → наблюдаемые им проекты. */
+  private sources = new Map<string, Map<string, string>>();
   private roots = new Map<string, string>();
   private snapshots: Record<string, PrProjectSnapshot> = {};
   private backoff = new Map<string, Backoff>();
@@ -73,9 +95,11 @@ export class PrWatcher {
     });
   }
 
-  /** Набор наблюдаемых проектов. Пустой — таймер останавливается. */
-  public setProjects(roots: string[]): void {
-    const next = new Map(roots.filter(Boolean).map((r) => [normalizePathKey(r), r]));
+  /** Проекты одного источника; наблюдаются проекты всех источников. Пусто у всех — таймер останавливается. */
+  public setProjects(roots: string[], source = 'automations'): void {
+    this.sources.set(source, new Map(roots.filter(Boolean).map((r) => [normalizePathKey(r), r])));
+    const next = new Map<string, string>();
+    for (const map of this.sources.values()) for (const [k, r] of map) if (!next.has(k)) next.set(k, r);
     const added = [...next.keys()].some((k) => !this.roots.has(k));
     this.roots = next;
     if (!this.roots.size) {
@@ -134,6 +158,7 @@ export class PrWatcher {
     }
     const { changes, next } = diffPrSnapshot(this.snapshots[key], prs, now);
     this.snapshots[key] = next;
+    await this.checkClosed(root, next);
     for (const change of changes) {
       const base = {
         projectPath: root,
@@ -154,6 +179,65 @@ export class PrWatcher {
       );
     }
     return true;
+  }
+
+  /**
+   * PR, пропавшие из открытых: один запрос состояния на PR. Слит — перевод задач и `pr:merged`; закрыт
+   * или всё ещё открыт (вышел за лимит списка) — забыть. Нет ответа — повтор на следующих опросах.
+   */
+  private async checkClosed(root: string, snapshot: PrProjectSnapshot): Promise<void> {
+    const closing = snapshot.closing;
+    if (!closing) return;
+    if (!this.deps.getPrState) {
+      delete snapshot.closing;
+      return;
+    }
+    for (const n of Object.keys(closing).slice(0, MAX_CLOSE_CHECKS_PER_POLL)) {
+      let pr: PrStateInfo;
+      try {
+        pr = await this.deps.getPrState(root, Number(n));
+      } catch (err) {
+        const failures = closing[n] + 1;
+        if (failures < MAX_CLOSE_CHECK_FAILURES) {
+          closing[n] = failures;
+          continue;
+        }
+        delete closing[n];
+        const message = (err instanceof Error ? err.message : String(err)).split('\n')[0].slice(0, 300);
+        this.deps.log('warn', `[PrWatcher] ${root}: состояние PR #${n} не получено (${message}); слияние не обработано`);
+        continue;
+      }
+      delete closing[n];
+      if (pr.state === 'MERGED') await this.publishMerged(root, pr);
+    }
+    if (!Object.keys(closing).length) delete snapshot.closing;
+  }
+
+  private async publishMerged(root: string, pr: PrStateInfo): Promise<void> {
+    let outcome: PrMergeOutcome = { taskIds: [], movedTasks: [] };
+    if (this.deps.onMerged) {
+      try {
+        outcome = await this.deps.onMerged(root, pr);
+      } catch (err) {
+        this.deps.log('warn', `[PrWatcher] ${root}: задачи PR #${pr.number} не переведены (${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
+    for (const moved of outcome.movedTasks) {
+      this.deps.log('info', `[PrWatcher] ${root}: PR #${pr.number} слит, ${moved.taskId}: ${moved.from} → ${moved.to}`);
+    }
+    this.deps.publish({
+      type: 'pr:merged',
+      projectPath: root,
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      headRef: pr.headRef,
+      baseRef: pr.baseRef,
+      ...(pr.author ? { author: pr.author } : {}),
+      taskIds: outcome.taskIds,
+      movedTasks: outcome.movedTasks,
+      at: this.deps.now()
+    });
   }
 
   /** Состояние для UI и тестов. */

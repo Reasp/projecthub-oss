@@ -296,6 +296,7 @@ const api: IElectronAPI = {
   setPRConnection: (projectPath: string, connectionId: string | null) =>
     ipcRenderer.invoke('pr:setConnection', projectPath, connectionId),
   importPRCliLogin: (projectPath: string) => ipcRenderer.invoke('pr:importCliLogin', projectPath),
+  setPRMergeStatus: (projectPath: string, status: string | null) => ipcRenderer.invoke('pr:setMergeStatus', projectPath, status),
   getTaskPullRequests: (projectPath: string, taskId: string) => ipcRenderer.invoke('pr:forTask', projectPath, taskId),
 
   // Interactive PTY Terminals (Claude Code & Multi-tab Shell)

@@ -331,13 +331,13 @@ export class AutomationEngine {
     this.deps.prEvents.setProjects(this.prWatchRoots());
   }
 
-  /** Проекты, PR которых надо опрашивать: включённые правила с триггерами `pr.opened` / `pr.updated`. */
+  /** Проекты, PR которых надо опрашивать: включённые правила с триггерами `pr.opened` / `pr.updated` / `pr.merged`. */
   private prWatchRoots(): string[] {
     const roots = new Set<string>();
     const open = this.deps.getOpenProject();
     for (const entry of this.activeEntries()) {
       const t = entry.rule.trigger;
-      if (t.kind !== 'event' || (t.event !== 'pr.opened' && t.event !== 'pr.updated')) continue;
+      if (t.kind !== 'event' || (t.event !== 'pr.opened' && t.event !== 'pr.updated' && t.event !== 'pr.merged')) continue;
       if (entry.scope.kind === 'project' && entry.scope.projectRoot) roots.add(entry.scope.projectRoot);
       else if (entry.rule.conditions.projects?.length) for (const p of entry.rule.conditions.projects) roots.add(this.resolveProjectRoot(p) ?? p);
       else if (open) roots.add(open);

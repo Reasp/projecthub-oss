@@ -973,6 +973,9 @@ export interface TranslationDictionary {
     viaConnection: string;
     viaCli: string;
     connectionAuto: string;
+    mergeStatusOff: string;
+    mergeStatusLabel: string;
+    mergeStatusTitle: string;
     connectionSelectTitle: string;
     noBackend: string;
     needsReauth: string;
@@ -1195,6 +1198,7 @@ export interface TranslationDictionary {
       | 'pr.checksFailed'
       | 'pr.opened'
       | 'pr.updated'
+      | 'pr.merged'
       | 'device.connected',
       string
     >;
@@ -2795,6 +2799,7 @@ export interface TranslationDictionary {
       | 'modelFallback'
       | 'automation'
       | 'prReview'
+      | 'prMerged'
       | 'securityFinding'
       | 'agentTask',
       string

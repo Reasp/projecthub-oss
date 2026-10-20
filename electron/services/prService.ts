@@ -10,7 +10,7 @@ import { findTaskFile } from './taskFileLookup.js';
 import { normalizeFrontmatter, withUpdatedDate } from './backlogTaskFormat.js';
 import { appEventBus } from './eventBus.js';
 import os from 'node:os';
-import { parseGhPrList, type PrInfo } from './prSnapshot.js';
+import { parseGhPrList, type PrInfo, type PrStateInfo } from './prSnapshot.js';
 import { ghCommentArgs } from './prReviewFormat.js';
 import { findConnectionService } from './connectionCatalog.js';
 import type { ConnectionInput, ConnectionStatus, ConnectionUsage } from './connectionTypes.js';
@@ -72,6 +72,16 @@ export interface PrServiceDeps {
 }
 
 export const PR_HOSTING_STATE_VERSION = 1;
+
+/**
+ * Настройки PR проекта в `pr-hosting.json`: подключение (TASK-138.2) и статус, в который слияние PR
+ * переводит задачу из `Review` (TASK-138.5). `path` — исходный путь проекта для опроса PR.
+ */
+interface ProjectPrSettings {
+  connectionId?: string;
+  mergeStatus?: string;
+  path?: string;
+}
 const MAX_TASK_PRS = 5;
 
 type Backend =
@@ -114,7 +124,8 @@ function errorText(err: unknown): string {
 
 export class PRService {
   private readonly deps: PrServiceDeps;
-  private choices: Record<string, string> | null = null;
+  private settings: Record<string, ProjectPrSettings> | null = null;
+  private readonly mergeSettingsListeners = new Set<() => void>();
   /** Какое подключение использовал проект в последний раз — для окна «Подключения». */
   private readonly usedConnections = new Map<string, { connectionId: string; label: string }>();
 
@@ -149,46 +160,81 @@ export class PRService {
 
   // ─────────────── Выбор подключения проекта ───────────────
 
-  private async loadChoices(): Promise<Record<string, string>> {
-    if (this.choices) return this.choices;
+  private async loadSettings(): Promise<Record<string, ProjectPrSettings>> {
+    if (this.settings) return this.settings;
     const file = this.deps.statePath?.();
-    let projects: Record<string, string> = {};
+    const projects: Record<string, ProjectPrSettings> = {};
     if (file) {
       try {
-        const fields = stateFields(JSON.parse(await fs.readFile(file, 'utf-8')), PR_HOSTING_STATE_VERSION);
-        const raw = fields.projects;
+        const raw = stateFields(JSON.parse(await fs.readFile(file, 'utf-8')), PR_HOSTING_STATE_VERSION).projects;
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
           for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-            const id = v && typeof v === 'object' ? (v as Record<string, unknown>).connectionId : undefined;
-            if (typeof id === 'string' && id) projects[k] = id;
+            if (!v || typeof v !== 'object') continue;
+            const r = v as Record<string, unknown>;
+            const entry: ProjectPrSettings = {};
+            if (typeof r.connectionId === 'string' && r.connectionId) entry.connectionId = r.connectionId;
+            if (typeof r.mergeStatus === 'string' && r.mergeStatus.trim()) entry.mergeStatus = r.mergeStatus.trim();
+            if (typeof r.path === 'string' && r.path) entry.path = r.path;
+            if (entry.connectionId || entry.mergeStatus) projects[k] = entry;
           }
         }
       } catch {
-        projects = {};
+        // нет файла или он битый — настроек нет
       }
     }
-    this.choices = projects;
+    this.settings = projects;
     return projects;
+  }
+
+  private async updateSettings(projectPath: string, patch: Partial<ProjectPrSettings>): Promise<void> {
+    const settings = await this.loadSettings();
+    const key = pathKey(projectPath);
+    const entry: ProjectPrSettings = { ...settings[key], ...patch, path: projectPath };
+    if (!entry.connectionId) delete entry.connectionId;
+    if (!entry.mergeStatus) delete entry.mergeStatus;
+    if (entry.connectionId || entry.mergeStatus) settings[key] = entry;
+    else delete settings[key];
+    const file = this.deps.statePath?.();
+    if (!file) return;
+    const text = `${JSON.stringify(withVersion(PR_HOSTING_STATE_VERSION, { projects: settings }), null, 2)}\n`;
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, text, 'utf-8');
+    await fs.rename(tmp, file).catch(async () => {
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      await fs.writeFile(file, text, 'utf-8');
+    });
   }
 
   /** Запомнить подключение проекта; `null` — выбирать автоматически. */
   async setProjectConnection(projectPath: string, connectionId: string | null): Promise<PRProviderInfo> {
-    const choices = await this.loadChoices();
-    const key = pathKey(projectPath);
-    if (connectionId) choices[key] = connectionId;
-    else delete choices[key];
-    const file = this.deps.statePath?.();
-    if (file) {
-      const projects = Object.fromEntries(Object.entries(choices).map(([k, id]) => [k, { connectionId: id }]));
-      await fs.mkdir(path.dirname(file), { recursive: true });
-      const tmp = `${file}.${process.pid}.tmp`;
-      await fs.writeFile(tmp, `${JSON.stringify(withVersion(PR_HOSTING_STATE_VERSION, { projects }), null, 2)}\n`, 'utf-8');
-      await fs.rename(tmp, file).catch(async () => {
-        await fs.rm(tmp, { force: true }).catch(() => undefined);
-        await fs.writeFile(file, `${JSON.stringify(withVersion(PR_HOSTING_STATE_VERSION, { projects }), null, 2)}\n`, 'utf-8');
-      });
-    }
+    await this.updateSettings(projectPath, { connectionId: connectionId ?? undefined });
     return this.getProviderInfo(projectPath);
+  }
+
+  /** Статус, в который слияние PR переводит задачу из `Review` (TASK-138.5); `null` — не переводить. */
+  async getMergeStatus(projectPath: string): Promise<string | null> {
+    return (await this.loadSettings())[pathKey(projectPath)]?.mergeStatus ?? null;
+  }
+
+  async setMergeStatus(projectPath: string, status: string | null): Promise<PRProviderInfo> {
+    const value = status?.trim() || undefined;
+    if (value && value.toLowerCase() === 'review') throw new Error('Слияние PR не может переводить задачу в Review: она уже там');
+    await this.updateSettings(projectPath, { mergeStatus: value });
+    for (const listener of this.mergeSettingsListeners) listener();
+    return this.getProviderInfo(projectPath);
+  }
+
+  /** Проекты с включённым переводом задач при слиянии — их PR опрашивает `prWatcher`. */
+  async mergeStatusProjects(): Promise<string[]> {
+    return Object.values(await this.loadSettings())
+      .filter((e) => e.mergeStatus && e.path)
+      .map((e) => e.path!);
+  }
+
+  onMergeSettingsChange(listener: () => void): () => void {
+    this.mergeSettingsListeners.add(listener);
+    return () => this.mergeSettingsListeners.delete(listener);
   }
 
   /** Использования подключений PR-интеграцией (decision-102 п. 7). */
@@ -225,7 +271,7 @@ export class PRService {
     const candidates = all
       .filter((c) => findPrAdapter(c.serviceId) && connectionMatchesRemote(c.baseUrl, remote) && (!cloud || c.serviceId === cloud))
       .sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
-    const saved = (await this.loadChoices())[pathKey(projectPath)];
+    const saved = (await this.loadSettings())[pathKey(projectPath)]?.connectionId;
     const chosen = candidates.find((c) => c.id === saved) ?? candidates.find((c) => c.status !== 'needsReauth');
     const key = pathKey(projectPath);
     if (chosen && this.deps.connections) {
@@ -265,8 +311,12 @@ export class PRService {
       const backend = await this.resolveBackend(projectPath);
       const hasCli = backend.kind === 'cli' || (await this.isGhAvailable());
       const connections = backend.candidates.map((c) => ({ id: c.id, label: c.label, status: c.status }));
-      const saved = (await this.loadChoices())[pathKey(projectPath)];
-      const pinned = saved && connections.some((c) => c.id === saved) ? { pinnedConnectionId: saved } : {};
+      const settings = (await this.loadSettings())[pathKey(projectPath)];
+      const saved = settings?.connectionId;
+      const pinned = {
+        ...(saved && connections.some((c) => c.id === saved) ? { pinnedConnectionId: saved } : {}),
+        ...(settings?.mergeStatus ? { mergeStatus: settings.mergeStatus } : {})
+      };
       if (backend.kind === 'connection') {
         return {
           provider: backend.adapter.id,
@@ -628,6 +678,21 @@ export class PRService {
       projectPath
     );
     return parseGhPrList(raw);
+  }
+
+  /** Состояние PR, пропавшего из открытых (TASK-138.5): слит ли он. Сеть — только подключение или `gh`. */
+  async getPrStateForWatch(projectPath: string, prNumber: number): Promise<PrStateInfo> {
+    const backend = await this.strictBackend(projectPath);
+    const pr = backend.kind === 'connection' ? await backend.adapter.get(backend.http, backend.repo, prNumber) : await this.viewViaGh(projectPath, prNumber);
+    return {
+      number: prNumber,
+      state: pr.state,
+      title: pr.title,
+      url: pr.url,
+      headRef: pr.sourceBranch,
+      baseRef: pr.targetBranch,
+      ...(pr.author && pr.author !== 'unknown' ? { author: pr.author } : {})
+    };
   }
 
   async getPrForReview(projectPath: string, prNumber: number): Promise<PrReviewTarget> {

@@ -1004,6 +1004,9 @@ export const ru: TranslationDictionary = {
     viaConnection: 'Подключение',
     viaCli: 'gh CLI',
     connectionAuto: 'Автоматически',
+    mergeStatusOff: 'не менять',
+    mergeStatusLabel: 'При слиянии',
+    mergeStatusTitle: 'Слияние PR переводит связанную задачу из Review в выбранный статус. Связь — ссылка на PR в задаче или номер задачи в ветке и заголовке.',
     connectionSelectTitle: 'Подключение, через которое ProjectHub читает и создаёт PR этого репозитория',
     noBackend: 'Нет доступа к PR: добавьте подключение к хостингу в окне «Подключения» или войдите в GitHub CLI (gh).',
     needsReauth: 'Подключение требует повторного входа: откройте окно «Подключения» и нажмите «Переподключить».',
@@ -1248,6 +1251,7 @@ export const ru: TranslationDictionary = {
       'pr.checksFailed': 'проверки PR упали',
       'pr.opened': 'открыт PR (опрос GitHub)',
       'pr.updated': 'новые коммиты в PR',
+      'pr.merged': 'PR слит',
       'device.connected': 'подключено устройство'
     },
     actions: {
@@ -3035,6 +3039,7 @@ export const ru: TranslationDictionary = {
       modelFallback: 'Агент переключил модель',
       automation: 'Автоматизации: пауза по лимиту, сбой, уведомление правила',
       prReview: 'Ревью PR завершено',
+      prMerged: 'PR слит, задачи переведены',
       securityFinding: 'Безопасность: уязвимости, секреты, рискованные пакеты',
       agentTask: 'Агент завёл задачи, они ждут подтверждения'
     },

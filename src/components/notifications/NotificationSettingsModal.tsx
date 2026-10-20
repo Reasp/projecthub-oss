@@ -21,6 +21,7 @@ const KINDS: NotificationKind[] = [
   'processCrashed',
   'prCreated',
   'prChecksFailed',
+  'prMerged',
   'deviceConnected',
   'modelFallback',
   'automation',

@@ -1003,6 +1003,9 @@ export const en: TranslationDictionary = {
     viaConnection: 'Connection',
     viaCli: 'gh CLI',
     connectionAuto: 'Automatic',
+    mergeStatusOff: 'keep',
+    mergeStatusLabel: 'On merge',
+    mergeStatusTitle: 'Merging a pull request moves the linked task from Review to the chosen status. The link is the PR URL in the task or the task ID in the branch and title.',
     connectionSelectTitle: 'Connection ProjectHub uses to read and create pull requests of this repository',
     noBackend: 'No access to pull requests: add a connection to the hosting in the Connections window or sign in to GitHub CLI (gh).',
     needsReauth: 'The connection needs signing in again: open the Connections window and click Reconnect.',
@@ -1247,6 +1250,7 @@ export const en: TranslationDictionary = {
       'pr.checksFailed': 'PR checks failed',
       'pr.opened': 'PR opened (GitHub polling)',
       'pr.updated': 'new commits in PR',
+      'pr.merged': 'PR merged',
       'device.connected': 'device connected'
     },
     actions: {
@@ -3033,6 +3037,7 @@ export const en: TranslationDictionary = {
       modelFallback: 'Agent switched model',
       automation: 'Automations: limit pause, failure, rule notification',
       prReview: 'PR review finished',
+      prMerged: 'PR merged, tasks moved',
       securityFinding: 'Security: vulnerabilities, secrets, risky packages',
       agentTask: 'An agent created tasks awaiting approval'
     },

@@ -27,6 +27,7 @@ export const AUTOMATION_EVENT_TRIGGERS = [
   'pr.checksFailed',
   'pr.opened',
   'pr.updated',
+  'pr.merged',
   'device.connected'
 ] as const;
 
@@ -421,6 +422,21 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
           prUrl: event.url,
           headSha: event.headSha,
           draft: event.draft,
+          at: event.at
+        }
+      ];
+    case 'pr:merged':
+      return [
+        {
+          kind: 'pr.merged',
+          projectPath: event.projectPath,
+          subject: `pr:${event.number}:merged`,
+          summary: `PR #${event.number} «${event.title}» слит${event.movedTasks.length ? `; ${event.movedTasks.map((m) => `${m.taskId} → ${m.to}`).join(', ')}` : ''}`,
+          // Для `{{taskId}}` в промпте — первая задача PR (TASK-138.5).
+          ...(event.taskIds[0] ? { taskId: event.taskIds[0] } : {}),
+          prNumber: event.number,
+          prTitle: event.title,
+          prUrl: event.url,
           at: event.at
         }
       ];

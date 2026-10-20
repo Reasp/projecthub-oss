@@ -368,6 +368,22 @@ export type AppBusEvent =
   | ({ type: 'pr:opened' } & PrBusInfo)
   /** В PR новая голова (коммиты, force-push) или черновик стал готовым к ревью. */
   | ({ type: 'pr:updated'; previousSha?: string; reason: 'commits' | 'ready' } & PrBusInfo)
+  /** PR, пропавший из открытых, оказался слит (TASK-138.5). Задачи переведены до публикации. */
+  | {
+      type: 'pr:merged';
+      projectPath: string;
+      number: number;
+      title: string;
+      url: string;
+      headRef: string;
+      baseRef: string;
+      author?: string;
+      /** Задачи PR: ссылка в `references` или номер в ветке и заголовке. */
+      taskIds: string[];
+      /** Задачи, переведённые по настройке проекта: из `Review` в выбранный статус. */
+      movedTasks: Array<{ taskId: string; from: string; to: string }>;
+      at: number;
+    }
   /** Ревью PR завершено. */
   | {
       type: 'pr:reviewFinished';

@@ -14,7 +14,8 @@ import {
   FileCode,
   Check,
   AlertTriangle,
-  KeyRound
+  KeyRound,
+  GitMerge
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -46,6 +47,7 @@ export const PullRequestView: React.FC = () => {
     isLoadingPRs,
     prProviderInfo,
     prError,
+    backlogConfig,
     fetchPRs,
     selectPR,
     setPRFilter
@@ -86,6 +88,18 @@ export const PullRequestView: React.FC = () => {
     if (!selectedProject) return;
     try {
       await window.api.setPRConnection(selectedProject.path, connectionId || null);
+    } catch (err) {
+      setNotice({ kind: 'error', text: cleanIpcError(err) });
+    }
+    fetchPRs(selectedProject.path, prFilter);
+  };
+
+  // Слияние PR переводит задачу из Review (TASK-138.5): кроме самого Review, любой статус проекта.
+  const mergeStatuses = backlogConfig.statuses.filter((s) => s.toLowerCase() !== 'review');
+  const handleMergeStatus = async (status: string) => {
+    if (!selectedProject) return;
+    try {
+      await window.api.setPRMergeStatus(selectedProject.path, status || null);
     } catch (err) {
       setNotice({ kind: 'error', text: cleanIpcError(err) });
     }
@@ -204,6 +218,30 @@ export const PullRequestView: React.FC = () => {
                 {t.prs.viaCli}
               </span>
             ) : null}
+            {prProviderInfo && prProviderInfo.via !== 'none' && (
+              <label className="flex items-center gap-1 text-[11px] text-slate-400 shrink-0" title={t.prs.mergeStatusTitle}>
+                <GitMerge className="w-3 h-3 shrink-0 text-purple-400" />
+                {/* Подпись только на широком окне: иначе шапка обрезает фильтры PR; смысл объясняет подсказка. */}
+                <span className="hidden 2xl:inline">{t.prs.mergeStatusLabel}:</span>
+                <select
+                  value={prProviderInfo.mergeStatus ?? ''}
+                  onChange={(e) => void handleMergeStatus(e.target.value)}
+                  aria-label={t.prs.mergeStatusLabel}
+                  data-testid="pr-merge-status"
+                  className="max-w-[140px] bg-slate-800/80 border border-slate-700/60 rounded px-1.5 py-0.5 text-[11px] text-slate-200"
+                >
+                  <option value="">{t.prs.mergeStatusOff}</option>
+                  {prProviderInfo.mergeStatus && !mergeStatuses.includes(prProviderInfo.mergeStatus) && (
+                    <option value={prProviderInfo.mergeStatus}>{prProviderInfo.mergeStatus}</option>
+                  )}
+                  {mergeStatuses.map((s) => (
+                    <option key={s} value={s}>
+                      → {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
 
           {/* Filter Pills */}

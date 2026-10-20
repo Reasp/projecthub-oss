@@ -6,6 +6,7 @@ import { assertRegisteredProject, assertWorkspaceRoot } from '../services/projec
 import { assertInsideProject } from '../services/pathGuard';
 import { runWorktreeInit } from '../services/worktreeInitService';
 import { guardedCommit } from '../services/commitSecretGuard';
+import { readBacklogConfig } from '../services/backlogConfigService';
 import type { AddWorktreeOptions, PRCreateOptions } from '../../src/types/electron';
 
 export function registerGitIpc() {
@@ -165,6 +166,16 @@ export function registerGitIpc() {
   ipcMain.handle('pr:setConnection', async (_event, projectPath: string, connectionId: string | null) => {
     const safeProject = await assertRegisteredProject(projectPath);
     return await prService.setProjectConnection(safeProject, connectionId ? String(connectionId) : null);
+  });
+
+  ipcMain.handle('pr:setMergeStatus', async (_event, projectPath: string, status: string | null) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    const wanted = typeof status === 'string' ? status.trim() : '';
+    if (!wanted) return await prService.setMergeStatus(safeProject, null);
+    // Только статус из конфига проекта, в его написании: иначе задача ушла бы в колонку, которой нет.
+    const known = (await readBacklogConfig(safeProject)).statuses.find((s) => s.toLowerCase() === wanted.toLowerCase());
+    if (!known) throw new Error(`Статуса «${wanted}» нет в конфиге проекта`);
+    return await prService.setMergeStatus(safeProject, known);
   });
 
   ipcMain.handle('pr:importCliLogin', async (_event, projectPath: string) => {

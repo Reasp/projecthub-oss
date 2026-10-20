@@ -19,6 +19,7 @@ import { windowStateService } from './services/windowStateService';
 import { agentFleetService, isActiveAgentStatus, isActiveSwarmStatus } from './services/agentFleetService';
 import { planService } from './services/planService';
 import { automationEngine } from './services/automationService';
+import { initPrMergeWatch } from './services/prReviewApp';
 import { invalidateInspectCache } from './services/projectScanner';
 import { logger, parseLogLevel } from './services/logger';
 import { getUserDataDir } from './services/appPaths';
@@ -580,6 +581,7 @@ app.on('activate', () => {
 });
 
 let isCleaningUp = false;
+let stopPrMergeWatch: (() => void) | null = null;
 
 async function performGracefulShutdown() {
   if (isCleaningUp) return;
@@ -622,6 +624,7 @@ async function performGracefulShutdown() {
   try {
     // Automations: остановить планировщик и дописать состояние и журнал (TASK-74)
     await automationEngine.shutdown();
+    stopPrMergeWatch?.();
   } catch (e) {
     console.warn('[Main] Error stopping automations:', e);
   }
@@ -793,6 +796,9 @@ app.whenReady().then(() => {
     .init()
     .then(() => automationEngine.init())
     .catch((err) => console.error('[Main] Failed to init automations:', err));
+
+  // Слияние PR переводит задачу по настройке проекта (TASK-138.5): опрос PR таких проектов
+  stopPrMergeWatch = initPrMergeWatch();
 
   // Планы подзадач с диска: узлы прерванных сессий возвращаются в очередь (TASK-80, decision-49)
   void planService.init().catch((err) => console.error('[Main] Failed to init plan service:', err));

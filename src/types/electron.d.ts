@@ -840,6 +840,8 @@ export interface PRProviderInfo {
   connections: Array<{ id: string; label: string; status: ConnectionStatus }>;
   /** Вход CLI, токен которого можно перенести в подключение без повторного ввода. */
   importableCli?: 'gh' | 'glab';
+  /** Слияние PR переводит задачу из Review в этот статус (TASK-138.5); нет — не переводит. */
+  mergeStatus?: string;
 }
 
 /** PR, связанный с задачей (TASK-138.2): по ссылке в `references` или по номеру задачи в ветке и заголовке. */
@@ -1089,6 +1091,8 @@ export interface IElectronAPI {
   setPRConnection: (projectPath: string, connectionId: string | null) => Promise<PRProviderInfo>;
   /** Перенести вход gh/glab в подключение без повторного ввода токена. */
   importPRCliLogin: (projectPath: string) => Promise<{ id: string; label: string }>;
+  /** Статус, в который слияние PR переводит задачу из Review (TASK-138.5); `null` — не переводить. */
+  setPRMergeStatus: (projectPath: string, status: string | null) => Promise<PRProviderInfo>;
   getTaskPullRequests: (projectPath: string, taskId: string) => Promise<TaskPullRequestsResult>;
   // Ревью PR (TASK-81, decision-53)
   listPrReviews: (projectPath: string, prNumber?: number) => Promise<{ ok: boolean; reviews: PrReviewRecord[]; error?: string }>;
@@ -2001,6 +2005,22 @@ export type AppBusEvent =
   | ({ type: 'pr:opened' } & PrBusInfo)
   /** В PR новая голова (коммиты, force-push) или черновик стал готовым к ревью. */
   | ({ type: 'pr:updated'; previousSha?: string; reason: 'commits' | 'ready' } & PrBusInfo)
+  /** PR, пропавший из открытых, оказался слит (TASK-138.5). Задачи переведены до публикации. */
+  | {
+      type: 'pr:merged';
+      projectPath: string;
+      number: number;
+      title: string;
+      url: string;
+      headRef: string;
+      baseRef: string;
+      author?: string;
+      /** Задачи PR: ссылка в `references` или номер в ветке и заголовке. */
+      taskIds: string[];
+      /** Задачи, переведённые по настройке проекта: из `Review` в выбранный статус. */
+      movedTasks: Array<{ taskId: string; from: string; to: string }>;
+      at: number;
+    }
   /** Ревью PR завершено. */
   | {
       type: 'pr:reviewFinished';
@@ -2118,6 +2138,7 @@ export type AutomationEventTrigger =
   | 'pr.checksFailed'
   | 'pr.opened'
   | 'pr.updated'
+  | 'pr.merged'
   | 'device.connected';
 
 export type AutomationTrigger =
@@ -2447,6 +2468,7 @@ export type NotificationKind =
   | 'processCrashed'
   | 'prCreated'
   | 'prChecksFailed'
+  | 'prMerged'
   | 'deviceConnected'
   | 'modelFallback'
   | 'automation'

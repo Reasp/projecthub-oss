@@ -11,11 +11,13 @@ import { apiToolNamesForCategories, claudeToolNamesForCategories } from './roleE
 import { logger } from './logger.js';
 import { PR_REVIEWS_DIR, PrReviewService } from './prReviewService.js';
 import { PrWatcher } from './prWatcher.js';
+import { applyPrMerge } from './prMergeTasks.js';
 import type { SwarmEventPayload, SwarmSession } from './swarmTypes.js';
 
 /**
  * Ревью PR в приложении (TASK-81, decision-53): сервис ревью и опрос PR с настоящими зависимостями —
  * хостинг PR (подключение или GitHub CLI, decision-105), флот агентов, HITL, задачи Backlog.md, шина событий.
+ * Опрос PR также переводит задачи слитых PR по настройке проекта (TASK-138.5).
  */
 
 const log = (level: 'info' | 'warn', message: string) => (level === 'warn' ? logger.warn(message) : logger.info(message));
@@ -64,8 +66,27 @@ export const prReviewService = new PrReviewService({
 
 export const prWatcher = new PrWatcher({
   listOpenPrs: (root) => prService.listOpenPrsForWatch(root),
+  getPrState: (root, n) => prService.getPrStateForWatch(root, n),
+  onMerged: async (root, pr) => applyPrMerge(root, pr, await prService.getMergeStatus(root)),
   publish: (event) => appEventBus.publish(event),
   stateDir: getUserDataDir(),
   now: () => Date.now(),
   log
 });
+
+/** Источник опроса PR: проекты, где слияние переводит задачу (TASK-138.5). */
+const MERGE_WATCH_SOURCE = 'mergeStatus';
+
+async function refreshMergeWatch(): Promise<void> {
+  prWatcher.setProjects(await prService.mergeStatusProjects(), MERGE_WATCH_SOURCE);
+}
+
+/** Запуск при старте приложения: опрос PR проектов с настройкой и следить за её сменой. */
+export function initPrMergeWatch(): () => void {
+  void refreshMergeWatch().catch((err) => log('warn', `[PrWatcher] Настройки слияния не прочитаны: ${String(err)}`));
+  const off = prService.onMergeSettingsChange(() => void refreshMergeWatch().catch(() => undefined));
+  return () => {
+    off();
+    prWatcher.setProjects([], MERGE_WATCH_SOURCE);
+  };
+}
