@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import matter from 'gray-matter';
 import type { Milestone, CreateMilestoneParams } from '../../src/types/electron';
+import { allocateBacklogId } from './backlogIdAllocator';
 
 function fmString(value: unknown): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
@@ -111,22 +112,9 @@ export async function createMilestone(
   const title = params.title.trim();
   const slug = slugify(title);
 
-  // Determine next milestone ID
-  let nextNum = 1;
-  try {
-    const existing = await fs.readdir(milestonesDir);
-    for (const f of existing) {
-      const match = f.match(/milestone-(\d+)/i);
-      if (match) {
-        const n = parseInt(match[1], 10);
-        if (n >= nextNum) nextNum = n + 1;
-      }
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  const id = `milestone-${nextNum}`;
+  // Нативная форма Backlog.md — `m-N`; прежние `milestone-N` не переименовываются, но номера у них общие
+  // (decision-76 Consequences). Ветки и соседние worktree учитываются общей выдачей номера (п. 8).
+  const id = await allocateBacklogId(normalizedProject, 'milestone');
   const filename = `${id} - ${slug}.md`;
   const fullPath = path.join(milestonesDir, filename);
 

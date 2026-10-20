@@ -220,8 +220,8 @@ const api: IElectronAPI = {
     ipcRenderer.invoke('git:createBranch', projectPath, branchName),
   deleteBranch: (projectPath: string, branchName: string, force?: boolean) =>
     ipcRenderer.invoke('git:deleteBranch', projectPath, branchName, force),
-  mergeBranch: (projectPath: string, branchName: string) =>
-    ipcRenderer.invoke('git:mergeBranch', projectPath, branchName),
+  mergeBranch: (projectPath: string, branchName: string, options?: { renumber?: boolean }) =>
+    ipcRenderer.invoke('git:mergeBranch', projectPath, branchName, options),
   fetchRemote: (projectPath: string) =>
     ipcRenderer.invoke('git:fetchRemote', projectPath),
   pullRemote: (projectPath: string) =>
@@ -261,8 +261,8 @@ const api: IElectronAPI = {
     ipcRenderer.invoke('git:worktree:prune', projectPath),
   getWorktreeDiff: (projectPath: string, worktreeBranch: string, baseBranch: string, worktreePath?: string) =>
     ipcRenderer.invoke('git:worktree:getDiff', projectPath, worktreeBranch, baseBranch, worktreePath),
-  mergeWorktree: (projectPath: string, worktreeBranch: string, targetBranch: string) =>
-    ipcRenderer.invoke('git:worktree:merge', projectPath, worktreeBranch, targetBranch),
+  mergeWorktree: (projectPath: string, worktreeBranch: string, targetBranch: string, options?: { renumber?: boolean }) =>
+    ipcRenderer.invoke('git:worktree:merge', projectPath, worktreeBranch, targetBranch, options),
   checkoutWorktreeFiles: (projectPath: string, branch: string, filePaths: string[]) =>
     ipcRenderer.invoke('git:worktree:checkoutFiles', projectPath, branch, filePaths),
   findOrphanedWorktrees: (projectPath: string, activeTaskIds: string[] = [], activeSwarmIds: string[] = []) =>
@@ -403,7 +403,7 @@ const api: IElectronAPI = {
   stopPlan: (planId: string) => ipcRenderer.invoke('plan:stop', planId),
   skipPlanNode: (planId: string, taskId: string, skipped: boolean) =>
     ipcRenderer.invoke('plan:skipNode', planId, taskId, skipped),
-  resolvePlanConflict: (planId: string, taskId: string, action: 'retry' | 'skip' | 'stop') =>
+  resolvePlanConflict: (planId: string, taskId: string, action: 'retry' | 'skip' | 'stop' | 'renumber') =>
     ipcRenderer.invoke('plan:resolveConflict', planId, taskId, action),
   discardPlan: (planId: string) => ipcRenderer.invoke('plan:discard', planId),
   onPlanEvent: (callback: (event: PlanEventPayload) => void) => {

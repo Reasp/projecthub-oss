@@ -66,8 +66,9 @@ export function registerGitIpc() {
     return await gitService.deleteBranch(await assertWorkspaceRoot(projectPath), branchName, force);
   });
 
-  ipcMain.handle('git:mergeBranch', async (_event, projectPath: string, branchName: string) => {
-    return await gitService.mergeBranch(await assertWorkspaceRoot(projectPath), branchName);
+  ipcMain.handle('git:mergeBranch', async (_event, projectPath: string, branchName: string, options?: { renumber?: unknown }) => {
+    // Из рендерера берётся только флаг согласия на перенумерацию (decision-76 п. 6).
+    return await gitService.mergeBranch(await assertWorkspaceRoot(projectPath), branchName, { renumber: options?.renumber === true });
   });
 
   ipcMain.handle('git:fetchRemote', async (_event, projectPath: string) => {
@@ -123,9 +124,9 @@ export function registerGitIpc() {
     return await worktreeService.getWorktreeDiff(safeProject, worktreeBranch, baseBranch, worktreePath);
   });
 
-  ipcMain.handle('git:worktree:merge', async (_event, projectPath: string, worktreeBranch: string, targetBranch: string) => {
+  ipcMain.handle('git:worktree:merge', async (_event, projectPath: string, worktreeBranch: string, targetBranch: string, options?: { renumber?: unknown }) => {
     const safeProject = await assertRegisteredProject(projectPath);
-    return await worktreeService.mergeWorktree(safeProject, worktreeBranch, targetBranch);
+    return await worktreeService.mergeWorktree(safeProject, worktreeBranch, targetBranch, { renumber: options?.renumber === true });
   });
 
   ipcMain.handle('git:worktree:checkoutFiles', async (_event, projectPath: string, branch: string, filePaths: string[]) => {

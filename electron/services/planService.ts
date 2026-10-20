@@ -22,7 +22,8 @@ import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { applyFinalSummary, normalizeFrontmatter, parseTaskBody, withUpdatedDate } from './backlogTaskFormat.js';
 import { readBacklogConfig } from './backlogConfigService.js';
 import { buildAgentContext } from './contextBuilder.js';
-import { execGit } from './checkpointGit.js';
+import { execGit, type GitRunner } from './checkpointGit.js';
+import { describeBacklogRenumber, dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, type PreparedIncoming } from './backlogMerge.js';
 import { findReviewStatus } from './doneLoop.js';
 import { hitlService } from './hitlService.js';
 import { modelCallService } from './modelCallService.js';
@@ -65,7 +66,8 @@ export interface GeneratePlanOptions {
 }
 
 /** Что человек решил по конфликту слияния узла. */
-export type ConflictResolution = 'retry' | 'skip' | 'stop';
+/** `renumber` — повтор слияния с перенумерацией backlog ветки узла (decision-76). */
+export type ConflictResolution = 'retry' | 'skip' | 'stop' | 'renumber';
 
 interface PlanDeps {
   fleet: Pick<typeof agentFleetService, 'startDoneLoop' | 'getSwarm' | 'stopSwarm' | 'on'>;
@@ -772,15 +774,34 @@ export class PlanService extends EventEmitter {
     this.emitPlan(plan);
 
     const wt = plan.integrationWorktree;
+    const git: GitRunner = (args, { cwd }) => this.deps.git(cwd, args);
+    let prepared: PreparedIncoming | null = null;
     try {
-      await this.deps.git(wt, ['merge', '--no-ff', '-m', `plan(${plan.taskId}): ${node.taskId} — ${node.title}`, node.branch]);
+      // Узлы плана — параллельные ветки: агенты могли завести одинаковые номера задач и решений (decision-76).
+      prepared = await prepareIncomingForMerge(wt, node.branch, { approved: node.renumberApproved === true, git });
+      if (prepared.status === 'needs-approval') {
+        node.state = 'conflict';
+        node.conflictFiles = [];
+        node.renumberPending = prepared.preview.renumber.map(({ from, to }) => ({ from, to }));
+        node.reason = `Совпали номера backlog: ${prepared.preview.renumber.map((r) => `${r.from} → ${r.to}`).join(', ')}`;
+        void this.askAboutRenumber(plan, node, describeBacklogRenumber(prepared.preview));
+        return false;
+      }
+      const message = mergeMessageWithRenumber(
+        `plan(${plan.taskId}): ${node.taskId} — ${node.title}`,
+        prepared.status === 'renumbered' ? prepared.preview.renumber : []
+      );
+      await this.deps.git(wt, ['merge', '--no-ff', '-m', message, prepared.mergeRef]);
+      if (prepared.status === 'renumbered') await dropRenumberedBranch(wt, prepared.mergeRef, git);
       const head = (await this.deps.git(wt, ['rev-parse', 'HEAD'])).trim();
       node.state = 'merged';
       node.mergeCommit = head;
       node.conflictFiles = undefined;
+      node.renumberPending = undefined;
       node.reason = undefined;
       return true;
     } catch (err) {
+      if (prepared?.status === 'renumbered') await dropRenumberedBranch(wt, prepared.mergeRef, git);
       const conflicts = await this.deps
         .git(wt, ['diff', '--name-only', '--diff-filter=U'])
         .then((out) => out.trim().split('\n').filter(Boolean))
@@ -836,6 +857,36 @@ export class PlanService extends EventEmitter {
     }
   }
 
+  /** Совпавшие номера backlog — вопрос человеку с планом замен (decision-76 п. 6): перенумеровать, пропустить, остановить. */
+  private async askAboutRenumber(plan: PlanState, node: PlanNode, planText: string): Promise<void> {
+    const request = {
+      id: hitlService.newRequestId('plan'),
+      sessionId: `plan-${plan.id}`,
+      projectPath: plan.projectPath,
+      type: 'question' as const,
+      title: `Совпали номера backlog в подзадаче ${node.taskId}`,
+      details: planText,
+      questionData: {
+        title: `Перенумеровать записи ветки ${node.branch}?`,
+        subtitle: 'Записи интеграционной ветки не меняются; записи ветки узла получат новые номера',
+        options: [
+          { id: 'renumber', label: 'Перенумеровать и слить' },
+          { id: 'skip', label: 'Пропустить подзадачу', description: 'Зависимые узлы будут заблокированы' },
+          { id: 'stop', label: 'Остановить план' }
+        ]
+      },
+      createdAt: Date.now(),
+      origin: 'swarm' as const
+    };
+    try {
+      const answer = await hitlService.request(request);
+      const choice: ConflictResolution = answer.text === 'skip' || answer.text === 'stop' ? answer.text : 'renumber';
+      await this.resolveConflict(plan.id, node.taskId, answer.approved ? choice : 'skip');
+    } catch (err) {
+      console.warn(`[PlanService] Запрос по номерам ${node.taskId} не получил ответа:`, err);
+    }
+  }
+
   /** Решение человека по конфликту слияния узла. */
   public async resolveConflict(
     planId: string,
@@ -860,6 +911,7 @@ export class PlanService extends EventEmitter {
       return { success: true };
     }
 
+    if (action === 'renumber') node.renumberApproved = true;
     node.state = 'completed';
     await this.withMergeLock(plan.id, () => this.mergeNode(plan, node));
     this.emitPlan(plan, true);

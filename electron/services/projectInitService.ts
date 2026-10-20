@@ -460,6 +460,9 @@ export async function applyInit(request: InitApplyRequest, onEvent: (event: Init
     const target = assertInsideProject(root, path.join(root, item.path));
     if (item.kind === 'dir') {
       await fs.mkdir(target, { recursive: true });
+      // git не хранит пустые каталоги: без них в клоне Backlog.md CLI падает с ENOENT на `decision create`
+      // (decision-76 Context). Backlog.md и lint:docs читают только *.md — `.gitkeep` им не мешает.
+      if ((await fs.readdir(target)).length === 0) await fs.writeFile(path.join(target, '.gitkeep'), '');
     } else if (action === 'delete') {
       // Файл, который шаблон больше не даёт: удаляется только с резервной копией.
       if (!existsSync(target)) continue;

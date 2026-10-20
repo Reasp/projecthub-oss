@@ -3,6 +3,7 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { PROJECT_ROOT } from './config.mjs';
 import { validateMemoryDir } from './memory-rules.mjs';
+import { checkBacklogIds } from './backlog-id-rules.mjs';
 import { DOC_ROOTS, buildDocEntry, crossCheckDocs, sectionFieldError } from './doc-rules.mjs';
 
 // Линтер документации Backlog.md (правило 14 infra-dev.md). Запускается из `npm run lint:docs`
@@ -158,6 +159,8 @@ for (const fmRoot of FRONTMATTER_ONLY_ROOTS) walkMarkdown(fmRoot, { frontmatterO
 for (const roleRoot of ROLE_ROOTS) walkMarkdown(roleRoot.path, { frontmatterOnly: true, requiredFields: roleRoot.requiredFields });
 // Сквозные проверки: раздел у каждого документа, ссылки [[id]] и якоря [[id#Заголовок]].
 for (const [relPath, errors] of crossCheckDocs(docIndex)) reportFileResult(relPath, errors, []);
+// Уникальность номеров: дубль id и расхождение номера в имени файла с id во frontmatter (ProjectHub decision-76).
+for (const [relPath, errors] of checkBacklogIds(ROOT)) reportFileResult(relPath, errors, []);
 // Память проекта backlog/memory: формат факта, секреты, соответствие индекса MEMORY.md файлам.
 for (const [relPath, errors] of validateMemoryDir(ROOT)) {
   totalFilesChecked++;

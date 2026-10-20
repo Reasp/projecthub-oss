@@ -5,6 +5,7 @@ import matter from 'gray-matter';
 import type { DocItem, CreateDocParams, DocFileType, DecisionStatus, DocLinkIndex } from '../../src/types/electron';
 import { normalizeSection, sectionFromRelativePath } from '../../src/utils/docTree';
 import { buildDocLinkIndex, type DocLinkSource } from '../../src/utils/docBacklinks';
+import { allocateBacklogId } from './backlogIdAllocator';
 
 /**
  * YAML в frontmatter превращает незакавыченные значения вида `2026-09-03` в объекты Date,
@@ -109,22 +110,24 @@ async function collectMarkdownFiles(dir: string, maxDepth = 3): Promise<string[]
  * Смотрим и на frontmatter, и на имя файла, чтобы не столкнуться ни с документами Backlog.md CLI,
  * ни с файлами, где id прописан только в одном из мест.
  */
-async function nextFreeNumber(dir: string, prefix: 'doc' | 'decision'): Promise<number> {
-  let max = 0;
-  if (!existsSync(dir)) return 1;
-  const files = await collectMarkdownFiles(dir);
-  for (const filePath of files) {
-    const fromName = fileNameNumber(path.basename(filePath), prefix);
-    if (fromName !== null && fromName > max) max = fromName;
-    try {
-      const raw = await fs.readFile(filePath, 'utf-8');
-      const fromFm = idNumber(matter(raw).data?.id, prefix);
-      if (fromFm !== null && fromFm > max) max = fromFm;
-    } catch {
-      // битый frontmatter — номер берём только из имени файла
+async function nextFreeNumber(projectPath: string, dir: string, prefix: 'doc' | 'decision'): Promise<number> {
+  const fromFrontmatter: string[] = [];
+  if (existsSync(dir)) {
+    for (const filePath of await collectMarkdownFiles(dir)) {
+      const fromName = fileNameNumber(path.basename(filePath), prefix);
+      if (fromName !== null) fromFrontmatter.push(`${prefix}-${fromName}`);
+      try {
+        const raw = await fs.readFile(filePath, 'utf-8');
+        const fromFm = idNumber(matter(raw).data?.id, prefix);
+        if (fromFm !== null) fromFrontmatter.push(`${prefix}-${fromFm}`);
+      } catch {
+        // битый frontmatter — номер берём только из имени файла
+      }
     }
   }
-  return max + 1;
+  // Ветки репозитория и соседние worktree — общей выдачей номера (decision-76 п. 8).
+  const id = await allocateBacklogId(projectPath, prefix, { extraTaken: fromFrontmatter });
+  return parseInt(id.slice(prefix.length + 1), 10);
 }
 
 function normalizeDocFileType(value: unknown): DocFileType {
@@ -387,7 +390,7 @@ export async function createProjectDoc(
 
   // Номер выбираем непосредственно перед записью, чтобы не поймать гонку с CLI/другой сессией;
   // если файл с таким id уже успел появиться — берём следующий.
-  let num = await nextFreeNumber(targetDir, prefix);
+  let num = await nextFreeNumber(normalizedProject, targetDir, prefix);
   let id = `${prefix}-${num}`;
   let fullPath = path.join(targetDir, `${id} - ${titleSlug(cleanTitle)}.md`);
   while (existsSync(fullPath)) {

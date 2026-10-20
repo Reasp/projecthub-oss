@@ -137,7 +137,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
   const toggleSkip = (node: PlanNode) =>
     run(() => window.api.skipPlanNode(plan!.id, node.taskId, node.state !== 'skipped'));
 
-  const resolveConflict = (node: PlanNode, action: 'retry' | 'skip' | 'stop') =>
+  const resolveConflict = (node: PlanNode, action: 'retry' | 'skip' | 'stop' | 'renumber') =>
     run(() => window.api.resolvePlanConflict(plan!.id, node.taskId, action));
 
   const phaseNotice = () => {
@@ -332,8 +332,13 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
                         {t.plan.conflictFiles.replace('{files}', node.conflictFiles.join(', '))}
                       </div>
                     )}
+                    {node.renumberPending && node.renumberPending.length > 0 && (
+                      <div className="text-[11px] font-mono opacity-80 break-all">
+                        {t.plan.renumberPending.replace('{plan}', node.renumberPending.map((r) => `${r.from} → ${r.to}`).join(', '))}
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-1">
-                      {(['retry', 'skip', 'stop'] as const).map((action) => (
+                      {(node.renumberPending?.length ? (['renumber', 'skip', 'stop'] as const) : (['retry', 'skip', 'stop'] as const)).map((action) => (
                         <button
                           key={action}
                           type="button"
@@ -341,7 +346,13 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
                           disabled={busy}
                           className="px-2 py-1 rounded bg-black/30 hover:bg-black/50 text-[11px] border border-white/10 transition disabled:opacity-50"
                         >
-                          {action === 'retry' ? t.plan.conflictRetry : action === 'skip' ? t.plan.conflictSkip : t.plan.conflictStop}
+                          {action === 'retry'
+                            ? t.plan.conflictRetry
+                            : action === 'renumber'
+                              ? t.plan.conflictRenumber
+                              : action === 'skip'
+                                ? t.plan.conflictSkip
+                                : t.plan.conflictStop}
                         </button>
                       ))}
                     </div>

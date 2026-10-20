@@ -19,6 +19,7 @@ import type {
   PtySession,
   GitWorktreeInfo,
   AddWorktreeOptions,
+  MergeOptions,
   MergeWorktreeResult,
   OrphanedWorktreeScan,
   CleanOrphanedResult,
@@ -54,6 +55,8 @@ export function isProcessOfAction(p: ManagedProcess, workspaceRoot: string, def:
 }
 import { getDictionary, type Language } from '../i18n';
 import { fallbackStatusConfig, type BacklogProjectConfig } from '../utils/taskStatus';
+import { buildRenumberMessage } from '../utils/renumberMessage';
+import { useDialogStore } from './useDialogStore';
 
 function formatLog(template: string, params?: Record<string, string | number>): string {
   if (!params) return template;
@@ -62,6 +65,27 @@ function formatLog(template: string, params?: Record<string, string | number>): 
     result = result.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
   }
   return result;
+}
+
+/**
+ * Слияние, которое может потребовать перенумерации backlog (decision-76 п. 6): при совпавших номерах человек видит
+ * план замен в диалоге, согласие — повтор слияния с `renumber: true`, отказ — слияние не выполняется.
+ */
+async function mergeWithRenumberConfirm(
+  merge: (options?: MergeOptions) => Promise<MergeWorktreeResult>,
+  branch: string,
+  target: string,
+  language: Language
+): Promise<MergeWorktreeResult> {
+  const first = await merge();
+  if (!first.renumberRequired) return first;
+  const t = getDictionary(language).git;
+  const ok = await useDialogStore.getState().confirm({
+    title: t.renumberTitle,
+    message: buildRenumberMessage(first.renumberRequired, branch, target, t),
+    confirmText: t.renumberConfirm
+  });
+  return ok ? merge({ renumber: true }) : first;
 }
 
 export interface RunActionOptions {
@@ -1691,7 +1715,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const root = get().workspaceRoot || project?.path || '';
     if (!window.api || !project) return { success: false, error: 'No active project' };
     try {
-      const res = await window.api.mergeBranch(root, branchName);
+      const target = get().gitRepoDetails?.currentBranch || 'HEAD';
+      const res = await mergeWithRenumberConfirm((options) => window.api.mergeBranch(root, branchName, options), branchName, target, get().language);
       if (res.success) {
         get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.gitBranchMerged, { branch: branchName }));
         await get().loadGitRepoDetails(project);
@@ -2040,7 +2065,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = get().selectedProject;
     if (!window.api?.mergeWorktree || !project) return { success: false, error: 'No project' };
     try {
-      const res = await window.api.mergeWorktree(project.path, worktreeBranch, targetBranch);
+      const res = await mergeWithRenumberConfirm(
+        (options) => window.api.mergeWorktree(project.path, worktreeBranch, targetBranch, options),
+        worktreeBranch,
+        targetBranch,
+        get().language
+      );
       if (res.success) {
         get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeMerged, { branch: worktreeBranch, targetBranch }));
         await get().loadGitRepoDetails(project);

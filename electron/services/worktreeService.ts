@@ -6,12 +6,15 @@ import matter from 'gray-matter';
 import type {
   GitWorktreeInfo,
   AddWorktreeOptions,
+  MergeOptions,
   MergeWorktreeResult,
   OrphanedWorktreeScan,
   CleanOrphanedResult
 } from '../../src/types/electron';
 import { findTaskFile } from './taskFileLookup.js';
 import { normalizeFrontmatter, withUpdatedDate } from './backlogTaskFormat.js';
+import { dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, summarizeRenumber, type PreparedIncoming } from './backlogMerge.js';
+import { reindexDocsInBackground } from './docsReindex.js';
 
 /**
  * Нормализация пути для сравнения (учитывая особенности Windows).
@@ -313,6 +316,17 @@ export class WorktreeService {
     }
   }
 
+  /** Шаг перенумерации backlog перед слиянием (decision-76); отдельным методом — чтобы подменять в тестах. */
+  protected prepareIncoming(projectPath: string, branch: string, targetBranch: string, approved: boolean): Promise<PreparedIncoming> {
+    return prepareIncomingForMerge(projectPath, branch, { target: targetBranch, approved });
+  }
+
+  /** Временная ветка перенумерации больше не нужна; после слияния — пересборка индекса RAG (decision-76 п. 4). */
+  protected async finishRenumbered(projectPath: string, renumberBranch: string, merged: boolean): Promise<void> {
+    await dropRenumberedBranch(projectPath, renumberBranch);
+    if (merged) reindexDocsInBackground(projectPath);
+  }
+
   /**
    * Безопасное слияние ветки worktree в целевую ветку проекта (AC #3, AC #7).
    * Проверяет чистоту дерева, использует merge --no-commit, при конфликте выполняет abort
@@ -321,11 +335,13 @@ export class WorktreeService {
   async mergeWorktree(
     projectPath: string,
     worktreeBranch: string,
-    targetBranch: string
+    targetBranch: string,
+    options: MergeOptions = {}
   ): Promise<MergeWorktreeResult> {
     const git = this.getGit(projectPath);
     let originalBranch: string | null = null;
     let switchedBranch = false;
+    let prepared: PreparedIncoming | null = null;
 
     try {
       const status = await git.status();
@@ -340,14 +356,30 @@ export class WorktreeService {
         };
       }
 
+      // Номера backlog, добавленные обеими ветками, — до слияния и до checkout (decision-76 п. 6): человек видит
+      // план замен и подтверждает его повтором с `renumber: true`.
+      prepared = await this.prepareIncoming(projectPath, worktreeBranch, targetBranch, options.renumber === true);
+      if (prepared.status === 'needs-approval') {
+        return {
+          success: false,
+          renumberRequired: summarizeRenumber(prepared.preview),
+          error: `Номера backlog в ${worktreeBranch} совпали с ${targetBranch}: нужна перенумерация входящей ветки`
+        };
+      }
+      const renumbered = prepared.status === 'renumbered' ? prepared.preview.renumber : [];
+
       if (originalBranch !== targetBranch) {
         await git.checkout(targetBranch);
         switchedBranch = true;
       }
 
       try {
-        await git.raw(['merge', '--no-ff', '--no-commit', worktreeBranch]);
-        await git.raw(['commit', '-m', `Merge branch '${worktreeBranch}' into ${targetBranch}`]);
+        await git.raw(['merge', '--no-ff', '--no-commit', prepared.mergeRef]);
+        await git.raw(['commit', '-m', mergeMessageWithRenumber(`Merge branch '${worktreeBranch}' into ${targetBranch}`, renumbered)]);
+        if (prepared.status === 'renumbered') {
+          await this.finishRenumbered(projectPath, prepared.mergeRef, true);
+          return { success: true, renumbered };
+        }
         return { success: true };
       } catch (mergeErr: any) {
         const conflictStatus = await git.status();
@@ -366,6 +398,7 @@ export class WorktreeService {
             console.warn(`[WorktreeService] Failed to restore branch ${originalBranch}:`, checkoutErr);
           }
         }
+        if (prepared.status === 'renumbered') await this.finishRenumbered(projectPath, prepared.mergeRef, false);
 
         const conflictMsg = conflictedFiles.length > 0
           ? `Merge conflict in: ${conflictedFiles.join(', ')}`
@@ -385,6 +418,7 @@ export class WorktreeService {
           await git.checkout(originalBranch);
         } catch {}
       }
+      if (prepared?.status === 'renumbered') await this.finishRenumbered(projectPath, prepared.mergeRef, false);
       return { success: false, error: err?.message || String(err) };
     }
   }

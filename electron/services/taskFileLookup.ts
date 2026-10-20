@@ -30,19 +30,22 @@ export async function findTaskFile(projectPath: string, taskId: string): Promise
   const tasksDir = path.join(projectPath, 'backlog', 'tasks');
   if (!existsSync(tasksDir)) return null;
 
-  const files = await fs.readdir(tasksDir);
-  for (const file of files) {
-    // После номера обязан идти разделитель: иначе `task-8` нашёл бы `task-80`, а `task-80` —
-    // файл подзадачи `task-80.1`.
+  // После номера обязан идти разделитель: иначе `task-8` нашёл бы `task-80`, а `task-80` —
+  // файл подзадачи `task-80.1`.
+  const matches = (await fs.readdir(tasksDir)).filter((file) => {
     const lower = file.toLowerCase();
     const boundary = lower.charAt(prefix.length);
     const separated = boundary !== '' && !/[\d.]/.test(boundary);
-    if (lower.startsWith(prefix) && separated && file.endsWith('.md')) {
-      const filePath = path.join(tasksDir, file);
-      const raw = await fs.readFile(filePath, 'utf-8');
-      const parsed = matter(raw.replace(/\r\n/g, '\n'));
-      return { filePath, data: { ...parsed.data }, content: parsed.content };
-    }
+    return lower.startsWith(prefix) && separated && file.endsWith('.md');
+  });
+  if (matches.length === 0) return null;
+  matches.sort();
+  if (matches.length > 1) {
+    // Дубль номера после слияния в обход backlog:merge (decision-76 п. 7): выбор файла не молчаливый.
+    console.warn(`[taskFileLookup] ${taskId}: ${matches.length} файла с одним номером, взят «${matches[0]}»: ${matches.join(' | ')}`);
   }
-  return null;
+  const filePath = path.join(tasksDir, matches[0]);
+  const raw = await fs.readFile(filePath, 'utf-8');
+  const parsed = matter(raw.replace(/\r\n/g, '\n'));
+  return { filePath, data: { ...parsed.data }, content: parsed.content };
 }

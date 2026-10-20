@@ -4,8 +4,10 @@ import { existsSync } from 'node:fs';
 import { simpleGit, type SimpleGit } from 'simple-git';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { BrowserWindow } from 'electron';
-import type { GitCommit, GitFileStatus, GitRepoDetails } from '../../src/types/electron';
+import type { BacklogRenumbering, BacklogRenumberSummary, GitCommit, GitFileStatus, GitRepoDetails, MergeOptions } from '../../src/types/electron';
 import { processManager } from './processManager';
+import { dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, summarizeRenumber, type PreparedIncoming } from './backlogMerge';
+import { reindexDocsInBackground } from './docsReindex';
 
 /** Базовый дебаунс `git:changed` (аудит 3.3: было 400 мс). */
 export const GIT_CHANGED_DEBOUNCE_MS = 1500;
@@ -469,14 +471,43 @@ class GitService {
     }
   }
 
-  async mergeBranch(projectPath: string, branchName: string): Promise<{ success: boolean; error?: string }> {
+  /**
+   * Слияние ветки в текущую. Номера backlog, добавленные обеими ветками, перенумеровываются у входящей стороны
+   * только с согласия человека (decision-76 п. 6): без `renumber` возвращается план замен.
+   */
+  async mergeBranch(
+    projectPath: string,
+    branchName: string,
+    options: MergeOptions = {}
+  ): Promise<{ success: boolean; error?: string; renumberRequired?: BacklogRenumberSummary; renumbered?: BacklogRenumbering[] }> {
+    let prepared: PreparedIncoming | null = null;
     try {
+      prepared = await prepareIncomingForMerge(projectPath, branchName, { approved: options.renumber === true });
+      if (prepared.status === 'needs-approval') {
+        return {
+          success: false,
+          renumberRequired: summarizeRenumber(prepared.preview),
+          error: `Номера backlog в ${branchName} совпали с текущей веткой: нужна перенумерация входящей ветки`
+        };
+      }
       const git = simpleGit(projectPath);
+      if (prepared.status === 'renumbered') {
+        const message = mergeMessageWithRenumber(`Merge branch '${branchName}'`, prepared.preview.renumber);
+        await git.merge(['--no-ff', '-m', message, prepared.mergeRef]);
+        await dropRenumberedBranch(projectPath, prepared.mergeRef);
+        reindexDocsInBackground(projectPath);
+        this.broadcastGitChanged(projectPath);
+        return { success: true, renumbered: prepared.preview.renumber };
+      }
       await git.merge([branchName]);
       this.broadcastGitChanged(projectPath);
       return { success: true };
     } catch (e: any) {
       console.error(`Failed to merge ${branchName}:`, e);
+      // При конфликте слияние остаётся незавершённым, как и без перенумерации: MERGE_HEAD держит коммит, таблица
+      // замен — в MERGE_MSG. Временную ветку можно убрать.
+      if (prepared?.status === 'renumbered') await dropRenumberedBranch(projectPath, prepared.mergeRef);
+      this.broadcastGitChanged(projectPath);
       return { success: false, error: e?.message || String(e) };
     }
   }

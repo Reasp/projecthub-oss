@@ -77,6 +77,10 @@ export interface PlanNode {
   mergeCommit?: string;
   /** Файлы, на которых слияние встало (состояние `conflict`). */
   conflictFiles?: string[];
+  /** Совпавшие номера backlog ждут решения человека: план замен (состояние `conflict`, decision-76). */
+  renumberPending?: Array<{ from: string; to: string }>;
+  /** Человек согласился перенумеровать задачи и решения ветки узла при слиянии (decision-76 п. 6). */
+  renumberApproved?: boolean;
   costUsd?: number;
   iterations?: number;
   /** Почему узел провалился, заблокирован или пропущен. */

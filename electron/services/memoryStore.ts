@@ -20,7 +20,6 @@ import {
   isValidMemoryId,
   memoryFileName,
   memoryIdFromFileName,
-  nextMemoryId,
   parseMemoryFile,
   serializeMemoryFact,
   validateMemoryDraft,
@@ -30,6 +29,7 @@ import {
 } from './memoryFormat.js';
 import { detectSecrets, type SecretKind } from './secretPatterns.js';
 import { findDuplicate, searchMemoryFacts } from './memorySearch.js';
+import { allocateBacklogId } from './backlogIdAllocator.js';
 
 /** Ошибки операций с памятью — коды, строки интерфейса живут в i18n рендерера. */
 export const MEMORY_STORE_ERROR_CODES = ['invalid_draft', 'secret_detected', 'duplicate', 'not_found', 'invalid_id'] as const;
@@ -191,9 +191,10 @@ export async function writeMemoryFact(projectRoot: string, draft: MemoryDraft, o
     }
 
     const timestamp = nowBacklogTimestamp(options.now);
-    // Номер берётся и по неразобранным файлам: их id тоже заняты
+    // Номер берётся и по неразобранным файлам: их id тоже заняты. Ветки и соседние worktree — общей выдачей
+    // номера (decision-76 п. 8).
     const takenIds = [...snapshot.facts.map((f) => f.id), ...snapshot.invalid.map((f) => memoryIdFromFileName(f.fileName) ?? '')];
-    const id = existing?.id ?? nextMemoryId(takenIds);
+    const id = existing?.id ?? (await allocateBacklogId(projectRoot, 'mem', { extraTaken: takenIds }));
     const fact = buildMemoryFact(draft, id, existing?.created ?? timestamp, existing ? timestamp : undefined);
     const fileName = memoryFileName(id, fact.title);
 

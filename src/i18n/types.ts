@@ -875,6 +875,11 @@ export interface TranslationDictionary {
     currentHead: string;
     switchBranchTooltip: string;
     mergeBranchTooltip: string;
+    /** Подтверждение перенумерации входящей стороны перед слиянием (decision-76). */
+    renumberTitle: string;
+    renumberMessage: string;
+    renumberMentions: string;
+    renumberConfirm: string;
     deleteBranchTooltip: string;
     remoteBranches: string;
     compareTitle: string;
@@ -2337,6 +2342,9 @@ export interface TranslationDictionary {
     conflictTitle: string;
     conflictFiles: string;
     conflictRetry: string;
+    /** Совпали номера backlog ветки узла (decision-76). */
+    conflictRenumber: string;
+    renumberPending: string;
     conflictSkip: string;
     conflictStop: string;
     confirmStopTitle: string;

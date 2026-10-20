@@ -118,6 +118,7 @@ import { redactSecrets } from './hitlAudit.js';
 import type { HitlRequest, RolePermissions } from './hitlTypes.js';
 import { superviseChildExit, type ChildExitSupervisor } from './processSweep.js';
 import type { ComposeResult, ComposeSelection, JudgeState } from './arenaTypes.js';
+import type { BacklogRenumberSummary } from '../../src/types/electron';
 import type {
   AgentSlotConfig,
   AgentSlotDiffSummary,
@@ -838,6 +839,49 @@ export class AgentFleetService extends EventEmitter {
       return { ok: true };
     } catch (err) {
       return { ok: false, error: `Слияние не подтверждено: ${err instanceof Error ? err.message : String(err)}` };
+    } finally {
+      if (session.pendingMergeApproval?.requestId === requestId) session.pendingMergeApproval = undefined;
+      this.persist(session);
+      this.emitSwarmEvent({ type: 'swarm_updated', swarmId: session.id, session });
+    }
+  }
+
+  /**
+   * Шлюз перенумерации backlog (decision-76 п. 6): ветка кандидата и основная ветка независимо завели одни и те же
+   * номера задач или решений. Человек видит план замен в общей очереди HITL; автоматическое слияние отказывает.
+   */
+  private async renumberMergeGate(
+    session: SwarmSession,
+    agent: AgentSlotState,
+    summary: BacklogRenumberSummary,
+    automatic: boolean
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (automatic) return { ok: false, error: 'Номера backlog кандидата совпали с основной веткой — автоматическое слияние запрещено, решает человек' };
+    const requestId = hitlService.newRequestId('merge');
+    const request = {
+      id: requestId,
+      sessionId: `merge-${session.id}`,
+      projectPath: session.projectPath,
+      type: 'command' as const,
+      title: `Перенумеровать backlog кандидата ${agent.config.name} перед слиянием в ${session.baseBranch}`,
+      details: summary.text,
+      command: agent.worktreeBranch ? `git merge --no-ff ${agent.worktreeBranch} (с перенумерацией backlog)` : undefined,
+      tool: 'merge',
+      origin: this.hitlOrigin(session),
+      agentId: agent.id,
+      agentName: agent.config.name,
+      role: agent.config.role,
+      createdAt: Date.now()
+    };
+    session.pendingMergeApproval = { requestId, agentIds: [agent.id], since: request.createdAt };
+    this.persist(session);
+    this.emitSwarmEvent({ type: 'swarm_updated', swarmId: session.id, session });
+    try {
+      const answer = await hitlService.request(request, { timeoutMs: MERGE_APPROVAL_TIMEOUT_MS });
+      if (!answer.approved) return { ok: false, error: `Перенумерация отклонена${answer.text ? `: ${answer.text}` : ''}` };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: `Перенумерация не подтверждена: ${err instanceof Error ? err.message : String(err)}` };
     } finally {
       if (session.pendingMergeApproval?.requestId === requestId) session.pendingMergeApproval = undefined;
       this.persist(session);
@@ -3761,11 +3805,20 @@ export class AgentFleetService extends EventEmitter {
       const gate = await this.securityMergeGate(session, [{ agent: winnerAgent }], options.automatic === true);
       if (!gate.ok) return { success: false, error: gate.error };
       try {
-        const mergeResult = await worktreeService.mergeWorktree(
+        let mergeResult = await worktreeService.mergeWorktree(
           session.projectPath,
           winnerAgent.worktreeBranch,
           session.baseBranch
         );
+        if (mergeResult.renumberRequired) {
+          // Совпали номера задач/решений (decision-76 п. 6): план замен — человеку до слияния.
+          const renumber = await this.renumberMergeGate(session, winnerAgent, mergeResult.renumberRequired, options.automatic === true);
+          if (!renumber.ok) return { success: false, error: renumber.error };
+          mergeResult = await worktreeService.mergeWorktree(session.projectPath, winnerAgent.worktreeBranch, session.baseBranch, { renumber: true });
+          if (mergeResult.success && mergeResult.renumbered) {
+            this.log(session, winnerAgent, `[Swarm] Перенумерованы записи backlog ветки: ${mergeResult.renumbered.map((r) => `${r.from} → ${r.to}`).join(', ')}`);
+          }
+        }
         if (!mergeResult.success) {
           return {
             success: false,

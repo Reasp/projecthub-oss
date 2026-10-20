@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import matter from 'gray-matter';
 import { buildTaskBody, nowBacklogTimestamp, parseTaskBody, sanitizeTaskFileTitle, taskNumberFromName } from './backlogTaskFormat';
+import { allocateBacklogId } from './backlogIdAllocator';
 
 export interface CreateBacklogTaskInput {
   title: string;
@@ -50,36 +51,11 @@ export async function createBacklogTaskFile(projectPath: string, task: CreateBac
       await fs.mkdir(tasksDir, { recursive: true });
     }
 
-    const dirs = ['tasks', 'completed', 'drafts', path.join('archive', 'tasks')];
-    const fileNames: string[] = [];
-    for (const dir of dirs) {
-      const full = path.join(backlogDir, dir);
-      if (!existsSync(full)) continue;
-      fileNames.push(...(await fs.readdir(full)));
-    }
-
-    // Подзадача нумеруется внутри родителя (`task-80.3`), обычная задача — сквозным номером.
+    // Подзадача нумеруется внутри родителя (`task-80.3`), обычная задача — сквозным номером. Номер учитывает все
+    // каталоги задач, ветки репозитория и соседние worktree (decision-76 п. 8).
     const parentNumber = task.parentTaskId ? taskNumberFromName(task.parentTaskId) : null;
-    let number: string;
-    if (task.parentTaskId && parentNumber !== null) {
-      const subRe = new RegExp(`^task-${parentNumber}\\.(\\d+)`, 'i');
-      let maxSub = 0;
-      for (const f of fileNames) {
-        const m = f.match(subRe);
-        const n = m ? parseInt(m[1], 10) : NaN;
-        if (Number.isInteger(n) && n > maxSub) maxSub = n;
-      }
-      number = `${parentNumber}.${maxSub + 1}`;
-    } else {
-      let maxId = 0;
-      for (const f of fileNames) {
-        const n = taskNumberFromName(f);
-        if (n !== null && n > maxId) maxId = n;
-      }
-      number = String(maxId + 1);
-    }
-
-    const id = `TASK-${number}`;
+    const id = await allocateBacklogId(projectPath, 'task', parentNumber !== null ? { parentTaskId: `TASK-${parentNumber}` } : {});
+    const number = id.slice('TASK-'.length);
     const fileName = `task-${number} - ${sanitizeTaskFileTitle(task.title) || 'task'}.md`;
     const fullPath = path.join(tasksDir, fileName);
     const createdDate = nowBacklogTimestamp();

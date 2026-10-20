@@ -976,7 +976,8 @@ export interface IElectronAPI {
   checkoutBranch: (projectPath: string, branchName: string, createNew?: boolean) => Promise<boolean>;
   createBranch: (projectPath: string, branchName: string) => Promise<boolean>;
   deleteBranch: (projectPath: string, branchName: string, force?: boolean) => Promise<boolean>;
-  mergeBranch: (projectPath: string, branchName: string) => Promise<{ success: boolean; error?: string }>;
+  /** Совпали номера backlog — `renumberRequired`, повтор с `renumber: true` после согласия человека (decision-76). */
+  mergeBranch: (projectPath: string, branchName: string, options?: MergeOptions) => Promise<MergeWorktreeResult>;
   fetchRemote: (projectPath: string) => Promise<boolean>;
   pullRemote: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
   pushRemote: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
@@ -998,7 +999,7 @@ export interface IElectronAPI {
   removeWorktree: (projectPath: string, worktreePath: string, force?: boolean) => Promise<boolean>;
   pruneWorktrees: (projectPath: string) => Promise<boolean>;
   getWorktreeDiff: (projectPath: string, worktreeBranch: string, baseBranch: string, worktreePath?: string) => Promise<string>;
-  mergeWorktree: (projectPath: string, worktreeBranch: string, targetBranch: string) => Promise<MergeWorktreeResult>;
+  mergeWorktree: (projectPath: string, worktreeBranch: string, targetBranch: string, options?: MergeOptions) => Promise<MergeWorktreeResult>;
   checkoutWorktreeFiles: (projectPath: string, branch: string, filePaths: string[]) => Promise<{ success: boolean; error?: string; files?: string[] }>;
   findOrphanedWorktrees: (projectPath: string, activeTaskIds: string[], activeSwarmIds: string[]) => Promise<OrphanedWorktreeScan>;
   cleanOrphanedWorktrees: (projectPath: string, worktreePaths: string[], branches: string[]) => Promise<CleanOrphanedResult>;
@@ -1128,7 +1129,7 @@ export interface IElectronAPI {
   resolvePlanConflict: (
     planId: string,
     taskId: string,
-    action: 'retry' | 'skip' | 'stop'
+    action: 'retry' | 'skip' | 'stop' | 'renumber'
   ) => Promise<{ success: boolean; error?: string }>;
   discardPlan: (planId: string) => Promise<{ success: boolean; error?: string }>;
   onPlanEvent: (callback: (event: PlanEventPayload) => void) => () => void;
@@ -2470,12 +2471,37 @@ export interface AddWorktreeOptions {
   customPath?: string;
 }
 
+/** Замена номера входящей стороны при слиянии (decision-76). */
+export interface BacklogRenumbering {
+  kind: 'task' | 'decision' | 'doc' | 'mem';
+  from: string;
+  to: string;
+}
+
+/** План перенумерации для подтверждения человеком до слияния (decision-76 п. 6). */
+export interface BacklogRenumberSummary {
+  renumber: BacklogRenumbering[];
+  mentionCount: number;
+  fileCount: number;
+  /** Готовый текст для диалога и карточки HITL. */
+  text: string;
+}
+
+export interface MergeOptions {
+  /** Человек подтвердил перенумерацию входящей стороны (показан `renumberRequired`). */
+  renumber?: boolean;
+}
+
 export interface MergeWorktreeResult {
   success: boolean;
   error?: string;
   conflictedFiles?: string[];
   wasAborted?: boolean;
   uncleanWorkingTree?: boolean;
+  /** Номера backlog совпали — слияние не начато, нужен ответ человека и повтор с `renumber: true`. */
+  renumberRequired?: BacklogRenumberSummary;
+  /** Слито с перенумерацией входящей стороны. */
+  renumbered?: BacklogRenumbering[];
 }
 
 export interface OrphanedWorktreeScan {
@@ -3438,6 +3464,8 @@ export interface PlanNode {
   branch?: string;
   mergeCommit?: string;
   conflictFiles?: string[];
+  /** Совпавшие номера backlog ждут решения человека (decision-76). */
+  renumberPending?: Array<{ from: string; to: string }>;
   costUsd?: number;
   iterations?: number;
   reason?: string;
