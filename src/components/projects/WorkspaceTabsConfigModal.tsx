@@ -19,7 +19,9 @@ import {
   Sparkles,
   Bot,
   Cpu,
-  ShieldCheck
+  ShieldCheck,
+  Network,
+  ShareNetwork
 } from '../common/icons';
 import type { TabConfigItem, WorkspaceTabId } from '../../hooks/useWorkspaceTabs';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -71,7 +73,9 @@ export const WorkspaceTabsConfigModal: React.FC<WorkspaceTabsConfigModalProps> =
     git: { label: t.tabs.git, icon: GitBranch, hotkey: 'Ctrl+G' },
     files: { label: t.tabs.files, icon: FolderTree, hotkey: 'Ctrl+E' },
     prs: { label: t.tabs.prs, icon: GitPullRequest, hotkey: 'Ctrl+P' },
+    'code-graph': { label: t.tabs.codeGraph, icon: Network },
     docs: { label: t.tabs.docs, icon: BookOpen, hotkey: 'Ctrl+D' },
+    'docs-graph': { label: t.tabs.docsGraph, icon: ShareNetwork },
     analytics: { label: t.tabs.analytics, icon: BarChart2, hotkey: 'Ctrl+A' },
     ai: { label: t.tabs.ai, icon: Sparkles, hotkey: 'Ctrl+I' },
     'claude-cli': { label: t.tabs.claudeCli, icon: Bot, hotkey: 'Ctrl+T' },

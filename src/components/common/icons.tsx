@@ -118,6 +118,8 @@ import {
   LockOpenIcon,
   MagicWandIcon,
   MagnifyingGlassIcon,
+  MagnifyingGlassMinusIcon,
+  MagnifyingGlassPlusIcon,
   MicrophoneIcon,
   MicrophoneSlashIcon,
   MonitorIcon,
@@ -142,6 +144,7 @@ import {
   RobotIcon,
   RocketLaunchIcon,
   ScrollIcon,
+  ShareNetworkIcon,
   ShieldCheckIcon,
   ShieldIcon,
   ShieldWarningIcon,
@@ -359,6 +362,7 @@ export const Send2 = wrap(PaperPlaneTiltIcon, 'Send2');
 export const Server = wrap(HardDrivesIcon, 'Server');
 export const Settings = wrap(GearIcon, 'Settings');
 export const Settings2 = wrap(GearSixIcon, 'Settings2');
+export const ShareNetwork = wrap(ShareNetworkIcon, 'ShareNetwork');
 export const Shield = wrap(ShieldIcon, 'Shield');
 export const ShieldAlert = wrap(ShieldWarningIcon, 'ShieldAlert');
 export const ShieldCheck = wrap(ShieldCheckIcon, 'ShieldCheck');
@@ -398,3 +402,5 @@ export const Wrench = wrap(WrenchIcon, 'Wrench');
 export const X = wrap(XIcon, 'X');
 export const XCircle = wrap(XCircleIcon, 'XCircle');
 export const Zap = wrap(LightningIcon, 'Zap');
+export const ZoomIn = wrap(MagnifyingGlassPlusIcon, 'ZoomIn');
+export const ZoomOut = wrap(MagnifyingGlassMinusIcon, 'ZoomOut');

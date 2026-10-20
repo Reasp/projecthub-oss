@@ -210,7 +210,7 @@ interface ProjectState {
   gitRepoDetails: GitRepoDetails | null;
   gitSelectedFile: string | null;
   gitDiffContent: string;
-  activeTab: 'kanban' | 'milestones' | 'git' | 'files' | 'prs' | 'docs' | 'analytics' | 'ai' | 'claude-cli' | 'processes' | 'security';
+  activeTab: 'kanban' | 'milestones' | 'git' | 'files' | 'prs' | 'code-graph' | 'docs' | 'docs-graph' | 'analytics' | 'ai' | 'claude-cli' | 'processes' | 'security';
   taskViewMode: 'kanban' | 'list';
   selectedLabelFilter: string | null;
   selectedMilestoneFilter: string | null;
@@ -332,7 +332,7 @@ interface ProjectState {
   selectProject: (project: ProjectInfo | null) => void;
   setTasks: (tasks: BacklogTask[]) => void;
   setGitLogs: (logs: GitCommit[]) => void;
-  setActiveTab: (tab: 'kanban' | 'milestones' | 'git' | 'files' | 'prs' | 'docs' | 'analytics' | 'ai' | 'claude-cli' | 'processes' | 'security') => void;
+  setActiveTab: (tab: 'kanban' | 'milestones' | 'git' | 'files' | 'prs' | 'code-graph' | 'docs' | 'docs-graph' | 'analytics' | 'ai' | 'claude-cli' | 'processes' | 'security') => void;
   setTaskViewMode: (mode: 'kanban' | 'list') => void;
   setSelectedLabelFilter: (label: string | null) => void;
   setIsLoading: (loading: boolean) => void;
@@ -468,7 +468,9 @@ const VALID_TABS: Set<string> = new Set([
   'git',
   'files',
   'prs',
+  'code-graph',
   'docs',
+  'docs-graph',
   'analytics',
   'ai',
   'claude-cli',

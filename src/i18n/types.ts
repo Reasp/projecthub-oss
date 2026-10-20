@@ -489,6 +489,8 @@ export interface TranslationDictionary {
       claudeCli: string;
       processes: string;
       security: string;
+      codeGraph: string;
+      docsGraph: string;
       code: string;
       folder: string;
       terminal: string;
@@ -573,6 +575,8 @@ export interface TranslationDictionary {
     claudeCli: string;
     processes: string;
     security: string;
+    codeGraph: string;
+    docsGraph: string;
     more: string;
     customize: string;
     hideTab: string;
@@ -1053,6 +1057,42 @@ export interface TranslationDictionary {
     section: string;
     sectionPlaceholder: string;
     sectionHint: string;
+  };
+  /** Вкладки «Граф кода» (GitNexus) и «Граф документации» (LightRAG) — TASK-167, decision-118. */
+  graph: {
+    codeTitle: string;
+    docsTitle: string;
+    loadingCode: string;
+    loadingDocs: string;
+    stats: string;
+    indexedAt: string;
+    searchPlaceholder: string;
+    noResults: string;
+    fit: string;
+    zoomIn: string;
+    zoomOut: string;
+    layoutRun: string;
+    layoutStop: string;
+    refresh: string;
+    nodeTypes: string;
+    edgeTypes: string;
+    showAll: string;
+    defaults: string;
+    connections: string;
+    moreConnections: string;
+    openFile: string;
+    emptyGraph: string;
+    retry: string;
+    codeNoIndex: string;
+    codeNoIndexHint: string;
+    codeNoCli: string;
+    codeNoCliHint: string;
+    codeNotRegistered: string;
+    codeNotRegisteredHint: string;
+    docsDisabled: string;
+    docsNoIndex: string;
+    docsNoIndexHint: string;
+    loadError: string;
   };
   /** Security Health (TASK-73, decision-56): вкладка проекта, коммит с секретом, безопасность слота Swarm. */
   security: {

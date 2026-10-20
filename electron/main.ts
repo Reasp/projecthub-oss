@@ -31,6 +31,7 @@ import { trayService } from './services/trayService';
 import { telegramService, agentTaskTrackKey } from './services/telegramService';
 import { agentTaskApproval } from './services/agentTaskApprovalInstance';
 import { computerUseService, type ComputerOverlayState } from './services/computerUseService';
+import { projectGraphService } from './services/projectGraphService';
 import { voiceHotkeyService } from './services/voiceHotkeyService';
 import { voiceResultCardWatch } from './services/voiceResultCardWatch';
 import { terminalHookService } from './services/terminalHookService';
@@ -696,6 +697,13 @@ async function performGracefulShutdown() {
     computerOverlayWin = null;
   } catch (e) {
     console.warn('[Main] Error stopping computer use runtime:', e);
+  }
+
+  try {
+    // gitnexus serve вкладки «Граф кода» (TASK-167) — открытый порт на loopback, после выхода не нужен.
+    projectGraphService.shutdown();
+  } catch (e) {
+    console.warn('[Main] Error stopping gitnexus serve:', e);
   }
 
   try {

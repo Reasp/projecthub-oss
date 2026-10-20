@@ -1458,6 +1458,10 @@ export interface IElectronAPI {
   saveSecuritySettings: (patch: Partial<SecuritySettings>) => Promise<SecuritySettings>;
   onSecurityReportUpdated: (callback: (projectPath: string) => void) => () => void;
 
+  // Графы кода (GitNexus) и документации (LightRAG) — TASK-167, decision-118
+  getCodeGraph: (projectPath: string, force?: boolean) => Promise<ProjectGraphResult>;
+  getDocsGraph: (projectPath: string) => Promise<ProjectGraphResult>;
+
   // Память проекта (TASK-76, decision-51)
   listMemory: (projectPath: string) => Promise<MemoryListResult>;
   writeMemory: (projectPath: string, draft: MemoryDraftInput, replace?: string) => Promise<MemoryWriteResult>;
@@ -4039,6 +4043,34 @@ export interface EcosystemReport {
   stale?: boolean;
   staleSince?: number;
 }
+
+/** Граф для вкладок «Граф кода» и «Граф документации» (TASK-167): тот же вид, что `electron/services/projectGraph.ts`. */
+export interface ProjectGraphNode {
+  id: string;
+  label: string;
+  type: string;
+  props: Record<string, string | number>;
+  cluster?: string;
+}
+
+export interface ProjectGraphEdge {
+  source: string;
+  target: string;
+  type: string;
+  weight?: number;
+  description?: string;
+}
+
+export interface ProjectGraph {
+  nodes: ProjectGraphNode[];
+  edges: ProjectGraphEdge[];
+}
+
+export type ProjectGraphUnavailable = 'no-index' | 'no-cli' | 'not-registered' | 'disabled' | 'error';
+
+export type ProjectGraphResult =
+  | { ok: true; graph: ProjectGraph; indexedAt?: string; repo?: string }
+  | { ok: false; reason: ProjectGraphUnavailable; error?: string };
 
 export interface SecurityReport {
   version: number;

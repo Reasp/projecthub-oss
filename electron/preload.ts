@@ -667,6 +667,10 @@ const api: IElectronAPI = {
     };
   },
 
+  // Графы кода и документации (TASK-167, decision-118)
+  getCodeGraph: (projectPath: string, force?: boolean) => ipcRenderer.invoke('graph:getCode', projectPath, force === true),
+  getDocsGraph: (projectPath: string) => ipcRenderer.invoke('graph:getDocs', projectPath),
+
   // Память проекта (TASK-76): факты backlog/memory — список, правка человеком, удаление
   listMemory: (projectPath: string) => ipcRenderer.invoke('memory:list', projectPath),
   writeMemory: (projectPath: string, draft: MemoryDraftInput, replace?: string) =>

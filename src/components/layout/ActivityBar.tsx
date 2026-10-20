@@ -19,7 +19,9 @@ import {
   HelpCircle,
   FolderKanban,
   KeyRound,
-  Unplug
+  Unplug,
+  Network,
+  ShareNetwork
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
@@ -103,7 +105,9 @@ export const ActivityBar: React.FC = () => {
     git: { label: t.tabs.git, hotkey: 'Ctrl+G', icon: GitBranch },
     files: { label: t.tabs.files, hotkey: 'Ctrl+E', icon: FolderTree },
     prs: { label: t.tabs.prs, hotkey: 'Ctrl+P', icon: GitPullRequest },
+    'code-graph': { label: t.tabs.codeGraph, icon: Network },
     docs: { label: t.tabs.docs, hotkey: 'Ctrl+D', icon: BookOpen },
+    'docs-graph': { label: t.tabs.docsGraph, icon: ShareNetwork },
     analytics: { label: t.tabs.analytics, hotkey: 'Ctrl+A', icon: BarChart2 },
     ai: { label: t.tabs.ai, hotkey: 'Ctrl+I', icon: Sparkles },
     'claude-cli': { label: t.tabs.claudeCli, hotkey: 'Ctrl+T', icon: Bot },
@@ -117,7 +121,9 @@ export const ActivityBar: React.FC = () => {
     git: t.voice.voiceBadges.git,
     files: t.voice.voiceBadges.files,
     prs: t.voice.voiceBadges.prs,
+    'code-graph': t.voice.voiceBadges.codeGraph,
     docs: t.voice.voiceBadges.docs,
+    'docs-graph': t.voice.voiceBadges.docsGraph,
     analytics: t.voice.voiceBadges.analytics,
     ai: t.voice.voiceBadges.studio,
     'claude-cli': t.voice.voiceBadges.claudeCli,

@@ -25,6 +25,7 @@ import { registerConnectionsIpc } from './connectionsIpc';
 import { registerTrackerSyncIpc } from './trackerSyncIpc';
 import { registerCiIpc } from './ciIpc';
 import { registerChatIpc } from './chatIpc';
+import { registerGraphIpc } from './graphIpc';
 
 export type { IpcContext } from './types';
 
@@ -55,4 +56,5 @@ export function registerAllIpc(ctx: IpcContext) {
   registerTrackerSyncIpc();
   registerCiIpc();
   registerChatIpc();
+  registerGraphIpc();
 }

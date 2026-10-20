@@ -22,6 +22,7 @@ import { AIStudioView } from '../ai/AIStudioView';
 import { ClaudeCliView } from '../claude/ClaudeCliView';
 import { ProcessesView } from '../processes/ProcessesView';
 import { SecurityHealthView } from '../security/SecurityHealthView';
+import { CodeGraphView, DocsGraphView } from '../graph/ProjectGraphViews';
 import { ProjectInitModal, type ProjectInitMode } from './ProjectInitModal';
 
 /**
@@ -162,7 +163,9 @@ export const ProjectWorkspace: React.FC = () => {
           {activeTab === 'git' && <GitInspector />}
           {activeTab === 'files' && <FileExplorer />}
           {activeTab === 'prs' && <PullRequestView />}
+          {activeTab === 'code-graph' && <CodeGraphView />}
           {activeTab === 'docs' && <DocsRagView />}
+          {activeTab === 'docs-graph' && <DocsGraphView />}
           {activeTab === 'analytics' && <ProjectAnalyticsView />}
           {activeTab === 'ai' && <AIStudioView />}
           {activeTab === 'claude-cli' && <ClaudeCliView />}

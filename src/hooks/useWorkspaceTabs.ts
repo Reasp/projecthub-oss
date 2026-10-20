@@ -6,7 +6,9 @@ export type WorkspaceTabId =
   | 'git'
   | 'files'
   | 'prs'
+  | 'code-graph'
   | 'docs'
+  | 'docs-graph'
   | 'analytics'
   | 'ai'
   | 'claude-cli'
@@ -24,7 +26,9 @@ export const ALL_WORKSPACE_TAB_IDS: WorkspaceTabId[] = [
   'git',
   'files',
   'prs',
+  'code-graph',
   'docs',
+  'docs-graph',
   'analytics',
   'ai',
   'claude-cli',
