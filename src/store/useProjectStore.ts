@@ -182,6 +182,7 @@ export function emptyProjectScopedState() {
     selectedPR: null as PullRequest | null,
     prDiffContent: '',
     prProviderInfo: null as PRProviderInfo | null,
+    prError: null as string | null,
     selectedLabelFilter: null as string | null,
     selectedMilestoneFilter: null as string | null
   };
@@ -275,6 +276,8 @@ interface ProjectState {
   prFilter: 'all' | 'open' | 'closed' | 'merged';
   isLoadingPRs: boolean;
   prProviderInfo: PRProviderInfo | null;
+  /** Ошибка последнего списка PR через подключение (TASK-138.2): нет доступа, нужен вход, сеть. */
+  prError: string | null;
 
   // Docs & ADR State
   docsList: DocItem[];
@@ -680,6 +683,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   prFilter: loadInitialPRFilter(),
   isLoadingPRs: false,
   prProviderInfo: null,
+  prError: null,
 
   docsList: [],
   selectedDoc: null,
@@ -2178,7 +2182,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const prList = await window.api.listPullRequests(projectPath, filter);
       // Ответ по уже покинутому проекту игнорируем (TASK-67).
       if (!samePath(get().selectedProject?.path, projectPath)) return;
-      set({ prs: prList });
+      set({ prs: prList, prError: null });
       if (!get().selectedPR && prList.length > 0) {
         get().selectPR(prList[0]);
       } else if (get().selectedPR) {
@@ -2193,7 +2197,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to fetch PRs:', e);
-      set({ prs: [] });
+      if (!samePath(get().selectedProject?.path, projectPath)) return;
+      const message = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e);
+      set({ prs: [], prError: message, selectedPR: null, prDiffContent: '' });
     } finally {
       set({ isLoadingPRs: false });
     }

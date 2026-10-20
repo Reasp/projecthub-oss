@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import { gitService } from '../services/gitService';
 import { worktreeService } from '../services/worktreeService';
-import { prService } from '../services/prService';
+import { prService } from '../services/prServiceInstance';
 import { assertRegisteredProject, assertWorkspaceRoot } from '../services/projectPathGuard';
 import { assertInsideProject } from '../services/pathGuard';
 import { runWorktreeInit } from '../services/worktreeInitService';
@@ -159,5 +159,21 @@ export function registerGitIpc() {
 
   ipcMain.handle('pr:getDiff', async (_event, projectPath: string, prNumber: number) => {
     return await prService.getPRDiff(projectPath, prNumber);
+  });
+
+  // PR на слое подключений (TASK-138.2, decision-105)
+  ipcMain.handle('pr:setConnection', async (_event, projectPath: string, connectionId: string | null) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    return await prService.setProjectConnection(safeProject, connectionId ? String(connectionId) : null);
+  });
+
+  ipcMain.handle('pr:importCliLogin', async (_event, projectPath: string) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    return await prService.importCliLogin(safeProject);
+  });
+
+  ipcMain.handle('pr:forTask', async (_event, projectPath: string, taskId: string) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    return await prService.getTaskPullRequests(safeProject, String(taskId ?? ''));
   });
 }

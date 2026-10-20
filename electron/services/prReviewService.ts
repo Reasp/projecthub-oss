@@ -91,6 +91,8 @@ export interface PrReviewDeps {
     getDiff(root: string, prNumber: number): Promise<string>;
     fetchHead(root: string, prNumber: number): Promise<{ ref: string; sha: string }>;
     comment(root: string, prNumber: number, body: string): Promise<string>;
+    /** Куда уйдёт комментарий — текст запроса HITL (подключение или `gh`, decision-105). */
+    describeComment?(root: string, prNumber: number): Promise<{ command: string; tool: string }>;
   };
   fleet: {
     buildRoleSlot(root: string, roleSlug: string, slotId: string, overrides: { name?: string; permissions?: RolePermissions }): Promise<AgentSlotConfig | { error: string }>;
@@ -197,7 +199,7 @@ export class PrReviewService {
     try {
       pr = await this.deps.gh.getPr(input.projectPath, input.prNumber);
     } catch (err) {
-      return { error: `PR #${input.prNumber} не получен через gh: ${errorText(err)}` };
+      return { error: `PR #${input.prNumber} не получен: ${errorText(err)}` };
     }
     if (pr.state && pr.state.toUpperCase() !== 'OPEN') return { skipped: `PR #${pr.number} не открыт (${pr.state})` };
 
@@ -456,6 +458,10 @@ export class PrReviewService {
   private async requestPublication(record: PrReviewRecord): Promise<void> {
     const requestId = record.publish.requestId ?? `prpub-${record.id}`;
     let approved = false;
+    const target = (await this.deps.gh.describeComment?.(record.projectPath, record.prNumber).catch(() => undefined)) ?? {
+      command: `gh pr comment ${record.prNumber} --body-file <текст ниже>`,
+      tool: 'gh pr comment'
+    };
     try {
       const response = await this.deps.requestApproval(
         {
@@ -464,9 +470,9 @@ export class PrReviewService {
           projectPath: record.projectPath,
           type: 'command',
           title: `Опубликовать ревью PR #${record.prNumber} «${record.prTitle}»`,
-          command: `gh pr comment ${record.prNumber} --body-file <текст ниже>`,
+          command: target.command,
           details: record.comment,
-          tool: 'gh pr comment',
+          tool: target.tool,
           origin: record.origin === 'automation' ? 'automation' : 'swarm',
           createdAt: this.deps.now()
         },

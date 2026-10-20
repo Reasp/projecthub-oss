@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   GitPullRequest,
   ExternalLink,
@@ -12,13 +12,28 @@ import {
   ArrowRight,
   ShieldCheck,
   FileCode,
-  Check
+  Check,
+  AlertTriangle,
+  KeyRound
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { useConnectionsStore } from '../../store/useConnectionsStore';
 import { CreatePRModal } from './CreatePRModal';
 import { PrReviewPanel } from './PrReviewPanel';
-import type { PullRequest } from '../../types/electron';
+import type { PullRequest, PRProviderInfo } from '../../types/electron';
+
+const HOSTING_LABELS: Record<PRProviderInfo['provider'], string> = {
+  github: 'GitHub',
+  gitlab: 'GitLab',
+  gitea: 'Gitea',
+  bitbucket: 'Bitbucket',
+  none: ''
+};
+
+function cleanIpcError(err: unknown): string {
+  return err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err);
+}
 
 export const PullRequestView: React.FC = () => {
   const { t } = useTranslation();
@@ -30,19 +45,67 @@ export const PullRequestView: React.FC = () => {
     prFilter,
     isLoadingPRs,
     prProviderInfo,
+    prError,
     fetchPRs,
     selectPR,
     setPRFilter
   } = useProjectStore();
+  const openConnections = useConnectionsStore((s) => s.open);
+  const connectionsOpen = useConnectionsStore((s) => s.isOpen);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'diff' | 'review'>('overview');
+  const [importBusy, setImportBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const wasConnectionsOpen = useRef(connectionsOpen);
 
   useEffect(() => {
     if (selectedProject) {
       fetchPRs(selectedProject.path);
     }
   }, [selectedProject, fetchPRs]);
+
+  // Закрыли окно «Подключения» — подключение могли добавить, переподключить или удалить (TASK-138.2).
+  useEffect(() => {
+    if (wasConnectionsOpen.current && !connectionsOpen && selectedProject) fetchPRs(selectedProject.path);
+    wasConnectionsOpen.current = connectionsOpen;
+  }, [connectionsOpen, selectedProject, fetchPRs]);
+
+  const hostingLabel = HOSTING_LABELS[prProviderInfo?.provider ?? 'none'] || 'Git';
+  const accessMessage = (() => {
+    if (!prProviderInfo) return null;
+    const { via, connections, remoteUrl, authenticated } = prProviderInfo;
+    // Подключение к хосту есть, но требует входа заново: «добавьте подключение» тут ввело бы в заблуждение.
+    if (via === 'none' && connections.some((c) => c.status === 'needsReauth')) return t.prs.needsReauth;
+    if (via === 'none' && remoteUrl) return t.prs.noBackend;
+    if (via === 'connection' && !authenticated) return t.prs.needsReauth;
+    return prError ? t.prs.loadError.replace('{error}', prError) : null;
+  })();
+
+  const handleSelectConnection = async (connectionId: string) => {
+    if (!selectedProject) return;
+    try {
+      await window.api.setPRConnection(selectedProject.path, connectionId || null);
+    } catch (err) {
+      setNotice({ kind: 'error', text: cleanIpcError(err) });
+    }
+    fetchPRs(selectedProject.path, prFilter);
+  };
+
+  const handleImportCli = async () => {
+    if (!selectedProject) return;
+    setImportBusy(true);
+    setNotice(null);
+    try {
+      const created = await window.api.importPRCliLogin(selectedProject.path);
+      setNotice({ kind: 'ok', text: t.prs.importDone.replace('{label}', created.label) });
+      fetchPRs(selectedProject.path, prFilter);
+    } catch (err) {
+      setNotice({ kind: 'error', text: t.prs.importFailed.replace('{error}', cleanIpcError(err)) });
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
   const handleRefresh = () => {
     if (selectedProject) {
@@ -114,12 +177,33 @@ export const PullRequestView: React.FC = () => {
               <GitPullRequest className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
               <span className="truncate max-w-[160px]">{prProviderInfo?.repo || t.prs.localRepo}</span>
             </div>
-            {prProviderInfo?.hasCli && (
+            {prProviderInfo && prProviderInfo.connections.length > 0 ? (
+              <label className="flex items-center gap-1 text-[11px] text-slate-400 shrink-0" title={t.prs.connectionSelectTitle}>
+                <KeyRound className="w-3 h-3 shrink-0 text-emerald-400" />
+                <select
+                  value={prProviderInfo.pinnedConnectionId ?? ''}
+                  onChange={(e) => void handleSelectConnection(e.target.value)}
+                  aria-label={t.prs.viaConnection}
+                  className="max-w-[200px] bg-slate-800/80 border border-slate-700/60 rounded px-1.5 py-0.5 text-[11px] text-slate-200"
+                >
+                  <option value="">
+                    {prProviderInfo.via === 'connection' && !prProviderInfo.pinnedConnectionId
+                      ? `${t.prs.connectionAuto}: ${prProviderInfo.connectionLabel ?? ''}`
+                      : t.prs.connectionAuto}
+                  </option>
+                  {prProviderInfo.connections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : prProviderInfo?.via === 'cli' ? (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium shrink-0 whitespace-nowrap" title={t.prs.ghCliAvailable}>
                 <ShieldCheck className="w-3 h-3 shrink-0" />
-                gh CLI
+                {t.prs.viaCli}
               </span>
-            )}
+            ) : null}
           </div>
 
           {/* Filter Pills */}
@@ -162,6 +246,37 @@ export const PullRequestView: React.FC = () => {
         </div>
       </div>
 
+      {/* Доступ к хостингу (TASK-138.2): нет подключения, нужен вход, ошибка списка, перенос входа CLI */}
+      {(accessMessage || notice) && (
+        <div className="px-6 py-2 border-b border-slate-800/80 flex flex-col gap-1.5 text-xs shrink-0">
+          {accessMessage && (
+            <div className="flex items-center gap-2 text-amber-200">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span className="flex-1 min-w-0">{accessMessage}</span>
+              {prProviderInfo?.importableCli && (
+                <button
+                  type="button"
+                  onClick={() => void handleImportCli()}
+                  disabled={importBusy}
+                  title={t.prs.importCliTitle.replace('{cli}', prProviderInfo.importableCli)}
+                  className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium disabled:opacity-50 shrink-0"
+                >
+                  {t.prs.importCli.replace('{cli}', prProviderInfo.importableCli)}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={openConnections}
+                className="px-2.5 py-1 rounded-md border border-slate-700 text-slate-300 hover:text-white shrink-0"
+              >
+                {t.prs.openConnections}
+              </button>
+            </div>
+          )}
+          {notice && <div className={notice.kind === 'ok' ? 'text-emerald-300' : 'text-rose-300'}>{notice.text}</div>}
+        </div>
+      )}
+
       {/* Main PR Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Column: PR List */}
@@ -176,11 +291,6 @@ export const PullRequestView: React.FC = () => {
               <div className="p-8 text-center text-xs text-slate-500">
                 <GitPullRequest className="w-8 h-8 mx-auto mb-2 text-slate-600" />
                 <p>{t.pr.noPRs}</p>
-                {!prProviderInfo?.hasCli && (
-                  <p className="mt-2 text-[11px] text-slate-600">
-                    GitHub CLI (gh)
-                  </p>
-                )}
               </div>
             ) : (
               prs.map((pr) => {
@@ -198,6 +308,9 @@ export const PullRequestView: React.FC = () => {
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-1.5">
                         {getStatusBadge(pr.state)}
+                        {pr.state === 'OPEN' && pr.draft && (
+                          <span className="px-1.5 py-0.5 rounded-full text-[10px] border border-slate-600 text-slate-400">{t.prs.draftBadge}</span>
+                        )}
                         <span className="text-[11px] font-mono text-slate-400">#{pr.number}</span>
                       </div>
                       {getCheckBadge(pr.checksStatus)}
@@ -259,7 +372,7 @@ export const PullRequestView: React.FC = () => {
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60 font-medium text-xs transition shrink-0"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
-                      {t.pr.openOnGitHub}
+                      {t.prs.openOnHosting.replace('{hosting}', hostingLabel)}
                     </button>
                   )}
                 </div>
@@ -326,7 +439,7 @@ export const PullRequestView: React.FC = () => {
                     projectPath={selectedProject.path}
                     prNumber={selectedPR.number}
                     prOpen={selectedPR.state === 'OPEN'}
-                    hasCli={Boolean(prProviderInfo?.hasCli && prProviderInfo?.authenticated)}
+                    hasCli={Boolean(prProviderInfo?.authenticated)}
                   />
                 ) : activeSubTab === 'overview' ? (
                   <div className="max-w-3xl space-y-6">

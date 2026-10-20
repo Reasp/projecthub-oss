@@ -293,6 +293,10 @@ const api: IElectronAPI = {
   },
   getPRDiff: (projectPath: string, prNumber: number) =>
     ipcRenderer.invoke('pr:getDiff', projectPath, prNumber),
+  setPRConnection: (projectPath: string, connectionId: string | null) =>
+    ipcRenderer.invoke('pr:setConnection', projectPath, connectionId),
+  importPRCliLogin: (projectPath: string) => ipcRenderer.invoke('pr:importCliLogin', projectPath),
+  getTaskPullRequests: (projectPath: string, taskId: string) => ipcRenderer.invoke('pr:forTask', projectPath, taskId),
 
   // Interactive PTY Terminals (Claude Code & Multi-tab Shell)
   createPtySession: (options: any) => ipcRenderer.invoke('pty:create', options),

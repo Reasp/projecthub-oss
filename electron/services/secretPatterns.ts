@@ -25,6 +25,9 @@ export const REDACTION_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   // Личные токены GitLab и ClickUp (слой подключений, decision-102 п. 8)
   [/\bglpat-[A-Za-z0-9_-]{16,}/g, 'glpat-***'],
   [/\bpk_\d+_[A-Za-z0-9]{20,}/g, 'pk_***'],
+  // App password Bitbucket и API-токен Atlassian (Bitbucket, Jira; TASK-138.2)
+  [/\bATBB[A-Za-z0-9]{24,}/g, 'ATBB***'],
+  [/\bATATT[A-Za-z0-9_=-]{20,}/g, 'ATATT***'],
   // Токен Telegram-бота: <id бота>:<35 символов>
   [/\b(\d{8,10}:)[A-Za-z0-9_-]{35}\b/g, '$1***'],
   // Пароли в URL: https://user:pass@host

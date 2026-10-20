@@ -38,6 +38,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { useDialogStore } from '../../store/useDialogStore';
 import { mergeTaskDraft } from '../../lib/taskDraftMerge';
 import { requestOpenAiSettings } from '../../lib/modelRouteText';
+import { TaskPullRequests } from './TaskPullRequests';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { PlanPanel } from './PlanPanel';
 import {
@@ -878,8 +879,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             {task.created && <span>{String(task.created)}</span>}
           </div>
 
-          {/* Branch/worktree/PR записаны автоматически при создании worktree и PR (TASK-64) */}
-          {(task.branch || task.worktree || task.pr) && (
+          {/* Branch/worktree записаны автоматически при создании worktree и PR (TASK-64) */}
+          {(task.branch || task.worktree) && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono shrink-0">
               {task.branch && (
                 <span className="flex items-center gap-1 text-slate-400" title={task.branch}>
@@ -893,19 +894,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   {task.worktree}
                 </span>
               )}
-              {task.pr && (
-                <button
-                  type="button"
-                  onClick={() => void window.api.openExternal(task.pr!)}
-                  className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 hover:underline"
-                  title={task.pr}
-                >
-                  <FileCode className="w-3 h-3" />
-                  Pull Request
-                </button>
-              )}
             </div>
           )}
+          {/* PR задачи со статусом хостинга (TASK-138.2): ссылки из references и номер задачи в ветке */}
+          {selectedProject?.hasGit && <TaskPullRequests projectPath={selectedProject.path} taskId={task.id} />}
         </div>
 
         {/* Modal Footer Actions */}

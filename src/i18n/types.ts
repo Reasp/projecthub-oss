@@ -970,6 +970,25 @@ export interface TranslationDictionary {
     localRepo: string;
     local: string;
     ghCliAvailable: string;
+    viaConnection: string;
+    viaCli: string;
+    connectionAuto: string;
+    connectionSelectTitle: string;
+    noBackend: string;
+    needsReauth: string;
+    openConnections: string;
+    importCli: string;
+    importCliTitle: string;
+    importDone: string;
+    importFailed: string;
+    loadError: string;
+    openOnHosting: string;
+    draftBadge: string;
+    reviewApproved: string;
+    reviewChanges: string;
+    reviewRequired: string;
+    taskPrsTitle: string;
+    taskPrsUnresolved: string;
   };
   rag: {
     title: string;

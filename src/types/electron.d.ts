@@ -801,9 +801,18 @@ export interface PullRequest {
   body: string;
   labels: string[];
   checksStatus?: 'SUCCESS' | 'PENDING' | 'FAILURE' | 'NONE';
-  provider: 'github' | 'gitlab' | 'custom';
+  provider: PRHostingId | 'custom';
   commentsCount?: number;
+  draft?: boolean;
+  /** Голова PR; у Bitbucket — короткий хэш. */
+  headSha?: string;
+  /** Решение ревью (GitHub). */
+  reviewDecision?: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED';
+  /** PR из форка: голову у Bitbucket не получить веткой. */
+  fromFork?: boolean;
 }
+
+export type PRHostingId = 'github' | 'gitlab' | 'gitea' | 'bitbucket';
 
 export interface PRCreateOptions {
   title: string;
@@ -814,11 +823,32 @@ export interface PRCreateOptions {
 }
 
 export interface PRProviderInfo {
-  provider: 'github' | 'gitlab' | 'none';
+  provider: PRHostingId | 'none';
   repo?: string;
   remoteUrl?: string;
+  /** Установлен GitHub CLI. */
   hasCli: boolean;
+  /** PR можно читать и создавать: есть подключение или вход `gh`. */
   authenticated: boolean;
+  /** Чем ходит ProjectHub (TASK-138.2, decision-105): подключение decision-102, GitHub CLI или ничем. */
+  via: 'connection' | 'cli' | 'none';
+  connectionId?: string;
+  connectionLabel?: string;
+  /** Подключение, выбранное для проекта вручную; без него подключение выбирается автоматически. */
+  pinnedConnectionId?: string;
+  /** Подключения к хостингу этого remote — для выбора в окне PR. */
+  connections: Array<{ id: string; label: string; status: ConnectionStatus }>;
+  /** Вход CLI, токен которого можно перенести в подключение без повторного ввода. */
+  importableCli?: 'gh' | 'glab';
+}
+
+/** PR, связанный с задачей (TASK-138.2): по ссылке в `references` или по номеру задачи в ветке и заголовке. */
+export interface TaskPullRequestsResult {
+  ok: boolean;
+  prs: PullRequest[];
+  /** Ссылки на PR из задачи, статус которых получить не удалось (нет подключения, сеть). */
+  unresolved: string[];
+  error?: string;
 }
 
 export interface DocItem {
@@ -1055,6 +1085,11 @@ export interface IElectronAPI {
   listPullRequests: (projectPath: string, state?: 'all' | 'open' | 'closed' | 'merged') => Promise<PullRequest[]>;
   createPullRequest: (projectPath: string, options: PRCreateOptions) => Promise<PullRequest | null>;
   getPRDiff: (projectPath: string, prNumber: number) => Promise<string>;
+  /** Подключение для PR проекта (TASK-138.2); `null` — выбирать автоматически. */
+  setPRConnection: (projectPath: string, connectionId: string | null) => Promise<PRProviderInfo>;
+  /** Перенести вход gh/glab в подключение без повторного ввода токена. */
+  importPRCliLogin: (projectPath: string) => Promise<{ id: string; label: string }>;
+  getTaskPullRequests: (projectPath: string, taskId: string) => Promise<TaskPullRequestsResult>;
   // Ревью PR (TASK-81, decision-53)
   listPrReviews: (projectPath: string, prNumber?: number) => Promise<{ ok: boolean; reviews: PrReviewRecord[]; error?: string }>;
   startPrReview: (projectPath: string, prNumber: number, options: PrReviewStartOptions) => Promise<{ ok: true; reviewId: string } | { ok: false; error: string }>;

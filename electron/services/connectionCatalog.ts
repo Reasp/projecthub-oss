@@ -140,6 +140,24 @@ export const CONNECTION_SERVICES: readonly ConnectionServiceDef[] = [
     manualRevokeUrl: (base) => `${base}/user/settings/applications`
   },
   {
+    id: 'bitbucket',
+    label: 'Bitbucket Cloud',
+    categories: ['vcs', 'ci'],
+    // API-токен Atlassian или app password — Basic с почтой (именем); токен доступа репозитория — Bearer.
+    methods: ['basic', 'token'],
+    defaultBaseUrl: 'https://bitbucket.org',
+    selfHosted: false,
+    scopes: [],
+    clientSecretRequired: {},
+    tokenHelpUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
+    usernameHint: 'email',
+    apiBase: () => 'https://api.bitbucket.org/2.0',
+    tokenStyle: 'bearer',
+    verifyPath: '/user',
+    parseAccount: (json) => accountFrom(json, ['account_id', 'uuid'], ['username', 'nickname'], ['display_name']),
+    manualRevokeUrl: () => 'https://id.atlassian.com/manage-profile/security/api-tokens'
+  },
+  {
     id: 'clickup',
     label: 'ClickUp',
     categories: ['tracker'],

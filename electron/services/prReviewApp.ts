@@ -2,7 +2,7 @@ import path from 'node:path';
 import { getUserDataDir } from './appPaths.js';
 import { appEventBus } from './eventBus.js';
 import { agentFleetService } from './agentFleetService.js';
-import { prService } from './prService.js';
+import { prService } from './prServiceInstance.js';
 import { hitlService } from './hitlService.js';
 import { findTaskFile } from './taskFileLookup.js';
 import { parseTaskBody } from './backlogTaskFormat.js';
@@ -15,7 +15,7 @@ import type { SwarmEventPayload, SwarmSession } from './swarmTypes.js';
 
 /**
  * Ревью PR в приложении (TASK-81, decision-53): сервис ревью и опрос PR с настоящими зависимостями —
- * GitHub CLI, флот агентов, HITL, задачи Backlog.md, шина событий.
+ * хостинг PR (подключение или GitHub CLI, decision-105), флот агентов, HITL, задачи Backlog.md, шина событий.
  */
 
 const log = (level: 'info' | 'warn', message: string) => (level === 'warn' ? logger.warn(message) : logger.info(message));
@@ -25,7 +25,8 @@ export const prReviewService = new PrReviewService({
     getPr: (root, n) => prService.getPrForReview(root, n),
     getDiff: (root, n) => prService.getPrDiffStrict(root, n),
     fetchHead: (root, n) => prService.fetchPrHead(root, n),
-    comment: (root, n, body) => prService.commentOnPr(root, n, body)
+    comment: (root, n, body) => prService.commentOnPr(root, n, body),
+    describeComment: (root, n) => prService.describeCommentTarget(root, n)
   },
   fleet: {
     buildRoleSlot: (root, slug, slotId, overrides) => agentFleetService.buildRoleSlot(root, slug, slotId, overrides),
