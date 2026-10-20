@@ -1,19 +1,21 @@
 import type { RemoteConnectionMode } from '../../../src/types/remote';
-import type { HostProfile, PairingLink } from '../protocol/pairing';
+import type { PairingLink } from '../protocol/pairing';
+import type { ProfileList } from '../protocol/profiles';
 
 export type ClientTarget = 'embedded' | 'telegram' | 'capacitor';
 
 export type HapticKind = 'light' | 'medium' | 'heavy' | 'selection' | 'success' | 'warning' | 'error';
 
-/** Хранилище профиля хоста с ключом и токеном устройства. */
+/** Хранилище профилей хостов (TASK-140.2): у каждого свои ключи и токен устройства. */
 export interface ProfileStore {
   /**
    * `keychain` — Keychain/Keystore (приложение), `page` — хранилище страницы (браузер, Mini App),
    * `memory` — только до закрытия: в приложении без нативного плагина ключи на диск не пишутся.
    */
   readonly kind: 'keychain' | 'page' | 'memory';
-  load(): Promise<HostProfile | null>;
-  save(profile: HostProfile): Promise<void>;
+  /** Список профилей; прежний единственный профиль переносится в список при первом чтении. */
+  load(): Promise<ProfileList>;
+  save(list: ProfileList): Promise<void>;
   clear(): Promise<void>;
 }
 

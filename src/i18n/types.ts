@@ -1622,6 +1622,10 @@ export interface TranslationDictionary {
     autoApproveOff: string;
     approval: {
       title: string;
+      riskLow: string;
+      riskModerate: string;
+      riskHigh: string;
+      riskPhoneHint: string;
       commandTitle: string;
       fileWriteTitle: string;
       questionTitle: string;
@@ -2590,6 +2594,8 @@ export interface TranslationDictionary {
     approvedBadge: string;
     disconnectDevice: string;
     deviceRightsHint: string;
+    protocolV2Hint: string;
+    protocolV1Hint: string;
     rightsReadOnly: string;
     rightsHitl: string;
     rightsFull: string;

@@ -27,6 +27,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useToast } from '../../hooks/useTimeoutState';
 import { InteractiveApprovalCard } from '../ai/InteractiveApprovalCard';
+import { RiskBadge } from './RiskBadge';
 import type { ApprovalRequest, HitlAuditEntry, HitlDecisionSourceKind } from '../../types/electron';
 
 const DECIDED_BY: HitlDecisionSourceKind[] = ['local', 'remote', 'mcp', 'auto', 'timeout', 'cancelled', 'shutdown'];
@@ -175,6 +176,7 @@ export const HitlCenterModal: React.FC = () => {
                       </span>
                     )}
                     {req.tool && <span className="text-[11px] font-mono text-slate-500 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">{req.tool}</span>}
+                    <RiskBadge risk={req.risk} reason={req.riskReason} />
                   </div>
                   <div className="text-xs font-semibold text-slate-100 break-words">{req.title}</div>
                   {req.command && (

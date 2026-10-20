@@ -1,17 +1,31 @@
 import { createContext, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import type { Platform } from '../platform/types';
 import type { HostProfile } from '../protocol/pairing';
+import type { ProfileList } from '../protocol/profiles';
 import type { RemoteClient } from '../protocol/remoteClient';
 import type { AppState, AppStore } from './appStore';
+import type { HostPool, HostSummary } from './hostPool';
 
 export interface AppServices {
   platform: Platform;
   client: RemoteClient;
   store: AppStore;
-  /** Новый профиль (после сопряжения) — сохранить и подключиться. */
+  /** Фоновые соединения к остальным хостам (статус и ожидающие решения в переключателе). */
+  pool: HostPool;
+  /** Все сопряжённые хосты телефона (TASK-140.2). */
+  profiles: ProfileList;
+  /** Сопряжение по QR или ссылке: тот же хост обновляется, другой добавляется в список. */
   pair(profile: HostProfile): void;
-  /** Забыть хост: стереть ключ и токен на телефоне. */
-  forget(): Promise<void>;
+  /** Открыть экран сопряжения для ещё одного компьютера. */
+  addHost(): void;
+  /** Закрыть экран добавления и вернуться к открытому хосту. */
+  cancelAdd(): void;
+  /** Открыть другой хост из списка. */
+  switchHost(profileId: string): void;
+  /** Получить доступ к соседу по федерации через открытый хост и открыть его. */
+  enrollHost(hostId: string): Promise<boolean>;
+  /** Забыть хост: стереть его ключ и токен на телефоне (по умолчанию — открытый). */
+  forget(profileId?: string): Promise<void>;
 }
 
 const ServicesContext = createContext<AppServices | null>(null);
@@ -30,6 +44,12 @@ export function useServices(): AppServices {
 export function useAppState<T>(selector: (state: AppState) => T): T {
   const { store } = useServices();
   return useSyncExternalStore(store.subscribe, () => selector(store.getState()));
+}
+
+/** Статусы фоновых хостов по `id` профиля; ссылка меняется только при изменении. */
+export function useHostSummaries(): Record<string, HostSummary> {
+  const { pool } = useServices();
+  return useSyncExternalStore(pool.subscribe, pool.getSummaries);
 }
 
 export function useHaptic(): Platform['haptic'] {

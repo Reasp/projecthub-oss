@@ -7,8 +7,9 @@
  * 64 символов не помещается — туда кладётся base64url (`kb_` + 43 символа).
  *
  * Адреса хоста (TASK-140.9, decision-82) едут повторяемым параметром `ep` (`ep=l:192.168.1.5:42050`,
- * `ep=v:100.70.1.2:42050`, `ep=t:abc.trycloudflare.com`). Протокол v2 ([[TASK-140.2]]) добавит к тем же
- * параметрам ключ хоста и версию, список адресов остаётся тем же.
+ * `ep=v:100.70.1.2:42050`, `ep=t:abc.trycloudflare.com`). Протокол v2 ([[TASK-140.2]], decision-111) добавил
+ * ключ сессий хоста `hk` (ECDSA P-256, 87 символов base64url): клиент проверяет им подпись рукопожатия. В `start_param` Telegram
+ * полный ключ не помещается — туда идёт его 96-битный отпечаток (`kc_` + ключ E2EE + отпечаток).
  */
 
 import { encodeEndpointParam, relayEndpoint, type RemoteEndpoint } from './remoteEndpoints';
@@ -46,6 +47,10 @@ export interface PairingSource {
   tunnelUrl?: string;
   /** Все адреса хоста для телефона (`getStatus().endpoints`). */
   endpoints?: RemoteEndpoint[];
+  /** Ключ сессий хоста в base64url (`getStatus().hostKey`). */
+  hostKey?: string;
+  /** Отпечаток ключа хоста (`getStatus().hostKeyFingerprint`). */
+  hostKeyFingerprint?: string;
 }
 
 /**
@@ -57,6 +62,7 @@ export function buildPairingHash(src: PairingSource, extra: Record<string, strin
   const params = new URLSearchParams({ hostId: src.hostId, key: src.key });
   if (src.mode === 'relay' || relayEndpoint(src.relayServerUrl)) params.set('relay', src.relayServerUrl);
   params.set('mode', src.mode);
+  if (src.hostKey) params.set('hk', src.hostKey);
   for (const [k, v] of Object.entries(extra)) params.set(k, v);
   const pageHost = clientPageOrigin(src).replace(/^https?:\/\//, '');
   const eps = (src.endpoints ?? [])
@@ -66,9 +72,11 @@ export function buildPairingHash(src: PairingSource, extra: Record<string, strin
   return [params.toString(), ...eps.map((v) => `ep=${v}`)].join('&');
 }
 
-/** `start_param` Mini App с полным ключом. */
-export function buildTelegramStartParam(key: string): string {
-  return `kb_${hexToBase64Url(key)}`;
+/** `start_param` Mini App с полным ключом и, если известен, отпечатком ключа хоста (62 символа из 64). */
+export function buildTelegramStartParam(key: string, hostKeyFingerprint?: string): string {
+  const keyPart = hexToBase64Url(key);
+  if (hostKeyFingerprint && /^[A-Za-z0-9_-]{16}$/.test(hostKeyFingerprint) && keyPart.length === 43) return `kc_${keyPart}${hostKeyFingerprint}`;
+  return `kb_${keyPart}`;
 }
 
 /**
@@ -86,6 +94,6 @@ export function buildEmbeddedPairingUrl(src: PairingSource): string {
 
 /** Ссылка на Mini App: через бота (`startapp`), иначе страница Mini App на хосте с hash. */
 export function buildTelegramPairingUrl(src: PairingSource, botUsername?: string): string {
-  if (botUsername) return `https://t.me/${botUsername}?startapp=${buildTelegramStartParam(src.key)}`;
+  if (botUsername) return `https://t.me/${botUsername}?startapp=${buildTelegramStartParam(src.key, src.hostKeyFingerprint)}`;
   return `${clientPageOrigin(src)}/telegram#${buildPairingHash(src)}`;
 }

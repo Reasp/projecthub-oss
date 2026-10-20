@@ -19,8 +19,8 @@ const input = 'w-full rounded-xl border border-ph-line bg-ph-raised px-3 py-3 te
  * Сопряжение: ссылка из QR (сканер Telegram или вставка), либо поля вручную. В браузере на
  * `http://<IP>` шифрования нет — объясняем, что делать, и не подключаемся открытым текстом.
  */
-export function PairingScreen({ initial, error }: { initial: HostProfile; error?: string | null }) {
-  const { platform, pair } = useServices();
+export function PairingScreen({ initial, error, canCancel = false }: { initial: HostProfile; error?: string | null; canCancel?: boolean }) {
+  const { platform, pair, cancelAdd } = useServices();
   const [profile, setProfile] = useState<HostProfile>(initial);
   const [linkText, setLinkText] = useState('');
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -31,13 +31,15 @@ export function PairingScreen({ initial, error }: { initial: HostProfile; error?
 
   const applyText = (text: string) => {
     const link = parsePairingText(text);
-    if (!link.key && !link.hostId && !link.pin) {
+    if (!link.key && !link.hostId && !link.pin && !link.hostKey) {
       setLinkError('Не похоже на ссылку сопряжения ProjectHub.');
       return;
     }
     setLinkError(null);
     const next = applyPairingLink(profile, link);
-    if (hostServed) next.lanAddress = profile.lanAddress;
+    // Страница этого же хоста — идём на её адрес; QR другого ПК несёт свои адреса (TASK-140.2).
+    const pageHostId = platform.hostDefaults().hostId;
+    if (hostServed && (!next.hostId || !pageHostId || next.hostId === pageHostId)) next.lanAddress = platform.pageHostAddress();
     setProfile(next);
     platform.haptic('success');
     if (profileProblems(next).length === 0 && crypto) pair(next);
@@ -54,7 +56,16 @@ export function PairingScreen({ initial, error }: { initial: HostProfile; error?
     <div className="h-full overflow-y-auto px-4 pb-10 pt-safe">
       <div className="pt-8">
         <div className="text-[24px] font-semibold">ProjectHub</div>
-        <div className="mt-1 text-[14px] text-slate-400">Пульт агентов на вашем компьютере. Откройте Remote Control в ProjectHub и отсканируйте QR-код.</div>
+        <div className="mt-1 text-[14px] text-slate-400">
+          {canCancel
+            ? 'Ещё один компьютер: откройте Remote Control в ProjectHub на нём и отсканируйте QR-код. Уже сопряжённые компьютеры останутся в списке.'
+            : 'Пульт агентов на вашем компьютере. Откройте Remote Control в ProjectHub и отсканируйте QR-код.'}
+        </div>
+        {canCancel && (
+          <button type="button" className="mt-3 text-[14px] text-indigo-400" onClick={() => cancelAdd()}>
+            ← К сопряжённым компьютерам
+          </button>
+        )}
       </div>
 
       {!crypto && (

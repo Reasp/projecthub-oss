@@ -14,12 +14,22 @@ import {
   type EndpointKind,
   type RemoteEndpoint
 } from '../../../src/utils/remoteEndpoints';
-import { buildWsTarget, connectionCandidates, profileProblems, type HostProfile } from './pairing';
+import {
+  HandshakeError,
+  SESSION_PROTOCOL_V1,
+  SESSION_PROTOCOL_V2,
+  isSessionFrameV2,
+  type ClientHandshake,
+  type SessionFrameV2,
+  type WebSessionV2
+} from '../../../src/utils/remoteSessionV2';
+import { buildWsTarget, connectionCandidates, isValidHostKey, isValidKeyHex, profileProblems, type HostProfile } from './pairing';
 
 /**
- * Клиент Remote Control для телефона (TASK-140.1): соединение, сопряжение, RPC и события по
- * текущему протоколу v1 ([[decision-11]]). Чистый модуль без React и DOM — сокет, шифрование и
- * таймеры внедряются, поэтому всё поведение проверяется unit-тестами в Node.
+ * Клиент Remote Control для телефона (TASK-140.1): соединение, сопряжение, RPC и события. Протокол v2
+ * (TASK-140.2, [[decision-111]]) — рукопожатие X25519 с подписью хоста, если ключ хоста закреплён в профиле и
+ * платформа умеет X25519/Ed25519; иначе v1 ([[decision-11]]). Чистый модуль без React и DOM — сокет, шифрование
+ * и таймеры внедряются, поэтому всё поведение проверяется unit-тестами в Node.
  */
 
 /** Минимум WebSocket, который нужен клиенту (браузерный `WebSocket` подходит как есть). */
@@ -42,6 +52,12 @@ export interface PacketCodec {
 }
 
 export type CodecFactory = (keyHex: string) => PacketCodec;
+
+/** Протокол v2 на платформе: есть ли X25519/Ed25519 и начало рукопожатия (`remoteSessionV2.ts`). */
+export interface SessionV2Port {
+  supported(): Promise<boolean>;
+  begin(): Promise<ClientHandshake>;
+}
 
 export interface Timers {
   setTimeout(fn: () => void, ms: number): unknown;
@@ -81,6 +97,8 @@ export interface ClientSnapshot {
   lastEventId: number;
   /** Через сколько миллисекунд будет следующая попытка (только в `reconnecting`). */
   retryInMs: number | null;
+  /** Версия текущей сессии: 2 — forward secrecy, 1 — общий ключ; `null` до рукопожатия. */
+  protocol: number | null;
 }
 
 /** Метод мобильного клиента — тот же набор, что объявлен в `RemoteRpcMethod`. */
@@ -92,6 +110,8 @@ export interface RemoteClientOptions {
   deviceName: string;
   /** Профиль изменился (выдан токен, узнали hostId/права) — платформа сохраняет его. */
   onProfileChange?: (profile: HostProfile) => void;
+  /** Протокол v2; без него клиент говорит только по v1. */
+  v2?: SessionV2Port;
   timers?: Timers;
   rpcTimeoutMs?: number;
   heartbeatMs?: number;
@@ -229,10 +249,30 @@ export const WRONG_KEY_ERROR = 'Ключ не подходит к этому к�
 
 export const STALE_KEY_ERROR = 'Ключ шифрования устарел: хост отвечает без шифрования. Сопрягите устройство заново.';
 
+export const HOST_KEY_ERROR =
+  'Компьютер не подтвердил свой ключ — возможна подмена по дороге (чужая сеть, релей). Подключение остановлено. '
+  + 'Если ProjectHub на ПК переустанавливали, отсканируйте его QR-код заново.';
+
+export const V2_UNSUPPORTED_ERROR =
+  'К этому компьютеру можно подключиться только по протоколу v2, а этот браузер не умеет X25519. Обновите браузер или используйте приложение.';
+
+export const HOST_TOO_OLD_ERROR = 'ProjectHub на компьютере не знает протокол v2 — обновите его. Пока можно отсканировать QR этого ПК заново.';
+
+/** Понятная причина отказа рукопожатия v2 для экрана. */
+export function handshakeErrorMessage(err: unknown): string {
+  if (err instanceof HandshakeError) {
+    if (err.code === 'host_key_mismatch' || err.code === 'bad_signature' || err.code === 'host_id_mismatch') return HOST_KEY_ERROR;
+  }
+  return `Рукопожатие v2 не удалось: ${err instanceof Error ? err.message : String(err)}`;
+}
+
 export class RemoteClient {
-  private readonly opts: Required<Omit<RemoteClientOptions, 'onProfileChange'>> & Pick<RemoteClientOptions, 'onProfileChange'>;
+  private readonly opts: Required<Omit<RemoteClientOptions, 'onProfileChange' | 'v2'>> & Pick<RemoteClientOptions, 'onProfileChange' | 'v2'>;
   private profile: HostProfile | null = null;
   private codec: PacketCodec | null = null;
+  /** Сессия v2 текущего сокета и начатое на нём рукопожатие. */
+  private session: WebSessionV2 | null = null;
+  private pendingHandshake: ClientHandshake | null = null;
   private socket: SocketLike | null = null;
   private pending = new Map<string, PendingRpc>();
   private eventListeners = new Set<EventListener>();
@@ -257,7 +297,8 @@ export class RemoteClient {
     route: null,
     endpoint: null,
     lastEventId: 0,
-    retryInMs: null
+    retryInMs: null,
+    protocol: null
   };
   /** Адреса текущего цикла перебора и номер пробуемого. */
   private candidates: RemoteEndpoint[] = [];
@@ -322,7 +363,7 @@ export class RemoteClient {
     this.closeSocket();
     this.clearReconnect();
     this.profile = { ...profile };
-    this.codec = this.opts.codecFactory(profile.key);
+    this.codec = isValidKeyHex(profile.key) ? this.opts.codecFactory(profile.key) : null;
     this.stopped = false;
     this.reconnectAttempt = 0;
     this.openCycle();
@@ -351,7 +392,7 @@ export class RemoteClient {
    */
   rpc<T = unknown>(method: RpcMethod, params: Record<string, unknown> = {}): Promise<T> {
     const socket = this.socket;
-    if (!socket || socket.readyState !== OPEN || this.snapshot.state !== 'ready' || !this.codec) {
+    if (!socket || socket.readyState !== OPEN || this.snapshot.state !== 'ready' || (!this.session && !this.codec)) {
       return Promise.reject(new Error('Нет подключения к ProjectHub'));
     }
     return this.sendRpc<T>(socket, method, params);
@@ -377,9 +418,77 @@ export class RemoteClient {
   }
 
   private async sendEncrypted(socket: SocketLike, packet: PlainPacket): Promise<void> {
-    if (!this.codec) throw new Error('Нет ключа шифрования');
-    const encrypted = await this.codec.encrypt(packet);
+    let encrypted: EncryptedPacket | SessionFrameV2;
+    // Сессия принадлежит сокету: после переподключения пакет старой сессии на новый сокет не уходит.
+    const session = this.session;
+    if (session) encrypted = await session.seal(packet);
+    else if (this.codec) encrypted = await this.codec.encrypt(packet);
+    else throw new Error('Нет ключа шифрования');
+    if (session && session !== this.session) return;
     if (socket.readyState === OPEN) socket.send(JSON.stringify(encrypted));
+  }
+
+  /** Закреплён ли ключ хоста так, что можно идти по v2, и умеет ли это платформа. */
+  private async wantsV2(): Promise<boolean> {
+    const profile = this.profile;
+    if (!profile || !this.opts.v2) return false;
+    if (!isValidHostKey(profile.hostKey) && !profile.hostKeyFp) return false;
+    return this.opts.v2.supported();
+  }
+
+  /** Первый пакет сокета: `client_hello` протокола v2 или зашифрованный общим ключом `handshake` v1. */
+  private async startHandshake(socket: SocketLike): Promise<void> {
+    this.session = null;
+    this.pendingHandshake = null;
+    if (await this.wantsV2()) {
+      try {
+        const hs = await this.opts.v2!.begin();
+        if (this.socket !== socket) return;
+        this.pendingHandshake = hs;
+        if (socket.readyState === OPEN) socket.send(JSON.stringify(hs.hello));
+      } catch (err) {
+        this.update({ error: handshakeErrorMessage(err) });
+      }
+      return;
+    }
+    if (!this.codec) {
+      // Соседа по федерации знаем только по ключу хоста — без v2 к нему не подключиться.
+      this.stopped = true;
+      this.update({ state: 'failed', error: V2_UNSUPPORTED_ERROR });
+      socket.close();
+      return;
+    }
+    await this.sendHandshake(socket);
+  }
+
+  /** Ответ хоста на `client_hello`: проверка подписи закреплённым ключом и прежний `handshake` уже в сессии. */
+  private async handleServerHello(socket: SocketLike, serverHello: unknown): Promise<void> {
+    const hs = this.pendingHandshake;
+    const profile = this.profile;
+    if (!hs || !profile) return;
+    this.pendingHandshake = null;
+    try {
+      const result = await hs.finish(serverHello, {
+        deviceId: profile.deviceId,
+        hostId: profile.hostId || undefined,
+        hostKey: isValidHostKey(profile.hostKey) ? profile.hostKey : undefined,
+        hostKeyFp: profile.hostKeyFp
+      });
+      if (this.socket !== socket) return;
+      this.session = result.session;
+      if (profile.hostKey !== result.hostKey) {
+        // Ключ из отпечатка Telegram подтверждён — дальше сверяем с полным ключом.
+        profile.hostKey = result.hostKey;
+        this.opts.onProfileChange?.({ ...profile });
+      }
+      this.update({ protocol: SESSION_PROTOCOL_V2 });
+      await this.sendHandshake(socket);
+    } catch (err) {
+      if (this.socket !== socket) return;
+      this.stopped = true;
+      this.update({ state: 'failed', error: handshakeErrorMessage(err) });
+      socket.close();
+    }
   }
 
   /** Новый цикл перебора: адреса профиля по порядку, последний удачный — первым (TASK-140.9). */
@@ -411,7 +520,8 @@ export class RemoteClient {
       route: endpoint.kind,
       endpoint: describeEndpoint(endpoint),
       hostId: profile.hostId,
-      retryInMs: null
+      retryInMs: null,
+      protocol: null
     });
 
     let socket: SocketLike;
@@ -438,8 +548,8 @@ export class RemoteClient {
       if (this.socket !== socket) return;
       this.lastFrameAt = Date.now();
       this.update({ state: 'pairing' });
-      // Напрямую секреты не едут в URL: первым пакетом идёт зашифрованный handshake. Через релей — после relay_ack.
-      if (!target.viaRelay) void this.sendHandshake(socket);
+      // Напрямую секреты не едут в URL: первым пакетом идёт рукопожатие. Через релей — после relay_ack.
+      if (!target.viaRelay) void this.startHandshake(socket);
     };
     socket.onmessage = (ev) => {
       if (this.socket !== socket) return;
@@ -458,6 +568,8 @@ export class RemoteClient {
   private onSocketClosed(socket: SocketLike, ev: { code?: number; reason?: string }): void {
     if (this.socket !== socket) return;
     this.socket = null;
+    this.session = null;
+    this.pendingHandshake = null;
     this.stopHeartbeat();
     this.rejectAllPending(new Error('Соединение разорвано'));
     if (isRevokedClose(ev.code, ev.reason)) {
@@ -499,7 +611,11 @@ export class RemoteClient {
 
     // Служебные сообщения релея и ошибки хоста идут открытым текстом.
     if (parsed.type === 'relay_ack' && parsed.role === 'client') {
-      await this.sendHandshake(socket);
+      await this.startHandshake(socket);
+      return;
+    }
+    if (parsed.type === 'server_hello') {
+      await this.handleServerHello(socket, parsed);
       return;
     }
     if (parsed.type === 'host_disconnected') {
@@ -513,7 +629,18 @@ export class RemoteClient {
     }
 
     let packet: PlainPacket;
-    if (parsed.e2ee === true) {
+    if (isSessionFrameV2(parsed)) {
+      if (!this.session) return;
+      try {
+        packet = (await this.session.open(parsed)) as PlainPacket;
+      } catch {
+        // Повтор или подделка — пакет отбрасываем, счётчик сессии не сдвигается.
+        return;
+      }
+    } else if (this.session || this.pendingHandshake) {
+      // Сокет говорит по v2: пакет v1 или открытый ack — не от нашей сессии.
+      return;
+    } else if (parsed.e2ee === true) {
       try {
         packet = await this.codec!.decrypt(parsed as unknown as EncryptedPacket);
       } catch {
@@ -538,6 +665,14 @@ export class RemoteClient {
   }
 
   private handleHostError(socket: SocketLike, message: string): void {
+    // Старый хост не понял `client_hello` и ответил как неодобренному устройству.
+    if (this.pendingHandshake && /not approved/i.test(message)) {
+      this.pendingHandshake = null;
+      this.stopped = true;
+      this.update({ state: 'failed', error: HOST_TOO_OLD_ERROR });
+      socket.close();
+      return;
+    }
     if (isFatalHostError(message)) {
       this.stopped = true;
       this.update({ state: 'failed', error: message });
@@ -562,7 +697,8 @@ export class RemoteClient {
 
   private async sendHandshake(socket: SocketLike): Promise<void> {
     const profile = this.profile!;
-    const data: Record<string, string> = { key: profile.key, name: this.opts.deviceName };
+    const data: Record<string, string> = { name: this.opts.deviceName };
+    if (profile.key) data.key = profile.key;
     if (profile.pin) data.pin = profile.pin;
     if (profile.deviceToken) data.token = profile.deviceToken;
     try {
@@ -626,10 +762,34 @@ export class RemoteClient {
     }
     if (changed) this.opts.onProfileChange?.({ ...profile });
 
+    // Хост v1 → v2 (decision-111): по сессии, защищённой общим ключом, хост сообщил свой ключ. Закрепляем его и
+    // сразу переподключаемся по v2 с того же адреса — повторное сопряжение не нужно.
+    if (
+      !this.session &&
+      ack.approved !== false &&
+      !isValidHostKey(profile.hostKey) &&
+      !profile.hostKeyFp &&
+      Array.isArray(ack.protocols) &&
+      ack.protocols.includes(SESSION_PROTOCOL_V2) &&
+      isValidHostKey(ack.hostKey) &&
+      this.opts.v2 &&
+      (await this.opts.v2.supported())
+    ) {
+      if (this.socket !== socket) return;
+      profile.hostKey = ack.hostKey;
+      this.opts.onProfileChange?.({ ...profile });
+      if (this.current) this.preferUrl = this.current.url;
+      this.closeSocket();
+      this.reconnectAttempt = 0;
+      this.openCycle();
+      return;
+    }
+
     this.update({
       hostId: profile.hostId,
       rights: ack.rights ?? profile.rights ?? null,
-      readOnly: Boolean(ack.readOnly)
+      readOnly: Boolean(ack.readOnly),
+      protocol: this.session ? SESSION_PROTOCOL_V2 : SESSION_PROTOCOL_V1
     });
 
     if (ack.approved === false) {
@@ -788,6 +948,8 @@ export class RemoteClient {
     const socket = this.socket;
     this.socket = null;
     this.readySocket = null;
+    this.session = null;
+    this.pendingHandshake = null;
     this.stopHeartbeat();
     this.rejectAllPending(new Error('Соединение закрыто'));
     if (socket) {

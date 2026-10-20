@@ -2,6 +2,7 @@ import type {
   FederationHost,
   RemoteAgentOutput,
   RemoteAgentTaskApproval,
+  RemoteEnrollment,
   RemotePendingAgentTask,
   RemoteHostStatus,
   RemotePendingApproval,
@@ -102,8 +103,16 @@ export class AppStore {
     private readonly prefs: PrefsPort = noopPrefs,
     private readonly debounceMs = 400
   ) {
-    this.state = {
-      conn: client.getSnapshot(),
+    this.state = AppStore.initialState(client.getSnapshot());
+    this.unsubscribers.push(
+      client.subscribe((conn) => this.set({ conn })),
+      client.onEvent((event, data) => this.handleEvent(event, data))
+    );
+  }
+
+  private static initialState(conn: ClientSnapshot): AppState {
+    return {
+      conn,
       status: null,
       projects: [],
       projectPath: '',
@@ -120,10 +129,21 @@ export class AppStore {
       studio: emptyStudio(),
       toast: null
     };
-    this.unsubscribers.push(
-      client.subscribe((conn) => this.set({ conn })),
-      client.onEvent((event, data) => this.handleEvent(event, data))
-    );
+  }
+
+  /** Переключение на другой хост (TASK-140.2): данные прежнего хоста не должны мелькнуть на экране нового. */
+  reset(): void {
+    for (const t of this.refreshTimers.values()) clearTimeout(t);
+    this.refreshTimers.clear();
+    this.studioBuffer.clear();
+    this.awaitingNewSession = false;
+    this.state = { ...AppStore.initialState(this.client.getSnapshot()), toast: this.state.toast };
+    for (const l of this.listeners) l();
+  }
+
+  /** Доступ к соседу по федерации через открытый хост (`federation_enroll`, decision-111). */
+  enrollFederationHost(hostId: string): Promise<RemoteEnrollment | null> {
+    return this.call<RemoteEnrollment>('federation_enroll', { hostId });
   }
 
   dispose(): void {
@@ -250,6 +270,8 @@ export class AppStore {
       requestId,
       sessionId: item?.sessionId,
       decision: approve ? 'allow' : 'deny',
+      // Кнопка в открытом приложении (decision-112): хост сверит способ с классом риска запроса.
+      confirm: 'app',
       ...(reason ? { reason } : {})
     });
     if (!res) {
@@ -258,6 +280,8 @@ export class AppStore {
       return false;
     }
     if (res.ok === false) {
+      // Хост не принял одобрение по классу риска — запрос по-прежнему ждёт, возвращаем его в список.
+      if (res.reason === 'confirmation_required' && item) this.set({ hitl: addHitl(this.state.hitl, item) });
       this.showToast(hitlRejectReason(res.reason), 'error');
       return false;
     }

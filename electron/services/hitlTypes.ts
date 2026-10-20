@@ -17,6 +17,19 @@ export type HitlEngine = 'claude-cli' | 'codex-cli' | 'gemini-cli' | 'api' | 'an
 /** `computer_action` — действие управления компьютером через прокси `computer_*` (TASK-82, decision-27). */
 export type HitlRequestType = 'command' | 'file_write' | 'question' | 'subagent_dispatch' | 'computer_action';
 
+/**
+ * Класс риска запроса (TASK-140.4, decision-112): `low` — чтение и проверки, `moderate` — изменения в проекте,
+ * `high` — удаление, отправка наружу, сеть, запись вне проекта, секреты, управление компьютером, неизвестный инструмент.
+ */
+export type HitlRisk = 'low' | 'moderate' | 'high';
+
+/**
+ * Как человек подтвердил решение на удалённом устройстве (decision-112 п. 3): кнопка уведомления на заблокированном
+ * телефоне, действие уведомления после разблокировки, кнопка в приложении, кнопка в мессенджере, подпись ключом
+ * устройства с биометрией.
+ */
+export type HitlConfirmMethod = 'notification' | 'unlocked' | 'app' | 'chat' | 'biometric';
+
 /** Скриншоты «до/после» действия управления компьютером — пути к файлам в каталоге аудита. */
 export interface HitlScreenshots {
   before?: string;
@@ -72,6 +85,10 @@ export interface HitlRequest {
   hostId?: string;
   /** Имя инструмента движка (Bash, Write, run_command …). */
   tool?: string;
+  /** Класс риска; считает `hitlService.request` (`classifyRisk`), вызывающий сервис может только ужесточить. */
+  risk?: HitlRisk;
+  /** Почему такой класс — для карточки и телефона. */
+  riskReason?: string;
   /** Момент, после которого запрос считается истёкшим (решение deny). */
   expiresAt?: number;
   /**
@@ -105,11 +122,15 @@ export interface HitlDecisionSource {
   deviceName?: string;
   /** Имя сработавшего правила для `auto`. */
   rule?: string;
+  /** Способ подтверждения на удалённом устройстве (`remote`); без него — кнопка в приложении. */
+  confirm?: HitlConfirmMethod;
+  /** Подпись `biometric` проверена хостом ключом подтверждения устройства. */
+  confirmVerified?: boolean;
 }
 
 export type HitlDecideResult =
   | { ok: true; request: HitlRequest }
-  | { ok: false; reason: 'not_found' | 'already_decided' | 'invalid_source' };
+  | { ok: false; reason: 'not_found' | 'already_decided' | 'invalid_source' | 'confirmation_required'; risk?: HitlRisk };
 
 export type HitlOutcome = 'executed' | 'failed' | 'not_executed' | 'session_gone';
 
@@ -142,6 +163,10 @@ export interface HitlAuditEntry {
   deviceId?: string;
   deviceName?: string;
   rule?: string;
+  /** Класс риска запроса (decision-112). */
+  risk?: HitlRisk;
+  /** Способ подтверждения на удалённом устройстве; `biometric` пишется, только если подпись проверена. */
+  confirm?: HitlConfirmMethod;
   /** Комментарий пользователя (усечённый). */
   comment?: string;
   /** Сколько запрос ждал решения. */

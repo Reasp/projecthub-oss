@@ -1,4 +1,4 @@
-import type { DeviceRights, RemotePendingAgentTask, RemotePendingApproval, RemoteTaskSummary } from '../../../src/types/remote';
+import type { DeviceRights, RemotePendingAgentTask, RemoteHitlRisk, RemotePendingApproval, RemoteTaskSummary } from '../../../src/types/remote';
 
 /**
  * Чистые модели экранов мобильного клиента (TASK-140.1): без React, покрыты unit-тестами.
@@ -127,6 +127,19 @@ export interface HitlItem {
   command?: string;
   filePath?: string;
   expiresAt?: number;
+  /** Класс риска от хоста (TASK-140.4, decision-112); у хостов до него нет. */
+  risk?: RemoteHitlRisk;
+  riskReason?: string;
+}
+
+export const RISK_TEXT: Record<RemoteHitlRisk, string> = { low: 'низкий риск', moderate: 'средний риск', high: 'высокий риск' };
+
+/**
+ * Можно ли одобрить запрос кнопкой в приложении (decision-112 п. 3): `high` — только с биометрией, которой у клиента
+ * пока нет ([[TASK-140.6]]). Окончательно решает хост; клиент лишь не предлагает заведомо отклоняемое.
+ */
+export function canApproveInApp(item: HitlItem, biometric = false): boolean {
+  return item.risk !== 'high' || biometric;
 }
 
 export function hitlFromEvent(data: unknown): HitlItem | null {
@@ -144,7 +157,9 @@ export function hitlFromEvent(data: unknown): HitlItem | null {
     details: str('details'),
     command: str('command'),
     filePath: str('filePath'),
-    expiresAt: typeof d.expiresAt === 'number' ? d.expiresAt : undefined
+    expiresAt: typeof d.expiresAt === 'number' ? d.expiresAt : undefined,
+    risk: d.risk === 'low' || d.risk === 'moderate' || d.risk === 'high' ? d.risk : undefined,
+    riskReason: str('riskReason')
   };
 }
 
@@ -172,6 +187,7 @@ export function replaceHitl(items: HitlItem[]): HitlItem[] {
 export function hitlRejectReason(reason: string | undefined): string {
   if (reason === 'already_decided') return 'Запрос уже решён';
   if (reason === 'not_found') return 'Запрос не найден — возможно, истёк';
+  if (reason === 'confirmation_required') return 'Для такого риска этого подтверждения мало: одобрите на ПК или с биометрией';
   return reason ? `Хост отклонил решение: ${reason}` : 'Хост отклонил решение';
 }
 

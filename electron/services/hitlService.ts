@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { appEventBus } from './eventBus.js';
 import { HitlAuditLog, commandPreview, hashCommand, truncateComment } from './hitlAudit.js';
+import { isConfirmationSufficient, riskOfRequest } from './hitlRisk.js';
 import type {
   ApprovalResponse,
   HitlAuditEntry,
@@ -216,13 +217,17 @@ export class HitlService extends EventEmitter {
   public request(input: HitlRequest, options: HitlRequestOptions = {}): Promise<ApprovalResponse> {
     const createdAt = typeof input.createdAt === 'number' ? input.createdAt : this.now();
     const timeoutMs = this.normalizeTimeout(options.timeoutMs);
+    // Класс риска считает хост (decision-112): вызывающий сервис может его только ужесточить.
+    const assessed = riskOfRequest(input);
     const request: HitlRequest = {
       ...input,
       id: input.id || this.newRequestId(),
       createdAt,
       hostId: input.hostId || this.hostId,
       expiresAt: input.expiresAt ?? createdAt + timeoutMs,
-      orphaned: false
+      orphaned: false,
+      risk: assessed.risk,
+      riskReason: assessed.reason
     };
     if (this.closed) {
       return Promise.reject(new ApprovalCancelledError('Приложение закрывается'));
@@ -249,8 +254,16 @@ export class HitlService extends EventEmitter {
     if (!entry) {
       return { ok: false, reason: this.decided.has(requestId) ? 'already_decided' : 'not_found' };
     }
-    this.remove(requestId);
     const approved = Boolean(response.approved);
+    // Одобрение с удалённого устройства перепроверяется по классу, посчитанному здесь, а не присланному клиентом
+    // (decision-112 п. 3). Запрос остаётся в очереди: его можно одобрить на ПК или отклонить.
+    if (approved && source.kind === 'remote') {
+      const risk = riskOfRequest(entry.request).risk;
+      if (!isConfirmationSufficient(risk, source.confirm ?? 'app', source.confirmVerified === true)) {
+        return { ok: false, reason: 'confirmation_required', risk };
+      }
+    }
+    this.remove(requestId);
     this.rememberDecided(entry.request, approved, source);
     this.writeDecision(entry.request, approved ? 'allow' : 'deny', source, response.text, entry.request.orphaned ? 'session_gone' : undefined);
     entry.resolve?.(response);
@@ -495,6 +508,7 @@ export class HitlService extends EventEmitter {
       ...(request.claudeAccount ? { claudeAccount: request.claudeAccount } : {}),
       tool: request.tool,
       type: request.type,
+      ...(request.risk ? { risk: request.risk } : {}),
       title: request.title ? truncateComment(request.title, 200) : undefined,
       filePath: request.filePath || request.diff?.filePath || undefined,
       commandHash: request.command ? hashCommand(request.command) : undefined,
@@ -520,6 +534,8 @@ export class HitlService extends EventEmitter {
       deviceId: source.deviceId,
       deviceName: source.deviceName,
       rule: source.rule,
+      // Способ подтверждения — только у решений с удалённого устройства; `biometric` без проверенной подписи не пишем.
+      ...(source.kind === 'remote' ? { confirm: source.confirm === 'biometric' && !source.confirmVerified ? 'app' : (source.confirm ?? 'app') } : {}),
       comment: truncateComment(comment),
       waitedMs: typeof request.createdAt === 'number' ? Math.max(0, now - request.createdAt) : undefined,
       outcome,

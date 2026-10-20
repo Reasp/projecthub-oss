@@ -37,7 +37,10 @@ function toPairingSource(status: RemoteControlStatus): PairingSource {
     port: status.port,
     localIp: status.localAddresses?.[0],
     tunnelUrl: status.tunnelStatus === 'active' ? status.tunnelUrl : undefined,
-    endpoints: status.endpoints
+    endpoints: status.endpoints,
+    // Ключ хоста в QR: телефон проверяет им подпись рукопожатия v2 (decision-111).
+    hostKey: status.hostKey || undefined,
+    hostKeyFingerprint: status.hostKeyFingerprint || undefined
   };
 }
 
@@ -840,6 +843,14 @@ export const RemoteControlBadge: React.FC = () => {
                                 <span className="px-1.5 py-0.2 bg-slate-800 text-[11px] text-slate-400 rounded">
                                   {dev.mode.toUpperCase()}
                                 </span>
+                                {dev.protocol && (
+                                  <span
+                                    title={dev.protocol === 2 ? t.remote.protocolV2Hint : t.remote.protocolV1Hint}
+                                    className={`px-1.5 py-0.2 text-[11px] rounded ${dev.protocol === 2 ? 'bg-emerald-950 text-emerald-300' : 'bg-amber-950 text-amber-300'}`}
+                                  >
+                                    v{dev.protocol}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[11px] text-slate-400">
                                 {dev.ip || 'Remote IP'}

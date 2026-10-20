@@ -18,9 +18,21 @@ import type {
   EncryptedPacket,
   PlainPacket,
   FederationHost,
-  FederationProject
+  FederationProject,
+  RemoteEnrollment
 } from '../../src/types/remote.js';
 import { generateSecretKey, generatePairingPin, encryptPayload, decryptPayload } from '../../src/utils/remoteCryptoNode.js';
+import {
+  HOST_SESSION_PROTOCOLS,
+  HandshakeError,
+  SESSION_PROTOCOL_V1,
+  SESSION_PROTOCOL_V2,
+  bytesToBase64Url,
+  isSessionFrameV2,
+  type SessionFrameV2
+} from '../../src/utils/remoteSessionV2.js';
+import { generateSessionSigningKey, hostKeyFingerprintNode, isHostKey, p256RawPublicKey, respondToClientHello, type NodeSessionV2 } from '../../src/utils/remoteSessionV2Node.js';
+import { federationClientService } from './federationClientService.js';
 import { projectRegistry } from './projectRegistry.js';
 import { assertRegisteredProject, assertWorkspaceRoot } from './projectPathGuard.js';
 import { studioRemoteBridge } from './studioRemoteBridge.js';
@@ -49,6 +61,8 @@ import { aiAgentService } from './aiAgentService.js';
 import { actionConfigService, type ActionDefinition } from './actionConfigService.js';
 import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { hitlService } from './hitlService.js';
+import { confirmProofPayload, parseConfirmKey, verifyConfirmProof } from './hitlConfirmProof.js';
+import { parseConfirmMethod } from './hitlRisk.js';
 import { agentTaskApproval } from './agentTaskApprovalInstance.js';
 import { assignedTaskRunner } from './assignedTaskRunner.js';
 import { lanDiscoveryService } from './lanDiscoveryService.js';
@@ -107,6 +121,21 @@ interface ClientConnection {
   ws: WebSocket;
   device: RemoteDevice;
   isEncrypted: boolean;
+  /** Сессия протокола v2 (decision-111): после `client_hello` пакеты этого сокета шифруются её ключами. */
+  session?: NodeSessionV2;
+}
+
+type ClientTransport = 'local' | 'relay';
+
+const RIGHTS_ORDER: DeviceRights[] = ['readOnly', 'hitl', 'full'];
+
+/** Меньшие из двух прав: делегированное устройство не получает больше, чем у того, кто его привёл. */
+export function minDeviceRights(a: DeviceRights, b: DeviceRights): DeviceRights {
+  return RIGHTS_ORDER[Math.min(RIGHTS_ORDER.indexOf(a), RIGHTS_ORDER.indexOf(b))] ?? 'readOnly';
+}
+
+function parseDeviceRights(value: unknown): DeviceRights | null {
+  return value === 'readOnly' || value === 'hitl' || value === 'full' ? value : null;
 }
 
 interface DeviceTokenRecord {
@@ -122,7 +151,23 @@ interface DeviceTokenRecord {
    * одобренными — так работали прежние переподключения в LAN.
    */
   approved?: boolean;
+  /**
+   * Устройство выдано по просьбе другого сопряжённого устройства (`enroll_device`, decision-111): телефон получил
+   * доступ к этому хосту через соседний ПК федерации. Отзыв того устройства отзывает и это.
+   */
+  delegatedBy?: string;
+  /**
+   * Открытый ключ подтверждения ECDSA P-256 (SPKI, base64url, decision-112 п. 4): устройство подписывает им решения
+   * `high` после биометрии. Регистрируется только при сопряжении по ключу или PIN из QR, не по токену.
+   */
+  confirmKey?: string;
 }
+
+/**
+ * Параметры, которыми с устройства можно было бы включить обход разрешений или auto-approve (decision-112 п. 6).
+ * Ни один RPC их не принимает; запрос с ними отклоняется целиком, а не молча игнорируется.
+ */
+const FORBIDDEN_REMOTE_PARAMS = ['autoApprove', 'autoApproveRules', 'bypassPermissions', 'permissionMode', 'dangerouslySkipPermissions', 'skipPermissions'];
 
 /** Версия формата `remote-control.json` (decision-104). */
 const REMOTE_CONTROL_CONFIG_VERSION = 1;
@@ -191,6 +236,16 @@ class RemoteControlService {
   private identityPrivateKeyPem: string | null = null;
   private identityPublicKeyPem: string | null = null;
   private identityReady: Promise<void> | null = null;
+  /**
+   * Ключ сессий протокола v2 (ECDSA P-256, decision-111): им хост подписывает рукопожатие, его открытая часть едет в
+   * QR. Отдельно от Ed25519-identity релея: Ed25519 нет в WebCrypto старых WebView. Приватная часть — только в
+   * secretStorageService.
+   */
+  private sessionKeyPem: string | null = null;
+  private sessionKeyRaw: Buffer | null = null;
+  private sessionKeyReady: Promise<void> | null = null;
+  /** Сессии v2 клиентов, пришедших через релей, по `clientId` (у прямых — в `ClientConnection`). */
+  private relaySessions = new Map<string, NodeSessionV2>();
 
   /** Per-device токены выданные при сопряжении: deviceId -> запись (TASK-65). */
   private deviceTokens = new Map<string, DeviceTokenRecord>();
@@ -326,6 +381,32 @@ class RemoteControlService {
     return { privateKeyPem: this.identityPrivateKeyPem!, publicKeyPem: this.identityPublicKeyPem! };
   }
 
+  /** Ключ сессий v2 (decision-111): создаётся один раз, приватная часть — в secretStorageService. */
+  private async ensureSessionKey(): Promise<{ privateKeyPem: string; hostKeyRaw: Buffer }> {
+    if (!this.sessionKeyPem || !this.sessionKeyRaw) {
+      if (!this.sessionKeyReady) {
+        this.sessionKeyReady = (async () => {
+          const stored = await secretStorageService.getSecret('remoteControl.sessionSigningKey');
+          if (stored) {
+            this.sessionKeyPem = stored;
+            this.sessionKeyRaw = p256RawPublicKey(crypto.createPublicKey(stored));
+            return;
+          }
+          const fresh = generateSessionSigningKey();
+          await secretStorageService.setSecret('remoteControl.sessionSigningKey', fresh.privateKeyPem);
+          this.sessionKeyPem = fresh.privateKeyPem;
+          this.sessionKeyRaw = fresh.hostKeyRaw;
+        })();
+        // Сбой хранилища не должен навсегда оставить хост без ключа: следующий вызов попробует снова.
+        this.sessionKeyReady.catch(() => {
+          this.sessionKeyReady = null;
+        });
+      }
+      await this.sessionKeyReady;
+    }
+    return { privateKeyPem: this.sessionKeyPem!, hostKeyRaw: this.sessionKeyRaw! };
+  }
+
   /** Публичный ключ identity хоста (base64 SPKI) — для предъявления релею/пирам при регистрации. */
   public async getIdentityPublicKey(): Promise<string> {
     const { publicKeyPem } = await this.ensureIdentity();
@@ -403,10 +484,18 @@ class RemoteControlService {
   }
 
   /** Отзыв токена конкретного устройства (в отличие от `regenerateToken`, не трогает остальных). */
-  public revokeDeviceToken(deviceId: string): void {
-    if (this.deviceTokens.delete(deviceId)) {
-      this.persistDeviceTokens().catch(() => {});
+  public revokeDeviceToken(deviceId: string): string[] {
+    const removed: string[] = [];
+    if (this.deviceTokens.delete(deviceId)) removed.push(deviceId);
+    // Устройства, которые это устройство привело с другого ПК федерации (decision-111), отзываются вместе с ним.
+    for (const [id, record] of this.deviceTokens.entries()) {
+      if (record.delegatedBy === deviceId) {
+        this.deviceTokens.delete(id);
+        removed.push(id);
+      }
     }
+    if (removed.length > 0) this.persistDeviceTokens().catch(() => {});
+    return removed;
   }
 
   /**
@@ -429,7 +518,14 @@ class RemoteControlService {
       // Клиент обновляет свой индикатор прав тем же пакетом, что и при сопряжении.
       this.sendToDevice(deviceId, {
         type: 'handshake_ack',
-        result: { approved: device.isApproved, readOnly: this.readOnly, hostId: this.hostId, rights, lastEventId: this.eventLogNextId - 1 }
+        result: {
+          approved: device.isApproved,
+          readOnly: this.readOnly,
+          hostId: this.hostId,
+          rights,
+          lastEventId: this.eventLogNextId - 1,
+          ...this.ackProtocolFields(this.hasSession(deviceId))
+        }
       });
     }
 
@@ -445,8 +541,42 @@ class RemoteControlService {
       rights: record.rights,
       createdAt: record.createdAt,
       rightsExplicit: record.rightsExplicit,
-      connected: this.connectedDevices.has(deviceId)
+      connected: this.connectedDevices.has(deviceId),
+      ...(record.delegatedBy ? { delegatedBy: record.delegatedBy } : {}),
+      ...(record.confirmKey ? { biometricConfirm: true } : {})
     }));
+  }
+
+  /** Открытый ключ сессий хоста (ECDSA P-256, несжатая точка) в base64url для QR и `server_hello`; пустой до загрузки. */
+  public getHostKey(): string {
+    return this.sessionKeyRaw ? bytesToBase64Url(this.sessionKeyRaw) : '';
+  }
+
+  /**
+   * Поля `handshake_ack` про протокол (decision-111): согласованная версия сессии, версии хоста и его ключ. Клиент
+   * v1, увидев здесь v2 и ключ, закрепляет ключ и следующее подключение делает по v2.
+   */
+  private ackProtocolFields(v2: boolean): { sessionProtocol: number; protocols: number[]; hostKey?: string } {
+    const hostKey = this.getHostKey();
+    return {
+      sessionProtocol: v2 ? SESSION_PROTOCOL_V2 : SESSION_PROTOCOL_V1,
+      protocols: [...HOST_SESSION_PROTOCOLS],
+      ...(hostKey ? { hostKey } : {})
+    };
+  }
+
+  private sessionOf(deviceId: string, transport: ClientTransport): NodeSessionV2 | undefined {
+    return transport === 'local' ? this.localClients.get(deviceId)?.session : this.relaySessions.get(deviceId);
+  }
+
+  private hasSession(deviceId: string): boolean {
+    return Boolean(this.localClients.get(deviceId)?.session || this.relaySessions.get(deviceId));
+  }
+
+  /** Пакет в протоколе клиента: v2 — ключом его сессии, v1 — общим ключом, иначе открытым текстом. */
+  private sealForClient(session: NodeSessionV2 | undefined, v1Encrypted: boolean, payload: PlainPacket): RemotePacket | SessionFrameV2 {
+    if (session) return session.seal(payload);
+    return v1Encrypted ? encryptPayload(payload, this.secretKey) : payload;
   }
 
   public async refreshLocalProjects(): Promise<void> {
@@ -541,6 +671,8 @@ class RemoteControlService {
           role: r.role,
           tool: r.tool || r.type,
           type: r.type,
+          risk: r.risk,
+          riskReason: r.riskReason,
           description: r.title,
           details: r.details,
           command: r.command,
@@ -656,6 +788,8 @@ class RemoteControlService {
       machineName: this.machineName,
       pairingPin: this.pairingPin,
       secretKey: this.secretKey,
+      hostKey: this.getHostKey(),
+      hostKeyFingerprint: this.sessionKeyRaw ? hostKeyFingerprintNode(this.sessionKeyRaw) : '',
       localIps,
       connectedDevices: Array.from(this.connectedDevices.values()),
       pairedDevices: this.getPairedDevices(),
@@ -828,7 +962,21 @@ class RemoteControlService {
       this.localClients.delete(deviceId);
     }
     this.connectedDevices.delete(deviceId);
-    this.revokeDeviceToken(deviceId);
+    for (const id of this.revokeDeviceToken(deviceId)) {
+      if (id === deviceId) continue;
+      // Делегированное устройство на связи — рвём и его сессию.
+      const delegated = this.localClients.get(id);
+      if (delegated) {
+        try {
+          delegated.ws.close(1000, 'Disconnected by host');
+        } catch {
+          // уже закрыт
+        }
+        this.localClients.delete(id);
+      }
+      this.relaySessions.delete(id);
+      this.connectedDevices.delete(id);
+    }
     this.notifyStatusChanged();
     return this.getStatus();
   }
@@ -853,7 +1001,8 @@ class RemoteControlService {
           hostId: this.hostId,
           protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
           rights: dev.rights,
-          lastEventId: this.eventLogNextId - 1
+          lastEventId: this.eventLogNextId - 1,
+          ...this.ackProtocolFields(this.hasSession(deviceId))
         }
       });
     }
@@ -1116,6 +1265,8 @@ class RemoteControlService {
     this.lastError = null;
 
     try {
+      // Ключ сессий нужен QR и рукопожатию v2 с первого подключения (decision-111).
+      await this.ensureSessionKey().catch((err) => logger.warn(`[RemoteControl] Session key unavailable: ${err instanceof Error ? err.message : String(err)}`));
       await this.refreshLocalProjects();
       await this.startLocalHttpAndWsServer();
       this.enabled = true;
@@ -1350,10 +1501,15 @@ class RemoteControlService {
             const result = hitlService.decide(
               payload.requestId,
               { approved: Boolean(payload.approved), text: typeof payload.comment === 'string' ? payload.comment : undefined },
-              { kind: 'remote', deviceName: typeof payload.deviceName === 'string' ? payload.deviceName : 'Telegram' }
+              // Кнопка в мессенджере: телефон разблокирован, но присутствие владельца не доказано — до `moderate`.
+              { kind: 'remote', deviceName: typeof payload.deviceName === 'string' ? payload.deviceName : 'Telegram', confirm: 'chat' }
             );
             res.writeHead(result.ok ? 200 : 409, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result.ok ? { ok: true, requestId: payload.requestId } : { ok: false, reason: result.reason }));
+            res.end(
+              JSON.stringify(
+                result.ok ? { ok: true, requestId: payload.requestId } : { ok: false, reason: result.reason, ...(result.risk ? { risk: result.risk } : {}) }
+              )
+            );
           } catch {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: 'Invalid JSON' }));
@@ -1537,7 +1693,9 @@ class RemoteControlService {
         lastSeenAt: Date.now(),
         userAgent,
         isApproved,
-        rights
+        rights,
+        // Ключ в URL — прежний путь v1 (старые клиенты и hub-режим).
+        protocol: SESSION_PROTOCOL_V1
       };
 
       const clientConn: ClientConnection = {
@@ -1564,7 +1722,8 @@ class RemoteControlService {
             // Клиент запоминает точку в потоке событий, чтобы после разрыва догнать с неё, а не
             // проигрывать заново весь кольцевой буфер (decision-11 п.6).
             lastEventId: this.eventLogNextId - 1,
-            ...(issuedToken ? { deviceToken: issuedToken } : {})
+            ...(issuedToken ? { deviceToken: issuedToken } : {}),
+            ...this.ackProtocolFields(false)
           }
         })
       );
@@ -1575,11 +1734,17 @@ class RemoteControlService {
 
       ws.on('message', async (raw: any) => {
         device.lastSeenAt = Date.now();
-        await this.handleIncomingClientMessage(deviceId, raw, (resp) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(typeof resp === 'string' ? resp : JSON.stringify(resp));
-          }
-        });
+        await this.handleIncomingClientMessage(
+          deviceId,
+          raw,
+          (resp) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(typeof resp === 'string' ? resp : JSON.stringify(resp));
+            }
+          },
+          `ip:${ip}`,
+          'local'
+        );
       });
 
       ws.on('close', () => {
@@ -1630,7 +1795,8 @@ class RemoteControlService {
         (resp) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(typeof resp === 'string' ? resp : JSON.stringify(resp));
         },
-        `ip:${ip}`
+        `ip:${ip}`,
+        'local'
       );
     });
 
@@ -1729,6 +1895,8 @@ class RemoteControlService {
               isApproved: false
             };
             this.connectedDevices.set(msg.clientId, dev);
+            // Новый сокет клиента — прежняя сессия v2 ему не принадлежит.
+            this.relaySessions.delete(msg.clientId);
             this.notifyStatusChanged();
             this.notifyRenderer('remote:deviceConnected', dev);
             this.publishDeviceConnected(dev);
@@ -1736,6 +1904,7 @@ class RemoteControlService {
           }
 
           if (msg.type === 'client_disconnected') {
+            this.relaySessions.delete(msg.clientId);
             this.connectedDevices.delete(msg.clientId);
             this.notifyStatusChanged();
             this.notifyRenderer('remote:deviceDisconnected', { deviceId: msg.clientId });
@@ -1745,13 +1914,19 @@ class RemoteControlService {
           // Входящее сообщение от клиента через релей
           const fromClientId = msg.fromClientId;
           if (fromClientId) {
-            await this.handleIncomingClientMessage(fromClientId, raw, (resp) => {
-              if (ws.readyState === WebSocket.OPEN) {
-                const packet = typeof resp === 'string' ? JSON.parse(resp) : resp;
-                packet.targetClientId = fromClientId;
-                ws.send(JSON.stringify(packet));
-              }
-            });
+            await this.handleIncomingClientMessage(
+              fromClientId,
+              raw,
+              (resp) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  const packet = typeof resp === 'string' ? JSON.parse(resp) : resp;
+                  packet.targetClientId = fromClientId;
+                  ws.send(JSON.stringify(packet));
+                }
+              },
+              `relay:${fromClientId}`,
+              'relay'
+            );
           }
         } catch (err) {
           logger.error('[RemoteControl] Relay message error:', err);
@@ -1884,6 +2059,7 @@ class RemoteControlService {
 
   private disconnectFromRelay() {
     this.stopFederationHeartbeat();
+    this.relaySessions.clear();
     if (this.relayReconnectTimer) {
       clearTimeout(this.relayReconnectTimer);
       this.relayReconnectTimer = null;
@@ -1899,9 +2075,33 @@ class RemoteControlService {
     this.relayConnected = false;
   }
 
-  /** Ответ клиенту в том же виде, в каком пришёл запрос: зашифрованным, если запрос был зашифрован. */
-  private replyMaybeEncrypted(reply: (resp: RemotePacket) => void, isEncrypted: boolean, payload: PlainPacket): void {
-    reply(isEncrypted ? encryptPayload(payload, this.secretKey) : payload);
+  /**
+   * `client_hello` протокола v2 (decision-111): эфемерный X25519 хоста, подпись транскрипта ключом identity и новая
+   * сессия соединения. Новое рукопожатие начинает сессию заново — устройство снова проходит `handshake`.
+   */
+  private async acceptClientHello(deviceId: string, hello: unknown, reply: (resp: any) => void, transport: ClientTransport): Promise<void> {
+    const device = this.connectedDevices.get(deviceId);
+    if (!device) {
+      reply({ type: 'error', error: 'Device not approved by host' });
+      return;
+    }
+    try {
+      const { privateKeyPem, hostKeyRaw } = await this.ensureSessionKey();
+      const { serverHello, session } = respondToClientHello(hello, deviceId, { hostId: this.hostId, privateKeyPem, hostKeyRaw });
+      device.isApproved = false;
+      device.protocol = SESSION_PROTOCOL_V2;
+      if (transport === 'local') {
+        const conn = this.localClients.get(deviceId);
+        if (!conn) throw new Error('no connection');
+        conn.session = session;
+      } else {
+        this.relaySessions.set(deviceId, session);
+      }
+      reply(serverHello);
+    } catch (err) {
+      logger.warn(`[RemoteControl] v2 client_hello rejected for ${deviceId}: ${err instanceof Error ? err.message : String(err)}`);
+      reply({ type: 'error', error: 'Malformed or decrypt failure' });
+    }
   }
 
   /**
@@ -1912,23 +2112,49 @@ class RemoteControlService {
     raw: any,
     reply: (resp: any) => void,
     /** Ключ лимита подбора PIN: адрес клиента для прямых подключений; через релей адреса нет. */
-    pinRateKey = `relay:${deviceId}`
+    pinRateKey = `relay:${deviceId}`,
+    transport: ClientTransport = 'relay'
   ): Promise<void> {
     let packet: PlainPacket;
     let isEncrypted = false;
+    let session: NodeSessionV2 | undefined;
 
     try {
       const parsed = JSON.parse(raw.toString());
-      if ('e2ee' in parsed && parsed.e2ee) {
+      if (parsed?.type === 'client_hello') {
+        await this.acceptClientHello(deviceId, parsed, reply, transport);
+        return;
+      }
+      if (isSessionFrameV2(parsed)) {
+        session = this.sessionOf(deviceId, transport);
+        if (!session) {
+          reply({ type: 'error', error: 'No v2 session: send client_hello first' });
+          return;
+        }
+        packet = session.open(parsed) as PlainPacket;
+        isEncrypted = true;
+      } else if (this.sessionOf(deviceId, transport)) {
+        // Сокет уже договорился о v2: пакет v1 на нём — попытка понизить версию, а не старый клиент.
+        reply({ type: 'error', error: 'Protocol downgrade rejected' });
+        return;
+      } else if ('e2ee' in parsed && parsed.e2ee) {
         isEncrypted = true;
         packet = decryptPayload(parsed as EncryptedPacket, this.secretKey);
       } else {
         packet = parsed as PlainPacket;
       }
     } catch (err) {
+      if (err instanceof HandshakeError && err.code === 'replay') {
+        // Повтор пакета v2 молча отбрасываем: настоящий клиент его не шлёт, отвечать посреднику незачем.
+        logger.warn(`[RemoteControl] Replayed v2 packet from ${deviceId} dropped`);
+        return;
+      }
       reply({ type: 'error', error: 'Malformed or decrypt failure' });
       return;
     }
+
+    // Ответ в протоколе запроса: v2 — ключом сессии, v1 — общим ключом, открытый — открытым текстом.
+    const seal = (payload: PlainPacket) => this.sealForClient(session, isEncrypted, payload);
 
     const device = this.connectedDevices.get(deviceId);
     if (!device || (!device.isApproved && packet.type !== 'handshake')) {
@@ -1942,31 +2168,37 @@ class RemoteControlService {
     // сокета (`setupLocalWebSocketServer`), но повторный handshake через пакет здесь тоже
     // поддерживается им (идемпотентно выдаёт новый токен).
     if (packet.type === 'handshake') {
-      const data = (packet.data || {}) as { pin?: string; key?: string; token?: string; name?: string };
+      const data = (packet.data || {}) as { pin?: string; key?: string; token?: string; name?: string; confirmKey?: string };
       const rateKey = pinRateKey;
       const existingRecord = data.token ? this.validateDeviceToken(deviceId, data.token) : null;
       // Имя устройства едет внутри шифра: через туннель и релей посредник его не видит (TASK-140.9).
       if (typeof data.name === 'string' && data.name.trim()) device.name = data.name.trim().slice(0, 80);
       // Адреса хоста — только в зашифрованном ответе: открытым текстом через посредника они не идут.
       const endpointsInfo = isEncrypted ? this.endpointsAnnouncement() : {};
+      const protocolInfo = this.ackProtocolFields(Boolean(session));
+      if (!session) device.protocol = SESSION_PROTOCOL_V1;
 
       if (existingRecord) {
         // Переподключение одобренного устройства не ждёт нового одобрения — и через релей тоже: раньше
         // через релей каждое переподключение снова ждало кнопки на ПК.
         device.isApproved = device.isApproved || this.isTokenApproved(existingRecord);
         device.rights = existingRecord.rights;
-        this.replyMaybeEncrypted(reply, isEncrypted, {
-          type: 'handshake_ack',
-          result: {
-            approved: device.isApproved,
-            readOnly: this.readOnly,
-            hostId: this.hostId,
-            protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
-            rights: device.rights,
-            lastEventId: this.eventLogNextId - 1,
-            ...endpointsInfo
-          }
-        });
+        if (existingRecord.delegatedBy) device.name = existingRecord.deviceName;
+        reply(
+          seal({
+            type: 'handshake_ack',
+            result: {
+              approved: device.isApproved,
+              readOnly: this.readOnly,
+              hostId: this.hostId,
+              protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
+              rights: device.rights,
+              lastEventId: this.eventLogNextId - 1,
+              ...endpointsInfo,
+              ...protocolInfo
+            }
+          })
+        );
         this.notifyStatusChanged();
         return;
       }
@@ -1984,23 +2216,31 @@ class RemoteControlService {
       this.recordPinSuccess(rateKey);
 
       const issued = this.issueDeviceToken(deviceId, device.name);
+      // Ключ подтверждения биометрией — только при сопряжении по QR: украденный токен его не заменит (decision-112).
+      if (parseConfirmKey(data.confirmKey)) {
+        issued.confirmKey = data.confirmKey;
+        this.persistDeviceTokens().catch(() => {});
+      }
       device.isApproved = !this.requireApproval;
       device.rights = issued.rights;
       // Ответ шифруется тем же ключом, что и запрос: через релей `deviceToken` иначе уехал бы
       // открытым текстом через чужой сервер (decision-11 п.3 — релей не видит содержимого).
-      this.replyMaybeEncrypted(reply, isEncrypted, {
-        type: 'handshake_ack',
-        result: {
-          approved: device.isApproved,
-          readOnly: this.readOnly,
-          hostId: this.hostId,
-          protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
-          rights: issued.rights,
-          deviceToken: issued.token,
-          lastEventId: this.eventLogNextId - 1,
-          ...endpointsInfo
-        }
-      });
+      reply(
+        seal({
+          type: 'handshake_ack',
+          result: {
+            approved: device.isApproved,
+            readOnly: this.readOnly,
+            hostId: this.hostId,
+            protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
+            rights: issued.rights,
+            deviceToken: issued.token,
+            lastEventId: this.eventLogNextId - 1,
+            ...endpointsInfo,
+            ...protocolInfo
+          }
+        })
+      );
       this.notifyStatusChanged();
       return;
     }
@@ -2010,9 +2250,9 @@ class RemoteControlService {
       return;
     }
 
-    // Ping / Pong
+    // Ping / Pong. В v2 и pong зашифрован: открытых пакетов после рукопожатия на сокете нет.
     if (packet.type === 'ping') {
-      reply({ type: 'pong', id: packet.id });
+      reply(session ? seal({ type: 'pong', id: packet.id }) : { type: 'pong', id: packet.id });
       return;
     }
 
@@ -2025,7 +2265,7 @@ class RemoteControlService {
 
       if (cached && cached.expiresAt > Date.now()) {
         const resPayload: any = { type: isReqType ? 'response' : 'rpc_res', id: req.id, result: cached.result, error: cached.error };
-        reply(isEncrypted ? encryptPayload(resPayload, this.secretKey) : resPayload);
+        reply(seal(resPayload));
         return;
       }
 
@@ -2037,12 +2277,7 @@ class RemoteControlService {
           id: req.id,
           result
         };
-
-        if (isEncrypted) {
-          reply(encryptPayload(resPayload, this.secretKey));
-        } else {
-          reply(resPayload);
-        }
+        reply(seal(resPayload));
       } catch (err: any) {
         if (idemKey) {
           this.recentRpcResponses.set(idemKey, { error: err?.message || String(err), expiresAt: Date.now() + RPC_IDEMPOTENCY_TTL_MS });
@@ -2052,13 +2287,79 @@ class RemoteControlService {
           id: req.id,
           error: err?.message || String(err)
         };
-        if (isEncrypted) {
-          reply(encryptPayload(errPayload, this.secretKey));
-        } else {
-          reply(errPayload);
-        }
+        reply(seal(errPayload));
       }
     }
+  }
+
+  /**
+   * Токен для устройства, которое привёл сопряжённый ПК федерации (decision-111, `enroll_device`). `deviceId` выдаёт
+   * хост, а не просящий: иначе можно было бы перезаписать токен уже сопряжённого устройства. Права — не больше, чем
+   * у приведшего; одобрение не требуется: приведший сам устройство с полными правами на этом хосте.
+   */
+  private async enrollDelegatedDevice(params: Record<string, unknown>, caller: RemoteDevice): Promise<RemoteEnrollment> {
+    await this.ensureSessionKey();
+    const requested = parseDeviceRights(params.rights) ?? 'full';
+    const rights = minDeviceRights(caller.rights ?? 'full', requested);
+    const baseName = (typeof params.deviceName === 'string' && params.deviceName.trim() ? params.deviceName.trim() : 'Телефон').slice(0, 60);
+    const deviceId = `fed_${crypto.randomBytes(8).toString('hex')}`;
+    const record: DeviceTokenRecord = {
+      token: crypto.randomBytes(32).toString('hex'),
+      rights,
+      deviceName: `${baseName} · через ${caller.name}`.slice(0, 120),
+      createdAt: Date.now(),
+      rightsExplicit: true,
+      approved: true,
+      delegatedBy: caller.id
+    };
+    this.deviceTokens.set(deviceId, record);
+    await this.persistDeviceTokens();
+    logger.info(`[RemoteControl] Delegated device ${deviceId} (${rights}) enrolled by ${caller.id}`);
+    this.notifyStatusChanged();
+    return {
+      hostId: this.hostId,
+      machineName: this.machineName || os.hostname(),
+      hostKey: this.getHostKey(),
+      deviceId,
+      deviceToken: record.token,
+      rights,
+      ...this.endpointsAnnouncement()
+    };
+  }
+
+  /**
+   * Телефон просит доступ к соседнему ПК федерации (decision-111): этот ПК, сопряжённый с соседом в hub-режиме,
+   * получает у него отдельный токен для телефона. Ключ соседа приходит по уже проверенной сессии с этим ПК.
+   */
+  private async enrollDeviceOnPeer(hostId: string, phone: RemoteDevice): Promise<RemoteEnrollment> {
+    if (!hostId) throw new Error('hostId is required');
+    if (hostId === this.hostId) throw new Error('Это тот же компьютер');
+    const peers = await federationClientService.listPeers();
+    const peer = peers.find((p) => p.hostId === hostId && p.paired);
+    if (!peer) {
+      const name = this.knownFederationHosts.get(hostId)?.machineName || hostId;
+      throw new Error(
+        `Компьютер «${name}» не сопряжён с «${this.machineName}». Добавьте его в ProjectHub на этом компьютере (Remote → Удалённые хосты) или отсканируйте его QR-код.`
+      );
+    }
+    const res = await federationClientService.call<RemoteEnrollment>(hostId, 'enroll_device', {
+      deviceName: phone.name,
+      rights: phone.rights ?? 'full'
+    });
+    if (!res || res.hostId !== hostId || !isHostKey(res.hostKey) || typeof res.deviceId !== 'string' || typeof res.deviceToken !== 'string') {
+      throw new Error(`Компьютер «${peer.machineName}» ответил без ключа: обновите на нём ProjectHub`);
+    }
+    logger.info(`[RemoteControl] Device ${phone.id} enrolled on federation host ${hostId}`);
+    return {
+      hostId: res.hostId,
+      machineName: res.machineName || peer.machineName,
+      hostKey: res.hostKey,
+      deviceId: res.deviceId,
+      deviceToken: res.deviceToken,
+      rights: parseDeviceRights(res.rights) ?? 'readOnly',
+      endpoints: Array.isArray(res.endpoints) ? res.endpoints : [],
+      ...(typeof res.relayUrl === 'string' && res.relayUrl ? { relayUrl: res.relayUrl } : {})
+    };
   }
 
   /**
@@ -2084,11 +2385,17 @@ class RemoteControlService {
       'stop_swarm',
       'studio_send',
       'studio_abort',
-      'studio_clear'
+      'studio_clear',
+      // Выдача токена новому устройству — действие владельца хоста, только с правами full (decision-111).
+      'enroll_device'
     ]);
 
     if (this.readOnly && writeMethods.has(method)) {
       throw new Error(`Method ${method} is forbidden in Read-Only mode`);
+    }
+
+    if (params && typeof params === 'object' && FORBIDDEN_REMOTE_PARAMS.some((k) => k in params)) {
+      throw new Error('С удалённого устройства нельзя включить обход разрешений или auto-approve — только в окне ProjectHub');
     }
 
     // Права per-device токена (TASK-65, decision-11 п.1): readOnly — только чтение, hitl — чтение
@@ -2122,7 +2429,36 @@ class RemoteControlService {
       }
 
       case 'get_federation_hosts': {
-        return { hosts: this.getFederationHostsList() };
+        // `enrollable` — этот ПК сопряжён с соседом и может попросить у него токен для телефона (`federation_enroll`).
+        const peers = await federationClientService.listPeers().catch(() => []);
+        const paired = new Set(peers.filter((p) => p.paired).map((p) => p.hostId));
+        const hosts = this.getFederationHostsList().map((h) => (paired.has(h.hostId) ? { ...h, enrollable: true } : h));
+        // ПК, сопряжённый вручную в hub-режиме без общего секрета федерации, в каталоге релея и LAN нет — но телефону
+        // доступ к нему выдать можно, поэтому он тоже в списке (decision-111 п. 7).
+        for (const peer of peers) {
+          if (!peer.paired || hosts.some((h) => h.hostId === peer.hostId)) continue;
+          hosts.push({
+            hostId: peer.hostId,
+            machineName: peer.machineName,
+            // Платформу пира hub-соединение не сообщает; телефон по ней выбирает только значок.
+            platform: 'win32',
+            isOnline: peer.status === 'connected',
+            projectsCount: 0,
+            activeProcessesCount: 0,
+            lastSeen: peer.connectedAt ?? 0,
+            source: 'manual',
+            enrollable: true
+          });
+        }
+        return { hosts };
+      }
+
+      case 'federation_enroll': {
+        return await this.enrollDeviceOnPeer(String(params.hostId || ''), device);
+      }
+
+      case 'enroll_device': {
+        return this.enrollDelegatedDevice(params, device);
       }
 
       case 'get_projects': {
@@ -2220,13 +2556,26 @@ class RemoteControlService {
         const requestId = typeof params.requestId === 'string' ? params.requestId : '';
         if (!requestId) throw new Error('requestId is required');
         const approved = params.decision === 'allow' || params.decision === 'approve' || params.approved === true;
+        // Способ подтверждения сообщает клиент, но `biometric` засчитывается только с подписью ключом подтверждения,
+        // зарегистрированным при сопряжении (decision-112 п. 4). Класс риска хост берёт у себя, не из запроса.
+        const confirm = parseConfirmMethod(params.confirm) ?? 'app';
+        let confirmVerified = false;
+        if (confirm === 'biometric') {
+          const pendingRequest = hitlService.getPending(requestId);
+          const record = this.deviceTokens.get(device.id);
+          confirmVerified = Boolean(
+            pendingRequest?.risk &&
+              record?.confirmKey &&
+              verifyConfirmProof(record.confirmKey, confirmProofPayload(this.hostId, requestId, approved ? 'allow' : 'deny', pendingRequest.risk), params.proof)
+          );
+        }
         const result = hitlService.decide(
           requestId,
           { approved, text: typeof params.reason === 'string' ? params.reason : undefined },
-          { kind: 'remote', deviceId: device.id, deviceName: device.name }
+          { kind: 'remote', deviceId: device.id, deviceName: device.name, confirm, confirmVerified }
         );
         if (!result.ok) {
-          return { ok: false, decision: approved, reason: result.reason };
+          return { ok: false, decision: approved, reason: result.reason, ...(result.risk ? { risk: result.risk } : {}) };
         }
         this.notifyRenderer('remote:hitlDecisionMade', {
           requestId,
@@ -2506,6 +2855,8 @@ class RemoteControlService {
           role: r.role,
           tool: r.tool,
           type: r.type,
+          risk: r.risk,
+          riskReason: r.riskReason,
           title: r.title,
           details: r.details,
           command: r.command,
@@ -2642,19 +2993,13 @@ class RemoteControlService {
       for (const client of this.localClients.values()) {
         if (client.ws.readyState === WebSocket.OPEN && client.device.isApproved && client.isEncrypted) {
           try {
-            client.ws.send(JSON.stringify(encryptPayload(packet, this.secretKey)));
+            client.ws.send(JSON.stringify(this.sealForClient(client.session, true, packet)));
           } catch {
             // ignore
           }
         }
       }
-      if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) {
-        try {
-          this.relayWs.send(JSON.stringify(encryptPayload(packet, this.secretKey)));
-        } catch {
-          // ignore
-        }
-      }
+      this.sendToRelayClients(packet);
       return;
     }
 
@@ -2676,22 +3021,27 @@ class RemoteControlService {
     for (const client of this.localClients.values()) {
       if (client.ws.readyState === WebSocket.OPEN && client.device.isApproved) {
         try {
-          if (client.isEncrypted) {
-            client.ws.send(JSON.stringify(encryptPayload(payload, this.secretKey)));
-          } else {
-            client.ws.send(JSON.stringify(payload));
-          }
+          client.ws.send(JSON.stringify(this.sealForClient(client.session, client.isEncrypted, payload)));
         } catch {
           // ignore
         }
       }
     }
 
-    // Отправка через Relay
-    if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) {
+    this.sendToRelayClients(payload);
+  }
+
+  /**
+   * События клиентам релея — адресно, каждому в его протоколе (decision-111). Раньше один пакет общим ключом
+   * уходил всем клиентам хоста на релее, включая ещё не прошедших `handshake`; у сессий v2 ключи свои.
+   */
+  private sendToRelayClients(payload: PlainPacket): void {
+    if (!this.relayWs || this.relayWs.readyState !== WebSocket.OPEN) return;
+    for (const device of this.connectedDevices.values()) {
+      if (device.mode !== 'relay' || !device.isApproved) continue;
       try {
-        const encrypted = encryptPayload(payload, this.secretKey);
-        this.relayWs.send(JSON.stringify(encrypted));
+        const frame = this.sealForClient(this.relaySessions.get(device.id), true, payload);
+        this.relayWs.send(JSON.stringify({ ...frame, targetClientId: device.id }));
       } catch {
         // ignore
       }
@@ -2702,11 +3052,7 @@ class RemoteControlService {
     const client = this.localClients.get(deviceId);
     if (client && client.ws.readyState === WebSocket.OPEN) {
       try {
-        if (client.isEncrypted) {
-          client.ws.send(JSON.stringify(encryptPayload(payload, this.secretKey)));
-        } else {
-          client.ws.send(JSON.stringify(payload));
-        }
+        client.ws.send(JSON.stringify(this.sealForClient(client.session, client.isEncrypted, payload)));
       } catch {
         // ignore
       }
@@ -2714,9 +3060,8 @@ class RemoteControlService {
     }
 
     if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) {
-      const encrypted = encryptPayload(payload, this.secretKey);
-      (encrypted as any).targetClientId = deviceId;
-      this.relayWs.send(JSON.stringify(encrypted));
+      const frame = this.sealForClient(this.relaySessions.get(deviceId), true, payload);
+      this.relayWs.send(JSON.stringify({ ...frame, targetClientId: deviceId }));
     }
   }
 

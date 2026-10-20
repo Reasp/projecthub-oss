@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CaretDownIcon, KanbanIcon, RobotIcon, ShieldCheckIcon, SparkleIcon, TerminalWindowIcon, TrayIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { HostSheet } from '../components/HostSheet';
@@ -12,7 +12,7 @@ import { PairingScreen } from '../screens/PairingScreen';
 import { ProcessesScreen } from '../screens/ProcessesScreen';
 import { StudioScreen } from '../screens/StudioScreen';
 import { TasksScreen } from '../screens/TasksScreen';
-import { useAppState, useServices } from './context';
+import { useAppState, useHostSummaries, useServices } from './context';
 
 type Tab = 'inbox' | 'agents' | 'tasks' | 'processes' | 'studio';
 
@@ -59,7 +59,7 @@ function ConnectionBanner() {
 }
 
 function AwaitingApproval() {
-  const { client, forget, platform } = useServices();
+  const { client, addHost, platform } = useServices();
   return (
     <div className="flex h-full flex-col items-center justify-center bg-ph-chrome px-6 pt-safe text-center">
       <ShieldCheckIcon size={48} className="text-amber-400" />
@@ -75,7 +75,7 @@ function AwaitingApproval() {
         <Button size="sm" onClick={() => client.retryNow()}>
           Повторить
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => void forget()}>
+        <Button size="sm" variant="ghost" onClick={() => addHost()}>
           Другой компьютер
         </Button>
       </div>
@@ -91,6 +91,9 @@ function Shell() {
   // Счётчик вкладки «Входящие»: решения HITL и задачи агентов на подтверждение (TASK-155).
   const hitlCount = useAppState((s) => s.hitl.length + s.agentTasks.length);
   const conn = useAppState((s) => s.conn);
+  // Решения, которые ждут на других компьютерах телефона (TASK-140.2): видно, не открывая переключатель.
+  const summaries = useHostSummaries();
+  const othersPending = Object.values(summaries).reduce((n, s) => n + s.pending, 0);
   const [tab, setTab] = useState<Tab>('inbox');
   const [hostOpen, setHostOpen] = useState(false);
   const [tasksFocus, setTasksFocus] = useState<string | undefined>();
@@ -122,6 +125,11 @@ function Shell() {
               {conn.state === 'ready' && conn.route ? ` · ${routeLabel(conn.route)}` : ''}
             </span>
           </span>
+          {othersPending > 0 && (
+            <span data-testid="others-pending" className="shrink-0 rounded-full bg-amber-500 px-2 text-[12px] font-semibold leading-[20px] text-black">
+              +{othersPending}
+            </span>
+          )}
           <CaretDownIcon size={18} className="text-slate-400" />
         </button>
         <ConnectionBanner />
@@ -198,21 +206,36 @@ function Toasts() {
   );
 }
 
-/** Корень клиента: сопряжение, пока профиль неполон или подключение не удалось, иначе основной интерфейс. */
-export function App({ profile }: { profile: HostProfile }) {
-  const { client, platform } = useServices();
+/**
+ * Корень клиента: сопряжение, пока профиль неполон, подключение не удалось или добавляется ещё один компьютер, иначе
+ * основной интерфейс. Подключение заново — только по явному действию (`seq`): обновления профиля от клиента (токен,
+ * адреса) соединение не рвут.
+ */
+export function App({ profile, seq, adding }: { profile: HostProfile; seq: number; adding: boolean }) {
+  const { client, platform, profiles } = useServices();
   const conn = useAppState((s) => s.conn);
-  const complete = profileProblems(profile).length === 0 && platform.cryptoAvailable();
+  const complete = !adding && profileProblems(profile).length === 0 && platform.cryptoAvailable();
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
 
   useEffect(() => {
-    if (complete) client.connect(profile);
+    if (complete) client.connect(profileRef.current);
     return () => client.disconnect();
-  }, [client, profile, complete]);
+  }, [client, seq, complete]);
 
   const showPairing = !complete || conn.state === 'failed';
   return (
     <>
-      {showPairing ? <PairingScreen key={profile.hostId + profile.key} initial={client.getProfile() ?? profile} error={conn.state === 'failed' ? conn.error : null} /> : <Shell />}
+      {showPairing ? (
+        <PairingScreen
+          key={`${seq}:${profile.hostId}:${profile.key}`}
+          initial={(!adding && client.getProfile()?.id === profile.id && client.getProfile()) || profile}
+          error={!adding && conn.state === 'failed' ? conn.error : null}
+          canCancel={profiles.profiles.length > 0 && (adding || profiles.profiles.length > 1)}
+        />
+      ) : (
+        <Shell />
+      )}
       <Toasts />
     </>
   );

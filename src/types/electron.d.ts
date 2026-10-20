@@ -1668,6 +1668,9 @@ export interface ApprovalRequest {
   claudeAccount?: string;
   hostId?: string;
   tool?: string;
+  /** Класс риска (TASK-140.4, decision-112): считает хост. */
+  risk?: 'low' | 'moderate' | 'high';
+  riskReason?: string;
   expiresAt?: number;
   /** Восстановлен после перезапуска: агент уже не ждёт ответа, решение попадёт только в аудит. */
   orphaned?: boolean;

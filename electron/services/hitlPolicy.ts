@@ -5,6 +5,9 @@ import { autonomousTaskWriteViolation } from './agentTaskPolicy.js';
 import type { AIProviderConfig, AutoApproveRules } from './aiAgentService.js';
 import type { HitlDecisionSource, RolePermissions } from './hitlTypes.js';
 
+// Классы риска (TASK-140.4) живут в отдельном модуле, политика их переэкспортирует: одно место для правил HITL.
+export { classifyRisk, classifyCommand, isConfirmationSufficient, riskOfRequest } from './hitlRisk.js';
+
 /**
  * Политики HITL (TASK-57, decision-10 п. 3): чистые функции без Electron и процессов.
  *

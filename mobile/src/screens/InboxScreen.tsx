@@ -3,7 +3,7 @@ import { CheckIcon, ListChecksIcon, ShieldCheckIcon, TrayIcon, XIcon } from '@ph
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../components/ui';
 import { Screen } from '../components/Screen';
-import { capabilitiesFor, groupAgentTasks, type AgentTaskGroup, type HitlItem } from '../protocol/models';
+import { RISK_TEXT, canApproveInApp, capabilitiesFor, groupAgentTasks, type AgentTaskGroup, type HitlItem } from '../protocol/models';
 
 function projectName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
@@ -29,7 +29,13 @@ function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
             {who && <span>{who}</span>}
             {item.projectPath && <Badge>{projectName(item.projectPath)}</Badge>}
             {item.tool && <Badge tone="warning">{item.tool}</Badge>}
+            {item.risk && (
+              <Badge tone={item.risk === 'high' ? 'danger' : item.risk === 'moderate' ? 'warning' : 'success'}>
+                <span data-testid="hitl-risk">{RISK_TEXT[item.risk]}</span>
+              </Badge>
+            )}
           </div>
+          {item.riskReason && <div className="mt-0.5 text-[12px] text-slate-500">{item.riskReason}</div>}
         </div>
       </div>
       {(item.command || item.filePath || item.details) && (
@@ -43,9 +49,13 @@ function HitlCard({ item, canDecide }: { item: HitlItem; canDecide: boolean }) {
           <Button variant="secondary" className="flex-1" disabled={busy} haptic={null} onClick={() => decide(false)}>
             <XIcon size={18} /> Отклонить
           </Button>
-          <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => decide(true)}>
-            <CheckIcon size={18} /> Одобрить
-          </Button>
+          {canApproveInApp(item) ? (
+            <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => decide(true)}>
+              <CheckIcon size={18} /> Одобрить
+            </Button>
+          ) : (
+            <div className="flex-1 self-center text-[12px] leading-snug text-slate-400">Высокий риск: одобрить можно на ПК или в приложении с биометрией</div>
+          )}
         </div>
       ) : (
         <div className="mt-2 text-[12px] text-slate-400">У этого устройства нет права на решения — решите на ПК.</div>

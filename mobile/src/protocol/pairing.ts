@@ -19,8 +19,15 @@ export interface HostProfile {
   /** Идентификатор хоста; до первого `handshake_ack` может быть пустым. */
   hostId: string;
   machineName?: string;
-  /** E2EE-ключ хоста (hex, 64 символа). Без ключа клиент не подключается: открытым текстом не говорим. */
+  /**
+   * Общий E2EE-ключ хоста v1 (hex, 64 символа) — из QR. В v2 он только подтверждает первое сопряжение. У профиля
+   * соседа по федерации (`viaHostId`) ключа нет: туда телефон ходит только по v2 с токеном.
+   */
   key: string;
+  /** Закреплённый ключ сессий хоста (ECDSA P-256) в base64url (decision-111): им проверяется подпись рукопожатия v2. */
+  hostKey?: string;
+  /** Отпечаток ключа хоста из ссылки Telegram: полный ключ узнаётся при первом рукопожатии и закрепляется. */
+  hostKeyFp?: string;
   /** PIN нужен только для первого сопряжения и не сохраняется. */
   pin?: string;
   mode: RemoteConnectionMode;
@@ -38,6 +45,15 @@ export interface HostProfile {
   /** Per-device токен, выданный хостом при сопряжении. */
   deviceToken?: string;
   rights?: DeviceRights;
+  /** Профиль в списке телефона (TASK-140.2): стабильный id, не зависящий от хоста. */
+  id?: string;
+  /**
+   * Сопряжение, к которому относится профиль: QR создаёт новое, хост федерации наследует сопряжение ПК, через
+   * который получен. Хосты разных сопряжений друг друга не видят.
+   */
+  pairingId?: string;
+  /** Профиль соседа по федерации: `hostId` ПК, через который телефон получил к нему доступ. */
+  viaHostId?: string;
 }
 
 /** То, что приходит в ссылке сопряжения (QR, deep-link Telegram, вставленный текст). */
@@ -50,9 +66,20 @@ export interface PairingLink {
   lanAddress?: string;
   /** Адреса из параметров `ep` (TASK-140.9). */
   endpoints?: RemoteEndpoint[];
+  /** Ключ сессий хоста (`hk`, TASK-140.2). */
+  hostKey?: string;
+  /** Отпечаток ключа хоста (`hkf` или хвост `kc_` в ссылке Telegram). */
+  hostKeyFp?: string;
 }
 
 const KEY_RE = /^[0-9a-f]{64}$/i;
+/** Ключ сессий хоста ECDSA P-256: несжатая точка, 65 байт — 87 символов base64url (decision-111). */
+const HOST_KEY_RE = /^[A-Za-z0-9_-]{87}$/;
+const FINGERPRINT_RE = /^[A-Za-z0-9_-]{16}$/;
+
+export function isValidHostKey(value: string | undefined | null): value is string {
+  return typeof value === 'string' && HOST_KEY_RE.test(value);
+}
 
 export function isValidKeyHex(key: string | undefined | null): key is string {
   return typeof key === 'string' && KEY_RE.test(key.trim());
@@ -80,6 +107,10 @@ export function parsePairingHash(hash: string): PairingLink {
   setIf(link, 'hostId', params.get('hostId')?.trim());
   setIf(link, 'relayUrl', params.get('relay')?.trim());
   setIf(link, 'mode', normalizeMode(params.get('mode')));
+  const hk = params.get('hk')?.trim();
+  if (isValidHostKey(hk)) link.hostKey = hk;
+  const hkf = params.get('hkf')?.trim();
+  if (hkf && FINGERPRINT_RE.test(hkf)) link.hostKeyFp = hkf;
 
   const endpoints = sanitizeEndpoints(params.getAll('ep').map(decodeEndpointParam));
   if (endpoints.length > 0) link.endpoints = endpoints;
@@ -103,6 +134,12 @@ export function parsePairingHash(hash: string): PairingLink {
 export function parseTelegramStartParam(startParam: string, decodeBase64: (s: string) => string = atob): PairingLink {
   const value = startParam.trim();
   if (!value) return {};
+  // `kc_` — ключ (43 символа base64url) и сразу за ним отпечаток ключа хоста (16 символов): 62 символа из 64.
+  if (value.startsWith('kc_') && value.length === 3 + 43 + 16) {
+    const hex = base64UrlToHex(value.slice(3, 46), decodeBase64);
+    const fp = value.slice(46);
+    return hex && isValidKeyHex(hex) && FINGERPRINT_RE.test(fp) ? { key: hex, hostKeyFp: fp } : {};
+  }
   if (value.startsWith('kb_')) {
     const hex = base64UrlToHex(value.slice(3), decodeBase64);
     return hex && isValidKeyHex(hex) ? { key: hex } : {};
@@ -163,6 +200,14 @@ export function applyPairingLink(profile: HostProfile, link: PairingLink): HostP
   if (link.lanAddress) next.lanAddress = link.lanAddress;
   if (link.mode) next.mode = link.mode;
   if (link.endpoints?.length) next.endpoints = link.endpoints;
+  // Ключ хоста из отсканированного QR важнее закреплённого: человек держит в руках экран этого ПК.
+  if (link.hostKey) {
+    next.hostKey = link.hostKey;
+    next.hostKeyFp = undefined;
+  } else if (link.hostKeyFp && link.hostKeyFp !== profile.hostKeyFp) {
+    next.hostKeyFp = link.hostKeyFp;
+    next.hostKey = undefined;
+  }
   // Ключ другого хоста — старый токен и адреса этому хосту не принадлежат.
   if (link.hostId && profile.hostId && link.hostId !== profile.hostId) {
     next.deviceToken = undefined;
@@ -170,6 +215,10 @@ export function applyPairingLink(profile: HostProfile, link: PairingLink): HostP
     next.machineName = undefined;
     next.lastEndpoint = undefined;
     if (!link.endpoints?.length) next.endpoints = undefined;
+    if (!link.hostKey && !link.hostKeyFp) {
+      next.hostKey = undefined;
+      next.hostKeyFp = undefined;
+    }
   }
   return next;
 }
@@ -224,8 +273,11 @@ export type ProfileProblem = 'no_key' | 'bad_key' | 'no_relay' | 'no_host_id' | 
 /** Чего не хватает профилю для подключения; пустой массив — можно подключаться. */
 export function profileProblems(profile: HostProfile): ProfileProblem[] {
   const problems: ProfileProblem[] = [];
-  if (!profile.key) problems.push('no_key');
-  else if (!isValidKeyHex(profile.key)) problems.push('bad_key');
+  // Профиль соседа по федерации идёт без общего ключа: только v2 по закреплённому ключу хоста и токену.
+  const v2Only = !profile.key && isValidHostKey(profile.hostKey) && Boolean(profile.deviceToken);
+  if (!profile.key) {
+    if (!v2Only) problems.push('no_key');
+  } else if (!isValidKeyHex(profile.key)) problems.push('bad_key');
   if (profile.mode === 'relay') {
     if (!profile.relayUrl) problems.push('no_relay');
     if (!profile.hostId) problems.push('no_host_id');

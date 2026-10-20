@@ -17,6 +17,8 @@ export interface RemoteDevice {
   isApproved: boolean;
   /** Права выданного при сопряжении токена; отсутствует, пока устройство не прошло сопряжение. */
   rights?: DeviceRights;
+  /** Версия сессии Remote Control: 2 — рукопожатие X25519 с forward secrecy, 1 — общий ключ (decision-111). */
+  protocol?: number;
 }
 
 /**
@@ -31,6 +33,10 @@ export interface PairedDevice {
   /** Права заданы вручную из UI — пересопряжение по PIN их не перетирает глобальным `readOnly`. */
   rightsExplicit?: boolean;
   connected: boolean;
+  /** Устройство привёл другой сопряжённый ПК федерации (`enroll_device`, decision-111) — его `deviceId`. */
+  delegatedBy?: string;
+  /** Устройство зарегистрировало ключ подтверждения биометрией (decision-112): может одобрять `high`. */
+  biometricConfirm?: boolean;
 }
 
 export interface RemoteControlConfig {
@@ -104,6 +110,11 @@ export interface FederationHost {
   protocolVersion?: number;
   /** Заполняется на принимающей стороне, если версия хоста несовместима с локальной. */
   protocolIncompatible?: boolean;
+  /**
+   * Только в ответе `get_federation_hosts` телефону: этот ПК сопряжён с хостом и может выдать телефону доступ к нему
+   * (`federation_enroll`, decision-111).
+   */
+  enrollable?: boolean;
 }
 
 /** Транспорт подключения к удалённому ProjectHub в hub-режиме (TASK-66). */
@@ -144,6 +155,10 @@ export interface RemoteControlStatus {
   machineName: string;
   pairingPin: string;
   secretKey: string;
+  /** Открытый ключ сессий хоста (ECDSA P-256) в base64url: QR несёт его для проверки подписи рукопожатия v2 (decision-111). */
+  hostKey?: string;
+  /** Первые 96 бит SHA-256 ключа хоста — для ссылки Telegram, где полный ключ не помещается. */
+  hostKeyFingerprint?: string;
   localIps: string[];
   connectedDevices: RemoteDevice[];
   /** Все устройства с выданным per-device токеном (включая офлайн), с правами и временем выдачи. */
@@ -177,6 +192,7 @@ export interface RemoteControlStatus {
   endpoints?: RemoteEndpoint[];
 }
 
+/** Пакет протокола v1: AES-256-GCM общим ключом хоста. Пакеты v2 — `SessionFrameV2` из `remoteSessionV2.ts`. */
 export interface EncryptedPacket {
   e2ee: true;
   iv: string; // hex
@@ -243,7 +259,24 @@ export type RemoteRpcMethod =
   | 'studio_get_usage'
   // Задачи агентов, ждущие подтверждения человека (TASK-155, decision-89 п. 11)
   | 'get_pending_agent_tasks'
-  | 'approve_agent_tasks';
+  | 'approve_agent_tasks'
+  // Несколько хостов в телефоне (TASK-140.2, decision-111): доступ к соседу по федерации через этот ПК
+  | 'federation_enroll'
+  | 'enroll_device';
+
+/** Ответ `federation_enroll` / `enroll_device`: всё, что нужно телефону для отдельного профиля соседнего хоста. */
+export interface RemoteEnrollment {
+  hostId: string;
+  machineName: string;
+  /** Ключ сессий соседа в base64url — телефон закрепляет его и говорит с соседом только по v2. */
+  hostKey: string;
+  /** `deviceId`, выданный соседом: свой у каждого хоста, токены не переиспользуются. */
+  deviceId: string;
+  deviceToken: string;
+  rights: DeviceRights;
+  endpoints: RemoteEndpoint[];
+  relayUrl?: string;
+}
 
 /**
  * Ответы RPC в том виде, в каком их отдаёт `dispatchRpc` хоста. Общие для хоста и мобильного
@@ -432,6 +465,9 @@ export interface RemoteStudioSession extends RemoteStudioSessionSummary {
   usage?: RemoteStudioSessionUsage;
 }
 
+/** Класс риска запроса HITL (decision-112): считает хост, телефон только показывает. */
+export type RemoteHitlRisk = 'low' | 'moderate' | 'high';
+
 export interface RemotePendingApproval {
   requestId: string;
   sessionId: string;
@@ -441,6 +477,8 @@ export interface RemotePendingApproval {
   role?: string;
   tool?: string;
   type?: string;
+  risk?: RemoteHitlRisk;
+  riskReason?: string;
   title?: string;
   details?: string;
   command?: string;
@@ -479,6 +517,12 @@ export interface RemoteHandshakeAck {
   endpoints?: RemoteEndpoint[];
   /** Релей хоста, если он достижим с телефона. */
   relayUrl?: string;
+  /** Согласованная версия сессии (decision-111): 2 — рукопожатие X25519, 1 — общий ключ. */
+  sessionProtocol?: number;
+  /** Версии сессии, которые понимает хост. */
+  protocols?: number[];
+  /** Ключ сессий хоста в base64url: клиент v1 закрепляет его и переходит на v2. */
+  hostKey?: string;
 }
 
 export interface RemoteEventPayloads {
@@ -498,6 +542,8 @@ export interface RemoteEventPayloads {
     role?: string;
     tool: string;
     type?: string;
+    risk?: RemoteHitlRisk;
+    riskReason?: string;
     description: string;
     details?: string;
     command?: string;

@@ -1,5 +1,6 @@
 import { decryptPayloadWeb, encryptPayloadWeb } from '../../../src/utils/remoteCryptoWeb';
-import type { PacketCodec } from './remoteClient';
+import { createClientHandshake, webSessionV2Supported } from '../../../src/utils/remoteSessionV2';
+import type { PacketCodec, SessionV2Port } from './remoteClient';
 
 /**
  * Шифрование только средствами платформы (decision-79 п. 10): WebCrypto в браузере, WebView
@@ -16,5 +17,13 @@ export function createWebCodec(keyHex: string): PacketCodec {
   return {
     encrypt: (packet) => encryptPayloadWeb(packet, keyHex),
     decrypt: (packet) => decryptPayloadWeb(packet, keyHex)
+  };
+}
+
+/** Протокол v2 на WebCrypto ([[decision-111]]): X25519, Ed25519, HKDF и AES-GCM — всё из платформы. */
+export function createWebSessionV2Port(): SessionV2Port {
+  return {
+    supported: () => webSessionV2Supported(),
+    begin: () => createClientHandshake()
   };
 }

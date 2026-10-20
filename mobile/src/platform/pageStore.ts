@@ -1,10 +1,14 @@
 import type { HostProfile } from '../protocol/pairing';
+import { emptyProfileList, migrateSingleProfile, normalizeProfileList, storableList } from '../protocol/profiles';
 import type { ProfileStore } from './types';
 
 /**
- * Профиль в хранилище страницы — для встроенного клиента и Mini App, как у прежних клиентов.
+ * Профили в хранилище страницы — для встроенного клиента и Mini App, как у прежних клиентов.
  * В приложении Capacitor не используется: там ключи только в Keychain/Keystore (decision-79 п. 2).
+ * С TASK-140.2 хранится список профилей (`ph_mobile_profiles`); прежний единственный профиль
+ * (`ph_mobile_profile`) переносится в список при первом чтении.
  */
+export const PROFILE_LIST_KEY = 'ph_mobile_profiles';
 export const PROFILE_KEY = 'ph_mobile_profile';
 
 export interface StorageLike {
@@ -54,29 +58,44 @@ export function migrateLegacyProfile(storage: StorageLike): Partial<HostProfile>
   return result;
 }
 
+function readJson(storage: StorageLike, key: string): unknown {
+  try {
+    const raw = storage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createPageStore(storage: StorageLike | null = safeStorage()): ProfileStore {
   return {
     kind: storage ? 'page' : 'memory',
     async load() {
-      if (!storage) return null;
-      try {
-        const raw = storage.getItem(PROFILE_KEY);
-        return raw ? (JSON.parse(raw) as HostProfile) : null;
-      } catch {
-        return null;
+      if (!storage) return emptyProfileList();
+      const stored = readJson(storage, PROFILE_LIST_KEY);
+      if (stored) return normalizeProfileList(stored);
+      const list = migrateSingleProfile(readJson(storage, PROFILE_KEY) as HostProfile | null);
+      if (list.profiles.length > 0) {
+        try {
+          storage.setItem(PROFILE_LIST_KEY, JSON.stringify(storableList(list)));
+          storage.removeItem(PROFILE_KEY);
+        } catch {
+          // квота — перенесём при следующем сохранении
+        }
       }
+      return list;
     },
-    async save(profile) {
+    async save(list) {
       if (!storage) return;
-      // PIN одноразовый и в хранилище не попадает.
-      const { pin: _pin, ...rest } = profile;
       try {
-        storage.setItem(PROFILE_KEY, JSON.stringify(rest));
+        // PIN одноразовый и в хранилище не попадает.
+        storage.setItem(PROFILE_LIST_KEY, JSON.stringify(storableList(list)));
       } catch {
         // квота/приватный режим — работаем без сохранения
       }
     },
     async clear() {
+      storage?.removeItem(PROFILE_LIST_KEY);
       storage?.removeItem(PROFILE_KEY);
     }
   };

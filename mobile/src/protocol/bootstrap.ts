@@ -1,5 +1,6 @@
 import type { RemoteConnectionMode } from '../../../src/types/remote';
-import { applyPairingLink, generateDeviceId, type HostProfile, type PairingLink } from './pairing';
+import { applyPairingLink, generateDeviceId, isValidHostKey, type HostProfile, type PairingLink } from './pairing';
+import { setActiveProfile, updateProfile, upsertPairedProfile, type ProfileList } from './profiles';
 
 export interface InitialProfileInput {
   stored: HostProfile | null;
@@ -39,4 +40,60 @@ export function resolveInitialProfile(input: InitialProfileInput): HostProfile {
   // ссылки с HTTPS-страницы дал бы mixed content (ws:// из https://).
   if (input.pageHostAddress) profile.lanAddress = input.pageHostAddress;
   return profile;
+}
+
+export interface StartupInput extends Omit<InitialProfileInput, 'stored'> {
+  list: ProfileList;
+}
+
+export interface Startup {
+  list: ProfileList;
+  /** Профиль для экрана сопряжения, если сопряжённых хостов ещё нет. */
+  draft: HostProfile | null;
+}
+
+function hasPairingData(link: PairingLink): boolean {
+  return Boolean(link.key || link.pin || link.hostKey || link.hostKeyFp);
+}
+
+/**
+ * Старт клиента со списком профилей (TASK-140.2). Ссылка сопряжения (QR, hash, `start_param`) относится к профилю
+ * того же хоста, а если такого нет — это новое сопряжение, а не замена открытого профиля. Адрес страницы — только
+ * профилю хоста, который её раздал.
+ */
+export function resolveStartup(input: StartupInput): Startup {
+  const { list, link, hostDefaults = {} } = input;
+  const pageHostId = hostDefaults.hostId;
+  const isPageHost = (p: HostProfile) => Boolean(input.pageHostAddress) && (!pageHostId || !p.hostId || p.hostId === pageHostId);
+
+  if (list.profiles.length === 0) {
+    const profile = resolveInitialProfile({ ...input, stored: null });
+    if (profile.key || isValidHostKey(profile.hostKey)) return { list: upsertPairedProfile(list, profile, input.deviceIdPrefix, input.random), draft: null };
+    return { list, draft: profile };
+  }
+
+  if (hasPairingData(link)) {
+    const target = link.hostId
+      ? list.profiles.find((p) => p.hostId === link.hostId && !p.viaHostId)
+      : list.profiles.find((p) => Boolean(link.key) && p.key === link.key!.trim().toLowerCase());
+    if (target) {
+      const applied = { ...applyPairingLink(target, link), id: target.id };
+      if (isPageHost(applied)) applied.lanAddress = input.pageHostAddress;
+      return { list: updateProfile(setActiveProfile(list, target.id!), applied), draft: null };
+    }
+    const fresh = applyPairingLink(
+      { hostId: '', key: '', mode: hostDefaults.mode || 'lan', deviceId: generateDeviceId(input.deviceIdPrefix, input.random) },
+      link
+    );
+    if (!fresh.hostId && pageHostId) fresh.hostId = pageHostId;
+    if (isPageHost(fresh)) fresh.lanAddress = input.pageHostAddress;
+    return { list: upsertPairedProfile(list, fresh, input.deviceIdPrefix, input.random), draft: null };
+  }
+
+  // Страница хоста из списка — открыть его профиль и идти на адрес страницы.
+  const pageProfile = pageHostId ? list.profiles.find((p) => p.hostId === pageHostId && !p.viaHostId) : undefined;
+  if (pageProfile && input.pageHostAddress) {
+    return { list: updateProfile(setActiveProfile(list, pageProfile.id!), { ...pageProfile, lanAddress: input.pageHostAddress }), draft: null };
+  }
+  return { list, draft: null };
 }
