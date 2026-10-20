@@ -5,6 +5,9 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { formatPlanCost, nodeTone, planActions, planCounts, planLevels, type PlanNodeTone } from '../../lib/planGraphView';
 import { describeModelRoute, requestOpenAiSettings } from '../../lib/modelRouteText';
+import { planParallelism, quotaAccountId } from '../../lib/subscriptionQuota';
+import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
+import { SubscriptionQuotaNotice } from '../ai/SubscriptionQuotaNotice';
 
 /**
  * Панель плана подзадач в карточке задачи (TASK-80.3, decision-49).
@@ -40,6 +43,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
   const [error, setError] = useState<string | null>(null);
   /** Чем план будет построен и исполнен при текущих настройках (decision-75). */
   const [models, setModels] = useState<PlanModelsPreview | null>(null);
+  const accountsOverview = useClaudeAccountsStore((s) => s.overview);
 
   const reload = useCallback(async () => {
     const loaded = await window.api.getPlanForTask(projectPath, taskId);
@@ -160,6 +164,23 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
   const failedPurpose = plan?.reasonPurpose ?? plan?.nodes.find((n) => n.reasonPurpose)?.reasonPurpose;
   const modelsNeedAttention = Boolean(failedPurpose || architectModel?.problem || models?.node.problem);
 
+  // Квота подписки (decision-98): узлы построенного плана несут свой маршрут, до построения — текущий выбор.
+  const nodesOnSubscription =
+    plan && plan.nodes.some((n) => n.model) ? plan.nodes.some((n) => n.model?.subscription) : Boolean(models?.node.subscription);
+  const showQuota =
+    (nodesOnSubscription || Boolean(architectModel?.subscription)) && plan?.phase !== 'finished' && plan?.phase !== 'failed';
+  const quotaParallel = useMemo(() => {
+    if (!plan || !nodesOnSubscription) return undefined;
+    const widths = levels.map((level) => level.filter((n) => n.state === 'pending' || n.state === 'running').length);
+    return planParallelism(plan.settings.maxParallel, widths.filter((w) => w > 0));
+  }, [plan, levels, nodesOnSubscription]);
+  // Узлы идут ролью исполнителя плана: её аккаунт важнее аккаунта проекта, как во флоте.
+  const quotaAccount = quotaAccountId(
+    { claudeAccountId: plan?.settings.agent?.claudeAccountId, roleSlug: plan?.settings.agent?.roleSlug ?? 'implementer' },
+    accountsOverview?.roleAccounts,
+    accountsOverview?.accounts.map((a) => a.id)
+  );
+
   const modelLine = (label: string, view: ModelRouteView | undefined) => {
     if (!view) return null;
     const text = describeModelRoute(view, t.modelRouting);
@@ -272,6 +293,13 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
             </button>
           </div>
         </div>
+      )}
+      {showQuota && (
+        <SubscriptionQuotaNotice
+          projectPath={projectPath}
+          accountIds={[quotaAccount]}
+          {...(quotaParallel ? { parallel: { n: quotaParallel, kind: 'plan' as const } } : {})}
+        />
       )}
       {plan?.architect.errors && plan.architect.errors.length > 0 && (
         <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-200">
@@ -391,6 +419,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground border-t border-white/5 pt-2">
           <span>
             {t.plan.cost}: {formatPlanCost(plan.totalCostUsd, plan.settings.budgetUsd)}
+            {nodesOnSubscription && <span className="text-muted-foreground/70"> ({t.plan.subscriptionCostNote})</span>}
           </span>
           {plan.integrationBranch && (
             <span>

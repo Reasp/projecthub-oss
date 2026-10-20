@@ -2397,6 +2397,41 @@ export interface TranslationDictionary {
     modelsHint: string;
     openModelSettings: string;
     nodeTier: string;
+    /** Пометка к стоимости плана на подписке (decision-98). */
+    subscriptionCostNote: string;
+  };
+  /** Квота подписки перед запуском плана и Swarm (TASK-134.5, decision-98). */
+  subscriptionQuota: {
+    title: string;
+    /** «аккаунт «{name}»». */
+    account: string;
+    session: string;
+    weekly: string;
+    /** «осталось {left}%». */
+    left: string;
+    /** «сброс {time}». */
+    resets: string;
+    noData: {
+      auth: string;
+      timeout: string;
+      failed: string;
+      unrecognized: string;
+      no_windows: string;
+      load_error: string;
+      loading: string;
+    };
+    /** «Лимиты не обновлены ({reason}) — показаны последние известные». */
+    stale: string;
+    high: string;
+    exhausted: string;
+    /** Параллельные узлы плана, `{n}`. */
+    parallelPlan: string;
+    /** Параллельные участники арены на одном аккаунте, `{n}`. */
+    parallelSwarm: string;
+    notBlocking: string;
+    budgetNote: string;
+    slotBudgetTooltip: string;
+    openUsage: string;
   };
   /** Подпись «чем обслуживается назначение» (decision-74, decision-75). */
   modelRouting: {

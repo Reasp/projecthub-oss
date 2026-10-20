@@ -28,6 +28,8 @@ import { effortTargetKind, withReasoningEffort } from '../../../lib/reasoningEff
 import { findProfileByRef, slotProviderFromChoice, slotProviderFromRole } from '../../../lib/providerSelect';
 import type { AgentSlotConfig, DoneLoopSettings, LlmProfileView, SwarmMode } from '../../../types/electron';
 import { useClaudeAccountsStore } from '../../../store/useClaudeAccountsStore';
+import { swarmQuotaPlan } from '../../../lib/subscriptionQuota';
+import { SubscriptionQuotaNotice } from '../SubscriptionQuotaNotice';
 
 /** Слот исполнителя цикла «до готовности» по умолчанию — роль `implementer`, если она есть. */
 const DONE_LOOP_DEFAULT_NAME = 'Implementer';
@@ -172,6 +174,7 @@ export const NewSwarmModal: React.FC = () => {
   const presets = useMemo(() => getPresets(t), [t]);
   const claudeAccounts = useClaudeAccountsStore((s) => s.overview?.accounts ?? EMPTY_ACCOUNTS);
   const refreshClaudeAccounts = useClaudeAccountsStore((s) => s.refresh);
+  const roleAccounts = useClaudeAccountsStore((s) => s.overview?.roleAccounts);
 
   const {
     isNewSwarmModalOpen,
@@ -266,6 +269,12 @@ export const NewSwarmModal: React.FC = () => {
       cancelled = true;
     };
   }, [isNewSwarmModalOpen, mode, selectedProject?.path, getDoneLoopConfigAction]);
+
+  // Квота подписки (decision-98): слоты Claude Code по аккаунтам, параллельны только участники арены.
+  const quota = useMemo(
+    () => swarmQuotaPlan(mode, agents, roleAccounts, claudeAccounts.map((a) => a.id)),
+    [mode, agents, roleAccounts, claudeAccounts]
+  );
 
   if (!isNewSwarmModalOpen) return null;
 
@@ -712,7 +721,7 @@ export const NewSwarmModal: React.FC = () => {
                         handleUpdateAgent(idx, { budgetUsd: Number.isFinite(v) && v > 0 ? v : undefined });
                       }}
                       placeholder={t.swarm.agentBudgetPlaceholder}
-                      title={t.swarm.agentBudgetTooltip}
+                      title={agent.engine === 'claude-cli' ? t.subscriptionQuota.slotBudgetTooltip : t.swarm.agentBudgetTooltip}
                       className="px-2 py-1 rounded-sm border border-border bg-background text-foreground text-xs w-20"
                     />
                   </div>
@@ -801,6 +810,16 @@ export const NewSwarmModal: React.FC = () => {
                 )}
               </div>
             </div>
+          )}
+
+          {quota.subscriptionSlots > 0 && selectedProject && (
+            <SubscriptionQuotaNotice
+              projectPath={selectedProject.path}
+              accountIds={quota.groups.map((g) => g.accountId)}
+              {...(quota.parallel > 1 ? { parallel: { n: quota.parallel, kind: 'swarm' as const } } : {})}
+              budgetNote
+              showAccountNames={claudeAccounts.length > 1}
+            />
           )}
 
           {/* Бюджет сессии (TASK-56) */}

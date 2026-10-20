@@ -2510,7 +2510,34 @@ export const en: TranslationDictionary = {
     runsWith: 'Executed by',
     modelsHint: 'The node model is refined by the tier the architect assigns to each subtask.',
     openModelSettings: 'Model settings',
-    nodeTier: 'tier {tier}'
+    nodeTier: 'tier {tier}',
+    subscriptionCostNote: 'estimate at API prices, no money is charged on the subscription'
+  },
+  subscriptionQuota: {
+    title: 'Claude Code subscription limits',
+    account: 'account “{name}”',
+    session: '5 hours',
+    weekly: 'week',
+    left: '{left}% left',
+    resets: 'resets {time}',
+    noData: {
+      auth: 'no data: Claude Code is not signed in for this profile',
+      timeout: 'no data: Claude CLI did not respond in time',
+      failed: 'no data: claude -p /usage failed',
+      unrecognized: 'no data: Claude CLI did not report subscription limits',
+      no_windows: 'no data: Claude CLI has not reported limit windows yet',
+      load_error: 'no data: the limits request failed',
+      loading: 'requesting limits…'
+    },
+    stale: 'Limits were not refreshed ({reason}) — showing the last known values.',
+    high: 'The window is almost used up: work may stop on the limit before it resets.',
+    exhausted: 'The window is used up: subscription work will stall until it resets.',
+    parallelPlan: 'Up to {n} nodes run at once on one subscription — the limit window drains that many times faster.',
+    parallelSwarm: '{n} arena contenders run at once on one subscription account — the limit window drains that many times faster.',
+    notBlocking: 'Launch is not blocked.',
+    budgetNote: 'Claude Code on a subscription: cost is an estimate at API prices, no money is charged. The USD budget caps that estimate, not the limit windows.',
+    slotBudgetTooltip: 'Subscription slot: the budget caps the cost estimate at API prices, no money is charged',
+    openUsage: 'Details'
   },
   modelRouting: {
     defaultModel: 'default model',
