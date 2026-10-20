@@ -3619,5 +3619,106 @@ export const en: TranslationDictionary = {
     sourceLlmProfiles: 'LLM profiles',
     close: 'Close',
     reload: 'Refresh'
+  },
+  connections: {
+    title: 'Connections',
+    open: 'Connections to external services',
+    close: 'Close',
+    intro:
+      'Connections to your team services: trackers, code hosting, CI/CD. Integrations get their access from here. Tokens are stored encrypted on this computer and never sent back to this window.',
+    empty: 'No connections yet.',
+    add: 'Add connection',
+    check: 'Check',
+    rename: 'Rename',
+    renamePrompt: 'New connection name',
+    reconnect: 'Reconnect',
+    remove: 'Remove',
+    removeConfirmTitle: 'Remove connection?',
+    removeConfirm: 'Connection “{name}” will be removed and its token revoked at the service if the service allows it.',
+    removeUsedWarning: 'It is used by: {list}. These integrations will stop working.',
+    removed: 'Connection removed.',
+    revokeUnsupported: 'Connection removed. The service does not let apps revoke this token — revoke it manually: {url}',
+    revokeFailed: 'Connection removed, but revoking the token at the service failed. Revoke it manually: {url}',
+    usedBy: 'Used by: {list}',
+    notUsed: 'Not used by any integration yet',
+    scopesGranted: 'Scopes: {list}',
+    expires: 'access until {time}',
+    expiresRefresh: 'token until {time}, refreshes automatically',
+    status: {
+      connected: 'connected',
+      needsReauth: 'sign-in needed',
+      error: 'error',
+      unchecked: 'not checked'
+    },
+    methods: {
+      'oauth-browser': 'Browser sign-in',
+      'oauth-device': 'Sign in with a code',
+      token: 'Token',
+      basic: 'Username and token'
+    },
+    methodHints: {
+      'oauth-browser': 'The service page opens in your browser and returns you to ProjectHub after sign-in.',
+      'oauth-device': 'ProjectHub shows a code to enter on the service page. No app secret needed.',
+      token: 'A personal token or API key from the service settings.',
+      basic: 'Username and password or API token — for self-hosted services.'
+    },
+    scopes: {
+      'github:read:user': 'read your profile',
+      'github:repo': 'repositories, issues and PRs: read and write',
+      'github:workflow': 'change GitHub Actions files',
+      'github:read:org': 'read organizations and teams',
+      'gitlab:read_user': 'read your profile',
+      'gitlab:read_api': 'read the API: projects, issues, MRs, pipelines',
+      'gitlab:api': 'full API access, including writes'
+    },
+    form: {
+      titleAdd: 'New connection',
+      titleReconnect: 'Reconnect “{name}”',
+      service: 'Service',
+      method: 'Sign-in method',
+      baseUrl: 'Service address',
+      baseUrlHint: 'For self-hosted. https is required; http is allowed only on a local network.',
+      username: 'Username',
+      usernameEmail: 'Email',
+      token: 'Token',
+      password: 'Password or API token',
+      tokenHelp: 'Where to create a token',
+      clientIdHint: 'client_id of your OAuth app. Redirect URL to register: {uri}',
+      clientIdHintDevice: 'client_id of an OAuth app with device flow enabled.',
+      oauthAppHelp: 'Where to register the app',
+      optional: 'optional',
+      clientSecretKept: 'saved — leave empty',
+      clientSecretWhy: 'The service requires the app secret at sign-in. It is stored encrypted with the connection tokens.',
+      redirectPort: 'Redirect port',
+      redirectPortHint: 'Set it if the service requires an exact redirect URL with a port. Otherwise a free port is used.',
+      scopes: 'Scopes',
+      scopesRequested: 'Will be requested: {list}',
+      label: 'Name',
+      labelPlaceholder: 'For example, “ClickUp — team”',
+      submitToken: 'Check and save',
+      submitOAuth: 'Sign in',
+      back: 'Back'
+    },
+    flow: {
+      deviceInstruction: 'Open the service page and enter this code:',
+      copyCode: 'Copy',
+      copied: 'Copied',
+      openPage: 'Open page',
+      browserWaiting: 'A sign-in page opened in your browser. Sign in and allow access — this window updates by itself.',
+      browserOpenAgain: 'Open again',
+      browserManual: 'Browser did not open? Copy the address',
+      exchanging: 'Getting the token…',
+      waitingUntil: 'Waiting for approval until {time}',
+      done: 'Connected.',
+      cancelled: 'Sign-in cancelled.',
+      cancel: 'Cancel',
+      error: 'Sign-in failed: {error}',
+      reasons: {
+        expired: 'the code expired, start again',
+        denied: 'access was not allowed on the service page',
+        timeout: 'timed out',
+        noCode: 'the service returned no authorization code'
+      }
+    }
   }
 };

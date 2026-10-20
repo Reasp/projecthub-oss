@@ -1117,6 +1117,21 @@ export interface IElectronAPI {
     setProject: (projectPath: string, accountId: string | null) => Promise<boolean>;
     setRole: (roleSlug: string, accountId: string | null) => Promise<void>;
   };
+  /** Подключения к внешним сервисам (TASK-138.1, decision-102): без секретов. */
+  connections: {
+    services: () => Promise<ConnectionServiceInfo[]>;
+    list: () => Promise<ConnectionView[]>;
+    addToken: (input: ConnectionInput, reconnectId?: string) => Promise<ConnectionView>;
+    startOAuth: (input: ConnectionInput, reconnectId?: string) => Promise<ConnectionFlowView>;
+    getFlow: (flowId: string) => Promise<ConnectionFlowView | null>;
+    cancelFlow: (flowId: string) => Promise<ConnectionFlowView | null>;
+    openFlowPage: (flowId: string) => Promise<boolean>;
+    check: (id: string) => Promise<ConnectionView>;
+    rename: (id: string, label: string) => Promise<ConnectionView>;
+    remove: (id: string) => Promise<ConnectionRemoveResult>;
+    onChanged: (callback: (list: ConnectionView[]) => void) => () => void;
+    onFlowChanged: (callback: (flow: ConnectionFlowView) => void) => () => void;
+  };
   streamAIChat: (request: AIStreamRequest) => Promise<boolean>;
   /** Предпросмотр контекста агента для карточки в AI Studio (TASK-64), без запуска стрима. */
   previewAgentContext: (
@@ -2192,6 +2207,82 @@ export interface SecretIssue {
 export interface SecretIssuesState {
   issues: SecretIssue[];
   backupFile: string;
+}
+
+// ─────────────────── Подключения к внешним сервисам (TASK-138.1, decision-102) — зеркало electron/services/connectionTypes.ts ───────────────────
+
+export type ConnectionAuthMethod = 'oauth-browser' | 'oauth-device' | 'token' | 'basic';
+export type ConnectionStatus = 'connected' | 'needsReauth' | 'error' | 'unchecked';
+export type ConnectionCategory = 'tracker' | 'vcs' | 'ci' | 'chat';
+
+export interface ConnectionView {
+  id: string;
+  serviceId: string;
+  serviceLabel: string;
+  label: string;
+  baseUrl: string;
+  method: ConnectionAuthMethod;
+  scopes: string[];
+  account?: { id?: string; login?: string; name?: string };
+  username?: string;
+  oauthClientId?: string;
+  redirectPort?: number;
+  status: ConnectionStatus;
+  statusDetail?: string;
+  expiresAt?: number;
+  createdAt: number;
+  updatedAt: number;
+  lastCheckedAt?: number;
+  hasRefreshToken: boolean;
+  hasClientSecret: boolean;
+  usedBy: string[];
+}
+
+export interface ConnectionServiceInfo {
+  id: string;
+  label: string;
+  categories: ConnectionCategory[];
+  methods: ConnectionAuthMethod[];
+  defaultBaseUrl?: string;
+  selfHosted: boolean;
+  scopes: Array<{ id: string; default?: boolean }>;
+  clientSecretRequired: Partial<Record<ConnectionAuthMethod, boolean>>;
+  builtinClientId?: string;
+  tokenHelpUrl?: string;
+  oauthAppHelpUrl?: string;
+  usernameHint?: string;
+}
+
+export interface ConnectionFlowView {
+  flowId: string;
+  serviceId: string;
+  method: 'oauth-browser' | 'oauth-device';
+  state: 'pending' | 'exchanging' | 'done' | 'error' | 'cancelled';
+  userCode?: string;
+  verificationUri?: string;
+  authorizeUrl?: string;
+  expiresAt: number;
+  connectionId?: string;
+  error?: string;
+}
+
+export interface ConnectionInput {
+  serviceId: string;
+  method: ConnectionAuthMethod;
+  label?: string;
+  baseUrl?: string;
+  scopes?: string[];
+  token?: string;
+  username?: string;
+  clientId?: string;
+  clientSecret?: string;
+  redirectPort?: number;
+}
+
+export interface ConnectionRemoveResult {
+  removed: boolean;
+  remoteRevoke: 'revoked' | 'unsupported' | 'failed' | 'notNeeded';
+  manualRevokeUrl?: string;
 }
 
 /** Лимиты задач агентов (TASK-155) — зеркало electron/services/agentTaskSettingsService.ts. */

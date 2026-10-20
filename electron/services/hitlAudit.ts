@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { HitlAuditEntry, HitlAuditQuery } from './hitlTypes.js';
 import { REDACTION_PATTERNS } from './secretPatterns.js';
+import { redactSensitiveValues } from './sensitiveValues.js';
 
 /**
  * Аудит-лог решений HITL (TASK-57, decision-10 п. 4).
@@ -27,7 +28,8 @@ const SECRET_PATTERNS = REDACTION_PATTERNS;
 /** Вырезает похожие на секреты фрагменты из произвольного текста команды. */
 export function redactSecrets(text: string): string {
   if (!text) return '';
-  let out = text;
+  // Сначала известные значения токенов подключений (decision-102 п. 8), потом шаблоны.
+  let out = redactSensitiveValues(text);
   for (const [re, replacement] of SECRET_PATTERNS) {
     out = out.replace(re, replacement);
   }

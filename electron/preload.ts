@@ -9,6 +9,8 @@ import type {
   ProviderErrorInfo,
   CheckDefinition,
   IElectronAPI,
+  ConnectionView,
+  ConnectionFlowView,
   ScanOptions,
   BacklogTask,
   TaskCriterion,
@@ -358,6 +360,33 @@ const api: IElectronAPI = {
     forProject: (projectPath: string) => ipcRenderer.invoke('claudeAccounts:forProject', projectPath),
     setProject: (projectPath: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setProject', projectPath, accountId),
     setRole: (roleSlug: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setRole', roleSlug, accountId)
+  },
+  // Подключения к внешним сервисам (TASK-138.1, decision-102)
+  connections: {
+    services: () => ipcRenderer.invoke('connections:services'),
+    list: () => ipcRenderer.invoke('connections:list'),
+    addToken: (input: unknown, reconnectId?: string) => ipcRenderer.invoke('connections:addToken', input, reconnectId),
+    startOAuth: (input: unknown, reconnectId?: string) => ipcRenderer.invoke('connections:startOAuth', input, reconnectId),
+    getFlow: (flowId: string) => ipcRenderer.invoke('connections:getFlow', flowId),
+    cancelFlow: (flowId: string) => ipcRenderer.invoke('connections:cancelFlow', flowId),
+    openFlowPage: (flowId: string) => ipcRenderer.invoke('connections:openFlowPage', flowId),
+    check: (id: string) => ipcRenderer.invoke('connections:check', id),
+    rename: (id: string, label: string) => ipcRenderer.invoke('connections:rename', id, label),
+    remove: (id: string) => ipcRenderer.invoke('connections:remove', id),
+    onChanged: (callback: (list: ConnectionView[]) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, list: ConnectionView[]) => callback(list);
+      ipcRenderer.on('connections:changed', handler);
+      return () => {
+        ipcRenderer.removeListener('connections:changed', handler);
+      };
+    },
+    onFlowChanged: (callback: (flow: ConnectionFlowView) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, flow: ConnectionFlowView) => callback(flow);
+      ipcRenderer.on('connections:flowChanged', handler);
+      return () => {
+        ipcRenderer.removeListener('connections:flowChanged', handler);
+      };
+    }
   },
   streamAIChat: (request: any) => ipcRenderer.invoke('ai:streamChat', request),
   previewAgentContext: (projectPath: string, taskId: string, contextParts?: any) =>

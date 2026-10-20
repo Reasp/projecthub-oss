@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { format } from 'node:util';
+import { redactSensitiveValues } from './sensitiveValues.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -136,7 +137,8 @@ export class FileLogger {
   /** Пишет строку в файл (без вывода в консоль). */
   write(level: LogLevel, args: unknown[]): void {
     if (this.disabled || !this.isEnabled(level)) return;
-    const line = formatLogLine(level, args);
+    // Токены подключений вычищаются дословно, в каком бы виде они ни попали в строку (decision-102 п. 8).
+    const line = redactSensitiveValues(formatLogLine(level, args));
     if (!this.filePath) {
       if (this.buffer.length >= PREINIT_BUFFER_LIMIT) {
         this.buffer.shift();

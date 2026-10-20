@@ -18,10 +18,12 @@ import {
   MoreHorizontal,
   HelpCircle,
   FolderKanban,
-  KeyRound
+  KeyRound,
+  Unplug
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
+import { useConnectionsStore } from '../../store/useConnectionsStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useWorkspaceTabs, type WorkspaceTabId } from '../../hooks/useWorkspaceTabs';
 import { WorkspaceTabsConfigModal } from '../projects/WorkspaceTabsConfigModal';
@@ -68,6 +70,7 @@ export const ActivityBar: React.FC = () => {
 
   const restorableSecrets = useSecretRestoreStore((s) => s.restorableCount);
   const openSecretRestore = useSecretRestoreStore((s) => s.open);
+  const openConnections = useConnectionsStore((s) => s.open);
 
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [hiddenMenuAnchor, setHiddenMenuAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -268,6 +271,18 @@ export const ActivityBar: React.FC = () => {
           </span>
         </button>
       )}
+
+      {/* Подключения к внешним сервисам (TASK-138.1, decision-102): уровень пользователя, не проекта. */}
+      <button
+        type="button"
+        onClick={openConnections}
+        className={itemClass(false)}
+        title={t.connections.open}
+        aria-label={t.connections.open}
+        data-testid="activity-connections"
+      >
+        <Unplug className="w-[18px] h-[18px]" />
+      </button>
 
       {selectedProject && (
         <button

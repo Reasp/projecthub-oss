@@ -3309,4 +3309,78 @@ export interface TranslationDictionary {
     close: string;
     reload: string;
   };
+  /** Окно «Подключения» (TASK-138.1, decision-102). */
+  connections: {
+    title: string;
+    open: string;
+    close: string;
+    intro: string;
+    empty: string;
+    add: string;
+    check: string;
+    rename: string;
+    renamePrompt: string;
+    reconnect: string;
+    remove: string;
+    removeConfirmTitle: string;
+    removeConfirm: string;
+    removeUsedWarning: string;
+    removed: string;
+    revokeUnsupported: string;
+    revokeFailed: string;
+    usedBy: string;
+    notUsed: string;
+    scopesGranted: string;
+    expires: string;
+    expiresRefresh: string;
+    status: Record<'connected' | 'needsReauth' | 'error' | 'unchecked', string>;
+    methods: Record<'oauth-browser' | 'oauth-device' | 'token' | 'basic', string>;
+    methodHints: Record<'oauth-browser' | 'oauth-device' | 'token' | 'basic', string>;
+    /** Пояснения прав по ключу `<сервис>:<право>`. */
+    scopes: Record<string, string>;
+    form: {
+      titleAdd: string;
+      titleReconnect: string;
+      service: string;
+      method: string;
+      baseUrl: string;
+      baseUrlHint: string;
+      username: string;
+      usernameEmail: string;
+      token: string;
+      password: string;
+      tokenHelp: string;
+      clientIdHint: string;
+      clientIdHintDevice: string;
+      oauthAppHelp: string;
+      optional: string;
+      clientSecretKept: string;
+      clientSecretWhy: string;
+      redirectPort: string;
+      redirectPortHint: string;
+      scopes: string;
+      scopesRequested: string;
+      label: string;
+      labelPlaceholder: string;
+      submitToken: string;
+      submitOAuth: string;
+      back: string;
+    };
+    flow: {
+      deviceInstruction: string;
+      copyCode: string;
+      copied: string;
+      openPage: string;
+      browserWaiting: string;
+      browserOpenAgain: string;
+      browserManual: string;
+      exchanging: string;
+      waitingUntil: string;
+      done: string;
+      cancelled: string;
+      cancel: string;
+      error: string;
+      reasons: Record<string, string>;
+    };
+  };
 }

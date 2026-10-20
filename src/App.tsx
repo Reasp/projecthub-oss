@@ -13,6 +13,7 @@ import { DialogHost } from './components/common/DialogHost';
 import { HitlCenterModal } from './components/hitl/HitlCenterModal';
 import { ClaudeLoginModal } from './components/ai/ClaudeLoginModal';
 import { ClaudeAccountsModal } from './components/ai/ClaudeAccountsModal';
+import { ConnectionsModal } from './components/connections/ConnectionsModal';
 import { ComputerControlBanner } from './components/computer/ComputerControlBanner';
 import { SecretIssuesNotice } from './components/security/SecretIssuesNotice';
 import { SecretRestoreModal } from './components/security/SecretRestoreModal';
@@ -399,6 +400,7 @@ export const App: React.FC = () => {
 
       {/* Аккаунты Claude Code и вход во встроенном терминале (TASK-152) */}
       <ClaudeAccountsModal />
+      <ConnectionsModal />
       <ClaudeLoginModal />
 
       {/* Global Promise-based Modals (ConfirmDialog, PromptDialog, AlertDialog) */}
