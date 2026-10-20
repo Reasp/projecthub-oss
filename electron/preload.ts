@@ -361,6 +361,15 @@ const api: IElectronAPI = {
     setProject: (projectPath: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setProject', projectPath, accountId),
     setRole: (roleSlug: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setRole', roleSlug, accountId)
   },
+  // Синхронизация задач с внешним трекером (TASK-128, decision-103)
+  trackerSync: {
+    status: (projectPath: string) => ipcRenderer.invoke('trackerSync:status', projectPath),
+    save: (projectPath: string, patch: unknown) => ipcRenderer.invoke('trackerSync:save', projectPath, patch),
+    targets: (projectPath: string) => ipcRenderer.invoke('trackerSync:targets', projectPath),
+    describeTarget: (projectPath: string) => ipcRenderer.invoke('trackerSync:describeTarget', projectPath),
+    preview: (projectPath: string) => ipcRenderer.invoke('trackerSync:preview', projectPath),
+    run: (projectPath: string) => ipcRenderer.invoke('trackerSync:run', projectPath)
+  },
   // Подключения к внешним сервисам (TASK-138.1, decision-102)
   connections: {
     services: () => ipcRenderer.invoke('connections:services'),

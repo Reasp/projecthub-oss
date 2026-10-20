@@ -29,6 +29,8 @@ import { automationToolList, automationToolRun } from './automationTools.js';
 import { terminalHookService } from './terminalHookService.js';
 import { PROJECT_TOOL_DEFINITIONS, callProjectTool, type ProjectToolContext } from './projectAgentTools.js';
 import { projectAgentToolDeps } from './projectAgentToolDeps.js';
+import { TRACKER_TOOL_DEFINITIONS, callTrackerTool } from './trackerSyncTools.js';
+import { trackerToolDeps } from './trackerSyncServiceInstance.js';
 import { deriveAgentToken, isAgentTokenShape, projectForAgentToken } from './agentToken.js';
 
 /** Маршрут хуков терминальных сессий (TASK-77, decision-54 п. 3–4). */
@@ -819,6 +821,30 @@ class McpServerService {
             return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран.' }] };
           }
           const res = await callProjectTool(def.name, args, ctx, projectAgentToolDeps);
+          return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
+        }
+      );
+    }
+    // Синк задач с внешним трекером (TASK-128, decision-103 п. 8): тот же контекст проекта, запуск — через HITL.
+    for (const def of TRACKER_TOOL_DEFINITIONS) {
+      const schema = withProjectPath
+        ? {
+            ...def.input_schema,
+            properties: {
+              ...((def.input_schema.properties ?? {}) as Record<string, unknown>),
+              projectPath: { type: 'string', description: 'Путь к проекту — только для внешних MCP-клиентов; агенту проекта он известен' }
+            }
+          }
+        : def.input_schema;
+      server.registerTool(
+        def.name,
+        { title: def.name, description: def.description, inputSchema: jsonSchemaToZodShape(schema) },
+        async (args: Record<string, unknown>) => {
+          const ctx = contextFor(args);
+          if (!ctx) {
+            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран.' }] };
+          }
+          const res = await callTrackerTool(def.name, args, ctx, trackerToolDeps);
           return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
         }
       );

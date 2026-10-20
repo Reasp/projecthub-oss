@@ -1117,6 +1117,18 @@ export interface IElectronAPI {
     setProject: (projectPath: string, accountId: string | null) => Promise<boolean>;
     setRole: (roleSlug: string, accountId: string | null) => Promise<void>;
   };
+  /** Синхронизация задач с внешним трекером (TASK-128, decision-103). */
+  trackerSync: {
+    status: (projectPath: string) => Promise<TrackerSyncStatusView>;
+    save: (
+      projectPath: string,
+      patch: { config?: Partial<TrackerSyncConfig>; connectionId?: string | null; intervalMinutes?: number }
+    ) => Promise<TrackerSyncStatusView>;
+    targets: (projectPath: string) => Promise<TrackerTargetGroup[]>;
+    describeTarget: (projectPath: string) => Promise<{ localStatuses: string[]; remoteStatuses: RemoteStatus[]; suggested: Record<string, string> }>;
+    preview: (projectPath: string) => Promise<TrackerRunSummary>;
+    run: (projectPath: string) => Promise<TrackerRunSummary>;
+  };
   /** Подключения к внешним сервисам (TASK-138.1, decision-102): без секретов. */
   connections: {
     services: () => Promise<ConnectionServiceInfo[]>;
@@ -2283,6 +2295,69 @@ export interface ConnectionRemoveResult {
   removed: boolean;
   remoteRevoke: 'revoked' | 'unsupported' | 'failed' | 'notNeeded';
   manualRevokeUrl?: string;
+}
+
+// ─────────────────── Синхронизация с трекерами (TASK-128, decision-103) — зеркало electron/services/trackerTypes.ts ───────────────────
+
+export type TrackerField = 'title' | 'description' | 'status';
+export type TrackerJournalKind = 'import' | 'export' | 'push' | 'pull' | 'conflict' | 'missingRemote' | 'missingLocal' | 'unmappedStatus' | 'error';
+
+export interface RemoteStatus {
+  name: string;
+  type: string;
+}
+
+export interface TrackerTarget {
+  id: string;
+  name: string;
+  path?: string;
+}
+
+export interface TrackerTargetGroup {
+  id: string;
+  name: string;
+  targets: TrackerTarget[];
+}
+
+export interface TrackerSyncConfig {
+  version: 1;
+  enabled: boolean;
+  adapter: string;
+  target: TrackerTarget | null;
+  statusMap: Record<string, string>;
+  conflictPolicy: 'backlog' | 'remote';
+  exportLabel: string;
+  importClosed: boolean;
+}
+
+export interface TrackerJournalEntry {
+  kind: TrackerJournalKind;
+  taskId?: string;
+  externalId?: string;
+  title?: string;
+  fields?: TrackerField[];
+  detail?: string;
+}
+
+export interface TrackerRunSummary {
+  at: number;
+  finishedAt: number;
+  dryRun: boolean;
+  ok: boolean;
+  error?: string;
+  counts: Partial<Record<TrackerJournalKind, number>>;
+  entries: TrackerJournalEntry[];
+}
+
+export interface TrackerSyncStatusView {
+  projectPath: string;
+  config: TrackerSyncConfig;
+  connectionId: string | null;
+  intervalMinutes: number;
+  linkedTasks: number;
+  running: boolean;
+  lastRun: TrackerRunSummary | null;
+  adapters: Array<{ id: string; label: string; serviceId: string }>;
 }
 
 /** Лимиты задач агентов (TASK-155) — зеркало electron/services/agentTaskSettingsService.ts. */

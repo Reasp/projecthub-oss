@@ -3309,6 +3309,44 @@ export interface TranslationDictionary {
     close: string;
     reload: string;
   };
+  /** Окно «Синхронизация с трекером» (TASK-128, decision-103). */
+  trackerSync: {
+    open: string;
+    title: string;
+    close: string;
+    intro: string;
+    connection: string;
+    connectionNone: string;
+    manageConnections: string;
+    noConnections: string;
+    target: string;
+    targetNone: string;
+    loadTargets: string;
+    statusMap: string;
+    loadStatuses: string;
+    statusSkip: string;
+    statusMapEmpty: string;
+    conflictPolicy: string;
+    policyBacklog: string;
+    policyRemote: string;
+    exportLabel: string;
+    exportLabelPlaceholder: string;
+    importClosed: string;
+    interval: string;
+    intervalOff: string;
+    intervalMinutes: string;
+    enabled: string;
+    save: string;
+    preview: string;
+    run: string;
+    linked: string;
+    saveHint: string;
+    journalPreview: string;
+    journalRun: string;
+    noChanges: string;
+    kinds: Record<'import' | 'export' | 'push' | 'pull' | 'conflict' | 'missingRemote' | 'missingLocal' | 'unmappedStatus' | 'error', string>;
+    fields: Record<'title' | 'description' | 'status', string>;
+  };
   /** Окно «Подключения» (TASK-138.1, decision-102). */
   connections: {
     title: string;

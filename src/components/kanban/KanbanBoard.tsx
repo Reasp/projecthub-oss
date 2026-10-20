@@ -9,7 +9,8 @@ import {
   CheckSquare,
   AlertCircle,
   Bot,
-  X
+  X,
+  RefreshCw
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -26,6 +27,7 @@ import {
 } from '../../utils/taskStatus';
 import { TaskDetailModal } from './TaskDetailModal';
 import { TaskListView } from './TaskListView';
+import { TrackerSyncModal } from './TrackerSyncModal';
 
 export const KanbanBoard: React.FC = () => {
   const { t } = useTranslation();
@@ -79,6 +81,7 @@ export const KanbanBoard: React.FC = () => {
   }, [taskRefToOpen, tasks, requestOpenTask]);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isTrackerOpen, setIsTrackerOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newLabels, setNewLabels] = useState('');
@@ -361,6 +364,17 @@ export const KanbanBoard: React.FC = () => {
             </button>
           </div>
 
+          {/* Синхронизация с внешним трекером (TASK-128, decision-103) */}
+          <button
+            onClick={() => setIsTrackerOpen(true)}
+            title={t.trackerSync.open}
+            aria-label={t.trackerSync.open}
+            data-testid="kanban-tracker-sync"
+            className="ph-icon-button shrink-0"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+
           <button
             onClick={() => setIsCreateOpen(true)}
             title={t.kanban.newTask}
@@ -524,6 +538,17 @@ export const KanbanBoard: React.FC = () => {
             );
           })}
         </div>
+      )}
+
+      {selectedProject && (
+        <TrackerSyncModal
+          projectPath={selectedProject.path}
+          isOpen={isTrackerOpen}
+          onClose={() => {
+            setIsTrackerOpen(false);
+            void loadProjectData(selectedProject, { silent: true });
+          }}
+        />
       )}
 
       {/* Task Details Modal */}
