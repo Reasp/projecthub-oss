@@ -1103,6 +1103,35 @@ export interface TranslationDictionary {
     mergeNeedsApproval: string;
   };
   /** Память проекта (TASK-76, decision-51): раздел во вкладке документов. */
+  ci: {
+    tab: string;
+    noProviders: string;
+    noRuns: string;
+    loadError: string;
+    via: string;
+    status: Record<'queued' | 'running' | 'success' | 'failure' | 'cancelled' | 'skipped' | 'manual', string>;
+    log: string;
+    hideLog: string;
+    logTruncated: string;
+    logMasked: string;
+    retry: string;
+    retryConfirmTitle: string;
+    retryConfirm: string;
+    play: string;
+    playConfirmTitle: string;
+    playConfirm: string;
+    started: string;
+    openRun: string;
+    jenkinsTitle: string;
+    jenkinsHint: string;
+    jenkinsConnection: string;
+    jenkinsJob: string;
+    jenkinsSave: string;
+    jenkinsRemove: string;
+    jenkinsNoConnection: string;
+    jenkinsSaved: string;
+    taskTitle: string;
+  };
   prReview: {
     tab: string;
     title: string;

@@ -10,7 +10,9 @@ export const prService = new PRService({
     authorizedFetch: (connectionId, target, init) => connectionService.authorizedFetch(connectionId, target, init),
     addWithToken: (input) => connectionService.addWithToken(input)
   },
-  statePath: () => getStatePath('pr-hosting.json')
+  statePath: () => getStatePath('pr-hosting.json'),
+  // Лог GitHub Actions: API отвечает переходом на подписанный адрес хранилища, токен туда не уходит (TASK-138.3).
+  download: (url) => fetch(url)
 });
 
 // Окно «Подключения» показывает, для PR каких репозиториев используется подключение.

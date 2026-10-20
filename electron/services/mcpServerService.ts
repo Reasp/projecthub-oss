@@ -31,6 +31,8 @@ import { PROJECT_TOOL_DEFINITIONS, callProjectTool, type ProjectToolContext } fr
 import { projectAgentToolDeps } from './projectAgentToolDeps.js';
 import { TRACKER_TOOL_DEFINITIONS, callTrackerTool } from './trackerSyncTools.js';
 import { trackerToolDeps } from './trackerSyncServiceInstance.js';
+import { CI_TOOL_DEFINITIONS, callCiTool } from './ciTools.js';
+import { ciToolDeps } from './ciServiceInstance.js';
 import { deriveAgentToken, isAgentTokenShape, projectForAgentToken } from './agentToken.js';
 
 /** Маршрут хуков терминальных сессий (TASK-77, decision-54 п. 3–4). */
@@ -845,6 +847,30 @@ class McpServerService {
             return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран.' }] };
           }
           const res = await callTrackerTool(def.name, args, ctx, trackerToolDeps);
+          return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
+        }
+      );
+    }
+    // CI/CD (TASK-138.3, decision-109): статус и лог упавшего задания свободно, перезапуск — через HITL.
+    for (const def of CI_TOOL_DEFINITIONS) {
+      const schema = withProjectPath
+        ? {
+            ...def.input_schema,
+            properties: {
+              ...((def.input_schema.properties ?? {}) as Record<string, unknown>),
+              projectPath: { type: 'string', description: 'Путь к проекту — только для внешних MCP-клиентов; агенту проекта он известен' }
+            }
+          }
+        : def.input_schema;
+      server.registerTool(
+        def.name,
+        { title: def.name, description: def.description, inputSchema: jsonSchemaToZodShape(schema) },
+        async (args: Record<string, unknown>) => {
+          const ctx = contextFor(args);
+          if (!ctx) {
+            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран.' }] };
+          }
+          const res = await callCiTool(def.name, args, ctx, ciToolDeps);
           return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
         }
       );

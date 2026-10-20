@@ -32,6 +32,8 @@ import {
   type RepoRef
 } from './prHosting.js';
 import { stateFields, withVersion } from './stateFiles.js';
+import { githubActionsAdapter, gitlabCiAdapter } from './ciProviders.js';
+import type { CiAccess } from './ciService.js';
 
 /** PR для ревью (TASK-81): голова, ветки и описание. */
 export interface PrReviewTarget {
@@ -69,6 +71,8 @@ export interface PrServiceDeps {
   exec?: (file: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv }) => Promise<{ stdout: string }>;
   /** Адрес remote `origin` (или первого) проекта; по умолчанию — из git. */
   readRemote?: (projectPath: string) => Promise<string | null>;
+  /** Подписанный адрес лога GitHub Actions после перехода API (TASK-138.3): без токена. */
+  download?: (url: string) => Promise<Response>;
 }
 
 export const PR_HOSTING_STATE_VERSION = 1;
@@ -604,15 +608,17 @@ export class PRService {
       .filter((r) => parsePrUrl(r));
     const urls = [...new Set(refs)];
     const id = (typeof task.data.id === 'string' ? task.data.id : taskId).toUpperCase();
+    // Ветка задачи — для статуса CI в карточке, когда PR ещё нет (TASK-138.3).
+    const branch = typeof task.data.branch === 'string' && task.data.branch.trim() ? { branch: task.data.branch.trim() } : {};
 
     let backend: Backend;
     try {
       backend = await this.resolveBackend(projectPath);
     } catch (err) {
-      return { ok: false, prs: [], unresolved: urls, error: errorText(err) };
+      return { ...branch, ok: false, prs: [], unresolved: urls, error: errorText(err) };
     }
     if (backend.kind === 'none' || !backend.remote) {
-      return { ok: !urls.length, prs: [], unresolved: urls, ...(urls.length ? { error: this.noBackendError(backend).message } : {}) };
+      return { ...branch, ok: !urls.length, prs: [], unresolved: urls, ...(urls.length ? { error: this.noBackendError(backend).message } : {}) };
     }
 
     const repoPath = backend.kind === 'connection' ? backend.repo.path : backend.remote.path;
@@ -639,9 +645,9 @@ export class PRService {
             : (byNumber.get(number) ?? (await this.viewViaGh(projectPath, number)));
         prs.push(pr);
       }
-      return { ok: true, prs, unresolved };
+      return { ...branch, ok: true, prs, unresolved };
     } catch (err) {
-      return { ok: false, prs: [], unresolved: [...urls], error: errorText(err) };
+      return { ...branch, ok: false, prs: [], unresolved: [...urls], error: errorText(err) };
     }
   }
 
@@ -678,6 +684,50 @@ export class PRService {
       projectPath
     );
     return parseGhPrList(raw);
+  }
+
+  /**
+   * CI хостинга репозитория (TASK-138.3): GitHub Actions и GitLab CI по тому же пути, что PR, — подключение или
+   * `gh api`. У Gitea и Bitbucket своего адаптера CI нет — `null`.
+   */
+  async ciAccess(projectPath: string): Promise<CiAccess | null> {
+    const backend = await this.resolveBackend(projectPath);
+    if (backend.kind === 'connection') {
+      const adapter = backend.adapter.id === 'github' ? githubActionsAdapter : backend.adapter.id === 'gitlab' ? gitlabCiAdapter : null;
+      if (!adapter) return null;
+      return {
+        adapter,
+        target: backend.repo,
+        http: { request: backend.http, ...(this.deps.download ? { download: this.deps.download } : {}) },
+        via: backend.connection.label
+      };
+    }
+    if (backend.kind === 'cli') {
+      const hostname = backend.remote.hostname;
+      return {
+        adapter: githubActionsAdapter,
+        target: { path: backend.remote.path, webBase: `https://${hostname}`, apiBase: '' },
+        http: { request: this.ghApi(projectPath, hostname) },
+        via: 'gh'
+      };
+    }
+    return null;
+  }
+
+  /** REST GitHub через `gh api`: тот же ответ, что у API, переходы на хранилище логов `gh` выполняет сам. */
+  private ghApi(projectPath: string, hostname: string): PrHttp {
+    return async (target, init = {}) => {
+      const args = ['api', '--hostname', hostname, '--method', init.method ?? 'GET', target.replace(/^\//, '')];
+      const accept = new Headers(init.headers).get('Accept');
+      if (accept) args.push('-H', `Accept: ${accept}`);
+      try {
+        return new Response(await this.runGh(args, projectPath), { status: 200 });
+      } catch (err) {
+        const message = errorText(err);
+        const status = /HTTP (\d{3})/.exec(message);
+        return new Response(JSON.stringify({ message: message.replace(/^gh: /, '') }), { status: status ? Number(status[1]) : 502 });
+      }
+    };
   }
 
   /** Состояние PR, пропавшего из открытых (TASK-138.5): слит ли он. Сеть — только подключение или `gh`. */

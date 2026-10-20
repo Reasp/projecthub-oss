@@ -23,6 +23,7 @@ import { computerUseService, type ComputerCallContext } from './computerUseServi
 import { COMPUTER_TOOL_PREFIX } from './computerToolCatalog.js';
 import { MEMORY_TOOL_PREFIX, type MemoryToolContext } from './memoryTools.js';
 import { isProjectToolName } from './projectAgentTools.js';
+import { isCiToolName } from './ciTools.js';
 import type { ApiToolContext } from './apiToolExecutor.js';
 import { getApiToolExecutor } from './apiToolExecutorDeps.js';
 import { createStudioToolCallbacks } from './studioToolAdapter.js';
@@ -593,9 +594,10 @@ class ClaudeBridgeService extends EventEmitter {
     }
 
     // Задачи и документы проекта (TASK-136.6): запись только в backlog/ зарегистрированного проекта и аудит —
-    // в самих инструментах (projectAgentTools).
+    // в самих инструментах (projectAgentTools). CI (TASK-138.3): перезапуск сам спрашивает человека — без второй карточки.
     const hitlPrefix = `mcp__${CLI_HITL_MCP_SERVER_NAME}__`;
-    if (toolName.startsWith(hitlPrefix) && isProjectToolName(toolName.slice(hitlPrefix.length))) {
+    const hitlTool = toolName.startsWith(hitlPrefix) ? toolName.slice(hitlPrefix.length) : '';
+    if (hitlTool && (isProjectToolName(hitlTool) || isCiToolName(hitlTool))) {
       return allow();
     }
 

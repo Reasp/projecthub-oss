@@ -15,13 +15,15 @@ import {
   Check,
   AlertTriangle,
   KeyRound,
-  GitMerge
+  GitMerge,
+  Workflow
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useConnectionsStore } from '../../store/useConnectionsStore';
 import { CreatePRModal } from './CreatePRModal';
 import { PrReviewPanel } from './PrReviewPanel';
+import { CiRuns } from '../ci/CiRuns';
 import type { PullRequest, PRProviderInfo } from '../../types/electron';
 
 const HOSTING_LABELS: Record<PRProviderInfo['provider'], string> = {
@@ -56,7 +58,7 @@ export const PullRequestView: React.FC = () => {
   const connectionsOpen = useConnectionsStore((s) => s.isOpen);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'diff' | 'review'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'diff' | 'review' | 'ci'>('overview');
   const [importBusy, setImportBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const wasConnectionsOpen = useRef(connectionsOpen);
@@ -467,12 +469,27 @@ export const PullRequestView: React.FC = () => {
                     <ShieldCheck className="w-3.5 h-3.5" />
                     {t.prReview.tab}
                   </button>
+                  {/* Пайплайны ветки PR во всех CI проекта (TASK-138.3) */}
+                  <button
+                    onClick={() => setActiveSubTab('ci')}
+                    data-testid="pr-tab-ci"
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition ${
+                      activeSubTab === 'ci'
+                        ? 'bg-ph-hover text-slate-100'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    }`}
+                  >
+                    <Workflow className="w-3.5 h-3.5" />
+                    {t.ci.tab}
+                  </button>
                 </div>
               </div>
 
               {/* PR Detail Body */}
               <div className="flex-1 overflow-y-auto p-6">
-                {activeSubTab === 'review' && selectedProject ? (
+                {activeSubTab === 'ci' && selectedProject ? (
+                  <CiRuns projectPath={selectedProject.path} branch={selectedPR.sourceBranch} headSha={selectedPR.headSha} />
+                ) : activeSubTab === 'review' && selectedProject ? (
                   <PrReviewPanel
                     projectPath={selectedProject.path}
                     prNumber={selectedPR.number}

@@ -246,6 +246,28 @@ function enc(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
+/** Сколько открытых PR списка получают статус сборок отдельным запросом и сколько запросов идут сразу. */
+export const LIST_CHECKS_LIMIT = 10;
+const LIST_CHECKS_CONCURRENCY = 4;
+
+/**
+ * Статусы сборок для списка PR (TASK-138.3, долг decision-105): в списках Gitea и Bitbucket их нет, нужен запрос
+ * на PR. Только открытые PR и не больше `LIST_CHECKS_LIMIT`; ошибка одного запроса оставляет статус пустым.
+ */
+async function fillListChecks(prs: PullRequest[], fetchChecks: (pr: PullRequest) => Promise<PullRequest['checksStatus']>): Promise<void> {
+  const queue = prs.filter((p) => p.state === 'OPEN').slice(0, LIST_CHECKS_LIMIT);
+  const worker = async () => {
+    for (let pr = queue.shift(); pr; pr = queue.shift()) {
+      try {
+        pr.checksStatus = await fetchChecks(pr);
+      } catch {
+        // статус сборок — дополнение к списку
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: LIST_CHECKS_CONCURRENCY }, worker));
+}
+
 function ownerName(repo: RepoRef): { owner: string; name: string } {
   const at = repo.path.indexOf('/');
   return { owner: repo.path.slice(0, at), name: repo.path.slice(at + 1) };
@@ -450,7 +472,21 @@ export const gitlabPrAdapter: PrHostingAdapter = {
   serviceId: 'gitlab',
   async list(http, repo, state) {
     const json = await getJson(http, `${gitlabProject(repo)}/merge_requests?state=${GL_STATES[state]}&order_by=updated_at&sort=desc&per_page=${PR_LIST_LIMIT}`);
-    return arr(json).map(parseGitlabMr).filter((p): p is PullRequest => Boolean(p));
+    const prs = arr(json).map(parseGitlabMr).filter((p): p is PullRequest => Boolean(p));
+    // В списке MR нет `head_pipeline`: последние пайплайны проекта одним запросом, статус — по коммиту головы.
+    if (prs.some((p) => p.state === 'OPEN' && p.headSha)) {
+      try {
+        const latest = new Map<string, string>();
+        for (const item of arr(await getJson(http, `${gitlabProject(repo)}/pipelines?per_page=100&order_by=updated_at&sort=desc`))) {
+          const p = obj(item);
+          if (text(p.sha) && !latest.has(text(p.sha))) latest.set(text(p.sha), text(p.status));
+        }
+        for (const pr of prs) if (pr.state === 'OPEN' && pr.headSha && latest.has(pr.headSha)) pr.checksStatus = gitlabChecks(latest.get(pr.headSha)!);
+      } catch {
+        // нет прав на пайплайны (Reporter без CI) — список без статусов
+      }
+    }
+    return prs;
   },
   async get(http, repo, number) {
     const pr = parseGitlabMr(await getJson(http, `${gitlabProject(repo)}/merge_requests/${number}`));
@@ -551,6 +587,11 @@ export const giteaPrAdapter: PrHostingAdapter = {
     // У Gitea нет фильтра «слит»: слитые и закрытые приходят вместе как `closed`.
     if (state === 'merged') return prs.filter((p) => p.state === 'MERGED');
     if (state === 'closed') return prs.filter((p) => p.state === 'CLOSED');
+    await fillListChecks(prs, async (pr) => {
+      if (!pr.headSha) return pr.checksStatus;
+      const status = obj(await getJson(http, `/repos/${enc(repo.path)}/commits/${encodeURIComponent(pr.headSha)}/status`));
+      return arr(status.statuses).length ? giteaChecks(text(status.state)) : 'NONE';
+    });
     return prs;
   },
   async get(http, repo, number) {
@@ -647,7 +688,12 @@ export const bitbucketPrAdapter: PrHostingAdapter = {
   async list(http, repo, state) {
     const states = BB_STATES[state].map((s) => `state=${s}`).join('&');
     const json = obj(await getJson(http, `${bitbucketRepo(repo)}/pullrequests?${states}&sort=-updated_on&pagelen=${PR_LIST_LIMIT}`));
-    return arr(json.values).map(parseBitbucketPr).filter((p): p is PullRequest => Boolean(p));
+    const prs = arr(json.values).map(parseBitbucketPr).filter((p): p is PullRequest => Boolean(p));
+    await fillListChecks(prs, async (pr) => {
+      const statuses = obj(await getJson(http, `${bitbucketRepo(repo)}/pullrequests/${pr.number}/statuses?pagelen=50`));
+      return bitbucketChecks(arr(statuses.values).map((s) => text(obj(s).state)));
+    });
+    return prs;
   },
   async get(http, repo, number) {
     const pr = parseBitbucketPr(await getJson(http, `${bitbucketRepo(repo)}/pullrequests/${number}`));

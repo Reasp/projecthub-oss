@@ -844,10 +844,73 @@ export interface PRProviderInfo {
   mergeStatus?: string;
 }
 
+// ─────────────────── CI/CD (TASK-138.3) — зеркало electron/services/ciProviders.ts и ciService.ts ───────────────────
+
+export type CiProviderId = 'github-actions' | 'gitlab-ci' | 'jenkins';
+export type CiStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled' | 'skipped' | 'manual';
+
+export interface CiRun {
+  id: string;
+  provider: CiProviderId;
+  name: string;
+  number?: number;
+  status: CiStatus;
+  branch: string;
+  sha: string;
+  url: string;
+  event?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CiJob {
+  id: string;
+  name: string;
+  stage?: string;
+  status: CiStatus;
+  url: string;
+  startedAt?: string;
+  finishedAt?: string;
+  failedStep?: string;
+}
+
+export interface CiRunDetail extends CiRun {
+  jobs: CiJob[];
+}
+
+export interface CiProviderInfo {
+  id: CiProviderId;
+  label: string;
+  via: string;
+}
+
+export interface CiRunsResult {
+  ok: boolean;
+  runs: CiRun[];
+  providers: CiProviderInfo[];
+  summary: CiStatus | null;
+  errors: string[];
+}
+
+export interface CiJobLog {
+  job: CiJob;
+  text: string;
+  truncated: boolean;
+  totalLines: number;
+}
+
+export interface JenkinsSetting {
+  connectionId: string;
+  /** Путь задания: `folder/app`, у multibranch — `app/{branch}`. */
+  job: string;
+}
+
 /** PR, связанный с задачей (TASK-138.2): по ссылке в `references` или по номеру задачи в ветке и заголовке. */
 export interface TaskPullRequestsResult {
   ok: boolean;
   prs: PullRequest[];
+  /** Ветка задачи из поля `branch` — для статуса CI без PR (TASK-138.3). */
+  branch?: string;
   /** Ссылки на PR из задачи, статус которых получить не удалось (нет подключения, сеть). */
   unresolved: string[];
   error?: string;
@@ -1167,6 +1230,17 @@ export interface IElectronAPI {
     describeTarget: (projectPath: string) => Promise<{ localStatuses: string[]; remoteStatuses: RemoteStatus[]; suggested: Record<string, string> }>;
     preview: (projectPath: string) => Promise<TrackerRunSummary>;
     run: (projectPath: string) => Promise<TrackerRunSummary>;
+  };
+  /** CI/CD проекта (TASK-138.3, decision-109): GitHub Actions, GitLab CI, Jenkins. */
+  ci: {
+    providers: (projectPath: string) => Promise<CiProviderInfo[]>;
+    runs: (projectPath: string, filter?: { branch?: string; sha?: string; limit?: number }) => Promise<CiRunsResult>;
+    run: (projectPath: string, provider: CiProviderId, runId: string) => Promise<CiRunDetail>;
+    logs: (projectPath: string, provider: CiProviderId, runId: string, jobId?: string) => Promise<CiJobLog[]>;
+    /** Перезапуск упавших заданий или запуск ручного задания (`jobId`); человек подтвердил в окне. */
+    retry: (projectPath: string, provider: CiProviderId, runId: string, jobId?: string) => Promise<{ ok: true }>;
+    getJenkins: (projectPath: string) => Promise<JenkinsSetting | null>;
+    setJenkins: (projectPath: string, value: JenkinsSetting | null) => Promise<JenkinsSetting | null>;
   };
   /** Подключения к внешним сервисам (TASK-138.1, decision-102): без секретов. */
   connections: {

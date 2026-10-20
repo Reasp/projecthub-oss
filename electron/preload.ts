@@ -375,6 +375,16 @@ const api: IElectronAPI = {
     preview: (projectPath: string) => ipcRenderer.invoke('trackerSync:preview', projectPath),
     run: (projectPath: string) => ipcRenderer.invoke('trackerSync:run', projectPath)
   },
+  // CI/CD (TASK-138.3, decision-109)
+  ci: {
+    providers: (projectPath: string) => ipcRenderer.invoke('ci:providers', projectPath),
+    runs: (projectPath: string, filter?: unknown) => ipcRenderer.invoke('ci:runs', projectPath, filter),
+    run: (projectPath: string, provider: string, runId: string) => ipcRenderer.invoke('ci:run', projectPath, provider, runId),
+    logs: (projectPath: string, provider: string, runId: string, jobId?: string) => ipcRenderer.invoke('ci:logs', projectPath, provider, runId, jobId),
+    retry: (projectPath: string, provider: string, runId: string, jobId?: string) => ipcRenderer.invoke('ci:retry', projectPath, provider, runId, jobId),
+    getJenkins: (projectPath: string) => ipcRenderer.invoke('ci:getJenkins', projectPath),
+    setJenkins: (projectPath: string, value: unknown) => ipcRenderer.invoke('ci:setJenkins', projectPath, value)
+  },
   // Подключения к внешним сервисам (TASK-138.1, decision-102)
   connections: {
     services: () => ipcRenderer.invoke('connections:services'),

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { GitPullRequest, Check, XCircle, CheckCircle2, Clock, ExternalLink, RefreshCw } from '../common/icons';
 import { useTranslation } from '../../i18n/useTranslation';
-import type { PullRequest, TaskPullRequestsResult } from '../../types/electron';
+import { CiStatusIcon } from '../ci/CiRuns';
+import type { CiRunsResult, PullRequest, TaskPullRequestsResult } from '../../types/electron';
 
 interface Props {
   projectPath: string;
@@ -38,7 +39,12 @@ export const TaskPullRequests: React.FC<Props> = ({ projectPath, taskId }) => {
     };
   }, [projectPath, taskId, reloadKey]);
 
-  if (!result || (!result.prs.length && !result.unresolved.length && !result.error)) return null;
+  // CI (TASK-138.3): ветки открытых PR и ветка задачи из поля `branch`, без повторов.
+  const ciBranches = result
+    ? [...new Set([...result.prs.filter((p) => p.state === 'OPEN' && p.sourceBranch).map((p) => p.sourceBranch), ...(result.branch ? [result.branch] : [])])].slice(0, 3)
+    : [];
+
+  if (!result || (!result.prs.length && !result.unresolved.length && !result.error && !ciBranches.length)) return null;
 
   const stateBadge = (pr: PullRequest) => {
     const cls =
@@ -124,6 +130,50 @@ export const TaskPullRequests: React.FC<Props> = ({ projectPath, taskId }) => {
         </button>
       ))}
       {result.error && <span className="px-2 text-amber-300/80">{t.prs.taskPrsUnresolved.replace('{error}', result.error)}</span>}
+      {ciBranches.map((branch) => (
+        <TaskCiLine key={`${branch}-${reloadKey}`} projectPath={projectPath} branch={branch} />
+      ))}
     </div>
+  );
+};
+
+/** Последний пайплайн ветки задачи: сводный статус и ссылка (TASK-138.3). Без CI проекта строки нет. */
+const TaskCiLine: React.FC<{ projectPath: string; branch: string }> = ({ projectPath, branch }) => {
+  const { t } = useTranslation();
+  const [res, setRes] = useState<CiRunsResult | null>(null);
+
+  useEffect(() => {
+    if (!window.api?.ci) return;
+    let cancelled = false;
+    window.api.ci
+      .runs(projectPath, { branch, limit: 5 })
+      .then((r) => {
+        if (!cancelled) setRes(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [projectPath, branch]);
+
+  const latest = res?.runs[0];
+  if (!res || !latest || !res.summary) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => latest.url && void window.api.openExternal(latest.url)}
+      title={latest.url}
+      data-testid="task-ci-line"
+      className="flex items-center gap-2 text-left px-2 py-1 rounded-md hover:bg-slate-800/50 min-w-0"
+    >
+      <CiStatusIcon status={res.summary} label={t.ci.status[res.summary]} className="w-3 h-3" />
+      <span className="text-slate-400 shrink-0">{t.ci.taskTitle}</span>
+      <span className="font-mono text-indigo-300 truncate">{branch}</span>
+      <span className="text-slate-300 truncate min-w-0 flex-1">
+        {latest.name}
+        {latest.number ? ` #${latest.number}` : ''} · {t.ci.status[res.summary]}
+      </span>
+      <ExternalLink className="w-3 h-3 text-slate-500 shrink-0" />
+    </button>
   );
 };
