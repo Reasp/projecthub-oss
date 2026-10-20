@@ -62,7 +62,8 @@ interface TrackedMessage {
 
 class TelegramService {
   private getCredentials: (() => TelegramCredentials | null) | null = null;
-  private readonly messagesByRequest = new Map<string, TrackedMessage>();
+  /** Ключ (запрос HITL, билет) → сообщения с кнопками: личный чат и чаты команды из подписок (TASK-138.4). */
+  private readonly messagesByRequest = new Map<string, TrackedMessage[]>();
   private botProcessId: string | null = null;
   private startingBot: Promise<void> | null = null;
 
@@ -80,6 +81,11 @@ class TelegramService {
       logger.warn(`[Telegram] Credentials provider failed: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
+  }
+
+  /** Токен бота задан: можно слать в чаты команды из подписок, даже без личного чата (TASK-138.4). */
+  public get isBotTokenConfigured(): boolean {
+    return Boolean(this.credentials()?.botToken);
   }
 
   public get isConfigured(): boolean {
@@ -108,14 +114,18 @@ class TelegramService {
     }
   }
 
-  /** Отправка уведомления; для HITL — с кнопками решения. */
-  public async sendNotification(notification: AppNotification): Promise<boolean> {
+  /**
+   * Отправка уведомления; для HITL — с кнопками решения. `target` — чат команды из подписки (TASK-138.4) и текст для
+   * него (без команды HITL, если подписка не просит подробностей); по умолчанию — личный чат владельца.
+   */
+  public async sendNotification(notification: AppNotification, target?: { chatId: string; text: string }): Promise<boolean> {
     const creds = this.credentials();
-    if (!creds?.chatId) return false;
+    const chatId = target?.chatId || creds?.chatId;
+    if (!creds || !chatId) return false;
 
-    const text = formatTelegramMessage(notification);
+    const text = target?.text ?? formatTelegramMessage(notification);
     const body: Record<string, unknown> = {
-      chat_id: creds.chatId,
+      chat_id: chatId,
       text,
       parse_mode: 'Markdown'
     };
@@ -145,11 +155,9 @@ class TelegramService {
     if (!result) return false;
 
     if (trackKey && typeof result.message_id === 'number') {
-      this.messagesByRequest.set(trackKey, {
-        chatId: creds.chatId,
-        messageId: result.message_id,
-        text
-      });
+      const tracked = this.messagesByRequest.get(trackKey) ?? [];
+      tracked.push({ chatId, messageId: result.message_id, text });
+      this.messagesByRequest.set(trackKey, tracked);
       this.enforceTrackedLimit();
     }
     return true;
@@ -171,13 +179,15 @@ class TelegramService {
     const tracked = this.messagesByRequest.get(requestId);
     if (!tracked) return;
     this.messagesByRequest.delete(requestId);
-    await this.api('editMessageText', {
-      chat_id: tracked.chatId,
-      message_id: tracked.messageId,
-      text: `${tracked.text}\n\n— ${outcome}`,
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: [] }
-    });
+    for (const message of tracked) {
+      await this.api('editMessageText', {
+        chat_id: message.chatId,
+        message_id: message.messageId,
+        text: `${message.text}\n\n— ${outcome}`,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [] }
+      });
+    }
   }
 
   private enforceTrackedLimit(): void {

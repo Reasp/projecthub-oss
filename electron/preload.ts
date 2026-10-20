@@ -375,6 +375,14 @@ const api: IElectronAPI = {
     preview: (projectPath: string) => ipcRenderer.invoke('trackerSync:preview', projectPath),
     run: (projectPath: string) => ipcRenderer.invoke('trackerSync:run', projectPath)
   },
+  // Рабочие чаты (TASK-138.4, decision-110)
+  chat: {
+    list: () => ipcRenderer.invoke('chat:list'),
+    save: (subscription: unknown) => ipcRenderer.invoke('chat:save', subscription),
+    remove: (id: string) => ipcRenderer.invoke('chat:remove', id),
+    targets: (kind: string, connectionId: string) => ipcRenderer.invoke('chat:targets', kind, connectionId),
+    test: (id: string) => ipcRenderer.invoke('chat:test', id)
+  },
   // CI/CD (TASK-138.3, decision-109)
   ci: {
     providers: (projectPath: string) => ipcRenderer.invoke('ci:providers', projectPath),

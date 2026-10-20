@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { TeamChatsSection } from './TeamChatsSection';
 import { Bell, X, Play, Bot, Power, TriangleAlert, Trash2 } from '../common/icons';
 import { useNotificationStore } from '../../store/useNotificationStore';
 import { useTranslation } from '../../i18n';
@@ -281,6 +282,9 @@ export const NotificationSettingsModal: React.FC = () => {
                   <p className="text-[11px] text-amber-400">{t.notifications.telegramNotConfigured}</p>
                 )}
               </section>
+
+              {/* Чаты команды по подпискам (TASK-138.4) */}
+              <TeamChatsSection kinds={KINDS} />
 
               {/* Журнал доставок */}
               <section>

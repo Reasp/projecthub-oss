@@ -41,6 +41,8 @@ export interface ConnectionServiceDef extends ConnectionServiceInfo {
   /** Тело JSON для проверки аккаунта: запрос идёт POST (GraphQL Linear). Без него — GET. */
   verifyBody?: string;
   parseAccount: (json: unknown) => ConnectionAccount | null;
+  /** Токен отклонён, хотя ответ 200: Slack отвечает `{ ok: false, error: "invalid_auth" }` (TASK-138.4). */
+  rejectedBody?: (json: unknown) => boolean;
   oauth?: OAuthSpec;
   /** Где отозвать доступ вручную. */
   manualRevokeUrl?: (baseUrl: string, method: ConnectionAuthMethod) => string;
@@ -243,6 +245,38 @@ export const CONNECTION_SERVICES: readonly ConnectionServiceDef[] = [
     verifyPath: '/me/api/json',
     parseAccount: (json) => accountFrom(json, ['id'], ['id'], ['fullName']),
     manualRevokeUrl: (base) => `${base}/me/configure`
+  },
+  // Рабочие чаты (TASK-138.4, decision-110): уведомления в каналы команды.
+  {
+    id: 'slack',
+    label: 'Slack',
+    categories: ['chat'],
+    methods: ['token'],
+    defaultBaseUrl: 'https://slack.com',
+    selfHosted: false,
+    scopes: [],
+    clientSecretRequired: {},
+    tokenHelpUrl: 'https://api.slack.com/apps',
+    apiBase: () => 'https://slack.com/api',
+    tokenStyle: 'bearer',
+    verifyPath: '/auth.test',
+    parseAccount: (json) => (obj(json)?.ok === true ? accountFrom(json, ['user_id'], ['user'], ['team']) : null),
+    rejectedBody: (json) => obj(json)?.ok === false && ['invalid_auth', 'not_authed', 'account_inactive', 'token_revoked', 'token_expired'].includes(String(obj(json)?.error)),
+    manualRevokeUrl: () => 'https://api.slack.com/apps'
+  },
+  {
+    id: 'mattermost',
+    label: 'Mattermost',
+    categories: ['chat'],
+    methods: ['token'],
+    selfHosted: true,
+    scopes: [],
+    clientSecretRequired: {},
+    apiBase: (base) => `${base}/api/v4`,
+    tokenStyle: 'bearer',
+    verifyPath: '/users/me',
+    parseAccount: (json) => accountFrom(json, ['id'], ['username'], ['nickname', 'first_name']),
+    manualRevokeUrl: (base) => `${base}/my_account/security`
   }
 ];
 

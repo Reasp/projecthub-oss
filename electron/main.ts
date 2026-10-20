@@ -20,6 +20,7 @@ import { agentFleetService, isActiveAgentStatus, isActiveSwarmStatus } from './s
 import { planService } from './services/planService';
 import { automationEngine } from './services/automationService';
 import { initPrMergeWatch } from './services/prReviewApp';
+import { chatService } from './services/chatServiceInstance';
 import { invalidateInspectCache } from './services/projectScanner';
 import { logger, parseLogLevel } from './services/logger';
 import { getUserDataDir } from './services/appPaths';
@@ -530,7 +531,9 @@ function setupTrayAndNotifications(): void {
   notificationService.configure({
     getWindow: () => win,
     // Доверенные устройства Remote Control получают то же уведомление отдельным событием шины.
-    remoteBroadcast: (notification) => remoteControlService.broadcastEvent('notification', notification)
+    remoteBroadcast: (notification) => remoteControlService.broadcastEvent('notification', notification),
+    // Рабочие чаты команды по подпискам (TASK-138.4, decision-110)
+    teamChats: { deliver: (notification) => chatService.deliver(notification), resolve: (requestId, outcome) => chatService.resolveHitl(requestId, outcome) }
   });
 
   telegramService.configure(() => {

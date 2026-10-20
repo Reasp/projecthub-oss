@@ -42,6 +42,15 @@ export const NOTIFICATION_SETTINGS_VERSION = 1;
 /** Кнопки решения в системном уведомлении поддерживает только macOS. */
 export const OS_ACTIONS_SUPPORTED = process.platform === 'darwin';
 
+/**
+ * Чаты команды (TASK-138.4, decision-110): свои подписки «события × проекты × канал», не зависят от личной матрицы
+ * каналов, общего выключателя и тихих часов владельца.
+ */
+export interface TeamChatDelivery {
+  deliver(notification: AppNotification): Promise<unknown>;
+  resolve(requestId: string, outcome: string): Promise<void>;
+}
+
 export interface NotificationCapabilities {
   osNotifications: boolean;
   osActions: boolean;
@@ -59,14 +68,17 @@ class NotificationService {
   private readonly activeAgentSessions = new Set<string>();
   private getWindow: (() => BrowserWindow | null) | null = null;
   private remoteBroadcast: ((notification: AppNotification) => void) | null = null;
+  private teamChats: TeamChatDelivery | null = null;
   private saveQueue: Promise<void> = Promise.resolve();
 
   public configure(options: {
     getWindow: () => BrowserWindow | null;
     remoteBroadcast?: (notification: AppNotification) => void;
+    teamChats?: TeamChatDelivery;
   }): void {
     this.getWindow = options.getWindow;
     this.remoteBroadcast = options.remoteBroadcast ?? null;
+    this.teamChats = options.teamChats ?? null;
   }
 
   public async init(): Promise<NotificationSettings> {
@@ -143,6 +155,7 @@ class NotificationService {
             ? 'Истёк срок ожидания — отклонено'
             : 'Запрос отменён';
       void telegramService.resolveRequest(requestId, outcome);
+      void this.teamChats?.resolve(requestId, outcome).catch(() => undefined);
       this.refreshTray();
       return;
     }
@@ -150,6 +163,7 @@ class NotificationService {
     const notification = describeBusEvent(event);
     this.refreshTray();
     if (!notification) return;
+    void this.teamChats?.deliver(notification).catch(() => undefined);
 
     const channels = resolveChannels(this.settings, notification);
     void this.deliver(notification, channels);

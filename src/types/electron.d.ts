@@ -844,6 +844,25 @@ export interface PRProviderInfo {
   mergeStatus?: string;
 }
 
+// ─────────────────── Рабочие чаты (TASK-138.4) — зеркало electron/services/chatSubscriptions.ts ───────────────────
+
+export type ChatKind = 'slack' | 'mattermost' | 'telegram';
+
+export interface ChatSubscription {
+  id: string;
+  enabled: boolean;
+  kind: ChatKind;
+  connectionId?: string;
+  /** Id канала Slack или Mattermost, id чата Telegram. */
+  channel: string;
+  channelLabel?: string;
+  kinds: NotificationKind[];
+  /** Пусто — все проекты. */
+  projects: string[];
+  /** Текст события целиком (команда HITL, путь файла). */
+  details: boolean;
+}
+
 // ─────────────────── CI/CD (TASK-138.3) — зеркало electron/services/ciProviders.ts и ciService.ts ───────────────────
 
 export type CiProviderId = 'github-actions' | 'gitlab-ci' | 'jenkins';
@@ -1230,6 +1249,14 @@ export interface IElectronAPI {
     describeTarget: (projectPath: string) => Promise<{ localStatuses: string[]; remoteStatuses: RemoteStatus[]; suggested: Record<string, string> }>;
     preview: (projectPath: string) => Promise<TrackerRunSummary>;
     run: (projectPath: string) => Promise<TrackerRunSummary>;
+  };
+  /** Рабочие чаты: подписки «события × проекты × канал» (TASK-138.4, decision-110). */
+  chat: {
+    list: () => Promise<ChatSubscription[]>;
+    save: (subscription: Omit<ChatSubscription, 'id'> & { id?: string }) => Promise<ChatSubscription>;
+    remove: (id: string) => Promise<boolean>;
+    targets: (kind: ChatKind, connectionId: string) => Promise<Array<{ id: string; name: string }>>;
+    test: (id: string) => Promise<{ ok: boolean; error?: string }>;
   };
   /** CI/CD проекта (TASK-138.3, decision-109): GitHub Actions, GitLab CI, Jenkins. */
   ci: {

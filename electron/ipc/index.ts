@@ -24,6 +24,7 @@ import { registerClaudeAccountsIpc } from './claudeAccountsIpc';
 import { registerConnectionsIpc } from './connectionsIpc';
 import { registerTrackerSyncIpc } from './trackerSyncIpc';
 import { registerCiIpc } from './ciIpc';
+import { registerChatIpc } from './chatIpc';
 
 export type { IpcContext } from './types';
 
@@ -53,4 +54,5 @@ export function registerAllIpc(ctx: IpcContext) {
   registerConnectionsIpc(ctx);
   registerTrackerSyncIpc();
   registerCiIpc();
+  registerChatIpc();
 }

@@ -17,6 +17,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { isTelegramUserAllowed } from './telegramAccess.mjs';
 
 const CONFIG_FILE = path.join(process.cwd(), '.projecthub-telegram.json');
 
@@ -69,7 +70,8 @@ let lastUpdateId = 0;
 async function tgApi(method, body = {}) {
   const token = config.botToken;
   if (!token) return null;
-  const url = `https://api.telegram.org/bot${token}/${method}`;
+  // TELEGRAM_API_BASE — только для теста процесса с поддельным Bot API (TASK-138.4).
+  const url = `${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/${method}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -89,12 +91,9 @@ function fetchHub(pathname, init) {
   return fetch(`http://${config.hubHost}:${config.hubPort}${pathname}`, { ...init, headers });
 }
 
+/** Без списка разрешённых — только владелец, чей личный чат в настройках (TASK-138.4): см. telegramAccess.mjs. */
 function isUserAllowed(from) {
-  if (!config.allowedUsers) return true;
-  const allowed = config.allowedUsers.split(',').map((s) => s.trim().toLowerCase().replace(/^@/, ''));
-  if (from.id && allowed.includes(String(from.id))) return true;
-  if (from.username && allowed.includes(from.username.toLowerCase())) return true;
-  return false;
+  return isTelegramUserAllowed(from, config);
 }
 
 async function sendHitlQueue(chatId) {

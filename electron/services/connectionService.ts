@@ -392,6 +392,7 @@ export class ConnectionService {
     } catch {
       // ответ без JSON — аккаунт неизвестен, но токен принят
     }
+    if (service.rejectedBody?.(json)) return { rejected: true, account: null };
     return { rejected: false, account: service.parseAccount(json) };
   }
 
@@ -843,6 +844,10 @@ export class ConnectionService {
           json = await res.json();
         } catch {
           // без JSON — аккаунт прежний
+        }
+        if (service.rejectedBody?.(json)) {
+          await this.markNeedsReauth(id, 'rejected');
+          return this.viewOf(id);
         }
         await this.update(id, {
           status: 'connected',
