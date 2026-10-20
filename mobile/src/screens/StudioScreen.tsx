@@ -34,7 +34,7 @@ import { copyText } from '../platform/clipboard';
 import { capabilitiesFor } from '../protocol/models';
 
 /**
- * AI Studio на ПК с телефона (TASK-140.10, decision-83): те же сессии, что во вкладках ProjectHub. Можно
+ * Agents Studio на ПК с телефона (TASK-140.10, decision-83): те же сессии, что во вкладках ProjectHub. Можно
  * открыть вкладку ПК или старую сессию из истории, начать новую с выбором модели и режима, остановить ответ.
  */
 export function StudioScreen() {
@@ -157,7 +157,7 @@ export function StudioScreen() {
           <EmptyState
             icon={<SparkleIcon size={40} />}
             title="Промпт агенту на ПК"
-            hint="Сессия появится во вкладках AI Studio на компьютере. Старые сессии и вкладки ПК — по кнопке слева вверху."
+            hint="Сессия появится во вкладках Agents Studio на компьютере. Старые сессии и вкладки ПК — по кнопке слева вверху."
           />
         ) : (
           <>
@@ -384,7 +384,7 @@ function UsageSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
-/** Быстрые команды и быстрые промпты AI Studio (те же, что кнопки на ПК). */
+/** Быстрые команды и быстрые промпты Agents Studio (те же, что кнопки на ПК). */
 function CommandsSheet({
   open,
   onClose,
@@ -473,7 +473,7 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
     <Sheet
       open={open}
       onClose={onClose}
-      title="Сессии AI Studio"
+      title="Сессии Agents Studio"
       footer={
         canWrite ? (
           <Button
@@ -498,7 +498,7 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
           <Spinner />
         </div>
       ) : groups.open.length + groups.history.length === 0 ? (
-        <div className="py-6 text-center text-[13px] text-slate-400">{query ? 'Ничего не найдено' : 'В этом проекте ещё нет сессий AI Studio.'}</div>
+        <div className="py-6 text-center text-[13px] text-slate-400">{query ? 'Ничего не найдено' : 'В этом проекте ещё нет сессий Agents Studio.'}</div>
       ) : (
         <>
           {groups.open.length > 0 && (
@@ -592,7 +592,7 @@ function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
               )}
             </div>
           ))}
-          <div className="mt-3 text-[12px] text-slate-500">Модель действует на эту сессию; выбор AI Studio на ПК не меняется. Сейчас на ПК: {options.currentLabel}.</div>
+          <div className="mt-3 text-[12px] text-slate-500">Модель действует на эту сессию; выбор Agents Studio на ПК не меняется. Сейчас на ПК: {options.currentLabel}.</div>
         </>
       )}
     </Sheet>

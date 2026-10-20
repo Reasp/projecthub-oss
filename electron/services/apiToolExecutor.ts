@@ -12,10 +12,10 @@ import type {
 } from './hitlTypes.js';
 
 /**
- * Исполнитель инструментов API-агента Swarm и AI Studio (TASK-101, TASK-103, decision-46, decision-47):
+ * Исполнитель инструментов API-агента Swarm и Agents Studio (TASK-101, TASK-103, decision-46, decision-47):
  * политика (`apiToolPolicy`), единая очередь HITL и аудит (decision-10), исполнение в рабочем каталоге
  * агента. Зависимости внедряются — сервис тестируется без Electron, сети и настоящего HITL. Боевые
- * зависимости собирает `createApiToolExecutorDeps` в `apiToolExecutorDeps.ts`. Чат AI Studio получает
+ * зависимости собирает `createApiToolExecutorDeps` в `apiToolExecutorDeps.ts`. Чат Agents Studio получает
  * события вызова через колбэки контекста (`studioToolAdapter.ts`).
  */
 
@@ -61,12 +61,12 @@ export interface ApiToolUpdate {
 }
 
 export interface ApiToolContext {
-  /** `swarm-<agentId>` или id сессии AI Studio. */
+  /** `swarm-<agentId>` или id сессии Agents Studio. */
   sessionId: string;
   /** Рабочий каталог (worktree слота или сессии) — корень файлов и команд. */
   workDir: string;
   /**
-   * `projectPath` запросов HITL и аудита. По умолчанию `workDir` (Swarm, decision-46 п. 2). AI Studio
+   * `projectPath` запросов HITL и аудита. По умолчанию `workDir` (Swarm, decision-46 п. 2). Agents Studio
    * передаёт корень проекта: по нему ключуются статус проекта и карточки окна (decision-47 п. 1).
    */
   hitlProjectPath?: string;
@@ -83,7 +83,7 @@ export interface ApiToolContext {
   taskAllowsComputerUse?: boolean;
   /** `autoApprove` прав роли — сужает allowlist приложений (decision-27 п. 6 реализации). */
   roleAutoApprove?: boolean;
-  /** Разрешить `run_command` с `background: true` (AI Studio, decision-47 п. 3). */
+  /** Разрешить `run_command` с `background: true` (Agents Studio, decision-47 п. 3). */
   allowBackground?: boolean;
   /** Задача сессии — источник фактов памяти проекта (TASK-76). */
   taskId?: string;
@@ -91,11 +91,11 @@ export interface ApiToolContext {
   isActive(): boolean;
   /** Инструмент прошёл политику и начинает исполняться — для запрета fallback модели (decision-44 п. 6). */
   onExecute?(call: AIToolCall, plan: ApiToolPlan): void;
-  /** Карточка ушла в очередь — для лога слота и чата AI Studio. `call` есть у карточек исполнителя, у прокси `computer_*` его нет. */
+  /** Карточка ушла в очередь — для лога слота и чата Agents Studio. `call` есть у карточек исполнителя, у прокси `computer_*` его нет. */
   onApprovalRequest?(request: HitlRequest, call?: AIToolCall): void;
   /** Ответ на карточку получен или ожидание отменено. */
   onApprovalSettled?(request: HitlRequest): void;
-  /** Статус вызова: запуск, вывод команды, итог (чат AI Studio, decision-47 п. 1). */
+  /** Статус вызова: запуск, вывод команды, итог (чат Agents Studio, decision-47 п. 1). */
   onToolUpdate?(call: AIToolCall, update: ApiToolUpdate): void;
 }
 

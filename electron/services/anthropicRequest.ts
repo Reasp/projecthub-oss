@@ -59,7 +59,7 @@ export function isUnsetModelId(model: string | undefined | null): boolean {
 export function resolveAnthropicModelId(model: string | undefined | null): string {
   if (isUnsetModelId(model)) {
     throw new Error(
-      'Модель не выбрана: укажите идентификатор модели Anthropic в настройках AI Studio или в слоте агента '
+      'Модель не выбрана: укажите идентификатор модели Anthropic в настройках Agents Studio или в слоте агента '
       + '(значение «default» понимает только Claude CLI).'
     );
   }

@@ -22,7 +22,7 @@ const IMPORT_VISIBLE_LIMIT = 150;
 const inputClass =
   'w-full bg-ph-panel border border-slate-800 rounded-md px-2 py-1 text-[11px] text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500';
 
-/** Enter в полях редактора не должен отправлять форму настроек AI Studio. */
+/** Enter в полях редактора не должен отправлять форму настроек Agents Studio. */
 function stopEnter(e: React.KeyboardEvent) {
   if (e.key === 'Enter') e.preventDefault();
 }
@@ -64,7 +64,7 @@ const PriceInputs: React.FC<PriceInputsProps> = ({ draft, onChange }) => {
 /**
  * Редактор таблицы цен агентов (TASK-70.4, decision-42): встроенные цены и переопределения
  * `agent-pricing.json` отдельно, сброс к встроенной, свои модели, импорт из OpenRouter по кнопке.
- * Сохраняется отдельно от настроек AI Studio и применяется без перезапуска.
+ * Сохраняется отдельно от настроек Agents Studio и применяется без перезапуска.
  */
 export const PricingEditorSection: React.FC = () => {
   const { t } = useTranslation();

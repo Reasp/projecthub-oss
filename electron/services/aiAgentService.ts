@@ -177,7 +177,7 @@ export interface StreamChatComputerTool {
 
 /**
  * Граница tool-loop для трассы агента (TASK-72, decision-45 п. 3): начало запроса к модели (шаг) и
- * исполненный инструмент с длительностью. Отдельный колбэк, а не чанк: в AI Studio и Remote Control
+ * исполненный инструмент с длительностью. Отдельный колбэк, а не чанк: в Agents Studio и Remote Control
  * чанки уходят как есть.
  */
 export type StreamToolBoundary =
@@ -511,7 +511,7 @@ class AIAgentService {
     const config = req.config ?? (await this.getConfig());
     const model = config.model?.trim();
     if (!model || isUnsetModelId(model)) {
-      throw providerConfigError('Модель не выбрана в настройках AI Studio.', 'no_model');
+      throw providerConfigError('Модель не выбрана в настройках Agents Studio.', 'no_model');
     }
 
     const timeoutMs = req.timeoutMs ?? DEFAULT_COMPLETE_TIMEOUT_MS;
@@ -887,7 +887,7 @@ class AIAgentService {
     const model = resolveAnthropicModelId(req.config.model);
     const apiKey = req.config.apiKey?.trim();
     if (!apiKey) {
-      throw providerConfigError('API ключ Anthropic не указан. Пожалуйста, откройте настройки AI Studio и укажите ключ.', 'no_key', {
+      throw providerConfigError('API ключ Anthropic не указан. Пожалуйста, откройте настройки Agents Studio и укажите ключ.', 'no_key', {
         provider: 'Anthropic',
         model: req.config.model
       });

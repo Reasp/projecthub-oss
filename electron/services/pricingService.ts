@@ -21,7 +21,7 @@ export interface AgentPricingState {
 
 /**
  * Таблица цен агентов (TASK-70.4, decision-42): встроенная + переопределения из
- * `<userData>/agent-pricing.json`. Один экземпляр на процесс для Swarm, AI Studio и Claude CLI,
+ * `<userData>/agent-pricing.json`. Один экземпляр на процесс для Swarm, Agents Studio и Claude CLI,
  * чтобы стоимость везде считалась одинаково. После сохранения из UI кэш обновляется сразу,
  * перезапуск не нужен.
  */

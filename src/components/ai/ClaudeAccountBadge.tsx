@@ -62,7 +62,7 @@ export const ClaudeAccountBadge: React.FC<ClaudeAccountBadgeProps> = ({ projectP
   const select = async (accountId: string) => {
     setOpen(false);
     await setProjectAccount(projectPath, accountId === 'default' ? null : accountId);
-    // AI Studio показывает статус аккаунта проекта — перечитать под новым аккаунтом.
+    // Agents Studio показывает статус аккаунта проекта — перечитать под новым аккаунтом.
     void useAIStudioStore.getState().fetchClaudeAuth(projectPath);
   };
 

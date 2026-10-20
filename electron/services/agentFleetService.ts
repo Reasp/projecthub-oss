@@ -895,7 +895,7 @@ export class AgentFleetService extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   /**
-   * Таблица цен: встроенная + переопределения из `<userData>/agent-pricing.json`. Общая с AI Studio
+   * Таблица цен: встроенная + переопределения из `<userData>/agent-pricing.json`. Общая с Agents Studio
    * (`pricingService`, decision-42): сохранение в редакторе цен применяется без перезапуска.
    */
   public async getPriceTable(): Promise<PriceTable> {
@@ -975,7 +975,7 @@ export class AgentFleetService extends EventEmitter {
     });
     const previous = agentState.modelRouting;
     if (chain.length === 0) {
-      const note = `тир «${tier}» для движка ${engine} не настроен — используется ${engine === 'api' ? 'модель AI Studio' : 'модель CLI по умолчанию'}`;
+      const note = `тир «${tier}» для движка ${engine} не настроен — используется ${engine === 'api' ? 'модель Agents Studio' : 'модель CLI по умолчанию'}`;
       agentState.modelRouting = { requestedTier: tier, source: 'default', engine, chainLength: 0, maxSwitches: settings.maxSwitches, switches: previous?.switches ?? [], note };
       this.log(session, agentState, `[Swarm] ℹ️ Тиры моделей: ${note}.`);
       return { chain, settings };
@@ -1593,7 +1593,7 @@ export class AgentFleetService extends EventEmitter {
       roleSlug: role.slug,
       budgetUsd: role.budgetUsd,
       ...(permissions ? { permissions } : {}),
-      // Без провайдера и профиля роль наследует настройки AI Studio, а не `anthropic` (decision-40).
+      // Без провайдера и профиля роль наследует настройки Agents Studio, а не `anthropic` (decision-40).
       ...(roleProvider ? { providerConfig: roleProvider } : {}),
       // Тир роли (decision-44): модель из таблицы тиров для движка слота; явный `model` роли важнее.
       ...(role.modelTier ? { modelTier: role.modelTier } : {})
@@ -2256,7 +2256,7 @@ export class AgentFleetService extends EventEmitter {
 
   /**
    * Готовит HITL для Claude CLI агента Swarm/Handoff (TASK-57, decision-10): тот же
-   * `--permission-prompt-tool` и встроенный MCP-сервер, что и в AI Studio; глобальные правила
+   * `--permission-prompt-tool` и встроенный MCP-сервер, что и в Agents Studio; глобальные правила
    * auto-approve сужаются правами роли слота. Если сервер поднять не удалось:
    * при включённом (и не суженном ролью) auto-approve — залогированный fallback
    * `--dangerously-skip-permissions`, иначе агент не запускается.
@@ -2328,7 +2328,7 @@ export class AgentFleetService extends EventEmitter {
     }
     return {
       error: 'Не удалось запустить встроенный MCP-сервер ProjectHub для подтверждений действий агента. '
-        + 'Включите сервер в настройках MCP (или освободите его порт) либо включите авто-одобрение в настройках AI Studio.'
+        + 'Включите сервер в настройках MCP (или освободите его порт) либо включите авто-одобрение в настройках Agents Studio.'
     };
   }
 
@@ -2370,8 +2370,8 @@ export class AgentFleetService extends EventEmitter {
     continueSession = false,
     providerOverride?: AIProviderConfig
   ): Promise<void> {
-    // Без настроек слота — настройки AI Studio пользователя, а не модель вендора (decision-26 п. 0).
-    // Профиль слота разрешается по id или имени, ключ прежнего провайдера — только из AI Studio (decision-40).
+    // Без настроек слота — настройки Agents Studio пользователя, а не модель вендора (decision-26 п. 0).
+    // Профиль слота разрешается по id или имени, ключ прежнего провайдера — только из Agents Studio (decision-40).
     const globalConfig = providerOverride ?? (await aiAgentService.getConfig());
     const profiles = await llmProfileService.listProfiles();
     const { config, info } = resolveSlotProviderConfig(
@@ -2394,7 +2394,7 @@ export class AgentFleetService extends EventEmitter {
       [role?.systemPrompt, agentState.config.systemPromptAddon, session.doneLoop?.instructions].filter(Boolean).join('\n\n') || undefined;
     const allowedToolNames = role?.tools && role.tools.length > 0 ? apiToolNamesForCategories(role.tools) : undefined;
 
-    // Исполнитель инструментов с HITL (TASK-101, decision-46): правила AI Studio, суженные правами слота,
+    // Исполнитель инструментов с HITL (TASK-101, decision-46): правила Agents Studio, суженные правами слота,
     // корень файлов и команд — worktree слота, запросы и аудит — с источником, агентом и ролью.
     const hitlSessionId = this.hitlSessionId(agentState);
     const rulesConfig = applyRolePermissions(globalConfig, agentState.config.permissions);
@@ -2590,7 +2590,7 @@ export class AgentFleetService extends EventEmitter {
     continueSession = false
   ): Promise<void> {
     // Аккаунт Claude Code (decision-87): слот → роль → проект → по умолчанию. Раньше рой запускал CLI без
-    // CLAUDE_CONFIG_DIR и тратил квоту обычного ~/.claude, а не аккаунта ProjectHub, как AI Studio.
+    // CLAUDE_CONFIG_DIR и тратил квоту обычного ~/.claude, а не аккаунта ProjectHub, как Agents Studio.
     const accountResolution = await claudeAccountService.resolve({
       projectPath: session.projectPath,
       slotAccountId: agentState.config.claudeAccountId,
@@ -2896,9 +2896,9 @@ export class AgentFleetService extends EventEmitter {
   }
 
   /**
-   * Запасной API-путь для CLI-движков (codex/gemini): настройки AI Studio пользователя, а не модель
+   * Запасной API-путь для CLI-движков (codex/gemini): настройки Agents Studio пользователя, а не модель
    * вендора (decision-26 п. 0, decision-40). Модель слота здесь не используется — это id модели CLI.
-   * Если AI Studio не настроен для API-запросов, агент падает с понятной причиной.
+   * Если Agents Studio не настроен для API-запросов, агент падает с понятной причиной.
    */
   private async runCliApiFallback(
     session: SwarmSession,
@@ -2911,9 +2911,9 @@ export class AgentFleetService extends EventEmitter {
     const globalConfig = await aiAgentService.getConfig();
     const problem = apiConfigProblem(globalConfig);
     if (problem) {
-      throw providerConfigError(`${reason}. Запасной API-путь недоступен: ${problem}. Установите CLI или настройте провайдера в AI Studio.`);
+      throw providerConfigError(`${reason}. Запасной API-путь недоступен: ${problem}. Установите CLI или настройте провайдера в Agents Studio.`);
     }
-    this.log(session, agentState, `[Swarm] ⚠️ ${reason} — используется API fallback с настройками AI Studio.`);
+    this.log(session, agentState, `[Swarm] ⚠️ ${reason} — используется API fallback с настройками Agents Studio.`);
     return this.runApiAgent(session, agentState, targetPath, prompt, role, false, globalConfig);
   }
 

@@ -47,7 +47,7 @@ export interface AgentSlotConfig {
   roleSlug?: string;
   /**
    * Провайдер слота (decision-40): профиль (`provider: 'openai-compatible'` + `profileId`), прежний
-   * провайдер или только модель. Без поля — настройки AI Studio. Разрешается в `slotProvider.ts`.
+   * провайдер или только модель. Без поля — настройки Agents Studio. Разрешается в `slotProvider.ts`.
    */
   providerConfig?: Partial<AIProviderConfig>;
   /**

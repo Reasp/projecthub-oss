@@ -213,7 +213,7 @@ export interface SubprocessResult {
 // CLI запускается без --dangerously-skip-permissions; всё, что потребовало бы
 // подтверждения, Claude Code отправляет во встроенный MCP-сервер ProjectHub
 // (--permission-prompt-tool), а тот — в handleCliPermissionRequest. Решение
-// принимается ДО выполнения инструмента: карточка одобрения в AI Studio или
+// принимается ДО выполнения инструмента: карточка одобрения в Agents Studio или
 // авто-ответ по правилам autoApproveRules.
 // ─────────────────────────────────────────────────────────────
 
@@ -243,12 +243,12 @@ export interface CliPermissionBroker {
 /** Имя MCP-сервера в конфиге CLI; флаг --permission-prompt-tool = mcp__<server>__<tool>. */
 export const CLI_HITL_MCP_SERVER_NAME = 'projecthub-hitl';
 export const CLI_HITL_PERMISSION_TOOL = 'permission_prompt';
-/** Query-параметр SSE-URL, по которому MCP-сервер привязывает подключение CLI к сессии AI Studio. */
+/** Query-параметр SSE-URL, по которому MCP-сервер привязывает подключение CLI к сессии Agents Studio. */
 export const CLI_HITL_QUERY_PARAM = 'phSession';
 /** Таймаут MCP-инструмента для CLI: одобрение может ждать человека часами. */
 export const CLI_MCP_TOOL_TIMEOUT_MS = 24 * 60 * 60_000;
 
-/** Кто запускает Claude CLI: нужно очереди HITL и аудиту, чтобы отличать AI Studio от Swarm. */
+/** Кто запускает Claude CLI: нужно очереди HITL и аудиту, чтобы отличать Agents Studio от Swarm. */
 export interface CliPermissionMeta {
   origin?: HitlOrigin;
   engine?: HitlEngine;
@@ -393,7 +393,7 @@ class ClaudeBridgeService extends EventEmitter {
   private cliPermissionContexts = new Map<string, CliPermissionContext>();
   /** tool_use_id Claude CLI → requestId HITL: чтобы результат инструмента попал в аудит (TASK-57). */
   private cliToolUseRequests = new Map<string, string>();
-  /** Движок активных сессий AI Studio для событий agent:* (TASK-57). */
+  /** Движок активных сессий Agents Studio для событий agent:* (TASK-57). */
   private sessionEngines = new Map<string, HitlEngine>();
   private sessionStartedAt = new Map<string, number>();
 
@@ -942,7 +942,7 @@ class ClaudeBridgeService extends EventEmitter {
     return [
       `Claude CLI не найден или не запускается${reason}.`,
       'Установите Claude Code: `npm install -g @anthropic-ai/claude-code`, затем выполните вход',
-      'через кнопку входа в настройках AI Studio или командой `claude auth login`.',
+      'через кнопку входа в настройках Agents Studio или командой `claude auth login`.',
       'Либо укажите API-ключ Anthropic в настройках провайдера — тогда CLI не требуется.'
     ].join(' ');
   }
@@ -1244,7 +1244,7 @@ class ClaudeBridgeService extends EventEmitter {
       claudeCliSessionId?: string;
       /** Активное рабочее дерево сессии (worktree); по умолчанию — корень проекта (TASK-62). */
       workspaceRoot?: string;
-      /** Задача, привязанная к сессии AI Studio (TASK-64) — по ней contextBuilder собирает контекст. */
+      /** Задача, привязанная к сессии Agents Studio (TASK-64) — по ней contextBuilder собирает контекст. */
       taskId?: string;
       contextParts?: Partial<Record<ContextPartKey, boolean>>;
       /**
@@ -1304,7 +1304,7 @@ class ClaudeBridgeService extends EventEmitter {
   }
 
   /**
-   * Контекст общего исполнителя API-инструментов для сессии AI Studio (TASK-103, decision-47). Файлы и
+   * Контекст общего исполнителя API-инструментов для сессии Agents Studio (TASK-103, decision-47). Файлы и
    * команды — в рабочем дереве сессии (worktree, TASK-62), карточки и статус — по корню проекта.
    * Политика общая с Swarm и Claude CLI (`evaluateToolRequest`); фоновые команды разрешены.
    */
@@ -1466,7 +1466,7 @@ class ClaudeBridgeService extends EventEmitter {
       });
     } else {
       const message = 'Не удалось запустить встроенный MCP-сервер ProjectHub, через который Claude Code запрашивает '
-        + 'подтверждения действий. Включите сервер в настройках MCP (или освободите его порт) либо включите авто-одобрение в настройках AI Studio.';
+        + 'подтверждения действий. Включите сервер в настройках MCP (или освободите его порт) либо включите авто-одобрение в настройках Agents Studio.';
       this.finishSession(sessionId, projectPath, 'error', message);
       onError(message);
       return;
@@ -1620,10 +1620,10 @@ class ClaudeBridgeService extends EventEmitter {
               accumulatedText = event.result;
               onChunk({ text: event.result });
             }
-            // Реальные токены и total_cost_usd ответа — в сообщение AI Studio (TASK-56).
+            // Реальные токены и total_cost_usd ответа — в сообщение Agents Studio (TASK-56).
             const summary = parseClaudeResultEvent(event);
             if (summary && (summary.usage.totalTokens > 0 || typeof summary.usage.costUsd === 'number')) {
-              // Та же таблица цен, что у Swarm и API-пути AI Studio (decision-42).
+              // Та же таблица цен, что у Swarm и API-пути Agents Studio (decision-42).
               resultUsage = priceUsage(summary.usage, summary.usage.model, pricingService.getTable());
               onChunk({ usage: resultUsage });
             }

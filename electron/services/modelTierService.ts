@@ -35,7 +35,7 @@ export interface ModelTierSeedResult extends ModelTierState {
 
 /**
  * Что настроено у пользователя — для первичного заполнения тиров (decision-44 п. 3). Без сети: профили,
- * кэш их каталогов, модель AI Studio и ответ `claude --version`.
+ * кэш их каталогов, модель Agents Studio и ответ `claude --version`.
  */
 export async function collectTierSeedInput(): Promise<TierSeedInput> {
   const [profiles, catalogs, aiStudio, cli] = await Promise.all([

@@ -9,7 +9,7 @@ import { stateFields, withVersion } from './stateFiles.js';
 export const SESSION_FILE_VERSION = 1;
 
 /**
- * Файловое хранилище истории диалогов AI Studio (TASK-35, аудит 3.1).
+ * Файловое хранилище истории диалогов Agents Studio (TASK-35, аудит 3.1).
  *
  * Раньше рендерер держал все сессии всех проектов в `localStorage` через zustand `persist` и
  * пересериализовывал их на каждый стриминговый чанк. Теперь каждая сессия — отдельный файл

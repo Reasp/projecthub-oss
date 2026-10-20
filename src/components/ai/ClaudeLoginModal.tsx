@@ -40,7 +40,7 @@ export const ClaudeLoginModal: React.FC = () => {
       setExited(true);
       void refreshStatus(accountId, true).then((next) => {
         if (!disposed) setStatus(next);
-        // AI Studio и строка состояния показывают статус аккаунта проекта — перечитать.
+        // Agents Studio и строка состояния показывают статус аккаунта проекта — перечитать.
         void useAIStudioStore.getState().fetchClaudeAuth(undefined, true);
       });
     });

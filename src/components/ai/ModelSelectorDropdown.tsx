@@ -97,7 +97,7 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  // Меню рендерится порталом в body с fixed-позицией: шапка AI Studio прокручивается по горизонтали
+  // Меню рендерится порталом в body с fixed-позицией: шапка Agents Studio прокручивается по горизонтали
   // (overflow-x-auto), а такой предок обрезает абсолютное меню по своей высоте (decision-17).
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
 

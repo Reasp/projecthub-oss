@@ -239,7 +239,7 @@ class RemoteControlService {
     // Подписка на стриминг логов фоновых процессов
     this.setupProcessLogStreaming();
 
-    // Поток AI Studio (любой сессии) — сопряжённым телефонам, мимо буфера догона: чанков много, а после
+    // Поток Agents Studio (любой сессии) — сопряжённым телефонам, мимо буфера догона: чанков много, а после
     // разрыва телефон всё равно перечитывает сессию целиком (TASK-140.10, decision-83).
     studioRemoteBridge.onEvent((event, data) => this.broadcastEvent(event, data, { transient: true }));
   }
@@ -2311,7 +2311,7 @@ class RemoteControlService {
         });
       }
 
-      // ── AI Studio с телефона (TASK-140.10, decision-83): те же сессии, что во вкладках на ПК ──
+      // ── Agents Studio с телефона (TASK-140.10, decision-83): те же сессии, что во вкладках на ПК ──
 
       case 'studio_get_options': {
         const config = await aiAgentService.getConfig();
@@ -2393,7 +2393,7 @@ class RemoteControlService {
           ...(parseStudioMode(params.mode) ? { mode: parseStudioMode(params.mode) } : {}),
           deviceName: device.name
         });
-        if (!reply.ok || !reply.sessionId) throw new Error(reply.error || 'AI Studio не приняла промпт');
+        if (!reply.ok || !reply.sessionId) throw new Error(reply.error || 'Agents Studio не приняла промпт');
         return { sessionId: reply.sessionId, accepted: true };
       }
 
@@ -2635,7 +2635,7 @@ class RemoteControlService {
   public broadcastEvent(event: string, data: any, opts: { transient?: boolean } = {}) {
     if (!this.enabled) return;
 
-    // Транзитные события (поток AI Studio) не занимают буфер догона и идут без eventId: иначе один ответ агента
+    // Транзитные события (поток Agents Studio) не занимают буфер догона и идут без eventId: иначе один ответ агента
     // вытеснил бы из буфера запросы HITL, которые телефон должен догнать после разрыва.
     if (opts.transient) {
       const packet: PlainPacket = { type: 'event', event, data };

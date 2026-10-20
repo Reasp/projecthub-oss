@@ -398,7 +398,7 @@ export class AppStore {
     return this.call<RemoteAgentOutput>('get_agent_output', { swarmId, agentId }, true);
   }
 
-  // ── AI Studio (TASK-140.10, decision-83) ──
+  // ── Agents Studio (TASK-140.10, decision-83) ──
 
   private setStudio(patch: Partial<StudioState>): void {
     this.set({ studio: { ...this.state.studio, ...patch } });
@@ -528,7 +528,7 @@ export class AppStore {
 
   // ── события хоста ──
 
-  /** Поток AI Studio любой сессии проекта: с ПК или с телефона (TASK-140.10). */
+  /** Поток Agents Studio любой сессии проекта: с ПК или с телефона (TASK-140.10). */
   private handleStudioEvent(event: string, d: Record<string, unknown>): void {
     if (d.projectPath !== this.state.projectPath || typeof d.sessionId !== 'string') return;
     const id = d.sessionId;

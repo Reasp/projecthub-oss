@@ -3,7 +3,7 @@ import type { ApiToolContext } from './apiToolExecutor.js';
 import type { HitlRequest } from './hitlTypes.js';
 
 /**
- * Адаптер чата AI Studio для общего исполнителя API-инструментов (TASK-103, decision-47 п. 1). Переводит
+ * Адаптер чата Agents Studio для общего исполнителя API-инструментов (TASK-103, decision-47 п. 1). Переводит
  * события исполнителя в чанки чата прежнего формата и ставит статус проекта. Чистый модуль: канал
  * чанков и статус проекта внедряются, Electron не нужен.
  *
@@ -19,7 +19,7 @@ export interface StudioToolChunk {
 
 export interface StudioToolAdapterDeps {
   emit(chunk: StudioToolChunk): void;
-  /** Статус проекта AI Studio (`claudeBridgeService.setProjectStatus`). */
+  /** Статус проекта Agents Studio (`claudeBridgeService.setProjectStatus`). */
   setStatus(status: 'running' | 'waiting_approval', message: string, pendingApproval?: HitlRequest): void;
   /** У сессии остались другие ожидающие карточки. */
   hasPendingApprovals(): boolean;

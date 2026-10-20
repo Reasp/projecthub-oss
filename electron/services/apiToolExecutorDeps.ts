@@ -12,9 +12,9 @@ import { callMemoryTool as runMemoryTool } from './memoryTools.js';
 import { memoryToolDeps } from './memoryToolDeps.js';
 
 /**
- * Боевые зависимости исполнителя API-инструментов Swarm и AI Studio (decision-46 п. 1, decision-47): единая
+ * Боевые зависимости исполнителя API-инструментов Swarm и Agents Studio (decision-46 п. 1, decision-47): единая
  * очередь HITL и аудит (`hitlService`), команды через `claudeBridgeService.executeSubprocess` (их убивает
- * `abortSession` по `sessionId`), фоновые процессы AI Studio через `processManager`, запись через
+ * `abortSession` по `sessionId`), фоновые процессы Agents Studio через `processManager`, запись через
  * `aiAgentService.applyDiff`, прокси `computer_*` с политикой внутри.
  */
 export function createApiToolExecutorDeps(): ApiToolExecutorDeps {
@@ -45,7 +45,7 @@ export function createApiToolExecutorDeps(): ApiToolExecutorDeps {
       const res = await computerUseService.callTool(name, args, {
         sessionId: ctx.sessionId,
         projectPath: ctx.hitlProjectPath || ctx.workDir,
-        // Прокси понимает все источники исполнителя: studio (AI Studio) и swarm/handoff/assigned.
+        // Прокси понимает все источники исполнителя: studio (Agents Studio) и swarm/handoff/assigned.
         origin: ctx.origin as ComputerOrigin,
         engine: ctx.engine ?? 'api',
         agentId: ctx.agentId,

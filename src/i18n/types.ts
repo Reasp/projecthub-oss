@@ -3157,7 +3157,7 @@ export interface TranslationDictionary {
     runStatusLabels: Record<'completed' | 'failed' | 'stopped' | 'budget_exceeded' | 'interrupted' | 'running', string>;
   };
   /** Тиры моделей и fallback-цепочка (TASK-79, decision-44). */
-  /** Вкладка «Назначения» настроек AI Studio (TASK-134.3, decision-96). */
+  /** Вкладка «Назначения» настроек Agents Studio (TASK-134.3, decision-96). */
   modelAssignments: {
     tabLabel: string;
     title: string;

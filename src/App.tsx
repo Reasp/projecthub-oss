@@ -150,7 +150,7 @@ export const App: React.FC = () => {
     }
   }, [selectedProject, activeTab]);
 
-  // AI Studio с телефона (TASK-140.10, decision-83): промпт и остановка идут через стор, как с вкладки на ПК.
+  // Agents Studio с телефона (TASK-140.10, decision-83): промпт и остановка идут через стор, как с вкладки на ПК.
   useEffect(() => {
     if (!window.api?.onStudioRemoteRequest) return;
     return window.api.onStudioRemoteRequest((req) => {

@@ -3,12 +3,12 @@ import { applyStudioSelection, parseStudioMode, parseStudioSelection } from '../
 import type { CreateSessionOptions, SendMessageOptions } from './useAIStudioStore';
 
 /**
- * Запросы телефона к AI Studio (TASK-140.10, decision-83). Хост не запускает агента сам, а передаёт промпт
+ * Запросы телефона к Agents Studio (TASK-140.10, decision-83). Хост не запускает агента сам, а передаёт промпт
  * окну: сессия идёт через тот же стор, что и вкладки на ПК, — сохраняется, видна вживую и продолжается с
  * обеих сторон. Модуль без React: стор внедряется, логика проверяется unit-тестами.
  */
 
-/** Часть стора AI Studio, которая нужна обработчику. */
+/** Часть стора Agents Studio, которая нужна обработчику. */
 export interface StudioStorePort {
   sessions: Record<string, AISession[]>;
   config: AIProviderConfig;
@@ -37,7 +37,7 @@ export interface StudioRemoteResult {
 export function busyError(state: Pick<StudioStorePort, 'sessions' | 'activeStreamSessionId'>): string {
   const id = state.activeStreamSessionId;
   const title = id ? Object.values(state.sessions).flat().find((s) => s.id === id)?.title : undefined;
-  return `AI Studio на ПК уже отвечает${title ? ` в сессии «${title}»` : ''}. Дождитесь окончания или остановите тот ответ.`;
+  return `Agents Studio на ПК уже отвечает${title ? ` в сессии «${title}»` : ''}. Дождитесь окончания или остановите тот ответ.`;
 }
 
 export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload, deps: StudioRemoteDeps): Promise<StudioRemoteResult> {
@@ -65,7 +65,7 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
   if (!text) return { ok: false, error: 'Пустой промпт' };
 
   await deps.getState().loadSessions(projectPath);
-  // Поток у AI Studio один на всё приложение: второй ответ параллельно не запустить.
+  // Поток у Agents Studio один на всё приложение: второй ответ параллельно не запустить.
   if (deps.getState().isStreaming) return { ok: false, error: busyError(deps.getState()) };
 
   let sessionId = req.sessionId;
@@ -90,6 +90,6 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
   const mode = parseStudioMode(req.mode);
   // sendMessage ставит isStreaming синхронно, до первого await, — ждать весь ответ не нужно.
   void state.sendMessage(projectPath, text, { sessionId, config, ...(mode ? { mode } : {}) });
-  if (!deps.getState().isStreaming) return { ok: false, error: 'AI Studio не начала ответ' };
+  if (!deps.getState().isStreaming) return { ok: false, error: 'Agents Studio не начала ответ' };
   return { ok: true, sessionId };
 }

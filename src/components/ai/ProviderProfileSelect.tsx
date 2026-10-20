@@ -64,7 +64,7 @@ interface ProviderProfileSelectProps {
 }
 
 /**
- * Провайдер слота Swarm, роли или ревьюера Arena: «как в AI Studio», Anthropic, профили
+ * Провайдер слота Swarm, роли или ревьюера Arena: «как в Agents Studio», Anthropic, профили
  * OpenAI-совместимых провайдеров и — для совместимости — прежние провайдеры.
  */
 export const ProviderProfileSelect: React.FC<ProviderProfileSelectProps> = ({

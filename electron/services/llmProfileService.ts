@@ -180,7 +180,7 @@ export class LlmProfileService {
     const { profiles } = await this.migrateInlineKeys();
     const stored = profiles.find((p) => p.id === id);
     if (!stored) {
-      throw providerConfigError(`Профиль провайдера «${id}» не найден: возможно, он удалён. Выберите профиль в настройках AI Studio.`, 'no_profile');
+      throw providerConfigError(`Профиль провайдера «${id}» не найден: возможно, он удалён. Выберите профиль в настройках Agents Studio.`, 'no_profile');
     }
     const { apiKey: _inline, ...profile } = stored;
     const apiKey = await this.secrets.getSecret(llmProfileSecretKey(id));

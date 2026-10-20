@@ -20,7 +20,7 @@ import type {
 /**
  * Единый HITL-контур (TASK-57, decision-10).
  *
- * Все агенты ProjectHub (AI Studio, Swarm, Handoff, назначенные задачи, API-движок) кладут
+ * Все агенты ProjectHub (Agents Studio, Swarm, Handoff, назначенные задачи, API-движок) кладут
  * запросы на решение человека сюда. Очередь адресуется строго по `requestId`: локальный UI,
  * Remote Control, Telegram и внешние MCP-клиенты вызывают один и тот же `decide()`, первый
  * ответ выигрывает, остальные получают `already_decided`.

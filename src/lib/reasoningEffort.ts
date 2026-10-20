@@ -1,5 +1,5 @@
 /**
- * Усилие рассуждений в UI сессии AI Studio и слота Swarm (TASK-70.3, decision-41). Чистые функции без
+ * Усилие рассуждений в UI сессии Agents Studio и слота Swarm (TASK-70.3, decision-41). Чистые функции без
  * React — покрыты unit-тестами.
  *
  * Шкала повторяет `electron/services/reasoningEffort.ts` (рендерер не импортирует main-процесс). Пустое
@@ -22,12 +22,12 @@ export function parseReasoningEffort(value: string | undefined | null): Reasonin
  * - `openai-compatible` — поле по формату профиля;
  * - `not-sent` — у провайдера или профиля нет формата усилия, поле не отправляется;
  * - `cli-ignored` — Codex/Gemini CLI, усилие не передаётся;
- * - `studio` — слот «как в AI Studio»: куда уйдёт, решают настройки AI Studio.
+ * - `studio` — слот «как в Agents Studio»: куда уйдёт, решают настройки Agents Studio.
  */
 export type EffortTargetKind = 'claude-cli' | 'anthropic-api' | 'openai-compatible' | 'not-sent' | 'cli-ignored' | 'studio';
 
 export interface EffortTargetInput {
-  /** Движок слота; для сессии AI Studio не задан. */
+  /** Движок слота; для сессии Agents Studio не задан. */
   engine?: string;
   provider?: string;
   /** `compat.reasoning` выбранного профиля. */

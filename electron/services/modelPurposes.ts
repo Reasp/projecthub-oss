@@ -55,8 +55,8 @@ export function enginesForKind(kind: ModelCallKind): readonly ModelEngine[] {
 }
 
 export const MODEL_PURPOSE_SPECS: Readonly<Record<ModelPurpose, ModelPurposeSpec>> = {
-  // AI Studio и есть основная модель: назначить ей другую нельзя.
-  studio: { kind: 'agent', label: 'AI Studio', fixed: true, engines: SERVICE_ENGINES },
+  // Agents Studio и есть основная модель: назначить ей другую нельзя.
+  studio: { kind: 'agent', label: 'Agents Studio', fixed: true, engines: SERVICE_ENGINES },
   agent: { kind: 'agent', label: 'Агенты: Swarm, цикл до готовности, назначенные задачи, Automations' },
   'plan.architect': { kind: 'turn', defaultTier: 'frontier', label: 'Планировщик: архитектор' },
   'plan.node': { kind: 'agent', defaultTier: 'balanced', label: 'Планировщик: узлы плана' },
@@ -64,7 +64,7 @@ export const MODEL_PURPOSE_SPECS: Readonly<Record<ModelPurpose, ModelPurposeSpec
   'pr.review': { kind: 'agent', label: 'Ревью PR' },
   'voice.classify': { kind: 'complete', defaultTier: 'cheap', label: 'Голос: разбор команды' },
   'voice.punctuate': { kind: 'complete', defaultTier: 'cheap', label: 'Голос: пунктуация диктовки' },
-  // Команду компьютеру исполняет сессия AI Studio с инструментами computer_* — у неё два движка.
+  // Команду компьютеру исполняет сессия Agents Studio с инструментами computer_* — у неё два движка.
   'voice.computer': { kind: 'agent', label: 'Голос: команда компьютеру', engines: SERVICE_ENGINES },
   'task.draft': { kind: 'complete', defaultTier: 'cheap', label: 'Черновик описания задачи' }
 };

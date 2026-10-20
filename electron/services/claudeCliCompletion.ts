@@ -1,7 +1,7 @@
 /**
  * Одноразовый запрос к модели через Claude Code CLI по подписке (TASK-83, [[decision-35]]).
  *
- * Нужен служебным запросам вроде разбора голосовой команды, когда провайдер AI Studio —
+ * Нужен служебным запросам вроде разбора голосовой команды, когда провайдер Agents Studio —
  * `anthropic`, а API-ключа нет: вход в Claude Code выполнен по подписке, и другого способа
  * обратиться к модели у пользователя нет. Запуск максимально облегчён, иначе CLI тратит секунды на
  * то, что служебному запросу не нужно: MCP-серверы, инструменты, сессия, навыки и системный
@@ -29,7 +29,7 @@ export interface ClaudeCliCompletionCommand {
 
 export function buildClaudeCliCompletionCommand(input: ClaudeCliCompletionInput): ClaudeCliCompletionCommand {
   const model = input.model.trim();
-  if (!model) throw new Error('Модель не выбрана в настройках AI Studio.');
+  if (!model) throw new Error('Модель не выбрана в настройках Agents Studio.');
   const args = [
     '-p',
     '--model',

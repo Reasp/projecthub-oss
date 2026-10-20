@@ -328,7 +328,7 @@ const api: IElectronAPI = {
     };
   },
 
-  // AI Studio & Claude Bridge Engine
+  // Agents Studio & Claude Bridge Engine
   getAIConfig: () => ipcRenderer.invoke('ai:getConfig'),
   saveAIConfig: (config: any) => ipcRenderer.invoke('ai:saveConfig', config),
   // Профили OpenAI-совместимых провайдеров (TASK-70.1, TASK-70.2)
@@ -408,13 +408,13 @@ const api: IElectronAPI = {
   clearAISession: (sessionId: string) => ipcRenderer.invoke('ai:clearSession', sessionId),
   applyAIDiff: (projectPath: string, relativePath: string, newContent: string) =>
     ipcRenderer.invoke('ai:applyDiff', projectPath, relativePath, newContent),
-  // История диалогов AI Studio в файлах (TASK-35)
+  // История диалогов Agents Studio в файлах (TASK-35)
   listAISessions: (projectPath: string) => ipcRenderer.invoke('aiSessions:list', projectPath),
   saveAISession: (projectPath: string, session: any) => ipcRenderer.invoke('aiSessions:save', projectPath, session),
   deleteAISession: (projectPath: string, sessionId: string) =>
     ipcRenderer.invoke('aiSessions:delete', projectPath, sessionId),
   importAISessions: (sessionsByProject: any) => ipcRenderer.invoke('aiSessions:import', sessionsByProject),
-  // AI Studio с телефона (TASK-140.10): запросы хоста к стору и ответы на них
+  // Agents Studio с телефона (TASK-140.10): запросы хоста к стору и ответы на них
   onStudioRemoteRequest: (callback: (req: StudioRemoteRequestPayload) => void) => {
     const handler = (_event: IpcRendererEvent, req: StudioRemoteRequestPayload) => callback(req);
     ipcRenderer.on('aiStudio:remoteRequest', handler);

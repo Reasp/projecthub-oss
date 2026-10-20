@@ -2,7 +2,7 @@
  * Эндпоинт и заголовки OpenAI-совместимого провайдера (TASK-83).
  *
  * Вынесено из `aiAgentService`, где это было приватным методом без тестов: одним и тем же кодом
- * пользуются потоковый диалог AI Studio и одноразовый вызов модели (`aiAgentService.complete`),
+ * пользуются потоковый диалог Agents Studio и одноразовый вызов модели (`aiAgentService.complete`),
  * который понадобился классификатору голосовых команд. Модуль намеренно принимает структурный
  * минимум полей, а не `AIProviderConfig`, — чтобы не заводить циклический импорт и остаться
  * чистым.
@@ -48,7 +48,7 @@ export function resolveOpenAICompatibleEndpoint(config: LlmEndpointConfig): Reso
     }
     headers['Authorization'] = `Bearer ${apiKey}`;
     headers['HTTP-Referer'] = 'https://projecthub.local';
-    headers['X-Title'] = 'ProjectHub AI Studio';
+    headers['X-Title'] = 'ProjectHub Agents Studio';
   } else if (config.provider === 'deepseek') {
     if (!apiKey) {
       throw providerConfigError('API ключ DeepSeek не указан в настройках.', 'no_key', { provider: 'deepseek' });

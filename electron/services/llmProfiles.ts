@@ -109,7 +109,7 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
       reasoning: 'reasoning_object',
       responseFormat: true
     }),
-    headers: { 'HTTP-Referer': 'https://projecthub.local', 'X-Title': 'ProjectHub AI Studio' }
+    headers: { 'HTTP-Referer': 'https://projecthub.local', 'X-Title': 'ProjectHub Agents Studio' }
   },
   {
     id: 'deepseek',
@@ -367,7 +367,7 @@ export function legacyProviderCompat(provider: string): LlmCompatFlags {
 }
 
 /**
- * Профиль из настроек прежнего провайдера AI Studio (`openrouter`/`deepseek`/`ollama`/`custom`) —
+ * Профиль из настроек прежнего провайдера Agents Studio (`openrouter`/`deepseek`/`ollama`/`custom`) —
  * ручной перенос по кнопке ([[decision-40]]). Адрес, заголовки и флаги повторяют прежнее поведение
  * (`llmEndpoint.ts`, `legacyProviderCompat`), чтобы запросы после переноса не изменились.
  *
@@ -397,7 +397,7 @@ export function profileFromLegacyConfig(config: { provider: string; baseUrl?: st
   const baseUrl = normalizeBaseUrl(base());
   return {
     ...profile,
-    name: `${profile.name} (AI Studio)`,
+    name: `${profile.name} (Agents Studio)`,
     baseUrl,
     local: legacyProviderIsLocal(config.provider, baseUrl),
     compat: legacyProviderCompat(config.provider)

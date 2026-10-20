@@ -4,8 +4,8 @@
  * Слот, роль и ревьюер задают провайдера одним из трёх способов:
  * - профилем OpenAI-совместимого провайдера ([[decision-39]]) — адрес, ключ и флаги берутся из профиля;
  * - прежним провайдером (`anthropic`, `openrouter`, `deepseek`, `ollama`, `custom`) — ключ у такого
- *   провайдера один, он хранится в настройках AI Studio, поэтому работает только тот, что там выбран;
- * - ничем — тогда используются настройки AI Studio пользователя.
+ *   провайдера один, он хранится в настройках Agents Studio, поэтому работает только тот, что там выбран;
+ * - ничем — тогда используются настройки Agents Studio пользователя.
  * Модели по умолчанию здесь нет ([[decision-26]] п. 0): пустая модель уходит дальше, и запрос
  * падает с понятной ошибкой «Модель не выбрана».
  *
@@ -20,12 +20,12 @@ export type ProviderId = AIProviderConfig['provider'];
 
 export const PROFILE_PROVIDER: ProviderId = 'openai-compatible';
 
-/** Провайдеры до профилей: ключ и адрес — из настроек AI Studio. */
+/** Провайдеры до профилей: ключ и адрес — из настроек Agents Studio. */
 export const LEGACY_PROVIDERS: readonly ProviderId[] = ['openrouter', 'deepseek', 'ollama', 'custom'];
 
 const KNOWN_PROVIDERS: readonly ProviderId[] = ['anthropic', ...LEGACY_PROVIDERS, PROFILE_PROVIDER];
 
-/** Провайдеры, которым ключ не нужен: можно использовать в слоте, даже если в AI Studio выбран другой. */
+/** Провайдеры, которым ключ не нужен: можно использовать в слоте, даже если в Agents Studio выбран другой. */
 const KEYLESS_PROVIDERS: readonly ProviderId[] = ['ollama'];
 
 /** Минимум сведений о профиле для разрешения ссылки. */
@@ -79,14 +79,14 @@ export function resolveProfileRef(ref: string, profiles: readonly ProfileRefEntr
     throw providerConfigError(`Имя профиля «${needle}» неоднозначно: таких профилей ${byName.length}. Переименуйте профили или укажите id.`, 'no_profile');
   }
   throw providerConfigError(
-    `Профиль провайдера «${needle}» не найден. Создайте его в настройках AI Studio (OpenAI-compatible) или выберите другой.`,
+    `Профиль провайдера «${needle}» не найден. Создайте его в настройках Agents Studio (OpenAI-compatible) или выберите другой.`,
     'no_profile'
   );
 }
 
 /**
  * Конфиг провайдера из полей роли или ревьюера: `profile` важнее `provider`. Без полей — `undefined`
- * (настройки AI Studio). Роль с одной моделью наследует провайдера AI Studio, а не `anthropic`.
+ * (настройки Agents Studio). Роль с одной моделью наследует провайдера Agents Studio, а не `anthropic`.
  */
 export function providerConfigFromSpec(spec: ProviderSpec | undefined): Partial<AIProviderConfig> | undefined {
   if (!spec) return undefined;
@@ -117,18 +117,18 @@ function sameLegacyTarget(slot: Partial<AIProviderConfig>, global: AIProviderCon
 /**
  * Итоговый конфиг запроса для слота/ревьюера.
  *
- * - нет настроек слота — настройки AI Studio;
+ * - нет настроек слота — настройки Agents Studio;
  * - профиль — ссылка разрешается в id профиля, ключ возьмёт `llmProfileService`;
- * - провайдер не задан (только модель) — провайдер и ключ AI Studio, модель слота;
- * - прежний провайдер = провайдер AI Studio — ключ и адрес AI Studio, модель слота;
- * - прежний провайдер без ключа (Ollama) — адрес слота или AI Studio;
+ * - провайдер не задан (только модель) — провайдер и ключ Agents Studio, модель слота;
+ * - прежний провайдер = провайдер Agents Studio — ключ и адрес Agents Studio, модель слота;
+ * - прежний провайдер без ключа (Ollama) — адрес слота или Agents Studio;
  * - иной прежний провайдер — ошибка: его ключа нет, молча подменять провайдера нельзя.
  *
- * Пустая модель слота (или `default`) заменяется моделью AI Studio только для того же провайдера или
+ * Пустая модель слота (или `default`) заменяется моделью Agents Studio только для того же провайдера или
  * профиля: модель другого провайдера была бы чужой.
  *
- * Усилие рассуждений слота важнее унаследованного. Слот «как в AI Studio» или только с моделью
- * наследует усилие AI Studio, слот с профилем или Ollama — только своё ([[decision-41]] п. 7).
+ * Усилие рассуждений слота важнее унаследованного. Слот «как в Agents Studio» или только с моделью
+ * наследует усилие Agents Studio, слот с профилем или Ollama — только своё ([[decision-41]] п. 7).
  */
 export function resolveSlotProviderConfig(
   slot: Partial<AIProviderConfig> | undefined,
@@ -157,7 +157,7 @@ function resolveSlotTarget(
       throw providerConfigError('У слота выбран OpenAI-совместимый провайдер, но не выбран профиль.', 'no_profile');
     }
     const profile = resolveProfileRef(slot.profileId, profiles);
-    // Та же пара «профиль AI Studio» — можно взять модель оттуда; иначе модель обязана быть у слота.
+    // Та же пара «профиль Agents Studio» — можно взять модель оттуда; иначе модель обязана быть у слота.
     const inheritModel = global.provider === PROFILE_PROVIDER && global.profileId === profile.id;
     const model = slotModel && !isDefaultAlias(slotModel) ? slotModel : inheritModel ? global.model : '';
     const config: AIProviderConfig = {
@@ -198,8 +198,8 @@ function resolveSlotTarget(
   }
 
   throw providerConfigError(
-    `Провайдер слота «${slot.provider}» отличается от провайдера AI Studio («${global.provider}»), а ключ хранится только ` +
-      'для провайдера AI Studio. Создайте профиль OpenAI-совместимого провайдера и выберите его в слоте или роли.',
+    `Провайдер слота «${slot.provider}» отличается от провайдера Agents Studio («${global.provider}»), а ключ хранится только ` +
+      'для провайдера Agents Studio. Создайте профиль OpenAI-совместимого провайдера и выберите его в слоте или роли.',
     'provider'
   );
 }
@@ -226,7 +226,7 @@ function withInfo(config: AIProviderConfig, profiles: readonly ProfileRefEntry[]
 }
 
 /**
- * Почему конфиг AI Studio не годится для API-пути (запасной путь CLI-движков), или `null`.
+ * Почему конфиг Agents Studio не годится для API-пути (запасной путь CLI-движков), или `null`.
  * Проверяется до запроса, чтобы вместо молчаливого ухода к вендору была понятная причина.
  */
 export function apiConfigProblem(config: AIProviderConfig): string | null {
@@ -234,16 +234,16 @@ export function apiConfigProblem(config: AIProviderConfig): string | null {
   if (config.provider === 'anthropic') {
     if (usesClaudeCli(config)) {
       return config.engine === 'claude-cli'
-        ? 'в AI Studio выбран Claude Code по подписке (API-путь требует ключ)'
-        : 'в AI Studio выбран Anthropic без API-ключа (API-путь требует ключ)';
+        ? 'в Agents Studio выбран Claude Code по подписке (API-путь требует ключ)'
+        : 'в Agents Studio выбран Anthropic без API-ключа (API-путь требует ключ)';
     }
-    if (!clean(config.apiKey)) return 'в AI Studio выбран Anthropic без API-ключа (API-путь требует ключ)';
+    if (!clean(config.apiKey)) return 'в Agents Studio выбран Anthropic без API-ключа (API-путь требует ключ)';
     return null;
   }
   if (config.provider === PROFILE_PROVIDER && !clean(config.profileId)) {
-    return 'в AI Studio выбран OpenAI-совместимый провайдер без профиля';
+    return 'в Agents Studio выбран OpenAI-совместимый провайдер без профиля';
   }
-  if (!model || isDefaultAlias(model)) return `в AI Studio не выбрана модель провайдера «${config.provider}»`;
+  if (!model || isDefaultAlias(model)) return `в Agents Studio не выбрана модель провайдера «${config.provider}»`;
   return null;
 }
 
@@ -257,7 +257,7 @@ export function apiSlotProblem(config: AIProviderConfig, main: AIProviderConfig)
   return usesClaudeCli(main)
     ? 'у слота движок «API», а основная модель — Claude Code по подписке, ключа Anthropic API нет. ' +
         'Выберите у слота движок «Claude Code CLI» или профиль LLM со своим ключом'
-    : 'у Anthropic нет API-ключа. Укажите ключ в настройках AI Studio, выберите у слота движок «Claude Code CLI» ' +
+    : 'у Anthropic нет API-ключа. Укажите ключ в настройках Agents Studio, выберите у слота движок «Claude Code CLI» ' +
         'или профиль LLM со своим ключом';
 }
 

@@ -88,12 +88,12 @@ export function registerAiIpc(ctx: IpcContext) {
     if (removed) await llmModelCatalogService.forget(String(id)).catch(() => undefined);
     return removed;
   });
-  // Ручной перенос прежнего провайдера AI Studio в профиль (decision-40): ключ берётся из сохранённых
+  // Ручной перенос прежнего провайдера Agents Studio в профиль (decision-40): ключ берётся из сохранённых
   // настроек в main-процессе, сам ai-config.json не меняется — провайдера переключает пользователь.
   ipcMain.handle('llmProfiles:importLegacy', async (_event, expectedProvider: string) => {
     const config = await aiAgentService.getConfig();
     if (config.provider !== expectedProvider) {
-      throw new Error('Сначала сохраните настройки AI Studio с этим провайдером, затем перенесите его в профиль.');
+      throw new Error('Сначала сохраните настройки Agents Studio с этим провайдером, затем перенесите его в профиль.');
     }
     const id = `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const profile = profileFromLegacyConfig(config, id);
@@ -104,7 +104,7 @@ export function registerAiIpc(ctx: IpcContext) {
   );
 
   // Таблица цен агентов (TASK-70.4, decision-42): встроенная + переопределения agent-pricing.json.
-  // Сохранение сразу применяется в Swarm и AI Studio. Импорт OpenRouter — только по кнопке и ничего не пишет.
+  // Сохранение сразу применяется в Swarm и Agents Studio. Импорт OpenRouter — только по кнопке и ничего не пишет.
   void pricingService.ensureLoaded();
   ipcMain.handle('pricing:get', () => pricingService.getState());
   ipcMain.handle('pricing:save', (_event, overrides: unknown) => pricingService.saveOverrides(overrides));
@@ -232,7 +232,7 @@ export function registerAiIpc(ctx: IpcContext) {
     }
   });
 
-  // Запросы телефона к AI Studio идут в главное окно: сессиями владеет его стор (TASK-140.10, decision-83).
+  // Запросы телефона к Agents Studio идут в главное окно: сессиями владеет его стор (TASK-140.10, decision-83).
   studioRemoteBridge.setWindowGetter(() => ctx.getMainWindow());
 
   // AI Stream Chat
@@ -277,10 +277,10 @@ export function registerAiIpc(ctx: IpcContext) {
     // только `onComplete`/`onError` (они же срабатывают при отмене).
   });
 
-  // Ответ окна на запрос телефона (TASK-140.10): промпт или остановка в сессии AI Studio.
+  // Ответ окна на запрос телефона (TASK-140.10): промпт или остановка в сессии Agents Studio.
   ipcMain.handle('aiStudio:remoteReply', (_event, requestId: unknown, reply: unknown) => studioRemoteBridge.resolve(requestId, reply));
 
-  // Предпросмотр контекста агента для карточки в AI Studio (TASK-64) — без запуска стрима.
+  // Предпросмотр контекста агента для карточки в Agents Studio (TASK-64) — без запуска стрима.
   ipcMain.handle(
     'ai:previewContext',
     async (

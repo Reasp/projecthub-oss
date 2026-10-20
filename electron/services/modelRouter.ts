@@ -58,7 +58,7 @@ import type { ReasoningEffort } from './reasoningEffort.js';
 
 /** Что настроено у пользователя на момент вызова. */
 export interface ModelRouteContext {
-  /** Основная модель — настройки AI Studio (`ai-config.json`) с расшифрованным ключом. */
+  /** Основная модель — настройки Agents Studio (`ai-config.json`) с расшифрованным ключом. */
   main: AIProviderConfig;
   profiles: readonly ProfileRefEntry[];
   tiers: ModelTierSettings;
@@ -135,7 +135,7 @@ interface Draft {
 
 type Addressee = Pick<ModelTarget, 'profile' | 'provider'>;
 
-const SETTINGS_HINT = 'Настройки AI Studio → Назначения';
+const SETTINGS_HINT = 'Настройки Agents Studio → Назначения';
 
 const KIND_WHAT: Readonly<Record<ModelCallKind, string>> = {
   complete: 'одноразовый запрос к модели',
@@ -202,7 +202,7 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
       if (config.provider === 'anthropic' && !config.apiKey?.trim()) {
         problem = {
           code: 'no_key',
-          text: 'у Anthropic нет API-ключа: укажите ключ в настройках AI Studio или выберите движок «Claude Code (подписка)»'
+          text: 'у Anthropic нет API-ключа: укажите ключ в настройках Agents Studio или выберите движок «Claude Code (подписка)»'
         };
       } else if (config.provider === PROFILE_PROVIDER && !config.profileId) {
         problem = { code: 'no_profile', text: 'у OpenAI-совместимого провайдера не выбран профиль' };
@@ -217,7 +217,7 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
     }
   };
 
-  /** Усилие цели; цель на счёте основной модели наследует усилие AI Studio ([[decision-41]] п. 7). */
+  /** Усилие цели; цель на счёте основной модели наследует усилие Agents Studio ([[decision-41]] п. 7). */
   const cliEffort = (target: ModelTarget | undefined): ReasoningEffort | undefined =>
     target?.reasoningEffort ?? (mainEngine === 'claude-cli' ? main.reasoningEffort : undefined);
 

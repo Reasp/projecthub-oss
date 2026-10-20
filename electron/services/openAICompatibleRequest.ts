@@ -45,7 +45,7 @@ export interface OpenAICompatibleBodyInput {
 export function resolveOpenAICompatibleModelId(model: string | undefined | null, provider: string): string {
   if (isUnsetModelId(model)) {
     throw providerConfigError(
-      `Модель не выбрана: укажите идентификатор модели провайдера ${provider} в настройках AI Studio или в слоте агента.`,
+      `Модель не выбрана: укажите идентификатор модели провайдера ${provider} в настройках Agents Studio или в слоте агента.`,
       'no_model',
       { provider }
     );

@@ -1107,7 +1107,7 @@ export interface IElectronAPI {
   /** Завершившаяся PTY-сессия удалена автоматически по TTL (TASK-50). */
   onPtyRemoved: (callback: (data: { sessionId: string; title: string; reason: 'ttl' }) => void) => () => void;
 
-  // AI Studio & Claude Bridge Engine
+  // Agents Studio & Claude Bridge Engine
   getAIConfig: () => Promise<AIProviderConfig>;
   saveAIConfig: (config: AIProviderConfig) => Promise<void>;
   getLlmProviderPresets: () => Promise<LlmProviderPreset[]>;
@@ -1116,7 +1116,7 @@ export interface IElectronAPI {
   saveLlmProfile: (profile: LlmProfile, apiKey?: string | null) => Promise<LlmProfileView>;
   deleteLlmProfile: (id: string) => Promise<boolean>;
   listLlmProfileModels: (id: string, refresh?: boolean) => Promise<ModelCatalogResult>;
-  /** Перенос сохранённого прежнего провайдера AI Studio в профиль (decision-40); конфиг не меняет. */
+  /** Перенос сохранённого прежнего провайдера Agents Studio в профиль (decision-40); конфиг не меняет. */
   importLegacyLlmProfile: (provider: string) => Promise<LlmProfileView>;
   /** Таблица цен агентов: встроенная и переопределения `agent-pricing.json` (TASK-70.4, decision-42). */
   getAgentPricing: () => Promise<AgentPricingState>;
@@ -1180,7 +1180,7 @@ export interface IElectronAPI {
     onFlowChanged: (callback: (flow: ConnectionFlowView) => void) => () => void;
   };
   streamAIChat: (request: AIStreamRequest) => Promise<boolean>;
-  /** Предпросмотр контекста агента для карточки в AI Studio (TASK-64), без запуска стрима. */
+  /** Предпросмотр контекста агента для карточки в Agents Studio (TASK-64), без запуска стрима. */
   previewAgentContext: (
     projectPath: string,
     taskId: string,
@@ -1190,13 +1190,13 @@ export interface IElectronAPI {
   /** Полная очистка сессии в main: одобрения, процессы, resume-id Claude CLI, подагенты (TASK-33). */
   clearAISession: (sessionId: string) => Promise<boolean>;
   applyAIDiff: (projectPath: string, relativePath: string, newContent: string) => Promise<boolean>;
-  /** История диалогов AI Studio в файлах через main (TASK-35). */
+  /** История диалогов Agents Studio в файлах через main (TASK-35). */
   listAISessions: (projectPath: string) => Promise<AISession[]>;
   saveAISession: (projectPath: string, session: AISession) => Promise<boolean>;
   deleteAISession: (projectPath: string, sessionId: string) => Promise<boolean>;
   /** Одноразовая миграция сессий из localStorage; возвращает число импортированных. */
   importAISessions: (sessionsByProject: Record<string, AISession[]>) => Promise<number>;
-  /** Запросы телефона к AI Studio (TASK-140.10, decision-83): промпт или остановка в сессии стора. */
+  /** Запросы телефона к Agents Studio (TASK-140.10, decision-83): промпт или остановка в сессии стора. */
   onStudioRemoteRequest: (callback: (req: StudioRemoteRequestPayload) => void) => () => void;
   replyStudioRemote: (requestId: string, reply: { ok: boolean; sessionId?: string; error?: string }) => Promise<boolean>;
 
@@ -2673,11 +2673,11 @@ export interface ProviderErrorInfo {
   purpose?: string;
 }
 
-/** Диалог AI Studio; хранится файлом `~/.projecthub/sessions/<hash(projectPath)>/<id>.json` (TASK-35). */
+/** Диалог Agents Studio; хранится файлом `~/.projecthub/sessions/<hash(projectPath)>/<id>.json` (TASK-35). */
 /** Части контекста агента (TASK-64) — что показывает `ContextAppliedCard` и что можно отключить на сессию. */
 export type ContextPartKey = 'task' | 'memory' | 'rag' | 'gitnexus' | 'git';
 
-/** Результат `contextBuilder.buildAgentContext` (main) — зеркало `AgentContextResult` для превью в AI Studio. */
+/** Результат `contextBuilder.buildAgentContext` (main) — зеркало `AgentContextResult` для превью в Agents Studio. */
 export interface AgentContextPreview {
   combined: string;
   parts: Array<{ key: ContextPartKey; label: string; text: string }>;
@@ -2705,7 +2705,7 @@ export interface AISession {
   lastMode?: 'chat' | 'agent' | 'architect';
 }
 
-/** Запрос хоста к стору AI Studio от имени телефона (`aiStudio:remoteRequest`). */
+/** Запрос хоста к стору Agents Studio от имени телефона (`aiStudio:remoteRequest`). */
 export type StudioRemoteRequestPayload =
   | {
       requestId: string;
@@ -2982,7 +2982,7 @@ export interface AgentSlotConfig {
   role?: string;
   /** slug роли из реестра (decision-9, TASK-60) — предзаполняет engine/model/permissions в UI. */
   roleSlug?: string;
-  /** Профиль, прежний провайдер или только модель; без поля — настройки AI Studio (decision-40). */
+  /** Профиль, прежний провайдер или только модель; без поля — настройки Agents Studio (decision-40). */
   providerConfig?: Partial<AIProviderConfig>;
   /** Тир модели (decision-44): цепочка из таблицы тиров; явная модель слота — первое звено. */
   modelTier?: ModelTier;
@@ -3442,7 +3442,7 @@ export interface TierModelEntry {
   model: string;
   /** Профиль (имя или id) для движка `api`. */
   profile?: string;
-  /** Прежний провайдер для движка `api`; без `profile` и `provider` — провайдер AI Studio. */
+  /** Прежний провайдер для движка `api`; без `profile` и `provider` — провайдер Agents Studio. */
   provider?: string;
   source?: 'auto' | 'manual';
 }

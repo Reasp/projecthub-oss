@@ -91,7 +91,7 @@ export interface FederationHost {
   lastSeen: number;
   /** Версия приложения на хосте (для диагностики несовместимостей). */
   appVersion?: string;
-  /** Сколько агентов сейчас работает на хосте (fan-out + AI Studio). */
+  /** Сколько агентов сейчас работает на хосте (fan-out + Agents Studio). */
   activeAgentsCount?: number;
   /** Длина очереди HITL — видно, что хост чего-то ждёт от человека. */
   hitlPendingCount?: number;
@@ -233,7 +233,7 @@ export type RemoteRpcMethod =
   | 'stop_swarm'
   // Мобильный клиент (TASK-140.1, decision-79 п. 8): хвост вывода агента роя
   | 'get_agent_output'
-  // AI Studio с телефона (TASK-140.10, decision-83): сессии те же, что во вкладках ПК
+  // Agents Studio с телефона (TASK-140.10, decision-83): сессии те же, что во вкладках ПК
   | 'studio_get_options'
   | 'studio_list_sessions'
   | 'studio_get_session'
@@ -331,11 +331,11 @@ export interface RemoteAgentOutput {
   truncated: boolean;
 }
 
-// ── AI Studio с телефона (TASK-140.10, decision-83) ──
+// ── Agents Studio с телефона (TASK-140.10, decision-83) ──
 
 export type StudioMode = 'agent' | 'chat' | 'architect';
 
-/** Выбор модели — та же форма, что у `ModelSelectorDropdown` AI Studio на ПК. */
+/** Выбор модели — та же форма, что у `ModelSelectorDropdown` Agents Studio на ПК. */
 export interface StudioModelSelection {
   provider: string;
   profileId?: string;
@@ -344,13 +344,13 @@ export interface StudioModelSelection {
 
 /** Что можно выбрать на телефоне: модели Claude Code и профили LLM без ключей и заголовков. */
 export interface RemoteStudioOptions {
-  /** Текущий выбор AI Studio на ПК — по умолчанию для новой сессии. */
+  /** Текущий выбор Agents Studio на ПК — по умолчанию для новой сессии. */
   current: StudioModelSelection;
   currentLabel: string;
   modes: StudioMode[];
   claudeModels: Array<{ id: string; name: string; description: string }>;
   profiles: Array<{ id: string; name: string; local: boolean; models: string[]; modelsError?: string }>;
-  /** Быстрые промпты AI Studio («Следующая задача», «Коммит», «Деплой»). */
+  /** Быстрые промпты Agents Studio («Следующая задача», «Коммит», «Деплой»). */
   quickPrompts?: Array<{ id: string; label: string; prompt: string }>;
 }
 
@@ -377,7 +377,7 @@ export interface RemoteStudioUsage {
   error?: { kind: string; message: string };
 }
 
-/** Расход токенов в одной сессии AI Studio (сумма по ответам). */
+/** Расход токенов в одной сессии Agents Studio (сумма по ответам). */
 export interface RemoteStudioSessionUsage {
   inputTokens: number;
   outputTokens: number;

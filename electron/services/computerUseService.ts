@@ -119,7 +119,7 @@ export interface ComputerCallContext {
   taskAllowsComputerUse?: boolean;
   autoApprove?: boolean;
   approvalTimeoutMs?: number;
-  /** Дублирует карточку в чат сессии (AI Studio); очередь и Центр решений получают её в любом случае. */
+  /** Дублирует карточку в чат сессии (Agents Studio); очередь и Центр решений получают её в любом случае. */
   onApprovalRequest?: (request: HitlRequest) => void;
 }
 

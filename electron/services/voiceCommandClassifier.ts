@@ -55,7 +55,7 @@ const INDEX = (name: string, hint: string): VoicePayloadField => ({ name, kind: 
  */
 export const VOICE_INTENT_CATALOG: VoiceIntentSpec[] = [
   // ── Вкладки и панели ──
-  { id: 'navigate_ai', type: 'navigation', description: 'открыть Claude AI Studio (чат с агентом)' },
+  { id: 'navigate_ai', type: 'navigation', description: 'открыть Agents Studio (чат с агентом)' },
   { id: 'navigate_kanban', type: 'navigation', description: 'открыть доску задач и бэклог' },
   { id: 'navigate_milestones', type: 'navigation', description: 'открыть дорожную карту и майлстоуны' },
   { id: 'navigate_git', type: 'navigation', description: 'открыть Git: ветки, коммиты, диффы' },
@@ -86,7 +86,7 @@ export const VOICE_INTENT_CATALOG: VoiceIntentSpec[] = [
   },
   { id: 'close_current_project', type: 'navigation', description: 'закрыть текущий проект или вкладку' },
 
-  // ── Сессии AI Studio ──
+  // ── Сессии Agents Studio ──
   { id: 'new_ai_session', type: 'ai_control', description: 'создать новый чат с агентом' },
   { id: 'close_ai_session', type: 'ai_control', description: 'закрыть текущий чат' },
   { id: 'switch_session_next', type: 'ai_control', description: 'следующий чат' },

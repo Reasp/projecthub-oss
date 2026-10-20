@@ -806,7 +806,7 @@ app.whenReady().then(() => {
     });
 
   // Управление компьютером через MCP-прокси (TASK-82): настройки <userData>/computer-use.json,
-  // скриншоты аудита — рядом с HITL-аудитом. Kill-switch прерывает сессии AI Studio, управлявшие компьютером.
+  // скриншоты аудита — рядом с HITL-аудитом. Kill-switch прерывает сессии Agents Studio, управлявшие компьютером.
   computerUseService.configure({
     onOverlay: syncComputerOverlay,
     onKillSwitch: ({ sessionIds }) => {

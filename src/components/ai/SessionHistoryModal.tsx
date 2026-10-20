@@ -7,7 +7,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { selectionLabel, sessionUpdatedAt } from '../../utils/studioRemote';
 
 /**
- * История диалогов AI Studio (TASK-140.10, decision-83): закрытые вкладки не удаляются, а уходят сюда.
+ * История диалогов Agents Studio (TASK-140.10, decision-83): закрытые вкладки не удаляются, а уходят сюда.
  * Свежие сверху, поиск по названию и тексту, «Открыть» возвращает сессию во вкладки.
  */
 export const SessionHistoryModal: React.FC<{ projectPath: string; onClose: () => void }> = ({ projectPath, onClose }) => {

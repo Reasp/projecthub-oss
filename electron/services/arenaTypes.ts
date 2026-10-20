@@ -179,7 +179,7 @@ export interface ArenaReviewerConfig {
   roleSlug: string;
   /**
    * Переопределение провайдера/профиля/модели ревьюера; без них — провайдер и модель роли, затем
-   * настройки AI Studio (decision-40). `profile` — имя или id профиля, важнее `provider`.
+   * настройки Agents Studio (decision-40). `profile` — имя или id профиля, важнее `provider`.
    */
   provider?: string;
   profile?: string;

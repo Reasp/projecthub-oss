@@ -1,6 +1,6 @@
 /**
- * AI Studio с телефона (TASK-140.10, decision-83). Чистые функции без Electron и React: хост превращает
- * сессии и поток AI Studio в формы для телефона, окно ProjectHub применяет выбор модели с телефона.
+ * Agents Studio с телефона (TASK-140.10, decision-83). Чистые функции без Electron и React: хост превращает
+ * сессии и поток Agents Studio в формы для телефона, окно ProjectHub применяет выбор модели с телефона.
  *
  * На телефон уходит только то, что нужно читать с экрана: текст сообщений (с ограничением длины), имя и
  * статус вызова инструмента и короткая подпись (команда, путь). Диффы, содержимое файлов и результаты
@@ -203,7 +203,7 @@ export function usageErrorText(kind: string): string {
   }
 }
 
-/** Чанк потока AI Studio для телефона: текст и строка инструмента. Мысли, диффы и вывод — нет. */
+/** Чанк потока Agents Studio для телефона: текст и строка инструмента. Мысли, диффы и вывод — нет. */
 export function studioChunkForPhone(chunk: { text?: string; toolCall?: AIToolCall }): { text?: string; tool?: RemoteStudioToolCall } | null {
   const out: { text?: string; tool?: RemoteStudioToolCall } = {};
   if (typeof chunk.text === 'string' && chunk.text) out.text = chunk.text;
@@ -228,7 +228,7 @@ export function parseStudioSelection(value: unknown): StudioModelSelection | und
 
 /**
  * Конфиг запроса с выбором модели — так же, как `ModelSelectorDropdown` на ПК меняет провайдера, профиль и
- * модель. Глобальный выбор AI Studio при этом не меняется: модель с телефона действует на эту сессию.
+ * модель. Глобальный выбор Agents Studio при этом не меняется: модель с телефона действует на эту сессию.
  */
 export function applyStudioSelection(config: AIProviderConfig, sel: StudioModelSelection | undefined): AIProviderConfig {
   if (!sel) return config;

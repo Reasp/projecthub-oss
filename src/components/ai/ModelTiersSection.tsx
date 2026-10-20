@@ -28,7 +28,7 @@ const TIER_ACCENT: Record<ModelTier, string> = {
   cheap: 'border-emerald-500/30 text-emerald-300'
 };
 
-/** Enter в полях редактора не должен отправлять форму настроек AI Studio. */
+/** Enter в полях редактора не должен отправлять форму настроек Agents Studio. */
 function stopEnter(e: React.KeyboardEvent) {
   if (e.key === 'Enter') e.preventDefault();
 }
@@ -36,7 +36,7 @@ function stopEnter(e: React.KeyboardEvent) {
 /**
  * Таблица тиров моделей (TASK-79, decision-44): звенья каждого тира по порядку цепочки, движок, провайдер,
  * модель с подсказками каталога профиля и алиасов Claude CLI, подсветка модели вне каталога. Сохраняется
- * своей кнопкой отдельно от настроек AI Studio и применяется к новым ходам агентов без перезапуска.
+ * своей кнопкой отдельно от настроек Agents Studio и применяется к новым ходам агентов без перезапуска.
  */
 export const ModelTiersSection: React.FC = () => {
   const { t } = useTranslation();

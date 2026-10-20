@@ -4,9 +4,9 @@ import type { StudioMode, StudioModelSelection } from '../../src/types/remote';
 import { studioChunkForPhone } from '../../src/utils/studioRemote.js';
 
 /**
- * Мост AI Studio ↔ телефон (TASK-140.10, decision-83).
+ * Мост Agents Studio ↔ телефон (TASK-140.10, decision-83).
  *
- * Сессиями AI Studio владеет окно ProjectHub (стор рендерера): оно пишет их на диск, показывает вкладки и
+ * Сессиями Agents Studio владеет окно ProjectHub (стор рендерера): оно пишет их на диск, показывает вкладки и
  * держит поток. Поэтому промпт с телефона не запускает агента в обход окна, а уходит окну запросом
  * `aiStudio:remoteRequest` — окно ведёт сессию как свою, и она сразу видна на ПК вживую. Обратно мост
  * пересылает поток любой сессии Studio (начатой на ПК или с телефона) подписчикам — Remote Control шлёт его
@@ -40,7 +40,7 @@ export interface WindowLike {
 
 type Listener = (event: string, data: Record<string, unknown>) => void;
 
-export const NO_WINDOW_ERROR = 'Окно ProjectHub на компьютере закрыто — AI Studio недоступна. Откройте ProjectHub.';
+export const NO_WINDOW_ERROR = 'Окно ProjectHub на компьютере закрыто — Agents Studio недоступна. Откройте ProjectHub.';
 export const WINDOW_TIMEOUT_ERROR = 'Окно ProjectHub не ответило. Проверьте, что ProjectHub на компьютере не завис.';
 
 export class StudioRemoteBridge {
@@ -70,12 +70,12 @@ export class StudioRemoteBridge {
       try {
         l(event, data);
       } catch {
-        // подписчик не должен ронять поток AI Studio
+        // подписчик не должен ронять поток Agents Studio
       }
     }
   }
 
-  // ── поток AI Studio (вызывает обработчик `ai:streamChat`) ──
+  // ── поток Agents Studio (вызывает обработчик `ai:streamChat`) ──
 
   streamStarted(projectPath: string, sessionId: string): void {
     this.running.set(sessionId, projectPath);

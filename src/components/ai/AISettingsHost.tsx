@@ -7,7 +7,7 @@ import { OPEN_AI_SETTINGS_EVENT, type OpenAiSettingsDetail } from '../../lib/mod
 /**
  * Открывает настройки AI из любого места приложения по событию `projecthub:open-ai-settings`
  * (TASK-134.2, decision-75): панель плана и сообщения об ошибке выбора модели ведут сюда, а не только
- * AI Studio. С назначением в событии окно открывается на вкладке «Назначения» с этой строкой (TASK-134.3).
+ * Agents Studio. С назначением в событии окно открывается на вкладке «Назначения» с этой строкой (TASK-134.3).
  * Окно рендерится порталом в `document.body` и монтируется в момент открытия, поэтому оказывается поверх
  * уже открытой модалки задачи (decision-17).
  */
@@ -18,7 +18,7 @@ export const AISettingsHost: React.FC = () => {
     let cancelled = false;
     const handleOpen = (event: Event) => {
       const detail = (event as CustomEvent<OpenAiSettingsDetail>).detail ?? {};
-      // Настройки могли ещё не загружаться (AI Studio не открывали): форма со значениями по умолчанию
+      // Настройки могли ещё не загружаться (Agents Studio не открывали): форма со значениями по умолчанию
       // при сохранении затёрла бы настоящие.
       void useAIStudioStore
         .getState()

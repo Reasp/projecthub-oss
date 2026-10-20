@@ -284,9 +284,9 @@ export const VoiceControlWidget: React.FC = () => {
         }
       }
 
-      // D. Human-in-the-Loop: сначала карточка активной сессии AI Studio, затем общая очередь HITL.
+      // D. Human-in-the-Loop: сначала карточка активной сессии Agents Studio, затем общая очередь HITL.
       // Второе важно: запросы внешних сессий и `computer_action` от MCP-моста в pendingApprovals
-      // AI Studio не попадают вовсе — голосом они раньше были недоступны (TASK-83 п. 3).
+      // Agents Studio не попадают вовсе — голосом они раньше были недоступны (TASK-83 п. 3).
       else {
         const studioTop = projectPath ? (pendingApprovals[projectPath] || [])[0] : undefined;
         const hitlTop = useHitlStore.getState().pending[0];

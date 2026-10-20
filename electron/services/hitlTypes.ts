@@ -39,7 +39,7 @@ export interface QuestionData {
 
 /**
  * Запрос на решение человека. Поля до `createdAt` — исторический `ApprovalRequest` карточки
- * AI Studio; остальные добавлены в TASK-57 для адресации, политики роли и аудита.
+ * Agents Studio; остальные добавлены в TASK-57 для адресации, политики роли и аудита.
  */
 export interface HitlRequest {
   id: string;
@@ -58,13 +58,13 @@ export interface HitlRequest {
   };
   questionData?: QuestionData;
   createdAt: number;
-  /** Источник агента (AI Studio, Swarm, Handoff, назначенная задача). */
+  /** Источник агента (Agents Studio, Swarm, Handoff, назначенная задача). */
   origin?: HitlOrigin;
   engine?: HitlEngine;
-  /** Идентификатор агента внутри Swarm/Handoff; для AI Studio отсутствует. */
+  /** Идентификатор агента внутри Swarm/Handoff; для Agents Studio отсутствует. */
   agentId?: string;
   agentName?: string;
-  /** Роль агента (decision-9); для AI Studio отсутствует. */
+  /** Роль агента (decision-9); для Agents Studio отсутствует. */
   role?: string;
   /** Имя профиля аккаунта Claude Code, под которым идёт агент (decision-87 п. 14); не e-mail. */
   claudeAccount?: string;

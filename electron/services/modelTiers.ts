@@ -41,7 +41,7 @@ export interface TierModelEntry {
   model: string;
   /** Профиль OpenAI-совместимого провайдера: имя или id, как в роли ([[decision-40]] п. 2). */
   profile?: string;
-  /** Прежний провайдер (`anthropic`, `ollama`…). Без `profile` и `provider` — провайдер AI Studio. */
+  /** Прежний провайдер (`anthropic`, `ollama`…). Без `profile` и `provider` — провайдер Agents Studio. */
   provider?: string;
   /** `auto` — добавлено первичным заполнением, `manual` — пользователем. */
   source?: 'auto' | 'manual';
@@ -245,7 +245,7 @@ export function describeChainLink(link: Pick<ChainLink, 'engine' | 'model' | 'pr
   if (link.engine !== 'api') return `${link.model} · ${link.engine}`;
   if (link.profile) return `${link.model} · профиль «${link.profile}»`;
   if (link.provider) return `${link.model} · ${link.provider}`;
-  return `${link.model} · AI Studio`;
+  return `${link.model} · Agents Studio`;
 }
 
 // ─────────────────────────────── Решение о переключении ───────────────────────────────
@@ -412,7 +412,7 @@ export function tierForModelSize(sizeB: number): ModelTier {
 
 export interface TierSeedInput {
   /**
-   * Настройки AI Studio: модель, которой пользователь уже пользуется. `engine: 'claude-cli'` — она работает
+   * Настройки Agents Studio: модель, которой пользователь уже пользуется. `engine: 'claude-cli'` — она работает
    * через Claude Code по подписке (decision-74): звено `api` без ключа было бы нерабочим.
    */
   aiStudio?: { provider: string; profileId?: string; model?: string; engine?: 'claude-cli' | 'api' };

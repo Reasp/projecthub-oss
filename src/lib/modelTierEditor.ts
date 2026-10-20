@@ -151,10 +151,10 @@ export function tierDraftProblems(settings: ModelTierSettings): TierDraftProblem
   return problems;
 }
 
-/** Подпись звена в карточке агента: «qwen2.5:7b · Ollama», «opus · claude-cli», «m · AI Studio». */
+/** Подпись звена в карточке агента: «qwen2.5:7b · Ollama», «opus · claude-cli», «m · Agents Studio». */
 export function chainLinkLabel(link: Pick<TierModelEntry, 'engine' | 'model' | 'profile' | 'provider'>): string {
   if (link.engine !== 'api') return `${link.model} · ${link.engine}`;
-  return `${link.model} · ${link.profile ?? link.provider ?? 'AI Studio'}`;
+  return `${link.model} · ${link.profile ?? link.provider ?? 'Agents Studio'}`;
 }
 
 export function tierEntryCount(settings: ModelTierSettings): number {

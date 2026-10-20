@@ -1,5 +1,5 @@
 /**
- * Выбор провайдера в слоте Swarm, роли и ревьюере Arena и группировка моделей по профилям в AI Studio
+ * Выбор провайдера в слоте Swarm, роли и ревьюере Arena и группировка моделей по профилям в Agents Studio
  * (TASK-70.5, decision-40). Чистые функции без React — покрыты unit-тестами.
  *
  * Поиск профиля по ссылке повторяет `electron/services/slotProvider.ts::resolveProfileRef` (рендерер не
@@ -32,7 +32,7 @@ export function findProfileByRef<T extends ProfileLike>(ref: string | undefined,
 }
 
 /**
- * Значение `<select>`: `''` — как в AI Studio, `provider:<id>`, `profile:<id>`, `missing:<ref>` —
+ * Значение `<select>`: `''` — как в Agents Studio, `provider:<id>`, `profile:<id>`, `missing:<ref>` —
  * ссылка на профиль, которого нет на этой машине (показывается, чтобы не потерять её молча).
  */
 export function encodeProviderChoice(choice: ProviderChoice, profiles: readonly ProfileLike[]): string {
@@ -78,7 +78,7 @@ const PROVIDER_IDS = ['anthropic', ...LEGACY_PROVIDER_IDS, 'openai-compatible'] 
 /**
  * Провайдер слота из роли: профиль важнее провайдера, ссылка на профиль сохраняется как id, если
  * профиль найден на этой машине (иначе как есть — main-процесс вернёт понятную ошибку). Роль без
- * провайдера и модели — `undefined` (настройки AI Studio); только с моделью — модель без провайдера.
+ * провайдера и модели — `undefined` (настройки Agents Studio); только с моделью — модель без провайдера.
  */
 export function slotProviderFromRole(
   role: { provider?: string; profile?: string; model?: string },

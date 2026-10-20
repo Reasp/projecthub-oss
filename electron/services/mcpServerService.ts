@@ -83,7 +83,7 @@ interface SseSession {
   transport: SSEServerTransport;
   /** Свой McpServer на подключение: SDK привязывает ответы к последнему подключённому транспорту. */
   mcpServer: McpServer;
-  /** Сессия AI Studio, для которой Claude CLI запрашивает разрешения (query-параметр SSE-URL). */
+  /** Сессия Agents Studio, для которой Claude CLI запрашивает разрешения (query-параметр SSE-URL). */
   hitlSessionId?: string;
   /** Зарегистрированные инструменты прокси управления компьютером `computer_*` (TASK-82). */
   computerTools: RegisteredTool[];
@@ -327,7 +327,7 @@ class McpServerService {
 
   /**
    * Создаёт McpServer для одного SSE-подключения. `hitlSessionId` задан, если подключился
-   * Claude CLI сессии AI Studio (URL /sse?phSession=...): тогда инструмент разрешений
+   * Claude CLI сессии Agents Studio (URL /sse?phSession=...): тогда инструмент разрешений
    * отвечает от имени именно этой сессии.
    */
   private createMcpServer(hitlSessionId?: string): McpServer {
@@ -345,7 +345,7 @@ class McpServerService {
         title: 'Запрос разрешения Claude Code (Human-in-the-Loop)',
         description:
           'Служебный инструмент для флага --permission-prompt-tool Claude CLI: показывает карточку одобрения '
-          + 'в AI Studio ProjectHub и возвращает решение пользователя. Не предназначен для вызова моделью.',
+          + 'в Agents Studio ProjectHub и возвращает решение пользователя. Не предназначен для вызова моделью.',
         inputSchema: {
           tool_name: z.string().describe('Имя инструмента Claude Code (Bash, Edit, Write, AskUserQuestion …)'),
           input: z.record(z.any()).optional().describe('Вход инструмента'),
@@ -357,7 +357,7 @@ class McpServerService {
         if (!hitlSessionId) {
           decision = {
             behavior: 'deny',
-            message: `ProjectHub: подключение не привязано к сессии AI Studio (нет параметра ${CLI_HITL_QUERY_PARAM} в URL SSE).`
+            message: `ProjectHub: подключение не привязано к сессии Agents Studio (нет параметра ${CLI_HITL_QUERY_PARAM} в URL SSE).`
           };
         } else {
           try {
@@ -485,13 +485,13 @@ class McpServerService {
     );
 
     // ─────────────────────────────────────────────────────────────
-    // 5. Send Prompt to Claude Studio
+    // 5. Send Prompt to Agents Studio
     // ─────────────────────────────────────────────────────────────
     server.registerTool(
       'projecthub_send_studio_prompt',
       {
-        title: 'Отправить промпт в Claude AI Studio',
-        description: 'Вставляет или отправляет задачу AI-агенту в Claude Studio открытого проекта.',
+        title: 'Отправить промпт в Agents Studio',
+        description: 'Вставляет или отправляет задачу AI-агенту в Agents Studio открытого проекта.',
         inputSchema: {
           prompt: z.string().describe('Текст задачи/промпта для агента'),
           sendImmediately: z.boolean().optional().describe('Отправить сразу (true) или только вставить в поле ввода (false)')
@@ -506,7 +506,7 @@ class McpServerService {
           content: [
             {
               type: 'text',
-              text: `Промпт успешно передан в Claude AI Studio (${sendImmediately ? 'отправлен' : 'вставлен'}).`
+              text: `Промпт успешно передан в Agents Studio (${sendImmediately ? 'отправлен' : 'вставлен'}).`
             }
           ]
         };
@@ -1108,7 +1108,7 @@ class McpServerService {
     // 4. SSE Stream: GET /sse
     if (pathname === '/sse' && req.method === 'GET') {
       const agentProject = auth.kind === 'agent' ? auth.projectRoot : undefined;
-      // `phSession` — только для основного токена: агент проекта не может выдать себя за сессию AI Studio.
+      // `phSession` — только для основного токена: агент проекта не может выдать себя за сессию Agents Studio.
       const hitlSessionId = agentProject ? undefined : parsedUrl.searchParams.get(CLI_HITL_QUERY_PARAM) || undefined;
       console.log(
         `[MCPServer] New client connected to SSE stream${hitlSessionId ? ` (HITL для сессии ${hitlSessionId})` : ''}${agentProject ? ' (агент проекта)' : ''}`

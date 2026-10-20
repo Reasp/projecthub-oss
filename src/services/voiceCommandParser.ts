@@ -124,7 +124,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
   }
 
   // ─────────────────────────────────────────────────────────────────
-  // 2. CLAUDE STUDIO TABS & SESSION MANAGEMENT
+  // 2. AGENTS STUDIO TABS & SESSION MANAGEMENT
   // ─────────────────────────────────────────────────────────────────
   // A. New Dialog / Session: «новый диалог», «новая вкладка», «новая сессия», «new session»
   if (
@@ -139,7 +139,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     return {
       type: 'ai_control',
       intent: 'create_ai_session',
-      feedbackText: 'Создаю новый диалог в Claude Studio'
+      feedbackText: 'Создаю новый диалог в Agents Studio'
     };
   }
 
@@ -450,7 +450,8 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     normalized.includes('ассистент') ||
     normalized.includes('клауд') ||
     normalized.includes('ии') ||
-    normalized.includes('ai studio') ||
+    // «Agents Studio» и прежние «AI Studio», «Claude Studio» (TASK-137).
+    normalized.includes('studio') ||
     normalized.includes('claude') ||
     /^(чат|чет|чад|чят|chat)$/i.test(normalized) ||
     /^(открой|открыть|перейди в|перейти в|переключи на|покажи)\s+(чат|чет|чад|чят|chat)$/i.test(normalized)
@@ -459,7 +460,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
       type: 'navigation',
       intent: 'navigate_ai',
       payload: 'ai',
-      feedbackText: 'Открываю Claude AI Studio'
+      feedbackText: 'Открываю Agents Studio'
     };
   }
 

@@ -629,8 +629,8 @@ export function providerErrorAdviceRu(info: ProviderErrorInfo): string {
       return info.reason === 'forbidden'
         ? `У ключа нет доступа к этой модели или сервису: проверьте права ключа и регион у провайдера ${profile}.`.replace(/\s+:/, ':')
         : info.profileId
-          ? `Проверьте API-ключ профиля ${profile} в настройках AI Studio → «Профили провайдеров».`.replace(/\s{2,}/g, ' ')
-          : `Проверьте API-ключ провайдера ${profile} в настройках AI Studio.`.replace(/\s{2,}/g, ' ');
+          ? `Проверьте API-ключ профиля ${profile} в настройках Agents Studio → «Профили провайдеров».`.replace(/\s{2,}/g, ' ')
+          : `Проверьте API-ключ провайдера ${profile} в настройках Agents Studio.`.replace(/\s{2,}/g, ' ');
     case 'quota':
       return 'Пополните баланс или проверьте лимиты тарифа у провайдера. Другая модель того же провайдера, скорее всего, не поможет.';
     case 'model_not_found':
@@ -663,7 +663,7 @@ export function providerErrorAdviceRu(info: ProviderErrorInfo): string {
         case 'reasoning':
           return (
             `Выберите другой уровень${info.reasoningEffort ? ` вместо «${info.reasoningEffort}»` : ''} или «по умолчанию модели» в настройках ` +
-            'AI Studio или слота, либо поменяйте формат усилия в профиле провайдера.'
+            'Agents Studio или слота, либо поменяйте формат усилия в профиле провайдера.'
           );
         case 'context':
           return 'Начните новый чат, сократите контекст задачи или выберите модель с большим окном контекста.';

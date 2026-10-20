@@ -265,7 +265,7 @@ const DEFAULT_DEPS: ModelCallDeps = {
 /**
  * Вызовы модели по назначению (TASK-134.1, decision-74): резолвер выбирает движок и модель, исполнитель
  * делает вызов тем движком, который выбран. Виды вызова — одноразовый запрос (`complete`) и один ход с
- * чтением проекта (`turn`); агентов запускают AI Studio и fleet по тому же резолверу.
+ * чтением проекта (`turn`); агентов запускают Agents Studio и fleet по тому же резолверу.
  */
 export class ModelCallService {
   private readonly deps: ModelCallDeps;

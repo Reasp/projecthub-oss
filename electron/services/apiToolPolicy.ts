@@ -5,7 +5,7 @@ import type { HitlRequestType } from './hitlTypes.js';
 import { isMemoryToolName } from './memoryTools.js';
 
 /**
- * Политика инструментов API-агента Swarm и AI Studio (TASK-101, TASK-103, decision-46 п. 1, 2, 4, 6, decision-47): чистые функции без
+ * Политика инструментов API-агента Swarm и Agents Studio (TASK-101, TASK-103, decision-46 п. 1, 2, 4, 6, decision-47): чистые функции без
  * Electron, сети и файловой системы. Вердикт даёт та же `evaluateToolRequest`, что решает за Claude CLI
  * в Swarm (decision-10), поэтому у двух движков одного слота одни правила. Исполнение — `apiToolExecutor.ts`.
  */
@@ -74,12 +74,12 @@ export interface ApiToolPlan {
   approvalType: HitlRequestType;
   filePath?: string;
   command?: string;
-  /** `run_command` с `background: true`, разрешённый контекстом (AI Studio, decision-47 п. 3). */
+  /** `run_command` с `background: true`, разрешённый контекстом (Agents Studio, decision-47 п. 3). */
   background?: boolean;
 }
 
 export interface ApiToolPlanOptions {
-  /** Фоновые команды разрешены (AI Studio). В Swarm их нет: процесс пережил бы агента (decision-46 п. 2). */
+  /** Фоновые команды разрешены (Agents Studio). В Swarm их нет: процесс пережил бы агента (decision-46 п. 2). */
   allowBackground?: boolean;
   /** Запуск без человека (Automations, автозапуск назначенной задачи): задачи — только через ProjectHub (decision-89). */
   autonomous?: boolean;

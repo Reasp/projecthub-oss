@@ -17,7 +17,7 @@ import { normalizeReasoningEffort, type ReasoningEffort } from './reasoningEffor
 /** Движок вызова: CLI-агент или API-провайдер. */
 export type ModelEngine = TierEngine;
 
-/** Движок основной модели: AI Studio работает через Claude Code CLI или через API-провайдера. */
+/** Движок основной модели: Agents Studio работает через Claude Code CLI или через API-провайдера. */
 export type MainEngine = 'claude-cli' | 'api';
 
 export const MAIN_ENGINES: readonly MainEngine[] = ['claude-cli', 'api'];

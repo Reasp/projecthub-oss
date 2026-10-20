@@ -2,7 +2,7 @@ import type { StateStorage } from 'zustand/middleware';
 import type { AISession } from '../types/electron';
 
 /**
- * Персистентность AI Studio без записи на каждый чанк (TASK-35, аудит 3.1).
+ * Персистентность Agents Studio без записи на каждый чанк (TASK-35, аудит 3.1).
  *
  * - История диалогов уходит в файлы через main (`aiSessions:*`), а не в localStorage.
  * - Запись дебаунсится: во время стриминга не чаще раза в {@link SESSION_SAVE_DEBOUNCE_MS},

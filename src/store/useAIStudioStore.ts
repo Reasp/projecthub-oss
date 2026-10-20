@@ -129,7 +129,7 @@ export interface CreateSessionOptions {
 export interface SendMessageOptions {
   /** Сессия, в которую идёт сообщение; по умолчанию — активная вкладка. */
   sessionId?: string;
-  /** Конфиг этого запроса (модель с телефона); глобальный выбор AI Studio не меняется. */
+  /** Конфиг этого запроса (модель с телефона); глобальный выбор Agents Studio не меняется. */
   config?: AIProviderConfig;
   mode?: 'chat' | 'agent' | 'architect';
 }

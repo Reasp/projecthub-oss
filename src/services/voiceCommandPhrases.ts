@@ -17,9 +17,10 @@ export const CONFIGURABLE_COMMANDS: CommandPhraseDefinition[] = [
     category: 'tabs',
     nameKey: 'navigateAi',
     descKey: 'navigateAiDesc',
-    defaultPhrases: ['чат', 'чет', 'чад', 'чят', 'студия', 'студию', 'ассистент', 'клауд', 'ии', 'claude', 'ai studio'],
+    // Прежние «Claude Studio» и «AI Studio» остаются синонимами (TASK-137).
+    defaultPhrases: ['чат', 'чет', 'чад', 'чят', 'студия', 'студию', 'студия агентов', 'агентс студио', 'agents studio', 'ассистент', 'клауд', 'ии', 'claude', 'ai studio'],
     payload: 'ai',
-    feedbackText: 'Открываю Claude AI Studio'
+    feedbackText: 'Открываю Agents Studio'
   },
   {
     intent: 'navigate_kanban',
@@ -130,7 +131,7 @@ export const CONFIGURABLE_COMMANDS: CommandPhraseDefinition[] = [
     feedbackText: 'Показываю меню проектов'
   },
 
-  // ── Claude AI Studio (AI) ──
+  // ── Agents Studio (AI) ──
   {
     intent: 'new_ai_session',
     type: 'ai_control',

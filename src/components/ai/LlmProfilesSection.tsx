@@ -5,7 +5,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 
 /**
- * Профили OpenAI-совместимых провайдеров в настройках AI Studio (TASK-70.1, TASK-70.2, decision-39):
+ * Профили OpenAI-совместимых провайдеров в настройках Agents Studio (TASK-70.1, TASK-70.2, decision-39):
  * выбор профиля, создание из пресета, редактирование, удаление и каталог моделей выбранного профиля.
  * Ключ профиля в renderer не приходит: форма только задаёт новый или удаляет сохранённый.
  */
