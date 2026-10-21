@@ -1111,6 +1111,7 @@ export const en: TranslationDictionary = {
     zoomOut: 'Zoom out',
     layoutRun: 'Resume layout',
     layoutStop: 'Stop layout',
+    layingOut: 'Laying out the graph…',
     refresh: 'Reload',
     nodeTypes: 'Node types',
     edgeTypes: 'Edge types',

@@ -2,6 +2,7 @@
  * Чистая логика вкладок графов (TASK-167, decision-118): цвета и размеры узлов, фильтры по умолчанию,
  * поиск и начальная раскладка. Без React и sigma — покрыто unit-тестами.
  */
+import type Graph from 'graphology';
 import type { ProjectGraph, ProjectGraphNode } from '../types/electron';
 
 /** Палитра узлов web UI GitNexus 1.6 — граф кода выглядит так же, как в его интерфейсе. */
@@ -271,6 +272,107 @@ export function fa2Settings(order: number, kind: GraphKind = 'code') {
     edgeWeightInfluence: 1
   };
 }
+
+export type Fa2Settings = ReturnType<typeof fa2Settings>;
+
+/**
+ * Полная раскладка до показа графа, итераций. Граф ссылок ProjectHub (451 узел, 1790 связей) распутывается
+ * примерно за 1000 итераций: после 266 средняя длина связи на 30 % больше, чем после 1000.
+ */
+export const PRESETTLE_FULL_ITERATIONS = 1000;
+/** Бюджет раскладки до показа, «узлов × итераций»: ~2 с в воркере. */
+const PRESETTLE_BUDGET = 600_000;
+const PRESETTLE_MIN_ITERATIONS = 40;
+
+/**
+ * Сколько итераций ForceAtlas2 прогнать в воркере до показа графа (TASK-182, decision-140): граф открывается уже
+ * разложенным, а не распутывается на глазах. Меньше `PRESETTLE_FULL_ITERATIONS` — крупный граф: он показывается
+ * распутанным вчерне и доводится на экране. Очень крупный граф кода — 0, раскладывается на экране, как раньше.
+ */
+export function presettleIterations(order: number): number {
+  if (order < 2) return 0;
+  const iterations = Math.min(PRESETTLE_FULL_ITERATIONS, Math.floor(PRESETTLE_BUDGET / order));
+  return iterations < PRESETTLE_MIN_ITERATIONS ? 0 : iterations;
+}
+
+/** Доля раскладки, которая идёт с полным шагом; дальше шаг уменьшается. */
+const COOL_FROM = 0.75;
+/** Во сколько раз мельче шаг к концу раскладки. */
+const COOL_FACTOR = 100;
+
+/**
+ * Охлаждение ForceAtlas2: `slowDown` в момент `progress` (0…1) раскладки. У ForceAtlas2 в graphology нет общего
+ * охлаждения — скорость каждого узла адаптивная, и узлы колеблются на месте сколько угодно долго (на графе
+ * ссылок ProjectHub — 2–3 % размера графа за 30 итераций). Первые три четверти распутывают граф с полным шагом,
+ * последняя геометрически уменьшает шаг до неподвижности.
+ */
+export function cooledSlowDown(base: number, progress: number): number {
+  const t = Math.min(1, Math.max(0, progress));
+  if (t <= COOL_FROM) return base;
+  return base * Math.pow(COOL_FACTOR, (t - COOL_FROM) / (1 - COOL_FROM));
+}
+
+/**
+ * Ключ раскладки графа для кэша: тот же набор узлов и связей — те же координаты при повторном открытии вкладки,
+ * без новой раскладки. Хэш FNV-1a по id узлов и концам связей.
+ */
+export function graphLayoutKey(kind: GraphKind, graph: ProjectGraph): string {
+  let h = 0x811c9dc5;
+  const feed = (text: string) => {
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    h ^= 0x1f;
+    h = Math.imul(h, 0x01000193);
+  };
+  for (const n of graph.nodes) feed(n.id);
+  for (const e of graph.edges) feed(`${e.source}>${e.target}`);
+  return `${kind}:${graph.nodes.length}:${graph.edges.length}:${(h >>> 0).toString(36)}`;
+}
+
+/** Координаты узлов подряд `x0, y0, x1, y1, …` — снимок раскладки для оценки движения. */
+export type PositionSnapshot = Float64Array;
+
+export function snapshotPositions(graph: Graph): PositionSnapshot {
+  const out = new Float64Array(graph.order * 2);
+  let i = 0;
+  graph.forEachNode((_node, attrs) => {
+    out[i++] = attrs.x;
+    out[i++] = attrs.y;
+  });
+  return out;
+}
+
+/**
+ * Среднее смещение узла между двумя снимками в долях диагонали графа. Доля, а не пиксели и не координаты:
+ * масштаб координат ForceAtlas2 зависит от размера графа и `scalingRatio`.
+ */
+export function layoutMovement(prev: PositionSnapshot, next: PositionSnapshot): number {
+  const count = next.length / 2;
+  if (count === 0 || prev.length !== next.length) return Number.POSITIVE_INFINITY;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let total = 0;
+  for (let i = 0; i < next.length; i += 2) {
+    const x = next[i];
+    const y = next[i + 1];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    total += Math.hypot(x - prev[i], y - prev[i + 1]);
+  }
+  const diagonal = Math.hypot(maxX - minX, maxY - minY);
+  return diagonal > 0 ? total / count / diagonal : 0;
+}
+
+/** Порог «раскладка улеглась» для смещения за `SETTLE_SAMPLE_MS`: доля процента диагонали — глазу не видно. */
+export const SETTLED_MOVEMENT = 0.001;
+/** Как часто снимать раскладку в воркере, чтобы решить, не пора ли её остановить. */
+export const SETTLE_SAMPLE_MS = 500;
 
 /** Порядок свойств в панели узла: путь и строки сначала, длинные описания — в конце. */
 const PROP_ORDER = ['filePath', 'file_path', 'startLine', 'endLine', 'community', 'description', 'source_id', 'created_at'];

@@ -1112,6 +1112,7 @@ export const ru: TranslationDictionary = {
     zoomOut: 'Отдалить',
     layoutRun: 'Продолжить раскладку',
     layoutStop: 'Остановить раскладку',
+    layingOut: 'Раскладываю граф…',
     refresh: 'Загрузить заново',
     nodeTypes: 'Типы узлов',
     edgeTypes: 'Типы связей',

@@ -3,18 +3,27 @@ import Graph from 'graphology';
 import Sigma from 'sigma';
 import type { NodeHoverDrawingFunction } from 'sigma/rendering';
 import FA2Layout from 'graphology-layout-forceatlas2/worker';
-import { ExternalLink, Maximize2, Pause, Play, RefreshCw, Search, X, ZoomIn, ZoomOut } from '../common/icons';
+import { ExternalLink, Loader2, Maximize2, Pause, Play, RefreshCw, Search, X, ZoomIn, ZoomOut } from '../common/icons';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { ProjectGraph, ProjectGraphNode } from '../../types/electron';
 import {
   colorForType,
+  cooledSlowDown,
   countTypes,
   defaultHiddenTypes,
   fa2Settings,
   initialPositions,
+  layoutMovement,
   nodeSize,
   orderedProps,
+  graphLayoutKey,
+  PRESETTLE_FULL_ITERATIONS,
+  presettleIterations,
   searchNodes,
+  SETTLE_SAMPLE_MS,
+  SETTLED_MOVEMENT,
+  snapshotPositions,
+  type Fa2Settings,
   type GraphKind
 } from '../../lib/graphView';
 
@@ -67,8 +76,28 @@ export interface GraphExplorerProps {
 const NO_COLORS: Record<string, string> = {};
 const DIM_NODE = '#334155';
 const FOCUS_EDGE = 'rgba(226, 232, 240, 0.75)';
-/** Сколько длится раскладка после открытия: крупный граф кода сходится дольше. */
+/** Верхний предел раскладки в воркере: крупный граф кода сходится дольше. Обычно она останавливается раньше, когда граф улёгся. */
 const LAYOUT_MS = { code: 20_000, docs: 5_000, links: 8_000 } as const;
+
+/**
+ * Параметры воркера ForceAtlas2. Супервизор отправляет `settings` в воркер с каждым запросом итераций, поэтому
+ * охлаждение меняет `slowDown` на ходу, не перезапуская раскладку. Поля нет в типах пакета — версия закреплена.
+ */
+function workerSettings(layout: FA2Layout<NodeAttrs, EdgeAttrs>): Fa2Settings | undefined {
+  return (layout as unknown as { settings?: Fa2Settings }).settings;
+}
+
+/** Координаты разложенных графов на время сессии: повторное открытие вкладки — сразу готовый граф. */
+const layoutCache = new Map<string, Map<string, { x: number; y: number }>>();
+const LAYOUT_CACHE_SIZE = 8;
+
+function rememberLayout(key: string, graph: Graph<NodeAttrs, EdgeAttrs>) {
+  const positions = new Map<string, { x: number; y: number }>();
+  graph.forEachNode((node, attrs) => positions.set(node, { x: attrs.x, y: attrs.y }));
+  layoutCache.delete(key);
+  layoutCache.set(key, positions);
+  if (layoutCache.size > LAYOUT_CACHE_SIZE) layoutCache.delete(layoutCache.keys().next().value as string);
+}
 const MAX_LISTED_NEIGHBORS = 80;
 
 function withAlpha(hex: string, alpha: number): string {
@@ -141,6 +170,7 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
   const [selected, setSelected] = useState<string | null>(() => (initialFocus && graph.nodes.some((n) => n.id === initialFocus) ? initialFocus : null));
   const [hideOrphans, setHideOrphans] = useState(false);
   const [layoutRunning, setLayoutRunning] = useState(false);
+  const [settling, setSettling] = useState(false);
   const typeLabel = useCallback((type: string) => typeLabels?.[type] ?? type, [typeLabels]);
   const onOpenNodeRef = useRef(onOpenNode);
   onOpenNodeRef.current = onOpenNode;
@@ -174,20 +204,39 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
   }, []);
 
   const stopLayout = useCallback(() => {
-    if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current);
+    if (layoutTimer.current !== null) window.clearInterval(layoutTimer.current);
     layoutTimer.current = null;
     layoutRef.current?.stop();
     setLayoutRunning(false);
   }, []);
 
+  // Раскладка в воркере охлаждается к концу отведённого времени и останавливается, как только узлы перестали
+  // заметно двигаться (TASK-182): у ForceAtlas2 нет своей остановки, без этого узлы дрожат до таймера.
   const startLayout = useCallback(
     (ms: number) => {
       const layout = layoutRef.current;
-      if (!layout) return;
+      const gr = graphRef.current;
+      if (!layout || !gr) return;
+      const settings = workerSettings(layout);
+      const base = settings?.slowDown ?? 1;
+      if (settings) settings.slowDown = base;
       layout.start();
       setLayoutRunning(true);
-      if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current);
-      layoutTimer.current = window.setTimeout(stopLayout, ms);
+      if (layoutTimer.current !== null) window.clearInterval(layoutTimer.current);
+      const startedAt = performance.now();
+      let prev = snapshotPositions(gr);
+      layoutTimer.current = window.setInterval(() => {
+        const progress = (performance.now() - startedAt) / ms;
+        const next = snapshotPositions(gr);
+        const settled = layoutMovement(prev, next) < SETTLED_MOVEMENT;
+        prev = next;
+        if (progress >= 1 || settled) {
+          if (settings) settings.slowDown = base;
+          stopLayout();
+          return;
+        }
+        if (settings) settings.slowDown = cooledSlowDown(base, progress);
+      }, SETTLE_SAMPLE_MS);
     },
     [stopLayout]
   );
@@ -226,73 +275,114 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
     }
     graphRef.current = gr;
 
-    const big = gr.order > 2000;
-    const renderer = new Sigma<NodeAttrs, EdgeAttrs>(gr, container, {
-      allowInvalidContainer: true,
-      zIndex: true,
-      hideEdgesOnMove: big,
-      labelColor: { color: '#cbd5e1' },
-      labelSize: 11,
-      labelFont: 'Inter, "Segoe UI", system-ui, sans-serif',
-      labelRenderedSizeThreshold: kind === 'code' ? 9 : kind === 'links' ? 8 : 5,
-      labelDensity: kind === 'code' ? 0.5 : kind === 'links' ? 0.7 : 1,
-      defaultDrawNodeHover: drawDarkHover,
-      minCameraRatio: 0.02,
-      maxCameraRatio: 20,
-      nodeReducer: (node, data) => {
-        if (hiddenTypesRef.current.has(data.nodeType)) return { ...data, hidden: true };
-        if (hideOrphansRef.current && gr.degree(node) === 0) return { ...data, hidden: true };
-        const { node: focus, neighbors } = focusRef.current;
-        if (!focus) return data;
-        if (node === focus) return { ...data, highlighted: true, forceLabel: true, zIndex: 2 };
-        if (neighbors.has(node)) return { ...data, forceLabel: neighbors.size <= 40, zIndex: 1 };
-        return { ...data, color: DIM_NODE, label: '', zIndex: 0 };
-      },
-      edgeReducer: (edge, data) => {
-        if (hiddenEdgeTypesRef.current.has(data.edgeType)) return { ...data, hidden: true };
-        const [source, target] = gr.extremities(edge);
-        const hidden = hiddenTypesRef.current;
-        if (hidden.has(gr.getNodeAttribute(source, 'nodeType')) || hidden.has(gr.getNodeAttribute(target, 'nodeType'))) {
+    const settings = fa2Settings(gr.order, kind);
+    const layout = new FA2Layout(gr, { settings: { ...settings } });
+    layoutRef.current = layout;
+    const cacheKey = graphLayoutKey(kind, graph);
+    const cached = layoutCache.get(cacheKey);
+    if (cached) gr.updateEachNodeAttributes((node, attrs) => ({ ...attrs, ...(cached.get(node) ?? {}) }));
+    const presettle = cached ? 0 : presettleIterations(gr.order);
+    let renderer: Sigma<NodeAttrs, EdgeAttrs> | null = null;
+
+    const mount = (settled: boolean) => {
+      const big = gr.order > 2000;
+      const r = new Sigma<NodeAttrs, EdgeAttrs>(gr, container, {
+        allowInvalidContainer: true,
+        zIndex: true,
+        hideEdgesOnMove: big,
+        labelColor: { color: '#cbd5e1' },
+        labelSize: 11,
+        labelFont: 'Inter, "Segoe UI", system-ui, sans-serif',
+        labelRenderedSizeThreshold: kind === 'code' ? 9 : kind === 'links' ? 8 : 5,
+        labelDensity: kind === 'code' ? 0.5 : kind === 'links' ? 0.7 : 1,
+        defaultDrawNodeHover: drawDarkHover,
+        minCameraRatio: 0.02,
+        maxCameraRatio: 20,
+        nodeReducer: (node, data) => {
+          if (hiddenTypesRef.current.has(data.nodeType)) return { ...data, hidden: true };
+          if (hideOrphansRef.current && gr.degree(node) === 0) return { ...data, hidden: true };
+          const { node: focus, neighbors } = focusRef.current;
+          if (!focus) return data;
+          if (node === focus) return { ...data, highlighted: true, forceLabel: true, zIndex: 2 };
+          if (neighbors.has(node)) return { ...data, forceLabel: neighbors.size <= 40, zIndex: 1 };
+          return { ...data, color: DIM_NODE, label: '', zIndex: 0 };
+        },
+        edgeReducer: (edge, data) => {
+          if (hiddenEdgeTypesRef.current.has(data.edgeType)) return { ...data, hidden: true };
+          const [source, target] = gr.extremities(edge);
+          const hidden = hiddenTypesRef.current;
+          if (hidden.has(gr.getNodeAttribute(source, 'nodeType')) || hidden.has(gr.getNodeAttribute(target, 'nodeType'))) {
+            return { ...data, hidden: true };
+          }
+          const focus = focusRef.current.node;
+          if (!focus) return data;
+          // В фокусе остаются только связи выбранного узла: на крупном графе остальное — шум.
+          if (source === focus || target === focus) return { ...data, color: FOCUS_EDGE, size: Math.max(1.2, data.size), zIndex: 1 };
           return { ...data, hidden: true };
         }
-        const focus = focusRef.current.node;
-        if (!focus) return data;
-        // В фокусе остаются только связи выбранного узла: на крупном графе остальное — шум.
-        if (source === focus || target === focus) return { ...data, color: FOCUS_EDGE, size: Math.max(1.2, data.size), zIndex: 1 };
-        return { ...data, hidden: true };
-      }
-    });
-    sigmaRef.current = renderer;
+      });
+      renderer = r;
+      sigmaRef.current = r;
+      // Рамка разложенного графа фиксируется: иначе sigma на каждом кадре раскладки заново вписывает граф
+      // в экран, и он «дышит» масштабом. Недоразложенный граф ещё расходится — ему рамка не нужна.
+      if (settled) r.setCustomBBox(r.getBBox());
 
-    renderer.on('enterNode', ({ node }) => {
-      hoveredRef.current = node;
-      container.style.cursor = 'pointer';
-      refreshFocus();
-    });
-    renderer.on('leaveNode', () => {
-      hoveredRef.current = null;
-      container.style.cursor = '';
-      refreshFocus();
-    });
-    renderer.on('clickNode', ({ node }) => setSelected(node));
-    renderer.on('doubleClickNode', ({ node, preventSigmaDefault }) => {
-      const open = onOpenNodeRef.current;
-      const target = graph.nodes.find((n) => n.id === node);
-      if (!open || !target || canOpenNodeRef.current?.(target) === false) return;
-      preventSigmaDefault();
-      open(target);
-    });
-    renderer.on('clickStage', () => setSelected(null));
+      r.on('enterNode', ({ node }) => {
+        hoveredRef.current = node;
+        container.style.cursor = 'pointer';
+        refreshFocus();
+      });
+      r.on('leaveNode', () => {
+        hoveredRef.current = null;
+        container.style.cursor = '';
+        refreshFocus();
+      });
+      r.on('clickNode', ({ node }) => setSelected(node));
+      r.on('doubleClickNode', ({ node, preventSigmaDefault }) => {
+        const open = onOpenNodeRef.current;
+        const target = graph.nodes.find((n) => n.id === node);
+        if (!open || !target || canOpenNodeRef.current?.(target) === false) return;
+        preventSigmaDefault();
+        open(target);
+      });
+      r.on('clickStage', () => setSelected(null));
+      setSettling(false);
+      if (!settled) startLayout(LAYOUT_MS[kind]);
+    };
 
-    layoutRef.current = new FA2Layout(gr, { settings: fa2Settings(gr.order, kind) });
-    startLayout(LAYOUT_MS[kind]);
+    // Граф раскладывается в воркере до показа (TASK-182): пользователь видит индикатор, а потом неподвижный граф,
+    // а не распутывание на глазах. Охлаждение идёт по номеру итерации — воркер присылает узлы после каждой.
+    let onIteration: (() => void) | null = null;
+    if (presettle > 0) {
+      setSettling(true);
+      const live = workerSettings(layout);
+      let done = 0;
+      const iterationHandler = () => {
+        done++;
+        if (live) live.slowDown = cooledSlowDown(settings.slowDown, done / presettle);
+        if (done < presettle) return;
+        gr.removeListener('eachNodeAttributesUpdated', iterationHandler);
+        onIteration = null;
+        layout.stop();
+        if (live) live.slowDown = settings.slowDown;
+        const full = presettle >= PRESETTLE_FULL_ITERATIONS;
+        if (full) rememberLayout(cacheKey, gr);
+        mount(full);
+      };
+      onIteration = iterationHandler;
+      gr.on('eachNodeAttributesUpdated', iterationHandler);
+      layout.start();
+    } else {
+      mount(Boolean(cached));
+    }
 
     return () => {
-      if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current);
+      if (onIteration) gr.removeListener('eachNodeAttributesUpdated', onIteration);
+      if (layoutTimer.current !== null) window.clearInterval(layoutTimer.current);
       layoutTimer.current = null;
-      layoutRef.current?.kill();
+      layout.kill();
       layoutRef.current = null;
-      renderer.kill();
+      renderer?.kill();
       sigmaRef.current = null;
       graphRef.current = null;
     };
@@ -333,13 +423,13 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
     []
   );
 
-  // «Показать на графе»: камера едет к узлу, когда раскладка уже разнесла граф, и ещё раз после её
-  // остановки — за это время узел успевает сместиться.
+  // «Показать на графе»: камера едет к узлу, как только граф показан, и ещё раз после остановки раскладки
+  // на экране — за это время узел успевает сместиться.
   useEffect(() => {
-    if (!initialFocus) return;
-    const timers = [1200, LAYOUT_MS[kind] + 300].map((ms) => window.setTimeout(() => focusNode(initialFocus), ms));
+    if (!initialFocus || settling) return;
+    const timers = [300, LAYOUT_MS[kind] + 300].map((ms) => window.setTimeout(() => focusNode(initialFocus), ms));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [initialFocus, focusNode, kind]);
+  }, [initialFocus, focusNode, kind, settling]);
 
   const results = useMemo(() => (searchOpen ? searchNodes(graph.nodes, query, 20) : []), [graph, query, searchOpen]);
 
@@ -456,6 +546,7 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
             type="button"
             className={iconButton}
             onClick={() => (layoutRunning ? stopLayout() : startLayout(LAYOUT_MS[kind]))}
+            disabled={settling}
             title={layoutRunning ? g.layoutStop : g.layoutRun}
             data-testid="graph-layout-toggle"
           >
@@ -470,6 +561,12 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 relative overflow-hidden bg-[#0b1120]">
           <div ref={containerRef} className="absolute inset-0" data-testid="graph-canvas" />
+          {settling && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3" data-testid="graph-settling">
+              <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
+              <p className="text-xs text-slate-400">{g.layingOut}</p>
+            </div>
+          )}
         </div>
 
         <aside className="w-72 shrink-0 border-l border-slate-800/80 overflow-y-auto custom-scrollbar bg-ph-panel">

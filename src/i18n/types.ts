@@ -1083,6 +1083,7 @@ export interface TranslationDictionary {
     zoomOut: string;
     layoutRun: string;
     layoutStop: string;
+    layingOut: string;
     refresh: string;
     nodeTypes: string;
     edgeTypes: string;
