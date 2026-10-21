@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Graph from 'graphology';
 import Sigma from 'sigma';
-import type { NodeHoverDrawingFunction } from 'sigma/rendering';
+import { drawDiscNodeLabel, type NodeHoverDrawingFunction } from 'sigma/rendering';
 import FA2Layout from 'graphology-layout-forceatlas2/worker';
 import { ExternalLink, Loader2, Maximize2, Pause, Play, RefreshCw, Search, X, ZoomIn, ZoomOut } from '../common/icons';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -14,6 +14,8 @@ import {
   fa2Settings,
   initialPositions,
   layoutMovement,
+  labelVisibleAtZoom,
+  NODE_SCALE,
   nodeSize,
   orderedProps,
   graphLayoutKey,
@@ -268,7 +270,7 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
     for (const e of graph.edges) {
       if (!gr.hasNode(e.source) || !gr.hasNode(e.target) || gr.hasEdge(e.source, e.target)) continue;
       gr.addEdge(e.source, e.target, {
-        size: kind === 'code' ? 0.6 : kind === 'links' ? 0.5 + 1.5 * ((e.weight ?? 1) / maxWeight) : 1 + 2 * ((e.weight ?? 1) / maxWeight),
+        size: NODE_SCALE * (kind === 'code' ? 0.6 : kind === 'links' ? 0.5 + 1.5 * ((e.weight ?? 1) / maxWeight) : 1 + 2 * ((e.weight ?? 1) / maxWeight)),
         color: withAlpha(edgeColor(e.type), kind === 'code' ? 0.35 : kind === 'links' ? 0.4 : 0.55),
         edgeType: e.type
       });
@@ -286,6 +288,7 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
 
     const mount = (settled: boolean) => {
       const big = gr.order > 2000;
+      const labelThreshold = NODE_SCALE * (kind === 'code' ? 9 : kind === 'links' ? 8 : 5);
       const r = new Sigma<NodeAttrs, EdgeAttrs>(gr, container, {
         allowInvalidContainer: true,
         zIndex: true,
@@ -293,9 +296,19 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
         labelColor: { color: '#cbd5e1' },
         labelSize: 11,
         labelFont: 'Inter, "Segoe UI", system-ui, sans-serif',
-        labelRenderedSizeThreshold: kind === 'code' ? 9 : kind === 'links' ? 8 : 5,
+        // Порог подписи проверяет `drawLabel` с учётом зума: размер узла на экране постоянен.
+        labelRenderedSizeThreshold: 0,
         labelDensity: kind === 'code' ? 0.5 : kind === 'links' ? 0.7 : 1,
         defaultDrawNodeHover: drawDarkHover,
+        defaultDrawNodeLabel: (ctx, data, settings) => {
+          // sigma рисует первый кадр ещё в конструкторе, до присваивания рендерера: тогда зум исходный, 1.
+          const ratio = sigmaRef.current?.getCamera().getState().ratio ?? 1;
+          if (!data.forceLabel && !labelVisibleAtZoom(data.size, labelThreshold, ratio)) return;
+          drawDiscNodeLabel(ctx, data, settings);
+        },
+        // Размер узлов и связей на экране не зависит от зума (TASK-183): приближение раздвигает узлы,
+        // а не раздувает их вместе с расстояниями.
+        zoomToSizeRatioFunction: () => 1,
         minCameraRatio: 0.02,
         maxCameraRatio: 20,
         nodeReducer: (node, data) => {

@@ -128,6 +128,26 @@ export type GraphKind = 'code' | 'docs' | 'links';
 
 /** Размер узла: базовый по типу (для кода) плюс логарифм степени — хабы заметнее, но не заслоняют граф. */
 export function nodeSize(kind: GraphKind, type: string, degree: number): number {
+  return NODE_SCALE * baseNodeSize(kind, type, degree);
+}
+
+/**
+ * Узлы и связи на четверть мельче исходной шкалы (TASK-183): граф вписан в экран, и расстояние между центрами
+ * задаёт число узлов, а не параметры раскладки, — просвет между узлами растёт только за счёт их размера.
+ * Пороги подписей sigma умножаются на тот же коэффициент, чтобы подписей было столько же.
+ */
+export const NODE_SCALE = 0.75;
+
+/**
+ * Видна ли подпись узла при зуме `ratio` (меньше 1 — приближение). Размер узла на экране от зума не зависит
+ * (TASK-183), поэтому порог подписи сам уменьшается при приближении — так же, как раньше подписи появлялись,
+ * когда sigma увеличивала узлы в √(1/ratio) раз.
+ */
+export function labelVisibleAtZoom(size: number, threshold: number, ratio: number): boolean {
+  return size >= threshold * Math.sqrt(ratio);
+}
+
+function baseNodeSize(kind: GraphKind, type: string, degree: number): number {
   // Граф ссылок плотный (сотни узлов, тысячи связей): узлы мельче, иначе хабы слипаются в один клубок.
   if (kind === 'links') return Math.min(14, 3 + Math.log2(1 + Math.max(0, degree)) * 1.1);
   const base = kind === 'code' ? (GITNEXUS_NODE_SIZES[type] ?? 3) : 5;
