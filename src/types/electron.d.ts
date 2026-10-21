@@ -1607,6 +1607,8 @@ export interface IElectronAPI {
   disconnectFederationPeer: (hostId: string) => Promise<FederationPeerState>;
   federationCall: <T = unknown>(hostId: string, method: RemoteRpcMethod | string, params?: Record<string, unknown>) => Promise<T>;
   getFederationHosts: () => Promise<FederationHost[]>;
+  takeDeepLinks: () => Promise<string[]>;
+  onDeepLinkAvailable: (callback: () => void) => () => void;
   /** Сводка флота этого ПК (TASK-174, decision-129) и событие её изменения с дебаунсом. */
   getLocalOverview: () => Promise<import('../utils/fleetOverview').RemoteOverview>;
   onLocalOverviewChanged: (callback: () => void) => () => void;
@@ -2133,6 +2135,7 @@ export type AppBusEvent =
   | { type: 'process:crashed'; processId: string; name: string; projectPath: string; exitCode?: number; hostId?: string; at: number }
   | { type: 'pr:created'; projectPath: string; number: number; title: string; url: string; hostId?: string; at: number }
   | { type: 'pr:checksFailed'; projectPath: string; number: number; title: string; url: string; hostId?: string; at: number }
+  | { type: 'federation:peerIntroduced'; peerHostId: string; peerName: string; byDevice: string; hostId?: string; at: number }
   | {
       type: 'remote:deviceConnected';
       deviceId: string;

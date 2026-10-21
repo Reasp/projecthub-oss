@@ -17,6 +17,7 @@ import clsx from 'clsx';
 import { useAppState, useServices } from '../app/context';
 import { useFleet, useScopeActions } from '../app/useFleet';
 import { ComputerSheet } from '../components/ComputerSheet';
+import { IntroduceCard } from '../components/IntroduceCard';
 import { RouteBadge } from '../components/RouteBadge';
 import { Screen } from '../components/Screen';
 import { Badge, Button, SectionTitle } from '../components/ui';
@@ -385,6 +386,8 @@ export function ComputersScreen({ onOpenInbox, onOpenProcesses }: ComputersScree
         </button>
 
         <div className="ml-2 border-l border-ph-line/70 pl-1">{fleet.map(renderHost)}</div>
+
+        <IntroduceCard fleet={fleet} />
 
         <Button variant="ghost" className="mt-2 w-full" onClick={() => addHost()}>
           <PlusIcon size={18} /> {tr.shell.addComputer}

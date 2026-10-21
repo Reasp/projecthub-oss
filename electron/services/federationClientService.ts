@@ -49,6 +49,11 @@ interface PeerCredentials {
    */
   hostKey?: string;
   deviceToken?: string;
+  /**
+   * `deviceId`, под которым хост знает этот ПК. Пусто — hostId этого ПК. Знакомство через телефон (decision-143) выдаёт
+   * свой `fed_…`: его выбирает хост, а не мы.
+   */
+  deviceId?: string;
   /** Автоподключаться при старте приложения. */
   autoConnect?: boolean;
   addedAt: number;
@@ -174,6 +179,10 @@ class FederationClientService {
     return Array.from(this.peers.values()).map((p) => this.toState(p));
   }
 
+  private peerDeviceId(peer: PeerConnection): string {
+    return peer.credentials.deviceId || this.localHostId || 'projecthub-hub';
+  }
+
   private toState(peer: PeerConnection): FederationPeerState {
     return {
       hostId: peer.credentials.hostId,
@@ -207,6 +216,9 @@ class FederationClientService {
     /** Ключ сессий хоста из ссылки сопряжения (`hk`): сразу v2, без первого подключения по общему ключу. */
     hostKey?: string;
     pin?: string;
+    /** Готовые `deviceId` и токен, выданные хостом по знакомству (decision-143): PIN и ключ не нужны. */
+    deviceId?: string;
+    deviceToken?: string;
     autoConnect?: boolean;
   }): Promise<FederationPeerState> {
     await this.ensureLoaded();
@@ -224,7 +236,12 @@ class FederationClientService {
       secretKey: options.secretKey?.trim() || existing?.credentials.secretKey,
       // Новый ключ хоста — только явно из ссылки: подменить закреплённый ключ молча нельзя.
       hostKey: hostKey || existing?.credentials.hostKey,
-      deviceToken: existing?.credentials.deviceToken,
+      deviceToken: options.deviceToken?.trim() || existing?.credentials.deviceToken,
+      ...(options.deviceToken?.trim() && options.deviceId?.trim()
+        ? { deviceId: options.deviceId.trim() }
+        : existing?.credentials.deviceId
+          ? { deviceId: existing.credentials.deviceId }
+          : {}),
       autoConnect: options.autoConnect ?? existing?.credentials.autoConnect ?? true,
       addedAt: existing?.credentials.addedAt || Date.now()
     };
@@ -374,7 +391,7 @@ class FederationClientService {
     peer.pendingHandshake = null;
     try {
       const result = await hs.finish(serverHello, {
-        deviceId: this.localHostId || 'projecthub-hub',
+        deviceId: this.peerDeviceId(peer),
         hostId: peer.credentials.hostId,
         hostKey: peer.credentials.hostKey
       });
@@ -460,7 +477,7 @@ class FederationClientService {
       hostId: peer.credentials.hostId,
       transport: peer.credentials.transport,
       address: peer.credentials.address,
-      deviceId: this.localHostId || 'projecthub-hub',
+      deviceId: this.peerDeviceId(peer),
       deviceName: this.localMachineName
     });
 

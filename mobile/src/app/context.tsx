@@ -3,7 +3,7 @@ import type { Language } from '../i18n';
 import type { Platform } from '../platform/types';
 import type { HostProfile } from '../protocol/pairing';
 import type { ProfileList } from '../protocol/profiles';
-import type { RemoteClient } from '../protocol/remoteClient';
+import type { RemoteClient, RpcMethod } from '../protocol/remoteClient';
 import type { AppState, AppStore } from './appStore';
 import type { HostPool, HostSummary, OverviewSnapshot } from './hostPool';
 import type { InboxActions } from './inboxActions';
@@ -35,6 +35,8 @@ export interface AppServices {
   voice: VoiceController;
   /** Сменить язык интерфейса и запомнить выбор (TASK-140.15). */
   setLanguage(lang: Language): void;
+  /** RPC нужному ПК: открытому — его соединением, остальным — соединением пула (знакомство ПК, TASK-186). */
+  rpcTo<T = unknown>(profileId: string, method: RpcMethod, params?: Record<string, unknown>): Promise<T>;
 }
 
 const ServicesContext = createContext<AppServices | null>(null);

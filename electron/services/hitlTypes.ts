@@ -324,6 +324,15 @@ export type AppBusEvent =
       hostId?: string;
       at: number;
     }
+  /** Телефон познакомил этот ПК с другим ПК владельца: тот добавлен пиром hub-режима (decision-143). */
+  | {
+      type: 'federation:peerIntroduced';
+      peerHostId: string;
+      peerName: string;
+      byDevice: string;
+      hostId?: string;
+      at: number;
+    }
   /** Устройство прошло проверку PIN/ключа/токена, но ждёт одобрения на ПК (TASK-173). */
   | {
       type: 'remote:deviceApprovalRequested';

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { FederationHost, FederationPeerState, FederationTransport, RemoteQueueView, RemoteTeam } from '../types/remote';
+import type { PeerPairingFields } from '../utils/remotePairingLink';
 
 /**
  * Стор федерации компьютеров (TASK-66, decision-11 п.4): каталог хостов, сопряжённые пиры и
@@ -76,6 +77,25 @@ export interface RemoteHostData {
 
 export type RemoteHostTab = 'overview' | 'tasks' | 'processes' | 'agents' | 'hitl' | 'queue';
 
+/** Заполненная форма нового хоста: из ссылки `projecthub://` или найденного в каталоге ПК (decision-143). */
+export type AddPeerDraft = Partial<PeerPairingFields> & { machineName?: string };
+
+/** Черновик формы для ПК из каталога релея или LAN: адрес есть, ключа нет — нужен PIN или ссылка. */
+export function catalogDraft(host: FederationHost): AddPeerDraft {
+  const ip = host.localIps?.[0];
+  return {
+    hostId: host.hostId,
+    machineName: host.machineName,
+    transport: ip ? 'lan' : 'relay',
+    address: ip ? `${ip}:${host.port || 42050}` : ''
+  };
+}
+
+/** ПК каталога, с которыми этот ПК ещё не сопряжён. */
+export function discoveredHosts(catalog: FederationHost[], peers: FederationPeerState[], selfHostId?: string): FederationHost[] {
+  return catalog.filter((h) => h.source !== 'self' && h.hostId !== selfHostId && !peers.some((p) => p.hostId === h.hostId));
+}
+
 /** Действие участника с задачей на общем хосте: взять, отказаться, поставить в очередь слияния. */
 export type RemoteTeamAction = 'take_task' | 'release_task' | 'queue_enqueue';
 
@@ -88,8 +108,14 @@ interface FederationState {
   data: Record<string, RemoteHostData>;
   lastEvent: { hostId: string; machineName: string; event: string; at: number } | null;
 
+  /** Черновик формы добавления: окно забирает его при показе (`takeAddDraft`). */
+  addDraft: AddPeerDraft | null;
+
   init: () => void;
   open: (hostId?: string) => void;
+  /** Открыть окно сразу на форме добавления хоста, заполнив её. */
+  openAdd: (draft: AddPeerDraft) => void;
+  takeAddDraft: () => AddPeerDraft | null;
   close: () => void;
   setActiveTab: (tab: RemoteHostTab) => void;
   refreshPeers: () => Promise<void>;
@@ -150,6 +176,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
   activeTab: 'overview',
   data: {},
   lastEvent: null,
+  addDraft: null,
 
   init: () => {
     if (!window.api) return;
@@ -180,6 +207,18 @@ export const useFederationStore = create<FederationState>((set, get) => ({
     void get().refreshCatalog();
     const target = hostId || get().selectedHostId;
     if (target) void get().loadHostData(target);
+  },
+
+  openAdd: (draft) => {
+    set({ isOpen: true, addDraft: draft });
+    void get().refreshPeers();
+    void get().refreshCatalog();
+  },
+
+  takeAddDraft: () => {
+    const draft = get().addDraft;
+    if (draft) set({ addDraft: null });
+    return draft;
   },
 
   close: () => set({ isOpen: false }),

@@ -103,6 +103,7 @@ import { classifyLanAddresses, rankLanAddresses } from './lanAddresses.js';
 import { resolveTunnelCommand } from './tunnelCommand.js';
 import treeKill from 'tree-kill';
 import { buildHostEndpoints, relayEndpoint, type RemoteEndpoint } from '../../src/utils/remoteEndpoints.js';
+import { isPeerIntroduction, pickPeerAddress } from '../../src/utils/fleetIntroduce.js';
 import matter from 'gray-matter';
 import {
   MOBILE_CLIENT_DIST,
@@ -189,6 +190,9 @@ const REMOTE_WRITE_METHODS = new Set([
   'studio_clear',
   // Выдача токена новому устройству — действие владельца хоста, только с правами full (decision-111).
   'enroll_device',
+  // Знакомство ПК через телефон (decision-143): пир hub-режима на этом ПК и отзыв неиспользованного токена.
+  'federation_add_peer',
+  'revoke_introduced_device',
   // «Входящие» (decision-117 п. 3, 4): разбор ленты и решение по задаче из Review — решения человека, как HITL.
   'inbox_dismiss',
   'review_task',
@@ -220,6 +224,13 @@ interface DeviceTokenRecord {
    * доступ к этому хосту через соседний ПК федерации. Отзыв того устройства отзывает и это.
    */
   delegatedBy?: string;
+  /**
+   * Токен выдан другому ПК владельца по знакомству с телефона (decision-143): `deviceId` телефона, только для журнала.
+   * Отзыв телефона знакомство не отзывает — связь ПК ↔ ПК не должна пропасть вместе с потерянным телефоном.
+   */
+  introducedBy?: string;
+  /** hostId ПК, получившего токен по знакомству: повторное знакомство той же пары не плодит записи. */
+  peerHostId?: string;
   /**
    * Открытый ключ подтверждения ECDSA P-256 (SPKI, base64url, decision-112 п. 4): устройство подписывает им решения
    * `high` после биометрии. Регистрируется только при сопряжении по ключу или PIN из QR, не по токену.
@@ -770,6 +781,7 @@ class RemoteControlService {
       rightsExplicit: record.rightsExplicit,
       connected: this.connectedDevices.has(deviceId),
       ...(record.delegatedBy ? { delegatedBy: record.delegatedBy } : {}),
+      ...(record.introducedBy ? { introducedBy: record.introducedBy } : {}),
       ...(record.confirmKey ? { biometricConfirm: true } : {}),
       ...(record.push ? { push: record.push.kind } : {}),
       ...(record.memberId ? { memberId: record.memberId } : {})
@@ -3035,6 +3047,7 @@ class RemoteControlService {
    */
   private async enrollDelegatedDevice(params: Record<string, unknown>, caller: RemoteDevice): Promise<RemoteEnrollment> {
     await this.ensureSessionKey();
+    if (typeof params.peerHostId === 'string') return this.enrollIntroducedPeer(params, caller);
     const requested = parseDeviceRights(params.rights) ?? 'full';
     const rights = minDeviceRights(this.effectiveDeviceRights(caller), requested);
     const baseName = (typeof params.deviceName === 'string' && params.deviceName.trim() ? params.deviceName.trim() : 'Телефон').slice(0, 60);
@@ -3062,6 +3075,98 @@ class RemoteControlService {
       rights,
       ...this.endpointsAnnouncement()
     };
+  }
+
+  /** Знакомить ПК и принимать знакомство может только устройство владельца с полными правами (decision-143 п. 2, 3). */
+  private assertOwnerFullDevice(caller: RemoteDevice): void {
+    if (caller.memberId || this.effectiveDeviceRights(caller) !== 'full') {
+      throw new Error('Знакомить компьютеры может только устройство владельца с полными правами');
+    }
+  }
+
+  /**
+   * Токен для другого ПК владельца по знакомству с телефона (decision-143 п. 2): права `full`, одобрено, `introducedBy` —
+   * телефон. Прежний токен той же пары заменяется: повторное знакомство не плодит записи.
+   */
+  private async enrollIntroducedPeer(params: Record<string, unknown>, caller: RemoteDevice): Promise<RemoteEnrollment> {
+    this.assertOwnerFullDevice(caller);
+    const peerHostId = String(params.peerHostId).trim();
+    if (!/^[A-Za-z0-9_.-]{3,128}$/.test(peerHostId)) throw new Error('peerHostId не похож на hostId ProjectHub');
+    if (peerHostId === this.hostId) throw new Error('Это тот же компьютер');
+    const name = (typeof params.deviceName === 'string' && params.deviceName.trim() ? params.deviceName.trim() : peerHostId).slice(0, 120);
+    for (const [id, record] of this.deviceTokens.entries()) {
+      if (record.peerHostId === peerHostId) this.deviceTokens.delete(id);
+    }
+    const deviceId = `fed_${crypto.randomBytes(8).toString('hex')}`;
+    const record: DeviceTokenRecord = {
+      token: crypto.randomBytes(32).toString('hex'),
+      rights: 'full',
+      deviceName: name,
+      createdAt: Date.now(),
+      rightsExplicit: true,
+      approved: true,
+      introducedBy: caller.id,
+      peerHostId
+    };
+    this.deviceTokens.set(deviceId, record);
+    await this.persistDeviceTokens();
+    logger.info(`[RemoteControl] Peer host ${peerHostId} introduced as ${deviceId} by ${caller.id}`);
+    this.notifyStatusChanged();
+    return {
+      hostId: this.hostId,
+      machineName: this.machineName || os.hostname(),
+      hostKey: this.getHostKey(),
+      deviceId,
+      deviceToken: record.token,
+      rights: 'full',
+      ...this.endpointsAnnouncement()
+    };
+  }
+
+  /** Отзыв токена знакомства, который другой ПК не принял (decision-143 п. 1). Чужие токены так не отозвать. */
+  private async revokeIntroducedDevice(deviceId: string, caller: RemoteDevice): Promise<{ ok: boolean }> {
+    this.assertOwnerFullDevice(caller);
+    const record = this.deviceTokens.get(deviceId);
+    if (!record?.peerHostId || this.connectedDevices.has(deviceId)) return { ok: false };
+    this.deviceTokens.delete(deviceId);
+    await this.persistDeviceTokens();
+    this.notifyStatusChanged();
+    return { ok: true };
+  }
+
+  /**
+   * Пир hub-режима по знакомству с телефона (decision-143 п. 3): соседа выдал `enroll_device` с `peerHostId`. Уже
+   * сопряжённый пир не перезаписывается — `already`, телефон отзовёт лишний токен.
+   */
+  private async addIntroducedPeer(params: Record<string, unknown>, caller: RemoteDevice): Promise<{ status: 'added' | 'already'; connected: boolean }> {
+    this.assertOwnerFullDevice(caller);
+    const intro = params.introduction as { hostId?: unknown } | null;
+    const peerHostId = typeof intro?.hostId === 'string' ? intro.hostId : '';
+    if (!isPeerIntroduction(intro, peerHostId)) throw new Error('Знакомство без ключа и токена соседа');
+    if (intro.hostId === this.hostId) throw new Error('Это тот же компьютер');
+    const peers = await federationClientService.listPeers();
+    if (peers.some((p) => p.hostId === intro.hostId && p.paired)) return { status: 'already', connected: true };
+    const address = pickPeerAddress(intro, getLocalIpAddresses());
+    if (!address) throw new Error(`У компьютера «${intro.machineName}» нет адреса, доступного этому ПК`);
+    const state = await federationClientService.addPeer({
+      hostId: intro.hostId,
+      machineName: intro.machineName,
+      transport: address.transport,
+      address: address.address,
+      hostKey: intro.hostKey,
+      deviceId: intro.deviceId,
+      deviceToken: intro.deviceToken
+    });
+    logger.info(`[RemoteControl] Peer ${intro.hostId} added by introduction from ${caller.id} (${state.status})`);
+    appEventBus.publish({
+      type: 'federation:peerIntroduced',
+      peerHostId: intro.hostId,
+      peerName: intro.machineName,
+      byDevice: caller.name || caller.id,
+      hostId: this.hostId,
+      at: Date.now()
+    });
+    return { status: 'added', connected: state.status === 'connected' };
   }
 
   /**
@@ -3217,6 +3322,14 @@ class RemoteControlService {
 
       case 'enroll_device': {
         return this.enrollDelegatedDevice(params, device);
+      }
+
+      case 'federation_add_peer': {
+        return await this.addIntroducedPeer(params, device);
+      }
+
+      case 'revoke_introduced_device': {
+        return await this.revokeIntroducedDevice(String(params.deviceId || ''), device);
       }
 
       case 'get_projects': {

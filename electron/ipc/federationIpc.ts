@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import { federationClientService } from '../services/federationClientService.js';
 import { remoteControlService } from '../services/remoteControlService.js';
 import type { PeerTransport } from '../services/federationProtocol.js';
+import { deepLinkService } from '../services/deepLinkService.js';
 
 /**
  * IPC hub-режима федерации (TASK-66, decision-11 п.4): список удалённых хостов, сопряжение с
@@ -57,6 +58,9 @@ export function registerFederationIpc() {
   ipcMain.handle('fleet:getLocalOverview', async () => {
     return await remoteControlService.getLocalOverview();
   });
+
+  /** Ссылки `projecthub://`, пришедшие в приложение (decision-143 п. 4): рендерер забирает очередь целиком. */
+  ipcMain.handle('deeplink:take', () => deepLinkService.take());
 
   /** Каталог хостов, известных локальному хосту (свой + пришедшие с релея/LAN). */
   ipcMain.handle('federation:getHosts', async () => {

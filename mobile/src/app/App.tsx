@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, BookOpenTextIcon, GearSixIcon, HouseSimpleIcon, KanbanIcon, MicrophoneIcon, ShieldCheckIcon, SparkleIcon, TrayIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { SettingsSheet } from '../components/SettingsSheet';
+import { DesktopAppBanner } from '../components/DesktopAppBanner';
 import { useTabSwipe } from '../components/gestures';
 import { Button, Spinner } from '../components/ui';
 import type { Dict } from '../i18n';
@@ -407,6 +408,7 @@ export function App({ profile, seq, adding }: { profile: HostProfile; seq: numbe
       )}
       <FieldEditorHost />
       <Toasts />
+      <DesktopAppBanner />
     </>
   );
 }

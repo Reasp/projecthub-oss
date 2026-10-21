@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Bot, ChevronDown, ChevronRight, Laptop, Loader2, MessageSquare, Monitor, Settings, ShieldAlert, Terminal, WifiOff } from '../common/icons';
 import { useFleetStore, fleetHosts } from '../../store/useFleetStore';
-import { useFederationStore } from '../../store/useFederationStore';
+import { catalogDraft, discoveredHosts, useFederationStore } from '../../store/useFederationStore';
 import { useHitlStore } from '../../store/useHitlStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
@@ -73,18 +73,26 @@ export const ComputersSection: React.FC = () => {
   const dialog = useDialog();
   const fleet = useFleetStore();
   const peers = useFederationStore((s) => s.peers);
+  const catalog = useFederationStore((s) => s.catalog);
   const openManage = useFederationStore((s) => s.open);
+  const openAdd = useFederationStore((s) => s.openAdd);
   const [, setTick] = useState(0);
 
   useEffect(() => {
     useFleetStore.getState().init();
-    // «Был в сети 5 минут назад» стареет и без событий.
-    const timer = setInterval(() => setTick((n) => n + 1), 60_000);
+    // «Был в сети 5 минут назад» стареет и без событий; каталог найденных ПК — тоже.
+    void useFederationStore.getState().refreshCatalog();
+    const timer = setInterval(() => {
+      setTick((n) => n + 1);
+      void useFederationStore.getState().refreshCatalog();
+    }, 60_000);
     return () => clearInterval(timer);
   }, []);
 
   const hosts = fleetHosts('', fleet.local, peers, fleet.remote, fleet.lastSeen);
   const totals = fleetTotals(hosts);
+  // ПК из каталога релея и LAN, с которыми этот ещё не сопряжён (decision-143 п. 5).
+  const found = discoveredHosts(catalog, peers, fleet.local.overview?.hostId);
   const fmt = (s: string, vars: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
 
   const decide = async (host: FleetHostEntry, req: OverviewPendingRequest, approved: boolean) => {
@@ -291,7 +299,34 @@ export const ComputersSection: React.FC = () => {
           <Settings className="w-3.5 h-3.5" />
         </button>
       </div>
-      {!fleet.collapsed && <div className="overflow-y-auto min-h-0">{hosts.map(renderHost)}</div>}
+      {!fleet.collapsed && (
+        <div className="overflow-y-auto min-h-0">
+          {hosts.map(renderHost)}
+          {found.map((h) => (
+            <div key={h.hostId} className="pl-3 pr-2 h-6 flex items-center gap-1.5 text-slate-400" data-testid={`fleet-found-${h.hostId}`}>
+              <Monitor className="w-3.5 h-3.5 shrink-0 text-slate-500" />
+              <span className="truncate text-xs flex-1">{h.machineName || h.hostId}</span>
+              <span className="shrink-0 text-[10px] text-slate-500">{t.fleet.found}</span>
+              <button
+                type="button"
+                onClick={() => openAdd(catalogDraft(h))}
+                className="shrink-0 h-5 px-1.5 rounded bg-indigo-600/80 hover:bg-indigo-500 text-[10px] text-white"
+              >
+                {t.fleet.connect}
+              </button>
+            </div>
+          ))}
+          {peers.length === 0 && found.length === 0 && (
+            <div className="px-3 py-1.5 space-y-1" data-testid="fleet-alone">
+              <div className="text-[11px] text-slate-300">{t.fleet.aloneTitle}</div>
+              <div className="text-[11px] text-slate-500 leading-snug">{t.fleet.aloneHint}</div>
+              <button type="button" onClick={() => openAdd({})} className="text-[11px] text-indigo-300 hover:text-indigo-200">
+                {t.fleet.addByLink}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

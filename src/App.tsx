@@ -30,6 +30,7 @@ import { handleStudioRemoteRequest } from './store/studioRemoteHandler';
 import { useHitlStore } from './store/useHitlStore';
 import { useNotificationStore } from './store/useNotificationStore';
 import { useFederationStore } from './store/useFederationStore';
+import { parsePeerPairingLink } from './utils/remotePairingLink';
 import { useTranslation } from './i18n/useTranslation';
 import { useToast } from './hooks/useTimeoutState';
 import { Bot, ShieldAlert, X } from './components/common/icons';
@@ -91,6 +92,20 @@ export const App: React.FC = () => {
   // Федерация: список удалённых хостов и их события в hub-режиме (TASK-66)
   useEffect(() => {
     useFederationStore.getState().init();
+  }, []);
+
+  // Ссылка projecthub://pair с другого ПК (decision-143 п. 4): форма добавления хоста, подключение — кнопкой человека.
+  useEffect(() => {
+    if (!window.api?.takeDeepLinks) return;
+    const drain = async () => {
+      for (const link of await window.api.takeDeepLinks()) {
+        const fields = parsePeerPairingLink(link);
+        if (fields) useFederationStore.getState().openAdd(fields);
+      }
+    };
+    const off = window.api.onDeepLinkAvailable(() => void drain());
+    void drain();
+    return off;
   }, []);
 
   /**

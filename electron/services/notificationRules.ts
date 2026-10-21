@@ -369,6 +369,19 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         hostId: event.hostId,
         action: { type: 'openPrs', projectPath: event.projectPath, url: event.url }
       };
+    case 'federation:peerIntroduced':
+      return {
+        id: `peer-introduced-${event.peerHostId}-${event.at}`,
+        kind: 'deviceConnected',
+        severity: 'info',
+        title: 'Компьютер добавлен',
+        body: [trim(event.peerName, 60), `знакомство с устройства ${trim(event.byDevice, 60)}`].join(' · '),
+        at: event.at,
+        dedupKey: `peer-introduced:${event.peerHostId}`,
+        hostId: event.hostId,
+        // Новый ПК виден в разделе «Компьютеры» сайдбара — достаточно открыть окно.
+        action: { type: 'openApp' }
+      };
     case 'remote:deviceConnected':
       return {
         id: `device-${event.deviceId}-${event.at}`,

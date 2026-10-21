@@ -24,7 +24,7 @@ import {
 } from '../common/icons';
 import { BrandLogo } from '../common/BrandLogo';
 import QRCode from 'qrcode';
-import { buildEmbeddedPairingUrl, buildTelegramPairingUrl, type PairingSource } from '../../utils/remotePairingLink';
+import { buildDesktopPairingLink, buildEmbeddedPairingUrl, buildTelegramPairingUrl, type PairingSource } from '../../utils/remotePairingLink';
 import { relayEndpoint, type EndpointKind } from '../../utils/remoteEndpoints';
 
 /** Данные статуса Remote Control для ссылок сопряжения (QR). */
@@ -329,6 +329,8 @@ export const RemoteControlBadge: React.FC = () => {
   const offlinePairedDevices = (status.pairedDevices || []).filter((p) => !p.connected);
   const approvedCount = status.connectedDevices?.filter((d) => d.isApproved).length || 0;
   const webClientUrl = buildEmbeddedPairingUrl(toPairingSource(status));
+  // Ссылка для другого ПК (decision-143 п. 4): открывает ProjectHub там с заполненной формой хоста.
+  const desktopLink = buildDesktopPairingLink(toPairingSource(status));
   const telegramDirectUrl = buildTelegramPairingUrl(toPairingSource(status));
   const telegramBotDeepLink = telegramBotUsername
     ? `https://t.me/${telegramBotUsername}?startapp=host_${status.hostId}`
@@ -555,6 +557,23 @@ export const RemoteControlBadge: React.FC = () => {
                         title={t.remote.copyLinkTooltip}
                       >
                         {copiedKey === 'webUrl' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Ссылка для другого ПК: открывает там ProjectHub, а не браузер */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-300">{t.remote.desktopLinkTitle}</label>
+                    <div className="flex items-center gap-2">
+                      <p className="flex-1 text-[11px] text-slate-400 leading-relaxed">{t.remote.desktopLinkHint}</p>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(desktopLink, 'desktopLink')}
+                        className="shrink-0 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-slate-200 transition flex items-center gap-1.5"
+                        data-testid="remote-copy-desktop-link"
+                      >
+                        {copiedKey === 'desktopLink' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        {t.remote.desktopLinkCopy}
                       </button>
                     </div>
                   </div>

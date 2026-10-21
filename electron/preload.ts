@@ -889,6 +889,15 @@ const api: IElectronAPI = {
   federationCall: (hostId: string, method: string, params?: Record<string, unknown>) =>
     ipcRenderer.invoke('federation:call', hostId, method, params),
   getFederationHosts: () => ipcRenderer.invoke('federation:getHosts'),
+  /** Ссылки `projecthub://` (decision-143 п. 4): забрать очередь и подписаться на сигнал о новых. */
+  takeDeepLinks: (): Promise<string[]> => ipcRenderer.invoke('deeplink:take'),
+  onDeepLinkAvailable: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('deeplink:available', handler);
+    return () => {
+      ipcRenderer.removeListener('deeplink:available', handler);
+    };
+  },
   // Дерево флота (TASK-174): сводка этого ПК и событие её изменения
   getLocalOverview: () => ipcRenderer.invoke('fleet:getLocalOverview'),
   onLocalOverviewChanged: (callback: () => void) => {

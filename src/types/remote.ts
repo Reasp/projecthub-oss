@@ -37,6 +37,8 @@ export interface PairedDevice {
   connected: boolean;
   /** Устройство привёл другой сопряжённый ПК федерации (`enroll_device`, decision-111) — его `deviceId`. */
   delegatedBy?: string;
+  /** Другой ПК владельца, получивший доступ по знакомству с телефона (decision-143) — `deviceId` телефона. */
+  introducedBy?: string;
   /** Устройство зарегистрировало ключ подтверждения биометрией (decision-112): может одобрять `high`. */
   biometricConfirm?: boolean;
   /** Push на устройство включён с этого ПК (TASK-140.3): вид доставки. */
@@ -300,6 +302,9 @@ export type RemoteRpcMethod =
   // Несколько хостов в телефоне (TASK-140.2, decision-111): доступ к соседу по федерации через этот ПК
   | 'federation_enroll'
   | 'enroll_device'
+  // Знакомство ПК через телефон (TASK-186, decision-143)
+  | 'federation_add_peer'
+  | 'revoke_introduced_device'
   // Зашифрованные push с этого ПК (TASK-140.3, decision-115): включаются отдельно для каждого ПК
   | 'push_register'
   | 'push_unregister'

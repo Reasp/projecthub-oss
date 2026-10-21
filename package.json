@@ -56,6 +56,14 @@
     "appId": "com.projecthub.desktop",
     "productName": "ProjectHub",
     "icon": "build/icon.ico",
+    "protocols": [
+      {
+        "name": "ProjectHub",
+        "schemes": [
+          "projecthub"
+        ]
+      }
+    ],
     "directories": {
       "output": "release"
     },

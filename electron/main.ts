@@ -41,6 +41,7 @@ import { HOOK_SCRIPT_REL_PATH } from './services/roleExport';
 import { registerAllIpc } from './ipc';
 import { buildInfoPath, formatBuildInfo, readBuildInfo } from './services/buildInfo';
 import { RebuildWatch } from './services/rebuildWatch';
+import { DEEP_LINK_SCHEME, deepLinkService, findDeepLink } from './services/deepLinkService';
 
 // Локальные crash-репорты (TASK-58, decision-14 п.4, decision-7): дампы падений остаются на диске
 // пользователя (`app.getPath('crashDumps')`) и собираются в архив только вручную из «Диагностики» —
@@ -65,6 +66,28 @@ process.env.DIST = path.join(__dirname, '../dist');
 process.env.VITE_PUBLIC = app.isPackaged
   ? process.env.DIST
   : path.join(__dirname, '../public');
+
+// ───────────────────────────── Ссылки projecthub:// (TASK-186, decision-143 п. 4) ─────────────────────────────
+// Блокировка нужна только чтобы второй процесс со ссылкой отдал её первому. Второй процесс без ссылки работает,
+// как раньше: стенды и `npm run dev` рядом с exe не мешают друг другу.
+const isPrimaryInstance = app.requestSingleInstanceLock();
+const launchDeepLink = findDeepLink(process.argv);
+const forwardDeepLinkAndQuit = !isPrimaryInstance && launchDeepLink !== null;
+if (forwardDeepLinkAndQuit) {
+  // Ссылка уже передана первому процессу вместе с блокировкой; окно и сервисы этому процессу не нужны.
+  app.exit(0);
+} else if (launchDeepLink) {
+  deepLinkService.push(launchDeepLink);
+}
+app.on('second-instance', (_event, argv) => {
+  const link = findDeepLink(argv);
+  if (link) deepLinkService.push(link);
+});
+// macOS приносит ссылку событием, в том числе до готовности приложения.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  deepLinkService.push(url);
+});
 
 let win: BrowserWindow | null = null;
 let voiceOverlayWin: BrowserWindow | null = null;
@@ -480,6 +503,19 @@ function showMainWindow(): void {
   win.focus();
 }
 
+/**
+ * Схема `projecthub://` для собранного приложения (decision-143 п. 4). Windows хранит её в реестре пользователя, и exe
+ * последней запущенной копии получает ссылки. Dev-сборка и стенды с `PROJECTHUB_NO_PROTOCOL=1` схему не трогают.
+ */
+function registerDeepLinkScheme(): void {
+  if (!app.isPackaged || process.platform === 'linux' || process.env.PROJECTHUB_NO_PROTOCOL === '1') return;
+  try {
+    if (!app.isDefaultProtocolClient(DEEP_LINK_SCHEME)) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+  } catch (err) {
+    console.warn('[Main] Failed to register projecthub:// scheme:', err);
+  }
+}
+
 /** Разовая подсказка при первом сворачивании в трей: иначе окно «пропадает» без объяснений. */
 function notifyMinimizedToTray(): void {
   if (trayBalloonShown) return;
@@ -772,6 +808,13 @@ app.on('before-quit', (event) => {
 gitService.onGitChanged((projectPath) => invalidateInspectCache(projectPath));
 
 app.whenReady().then(() => {
+  if (forwardDeepLinkAndQuit) return;
+  registerDeepLinkScheme();
+  deepLinkService.setNotifier(() => {
+    showMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send('deeplink:available');
+  });
+
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const allowed = isPermissionAllowed(
       webContents,

@@ -42,7 +42,20 @@ export const en = {
   tasksFailed: (names: string) => `No answer from: ${names}`,
   sessions: 'Sessions',
   expand: 'Expand',
-  collapse: 'Collapse'
+  collapse: 'Collapse',
+  // Знакомство ПК через телефон и ссылка в приложение ПК (TASK-186).
+  introduceTitle: 'Your computers are not connected to each other',
+  introduceHint: (n: number) => `${n} links missing. The phone can introduce your computers so each one sees the others.`,
+  introduceAction: 'Introduce computers',
+  introduceSheetHint: 'Each computer gets full access to the ones listed next to it, as this phone has. You can revoke it in Remote Control → Devices on that computer.',
+  introducePair: (to: string, peer: string) => `${to} will see ${peer}`,
+  introduceConfirm: 'Introduce',
+  introduceRunning: (done: number, total: number) => `Introducing… ${done} of ${total}`,
+  introduceDone: (added: number) => `Done: ${added} added`,
+  introduceFailed: (pair: string, error: string) => `${pair}: ${error}`,
+  openInApp: 'Open in ProjectHub',
+  openInAppHint: 'ProjectHub installed on this computer? Add this host there.',
+  dismiss: 'Close'
 };
 
 export const ru: typeof en = {
@@ -84,5 +97,17 @@ export const ru: typeof en = {
   tasksFailed: (names) => `Не ответили: ${names}`,
   sessions: 'Сессии',
   expand: 'Развернуть',
-  collapse: 'Свернуть'
+  collapse: 'Свернуть',
+  introduceTitle: 'Компьютеры не видят друг друга',
+  introduceHint: (n) => `Не хватает связей: ${n}. Телефон может познакомить ваши компьютеры, чтобы каждый видел остальные.`,
+  introduceAction: 'Познакомить компьютеры',
+  introduceSheetHint: 'Каждый компьютер получит полный доступ к указанному рядом, как у этого телефона. Отозвать доступ можно в Remote Control → Устройства на том компьютере.',
+  introducePair: (to, peer) => `${to} увидит ${peer}`,
+  introduceConfirm: 'Познакомить',
+  introduceRunning: (done, total) => `Знакомлю… ${done} из ${total}`,
+  introduceDone: (added) => `Готово: добавлено ${added}`,
+  introduceFailed: (pair, error) => `${pair}: ${error}`,
+  openInApp: 'Открыть в ProjectHub',
+  openInAppHint: 'На этом компьютере есть ProjectHub? Добавьте этот хост в нём.',
+  dismiss: 'Закрыть'
 };

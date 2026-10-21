@@ -112,6 +112,8 @@ export interface PeerPairingFields {
   secretKey?: string;
   /** Ключ сессий хоста `hk`: с ним hub сразу идёт по v2. */
   hostKey?: string;
+  /** Код приглашения участника (decision-138) — в поле PIN формы. */
+  pin?: string;
   transport: 'lan' | 'relay';
   /** LAN: `host:port`; relay: URL релея. */
   address: string;
@@ -120,9 +122,59 @@ export interface PeerPairingFields {
 const HEX_KEY = /^[0-9a-f]{64}$/i;
 const HOST_KEY = /^[A-Za-z0-9_-]{87}$/;
 
+/** Схема ссылок приложения (decision-143 п. 4): `projecthub://pair?…` открывает форму добавления хоста. */
+export const DESKTOP_LINK_SCHEME = 'projecthub';
+
+function isLocalHostname(hostname: string): boolean {
+  return /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(hostname);
+}
+
+/** `addr` ссылки приложения: `host:port` страницы или `https://` туннеля. Loopback бесполезен на другом ПК. */
+function addressParam(value: string | null): string {
+  const v = value?.trim() ?? '';
+  if (/^https:\/\//i.test(v)) {
+    try {
+      const u = new URL(v);
+      return isLocalHostname(u.hostname) ? '' : u.origin;
+    } catch {
+      return '';
+    }
+  }
+  const m = /^([A-Za-z0-9.-]{1,253})(?::\d{1,5})?$/.exec(v);
+  return m && !isLocalHostname(m[1]) ? v : '';
+}
+
 /**
- * Ссылка сопряжения `http(s)://<адрес>/remote#hostId=…&key=…&hk=…&ep=…` другого ПК в поля формы. Адрес — хост самой
- * ссылки, а если она ведёт на `localhost` — первый адрес LAN или VPN из `ep`; без них — релей. `null` — не ссылка.
+ * Ссылка для другого ПК: `projecthub://pair?<параметры ссылки сопряжения>&addr=<адрес страницы>`. Адрес страницы
+ * в `projecthub://` не виден, поэтому едет параметром; секреты — те же, что в QR.
+ */
+export function buildDesktopPairingLink(src: PairingSource): string {
+  const origin = clientPageOrigin(src);
+  const addr = origin.startsWith('https://') ? origin : origin.replace(/^http:\/\//, '');
+  return `${DESKTOP_LINK_SCHEME}://pair?${buildPairingHash(src, { addr })}`;
+}
+
+/** Страница клиента `http(s)://…/remote#…` → та же ссылка для приложения на этом ПК; `null` — не ссылка сопряжения. */
+export function desktopLinkFromPage(href: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const params = new URLSearchParams(url.hash.replace(/^#/, ''));
+  if (!params.get('hostId')) return null;
+  if (!isLocalHostname(url.hostname)) params.set('addr', url.protocol === 'https:' ? url.origin : url.host);
+  return `${DESKTOP_LINK_SCHEME}://pair?${params.toString()}`;
+}
+
+/**
+ * Ссылка сопряжения другого ПК в поля формы:
+ * - `http(s)://<адрес>/remote#hostId=…&key=…&hk=…&ep=…` — адрес хоста самой ссылки;
+ * - `projecthub://pair?…` (decision-143) — те же параметры в query или hash, адрес — параметр `addr`.
+ *
+ * Если адреса нет или он `localhost` — первый адрес LAN или VPN из `ep`; без них — релей. `null` — не ссылка.
  */
 export function parsePeerPairingLink(text: string): PeerPairingFields | null {
   let url: URL;
@@ -131,16 +183,25 @@ export function parsePeerPairingLink(text: string): PeerPairingFields | null {
   } catch {
     return null;
   }
+  const desktop = url.protocol === `${DESKTOP_LINK_SCHEME}:`;
   const params = new URLSearchParams(url.hash.replace(/^#/, ''));
+  if (desktop) for (const [k, v] of new URLSearchParams(url.search)) params.append(k, v);
   const hostId = params.get('hostId')?.trim() ?? '';
   if (!/^[A-Za-z0-9_.-]{3,128}$/.test(hostId)) return null;
   const key = params.get('key')?.trim();
   const hk = params.get('hk')?.trim();
+  const pin = params.get('pin')?.trim();
   const fields: PeerPairingFields = { hostId, transport: 'lan', address: '' };
   if (key && HEX_KEY.test(key)) fields.secretKey = key.toLowerCase();
   if (hk && HOST_KEY.test(hk)) fields.hostKey = hk;
-  const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(url.hostname);
-  if ((url.protocol === 'http:' || url.protocol === 'https:') && !pageIsLocal && url.host) {
+  if (pin && /^[A-Za-z0-9-]{4,64}$/.test(pin)) fields.pin = pin;
+  if (desktop) {
+    const addr = addressParam(params.get('addr'));
+    if (addr) {
+      fields.address = addr;
+      return fields;
+    }
+  } else if ((url.protocol === 'http:' || url.protocol === 'https:') && !isLocalHostname(url.hostname) && url.host) {
     fields.address = url.protocol === 'https:' ? url.origin : url.host;
     return fields;
   }

@@ -335,6 +335,9 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       setLanguage(lang: Language) {
         setLanguage(lang);
         createPrefs().set(LANGUAGE_PREF, lang);
+      },
+      rpcTo(profileId, method, params) {
+        return profileId === activeIdRef.current ? client.rpc(method, params) : pool.rpc(profileId, method, params);
       }
     }),
     [platform, client, store, pool, inbox, voice, list, commit, open]

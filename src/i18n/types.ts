@@ -2677,6 +2677,9 @@ export interface TranslationDictionary {
     directWebLink: string;
     openInBrowser: string;
     copyLinkTooltip: string;
+    desktopLinkTitle: string;
+    desktopLinkHint: string;
+    desktopLinkCopy: string;
     secretKeyTitle: string;
     generateNewKey: string;
     copyTokenTooltip: string;
@@ -3047,6 +3050,11 @@ export interface TranslationDictionary {
     moreSessions: string;
     noSessions: string;
     noProjects: string;
+    found: string;
+    connect: string;
+    aloneTitle: string;
+    aloneHint: string;
+    addByLink: string;
     unsupported: string;
     loading: string;
     approve: string;
@@ -3097,6 +3105,8 @@ export interface TranslationDictionary {
     fieldHostKey: string;
     fieldPairingLink: string;
     fieldPairingLinkHint: string;
+    draftFromLinkHint: string;
+    draftNeedsPinHint: string;
     pairingLinkInvalid: string;
     protocolV2: string;
     protocolV1: string;
