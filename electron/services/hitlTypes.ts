@@ -414,6 +414,20 @@ export type AppBusEvent =
       projectPath?: string;
       at: number;
     }
+  /**
+   * Очередь слияния общего хоста (TASK-142.4, decision-136): элемент ждёт ревью, слит, возвращён автору, очередь на
+   * паузе. Для окна хоста; участникам событие уходит адресно на их устройства. Текст готовит модуль-источник.
+   */
+  | {
+      type: 'queue:notice';
+      itemId: string;
+      level: 'info' | 'warn';
+      title: string;
+      body: string;
+      dedupKey: string;
+      projectPath?: string;
+      at: number;
+    }
   /** Запуск правила завершился (успех или ошибка действия). */
   | {
       type: 'automation:runFinished';

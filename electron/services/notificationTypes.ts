@@ -47,7 +47,9 @@ export type NotificationKind =
   /** Агент завёл задачи, они ждут подтверждения человека (TASK-153, decision-89). */
   | 'agentTask'
   /** Ограничение расходов: израсходована заметная доля или весь лимит, запуски остановлены (decision-124). */
-  | 'spendLimit';
+  | 'spendLimit'
+  /** Очередь слияния общего хоста: ждёт ревью, слито, возвращено, пауза (TASK-142.4). */
+  | 'mergeQueue';
 
 export const NOTIFICATION_KINDS: NotificationKind[] = [
   'hitl',
@@ -65,7 +67,8 @@ export const NOTIFICATION_KINDS: NotificationKind[] = [
   'prReview',
   'securityFinding',
   'agentTask',
-  'spendLimit'
+  'spendLimit',
+  'mergeQueue'
 ];
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'critical';

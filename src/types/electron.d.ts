@@ -2654,7 +2654,8 @@ export type NotificationKind =
   | 'prReview'
   | 'securityFinding'
   | 'agentTask'
-  | 'spendLimit';
+  | 'spendLimit'
+  | 'mergeQueue';
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'critical';
 

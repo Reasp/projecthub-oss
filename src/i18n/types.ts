@@ -2966,7 +2966,8 @@ export interface TranslationDictionary {
       | 'prMerged'
       | 'securityFinding'
       | 'agentTask'
-      | 'spendLimit',
+      | 'spendLimit'
+      | 'mergeQueue',
       string
     >;
     osActionsUnsupported: string;

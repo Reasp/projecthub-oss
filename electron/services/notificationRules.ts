@@ -60,7 +60,9 @@ export function defaultChannelMatrix(): Record<NotificationKind, NotificationCha
     // Задачи агента не исполнятся, пока человек их не подтвердит (decision-89): ему нужно узнать о них вне окна.
     agentTask: ['tray', 'os', 'telegram', 'remote'],
     // Деньги: остановка запусков по лимиту случается без человека у экрана, предупреждение заранее — тоже.
-    spendLimit: ['tray', 'os', 'telegram', 'remote']
+    spendLimit: ['tray', 'os', 'telegram', 'remote'],
+    // Очередь слияния: участникам события уходят адресно на их устройства, канал «remote» здесь разослал бы всем.
+    mergeQueue: ['tray', 'os', 'telegram']
   };
 }
 
@@ -405,6 +407,19 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         body: [trim(event.body, 200), projectName(event.projectPath)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `limits:${event.dedupKey}`,
+        ...(event.projectPath ? { projectPath: event.projectPath, projectName: projectName(event.projectPath) } : {}),
+        action: { type: 'openApp' }
+      };
+    // ── Очередь слияния общего хоста (TASK-142.4): текст готовит модуль-источник ──
+    case 'queue:notice':
+      return {
+        id: `queue-${event.itemId}-${event.at}`,
+        kind: 'mergeQueue',
+        severity: event.level === 'warn' ? 'warning' : 'info',
+        title: trim(event.title, 120),
+        body: [trim(event.body, 200), projectName(event.projectPath)].filter(Boolean).join(' · '),
+        at: event.at,
+        dedupKey: `queue:${event.dedupKey}`,
         ...(event.projectPath ? { projectPath: event.projectPath, projectName: projectName(event.projectPath) } : {}),
         action: { type: 'openApp' }
       };

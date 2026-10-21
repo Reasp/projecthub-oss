@@ -67,7 +67,8 @@ export interface AgentRunRecord {
  */
 export interface AgentOutcomeRecord {
   at: number;
-  kind: 'arena' | 'doneLoop' | 'discard';
+  /** `mergeQueue` — итог задачи в очереди слияния общего хоста (TASK-142.4): слито или возвращено автору. */
+  kind: 'arena' | 'doneLoop' | 'discard' | 'mergeQueue';
   verdict: 'accepted' | 'rejected' | 'failed';
   projectPath: string;
   taskId?: string;
@@ -81,6 +82,8 @@ export interface AgentOutcomeRecord {
   candidates?: number;
   /** Итераций цикла «до готовности». */
   iterations?: number;
+  /** Какой по счёту заход задачи в очередь слияния: 1 — с первого раза. */
+  attempt?: number;
   /** Итог цикла как его называет цикл: success, max_iterations, budget, agent_error… */
   loopOutcome?: string;
   /** Расход агента за всю сессию. */
@@ -181,6 +184,20 @@ export interface HitlRouting {
   escalateAt(request: HitlRouteRef): number | undefined;
 }
 
+/** Адресное уведомление устройствам: событие клиентам и push тем, кому оно адресовано. */
+export interface DeviceNotice {
+  id: string;
+  /** Событие клиентам Remote Control (телефон, hub-клиент) с данными. */
+  event: string;
+  payload: unknown;
+  /** Текст push-уведомления; без него — только событие. */
+  text?: string;
+  level?: 'info' | 'success' | 'warning' | 'error';
+  projectPath?: string;
+}
+
+export type DeviceNotifier = (notice: DeviceNotice, audience: (device: RemoteDeviceRef) => boolean) => void;
+
 /** Действие над чужой работой: решить чужой HITL, писать в чужую сессию, остановить чужой рой. */
 export type OwnershipAction = 'hitl' | 'session';
 
@@ -221,6 +238,8 @@ export interface EditionMainApi {
   setHitlRouting(routing: HitlRouting): void;
   /** Запрет действия над работой другого участника: строка — причина отказа. */
   addOwnershipGuard(guard: (ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => string | null): void;
+  /** Событие и push только тем устройствам, которым оно адресовано (очередь слияния: автору, ревьюерам). */
+  notifyDevices(notice: DeviceNotice, audience: (device: RemoteDeviceRef) => boolean): void;
 }
 
 export interface SaveTextFileOptions {
@@ -264,6 +283,7 @@ let deviceDirectory: DeviceDirectory = emptyDirectory;
 let launcherProvider: LauncherProvider | null = null;
 let hitlRouting: HitlRouting | null = null;
 const ownershipGuards: Array<(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => string | null> = [];
+let deviceNotifier: DeviceNotifier = () => undefined;
 
 export const editionRegistry = {
   api(): EditionMainApi {
@@ -302,8 +322,19 @@ export const editionRegistry = {
       },
       addOwnershipGuard: (guard) => {
         ownershipGuards.push(guard);
+      },
+      notifyDevices: (notice, audience) => {
+        try {
+          deviceNotifier(notice, audience);
+        } catch (err) {
+          console.warn('[edition] Уведомление устройствам не отправлено:', err);
+        }
       }
     };
+  },
+
+  setDeviceNotifier(notifier: DeviceNotifier): void {
+    deviceNotifier = notifier;
   },
 
   /** Профиль участника-запускающего; без модуля или для владельца хоста — `null` (работа как раньше). */
@@ -484,6 +515,7 @@ export const editionRegistry = {
     launcherProvider = null;
     hitlRouting = null;
     ownershipGuards.length = 0;
+    deviceNotifier = () => undefined;
   }
 };
 

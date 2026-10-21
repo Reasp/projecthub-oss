@@ -3229,7 +3229,8 @@ export const en: TranslationDictionary = {
       prMerged: 'PR merged, tasks moved',
       securityFinding: 'Security: vulnerabilities, secrets, risky packages',
       agentTask: 'An agent created tasks awaiting approval',
-      spendLimit: 'Spend limits: most of a budget used, agent launches stopped'
+      spendLimit: 'Spend limits: most of a budget used, agent launches stopped',
+      mergeQueue: 'Merge queue: a task awaits review, merged, returned to its author, queue paused'
     },
     osActionsUnsupported: 'Decision buttons inside the system notification are macOS-only. On Windows and Linux clicking the notification opens the decision center.',
     unsupportedOs: 'System notifications are unavailable on this OS',

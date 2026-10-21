@@ -30,7 +30,8 @@ const KINDS: NotificationKind[] = [
   'prReview',
   'securityFinding',
   'agentTask',
-  'spendLimit'
+  'spendLimit',
+  'mergeQueue'
 ];
 
 const CHANNELS: NotificationChannel[] = ['tray', 'os', 'sound', 'telegram', 'remote'];

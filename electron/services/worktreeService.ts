@@ -17,6 +17,33 @@ import { dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge
 import { reindexDocsInBackground } from './docsReindex.js';
 
 /**
+ * Снять ссылки верхнего уровня worktree (junction `node_modules` из `linkNodeModules`, symlink) до его удаления:
+ * `git worktree remove` и рекурсивное удаление идут по junction и стирают каталог, на который он указывает, — то
+ * есть `node_modules` основного дерева. Сама ссылка удаляется, цель остаётся. Возвращает снятые имена.
+ */
+export async function detachLinkedDirs(worktreePath: string): Promise<string[]> {
+  let names: string[];
+  try {
+    names = await fs.readdir(worktreePath);
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const name of names) {
+    const full = path.join(worktreePath, name);
+    try {
+      if (!(await fs.lstat(full)).isSymbolicLink()) continue;
+      // На Windows junction каталога снимается как каталог, symlink файла — как файл.
+      await fs.rmdir(full).catch(() => fs.unlink(full));
+      removed.push(name);
+    } catch (err) {
+      console.warn(`[WorktreeService] Не удалось снять ссылку ${full}:`, err);
+    }
+  }
+  return removed;
+}
+
+/**
  * Нормализация пути для сравнения (учитывая особенности Windows).
  */
 function normalizePath(p: string): string {
@@ -231,6 +258,8 @@ export class WorktreeService {
    * Удаление worktree (AC #1).
    */
   async removeWorktree(projectPath: string, worktreePath: string, force = false): Promise<boolean> {
+    // Ссылки внутри worktree (junction node_modules) — до удаления, иначе удаление дойдёт до их цели.
+    await detachLinkedDirs(worktreePath);
     try {
       const git = simpleGit(projectPath);
       const args = ['worktree', 'remove', worktreePath];

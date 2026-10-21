@@ -60,7 +60,7 @@ import { guardedCommit } from './commitSecretGuard.js';
 import { summarizeSecretFindings } from './diffSecretScan.js';
 import { claudeBridgeService } from './claudeBridgeService.js';
 import { agentFleetService, isActiveSwarmStatus } from './agentFleetService.js';
-import { editionRegistry, type PairingRedemption } from '../extensions/editionRegistry.js';
+import { editionRegistry, type DeviceNotice, type PairingRedemption, type RemoteDeviceRef } from '../extensions/editionRegistry.js';
 import { appendRemoteAudit, auditTarget } from './remoteActionAudit.js';
 import { aiAgentService } from './aiAgentService.js';
 import { actionConfigService, type ActionDefinition } from './actionConfigService.js';
@@ -1219,6 +1219,24 @@ class RemoteControlService {
     }, Math.max(0, at - Date.now()));
     timer.unref?.();
     this.hitlEscalations.set(r.id, timer);
+  }
+
+  /** Событие и push только адресатам (модули ee/, TASK-142.4). Права устройства — после сужения ролью. */
+  public notifyDevices(notice: DeviceNotice, audience: (device: RemoteDeviceRef) => boolean): void {
+    const refOf = (d: { id: string; name?: string; memberId?: string; rights?: DeviceRights }): RemoteDeviceRef => ({
+      id: d.id,
+      ...(d.name ? { name: d.name } : {}),
+      ...(d.memberId ? { memberId: d.memberId } : {}),
+      rights: this.effectiveDeviceRights(d)
+    });
+    this.broadcastEvent(notice.event, notice.payload, { audience: (d) => audience(refOf(d)) });
+    if (!notice.text) return;
+    void this.pushService
+      .onNote({ id: notice.id, text: notice.text, level: notice.level ?? 'info', ...(notice.projectPath ? { projectPath: notice.projectPath } : {}) }, (target) => {
+        const record = this.deviceTokens.get(target.deviceId);
+        return Boolean(record) && audience(refOf({ id: target.deviceId, name: record!.deviceName, ...(record!.memberId ? { memberId: record!.memberId } : {}), rights: record!.rights }));
+      })
+      .catch(() => undefined);
   }
 
   private clearHitlEscalation(requestId: string): void {
@@ -3975,6 +3993,8 @@ class RemoteControlService {
 }
 
 export const remoteControlService = new RemoteControlService();
+// Адресные уведомления модулей ee/ (очередь слияния, TASK-142.4): событие и push только адресатам.
+editionRegistry.setDeviceNotifier((notice, audience) => remoteControlService.notifyDevices(notice, audience));
 // Справочник устройств для модулей ee/ (участники общего хоста, decision-126): отзыв закрывает и живую сессию.
 editionRegistry.setDeviceDirectory({
   list: () => remoteControlService.getPairedDevices(),

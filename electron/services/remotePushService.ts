@@ -125,11 +125,12 @@ export class RemotePushService {
    * Сообщение агента `projecthub_notify` (decision-117 п. 8): каждому устройству с включённым push, с тем же
    * подавлением, что у HITL, — открытое приложение увидит запись в ленте. Возвращает, скольким устройствам ушло.
    */
-  async onNote(note: { id: string; text: string; level: NotePushPayload['lvl']; projectPath?: string; agent?: string }): Promise<number> {
+  async onNote(note: { id: string; text: string; level: NotePushPayload['lvl']; projectPath?: string; agent?: string }, only?: (target: PushTarget) => boolean): Promise<number> {
     const activity = this.deps.pcActivity();
     let delivered = 0;
     for (const target of this.deps.targets()) {
-      if (shouldSuppressPush({ ...activity, deviceOnline: this.deps.deviceOnline(target.deviceId) })) continue;
+      if (only && !only(target)) continue;
+      if (!target.memberId && shouldSuppressPush({ ...activity, deviceOnline: this.deps.deviceOnline(target.deviceId) })) continue;
       if (!this.allow(target.deviceId)) continue;
       const payload: NotePushPayload = {
         v: 1,
