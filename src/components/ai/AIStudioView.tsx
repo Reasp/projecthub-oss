@@ -58,7 +58,7 @@ export const AIStudioView: React.FC = () => {
     sessions,
     sessionsLoaded,
     activeSessionId,
-    isStreaming,
+    streamingSessions,
     config,
     mode,
     isSettingsOpen,
@@ -66,7 +66,6 @@ export const AIStudioView: React.FC = () => {
     pendingApprovals,
     subagents,
     rateLimitWarnings,
-    projectStatuses,
     liveOutputs,
     isSubagentsPanelOpen,
     isActivitySidebarOpen,
@@ -110,11 +109,13 @@ export const AIStudioView: React.FC = () => {
   const currentSessionId = activeSessionId[projectPath] || projectSessions[0]?.id;
   const currentSession = projectSessions.find((s) => s.id === currentSessionId) || projectSessions[0];
   const messages = currentSession?.messages || [];
-  const projectApprovals = pendingApprovals[projectPath] || [];
-  const projectSubagents = subagents[projectPath] || [];
-  const projectRateLimitWarning = rateLimitWarnings[projectPath] || null;
-  const projectAgentStatus = projectStatuses[projectPath] || null;
-  const currentLiveOutput = liveOutputs[projectPath] || '';
+  // Вкладки проекта отвечают параллельно (TASK-171): стрим, одобрения, субагенты, вывод и лимиты — свои у каждой.
+  const isStreaming = !!(currentSessionId && streamingSessions[currentSessionId]);
+  const allProjectApprovals = pendingApprovals[projectPath] || [];
+  const projectApprovals = allProjectApprovals.filter((r) => r.sessionId === currentSessionId);
+  const projectSubagents = (subagents[projectPath] || []).filter((s) => s.parentSessionId === currentSessionId);
+  const projectRateLimitWarning = (currentSessionId && rateLimitWarnings[currentSessionId]) || null;
+  const currentLiveOutput = (currentSessionId && liveOutputs[currentSessionId]) || '';
   // Агент вкладки (TASK-170): у старой вкладки без своего агента — общий выбор Studio.
   const currentAgent = effectiveSessionAgent(config, currentSession?.agent);
   const sessionAccountId = sessionClaudeAccountId(currentSession?.agent);
@@ -232,6 +233,8 @@ export const AIStudioView: React.FC = () => {
             const tabAccount = sessionClaudeAccountId(session.agent);
             const tabAccountName = tabAccount ? claudeAccounts?.find((a) => a.id === tabAccount)?.name : undefined;
             const tabAgentLabel = [tabAgent.model, tabAccountName].filter(Boolean).join(' · ');
+            const tabWaiting = allProjectApprovals.some((r) => r.sessionId === session.id);
+            const tabAnswering = !!streamingSessions[session.id];
 
             return (
               <div
@@ -286,6 +289,23 @@ export const AIStudioView: React.FC = () => {
                 </span>
                 {/* Свой аккаунт Claude Code вкладки — короткой подписью, чтобы различать вкладки разных аккаунтов */}
                 {tabAccountName && <span className="text-[11px] text-amber-300/80 max-w-[70px] truncate">{tabAccountName}</span>}
+
+                {/* Состояние ответа вкладки (TASK-171): ждёт решения человека или отвечает */}
+                {tabWaiting ? (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0"
+                    title={t.aiStudio.tabWaitingApproval}
+                    aria-label={t.aiStudio.tabWaitingApproval}
+                    data-testid="studio-tab-waiting"
+                  />
+                ) : tabAnswering ? (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0"
+                    title={t.aiStudio.tabAnswering}
+                    aria-label={t.aiStudio.tabAnswering}
+                    data-testid="studio-tab-answering"
+                  />
+                ) : null}
 
                 <VoiceBadge
                   command={t.aiStudio.voiceChatCmd.replace('{num}', String(tabNumber))}
@@ -486,7 +506,7 @@ export const AIStudioView: React.FC = () => {
           config={config}
           onSelectModel={(model) => saveConfig({ ...config, model })}
           onClearSession={() => clearSession(projectPath, currentSessionId)}
-          onDismiss={() => dismissRateLimitWarning(projectPath)}
+          onDismiss={() => currentSessionId && dismissRateLimitWarning(currentSessionId)}
         />
       )}
 
@@ -715,10 +735,9 @@ export const AIStudioView: React.FC = () => {
         {/* Live Activity Sidebar / Execution Monitor (Remark 3) */}
         <LiveActivitySidebar
           isStreaming={isStreaming}
-          activeStatus={projectAgentStatus}
           subagents={projectSubagents}
           liveOutput={currentLiveOutput}
-          onClearOutput={() => clearLiveOutput(projectPath)}
+          onClearOutput={() => currentSessionId && clearLiveOutput(currentSessionId)}
           isOpen={isActivitySidebarOpen}
           onToggleOpen={() => setIsActivitySidebarOpen(!isActivitySidebarOpen)}
         />
@@ -751,7 +770,7 @@ export const AIStudioView: React.FC = () => {
         tasks={tasks}
         gitRepoDetails={gitRepoDetails}
         onSend={(text) => sendMessage(projectPath, text)}
-        onAbort={abortStream}
+        onAbort={() => currentSessionId && abortStream(currentSessionId)}
         footerStart={
           <>
             {currentSessionId && (

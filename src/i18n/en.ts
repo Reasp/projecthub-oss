@@ -1733,6 +1733,8 @@ export const en: TranslationDictionary = {
     historyDeleteMessage: 'Delete “{title}” from history? It cannot be restored.',
     historyPrompts: 'prompts',
     fromPhone: 'Started from the phone',
+    tabAnswering: 'The agent is answering in this tab',
+    tabWaitingApproval: 'This tab is waiting for your decision',
     memberSession: (member) => `Session of member ${member}: read-only here, they write to it from their own devices`,
     newChat: 'New Chat',
     newSession: 'New Session',

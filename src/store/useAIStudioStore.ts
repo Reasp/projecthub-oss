@@ -14,7 +14,6 @@ import type {
   ApprovalRequest,
   SubagentInfo,
   RateLimitWarning,
-  ProjectAgentStatus,
   AutoApproveRules,
   ContextPartKey,
   StudioSessionAgent
@@ -33,8 +32,8 @@ interface AIStudioState {
   sessionsLoaded: Record<string, boolean>; // projectPath -> история прочитана с диска
   activeSessionId: Record<string, string>; // projectPath -> active sessionId
   lastActiveSessionId: Record<string, string>; // projectPath -> previous active sessionId
-  isStreaming: boolean;
-  activeStreamSessionId: string | null;
+  /** sessionId -> идёт ответ: вкладки одного проекта отвечают параллельно (TASK-171). */
+  streamingSessions: Record<string, true>;
   config: AIProviderConfig;
   mode: 'chat' | 'agent' | 'architect';
   isSettingsOpen: boolean;
@@ -42,20 +41,19 @@ interface AIStudioState {
 
   // Subagents & Human Approvals & Rate Limits
   pendingApprovals: Record<string, ApprovalRequest[]>; // projectPath -> active requests
-  subagents: Record<string, SubagentInfo[]>; // projectPath -> active subagents
-  rateLimitWarnings: Record<string, RateLimitWarning | null>; // projectPath -> active warning
-  projectStatuses: Record<string, ProjectAgentStatus>; // projectPath -> status
-  liveOutputs: Record<string, string>; // projectPath -> console output string
+  subagents: Record<string, SubagentInfo[]>; // projectPath -> active subagents (вкладка фильтрует по parentSessionId)
+  rateLimitWarnings: Record<string, RateLimitWarning | null>; // sessionId -> active warning
+  liveOutputs: Record<string, string>; // sessionId -> console output string
   isSubagentsPanelOpen: boolean;
   isActivitySidebarOpen: boolean;
   setIsSubagentsPanelOpen: (open: boolean) => void;
   setIsActivitySidebarOpen: (open: boolean) => void;
-  clearLiveOutput: (projectPath: string) => void;
+  clearLiveOutput: (sessionId: string) => void;
   sendApprovalResponse: (projectPath: string, requestId: string, approved: boolean, text?: string) => Promise<void>;
   /** Убирает карточку, решённую из другого места (Центр решений, телефон, MCP-клиент, таймаут) — TASK-57. */
   removePendingApproval: (projectPath: string, requestId: string) => void;
   fetchSubagents: (projectPath: string) => Promise<void>;
-  dismissRateLimitWarning: (projectPath: string) => void;
+  dismissRateLimitWarning: (sessionId: string) => void;
 
   // Actions
   fetchConfig: () => Promise<void>;
@@ -99,7 +97,8 @@ interface AIStudioState {
    * из диалога, и сообщение отправляется заново — с текущими настройками провайдера и модели.
    */
   retryFailedMessage: (projectPath: string, assistantMessageId: string) => Promise<void>;
-  abortStream: () => Promise<void>;
+  /** Останавливает ответ одной сессии; ответы других вкладок идут дальше (TASK-171). */
+  abortStream: (sessionId: string) => Promise<void>;
   acceptDiff: (projectPath: string, messageId: string, toolId: string, filePath: string, newContent: string) => Promise<void>;
   rejectDiff: (projectPath: string, messageId: string, toolId: string) => void;
 }
@@ -152,18 +151,27 @@ function releaseSessionInMain(sessionId: string): void {
   });
 }
 
-/** Сброс состояния стрима и ожидающих одобрений, относящихся к закрываемой/очищаемой сессии. */
+/** Запись без ключа; та же ссылка, если ключа не было (селекторы не перерисовываются зря). */
+export function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const { [key]: _dropped, ...rest } = record;
+  return rest;
+}
+
+type SessionScopedFields = 'streamingSessions' | 'liveOutputs' | 'rateLimitWarnings' | 'pendingApprovals';
+
+/** Сброс стрима, живого вывода, предупреждения о лимитах и ожидающих одобрений закрываемой/очищаемой сессии. */
 function sessionResetPatch(
-  state: Pick<AIStudioState, 'activeStreamSessionId' | 'pendingApprovals'>,
+  state: Pick<AIStudioState, SessionScopedFields>,
   projectPath: string,
   sessionId: string | undefined
-): Partial<Pick<AIStudioState, 'isStreaming' | 'activeStreamSessionId' | 'pendingApprovals'>> {
+): Partial<Pick<AIStudioState, SessionScopedFields>> {
   if (!sessionId) return {};
-  const patch: Partial<Pick<AIStudioState, 'isStreaming' | 'activeStreamSessionId' | 'pendingApprovals'>> = {};
-  if (state.activeStreamSessionId === sessionId) {
-    patch.isStreaming = false;
-    patch.activeStreamSessionId = null;
-  }
+  const patch: Partial<Pick<AIStudioState, SessionScopedFields>> = {
+    streamingSessions: withoutKey(state.streamingSessions, sessionId),
+    liveOutputs: withoutKey(state.liveOutputs, sessionId),
+    rateLimitWarnings: withoutKey(state.rateLimitWarnings, sessionId)
+  };
   const current = state.pendingApprovals[projectPath] || [];
   if (current.some((r) => r.sessionId === sessionId)) {
     patch.pendingApprovals = {
@@ -191,6 +199,29 @@ function runLegacyMigration(): Promise<Record<string, AISession[]>> {
 
 const loadingProjects = new Set<string>();
 
+/**
+ * Идущие ответы: подписки на `ai:*:<sessionId>`. Канал у сессии один, поэтому новый ответ во вкладке стартует
+ * только после конца прошлого — иначе конец остановленного ответа достался бы новому (TASK-171).
+ */
+const liveStreams = new Map<string, { cleanup: () => void }>();
+/** Сколько ждать конца остановленного ответа от main, прежде чем снять его самим. */
+export const ABORT_FALLBACK_MS = 3000;
+
+/**
+ * После остановки флаг ответа снимает конец ответа от main (onComplete/onError приходят и при отмене). Если он не
+ * пришёл за `ABORT_FALLBACK_MS`, подписки и флаг снимаются здесь.
+ */
+function releaseStreamLater(sessionId: string, setState: (fn: (s: AIStudioState) => Partial<AIStudioState>) => void): void {
+  const stream = liveStreams.get(sessionId);
+  const release = () => {
+    if (stream && liveStreams.get(sessionId) !== stream) return;
+    stream?.cleanup();
+    setState((state) => ({ streamingSessions: withoutKey(state.streamingSessions, sessionId) }));
+  };
+  if (stream) setTimeout(release, ABORT_FALLBACK_MS);
+  else release();
+}
+
 function createInitialSession(): AISession {
   const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   return {
@@ -208,8 +239,7 @@ export const useAIStudioStore = create<AIStudioState>()(
       sessionsLoaded: {},
       activeSessionId: {},
       lastActiveSessionId: {},
-      isStreaming: false,
-      activeStreamSessionId: null,
+      streamingSessions: {},
       config: DEFAULT_CONFIG,
       mode: 'agent',
       isSettingsOpen: false,
@@ -217,7 +247,6 @@ export const useAIStudioStore = create<AIStudioState>()(
       pendingApprovals: {},
       subagents: {},
       rateLimitWarnings: {},
-      projectStatuses: {},
       liveOutputs: {},
       isSubagentsPanelOpen: false,
       isActivitySidebarOpen: false,
@@ -225,22 +254,12 @@ export const useAIStudioStore = create<AIStudioState>()(
       setIsSubagentsPanelOpen: (isSubagentsPanelOpen) => set({ isSubagentsPanelOpen }),
       setIsActivitySidebarOpen: (isActivitySidebarOpen) => set({ isActivitySidebarOpen }),
 
-      clearLiveOutput: (projectPath: string) => {
-        set((state) => ({
-          liveOutputs: {
-            ...state.liveOutputs,
-            [projectPath]: ''
-          }
-        }));
+      clearLiveOutput: (sessionId: string) => {
+        set((state) => ({ liveOutputs: withoutKey(state.liveOutputs, sessionId) }));
       },
 
-      dismissRateLimitWarning: (projectPath: string) => {
-        set((state) => ({
-          rateLimitWarnings: {
-            ...state.rateLimitWarnings,
-            [projectPath]: null
-          }
-        }));
+      dismissRateLimitWarning: (sessionId: string) => {
+        set((state) => ({ rateLimitWarnings: withoutKey(state.rateLimitWarnings, sessionId) }));
       },
 
       fetchSubagents: async (projectPath: string) => {
@@ -591,6 +610,8 @@ export const useAIStudioStore = create<AIStudioState>()(
       clearSession: (projectPath: string, sessionId?: string) => {
         const targetSessionId = sessionId || get().activeSessionId[projectPath];
         if (targetSessionId) releaseSessionInMain(targetSessionId);
+        // Очищенная вкладка остаётся: новый ответ в ней — только после конца прерванного (общий канал сессии).
+        const wasStreaming = !!(targetSessionId && get().streamingSessions[targetSessionId]);
         set((state) => {
           const existing = state.sessions[projectPath] || [];
 
@@ -600,26 +621,27 @@ export const useAIStudioStore = create<AIStudioState>()(
               : s
           );
 
+          const reset = sessionResetPatch(state, projectPath, targetSessionId);
+          if (wasStreaming) delete reset.streamingSessions;
           return {
             sessions: {
               ...state.sessions,
               [projectPath]: updated
             },
-            ...sessionResetPatch(state, projectPath, targetSessionId)
+            ...reset
           };
         });
+        if (wasStreaming && targetSessionId) releaseStreamLater(targetSessionId, set);
       },
 
-      abortStream: async () => {
-        const { activeStreamSessionId } = get();
-        if (activeStreamSessionId && window.api?.abortAIStream) {
-          await window.api.abortAIStream(activeStreamSessionId);
-          set({ isStreaming: false, activeStreamSessionId: null });
-        }
+      abortStream: async (sessionId: string) => {
+        if (!sessionId || !get().streamingSessions[sessionId] || !window.api?.abortAIStream) return;
+        await window.api.abortAIStream(sessionId);
+        releaseStreamLater(sessionId, set);
       },
 
       sendMessage: async (projectPath: string, text: string, opts: SendMessageOptions = {}) => {
-        if (!text.trim() || get().isStreaming || !window.api?.streamAIChat) return;
+        if (!text.trim() || !window.api?.streamAIChat) return;
 
         let activeSessionId = opts.sessionId || get().activeSessionId[projectPath];
         let projectSessions = get().sessions[projectPath] || [];
@@ -629,6 +651,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           activeSessionId = get().createSession(projectPath);
           projectSessions = get().sessions[projectPath] || [];
         }
+        // Занята только эта вкладка: другие вкладки проекта отвечают параллельно (TASK-171).
+        if (get().streamingSessions[activeSessionId]) return;
         const currentSession = projectSessions.find((s) => s.id === activeSessionId)!;
         // Пишет в сессию только её владелец (decision-84 п. 5): чужая сессия участника — только для чтения.
         if (!canWriteStudioSession(currentSession, opts.memberId)) return;
@@ -683,12 +707,14 @@ export const useAIStudioStore = create<AIStudioState>()(
               ...state.sessions,
               [projectPath]: updated
             },
-            isStreaming: true,
-            activeStreamSessionId: activeSessionId
+            streamingSessions: { ...state.streamingSessions, [activeSessionId]: true },
+            // Вывод прошлого ответа этой вкладки не смешивается с новым.
+            liveOutputs: withoutKey(state.liveOutputs, activeSessionId)
           };
         });
 
         const streamId = activeSessionId;
+        const streamEnded = (state: AIStudioState) => ({ streamingSessions: withoutKey(state.streamingSessions, streamId) });
 
         // Listen to streaming events
         const unsubChunk = window.api.onAIChunk(streamId, (chunk) => {
@@ -754,7 +780,7 @@ export const useAIStudioStore = create<AIStudioState>()(
             if (chunk.rateLimitWarning) {
               newRateLimitWarnings = {
                 ...state.rateLimitWarnings,
-                [projectPath]: chunk.rateLimitWarning
+                [streamId]: chunk.rateLimitWarning
               };
             }
 
@@ -762,7 +788,7 @@ export const useAIStudioStore = create<AIStudioState>()(
             if (chunk.toolCall?.result && typeof chunk.toolCall.result === 'string') {
               newLiveOutputs = {
                 ...state.liveOutputs,
-                [projectPath]: chunk.toolCall.result
+                [streamId]: chunk.toolCall.result
               };
             }
 
@@ -783,12 +809,12 @@ export const useAIStudioStore = create<AIStudioState>()(
           set((state) => {
             const pSessions = state.sessions[projectPath] || [];
             const sIdx = pSessions.findIndex((s) => s.id === activeSessionId);
-            if (sIdx === -1) return state;
+            if (sIdx === -1) return streamEnded(state);
 
             const targetSession = { ...pSessions[sIdx] };
             const msgs = [...targetSession.messages];
             const mIdx = msgs.findIndex((m) => m.id === assistantMsgId);
-            if (mIdx === -1) return state;
+            if (mIdx === -1) return streamEnded(state);
 
             const finalTools = (completedMsg.toolCalls || msgs[mIdx].toolCalls || []).map((tc) => ({
               ...tc,
@@ -811,8 +837,7 @@ export const useAIStudioStore = create<AIStudioState>()(
                 ...state.sessions,
                 [projectPath]: newSessions
               },
-              isStreaming: false,
-              activeStreamSessionId: null
+              ...streamEnded(state)
             };
           });
 
@@ -836,12 +861,12 @@ export const useAIStudioStore = create<AIStudioState>()(
           set((state) => {
             const pSessions = state.sessions[projectPath] || [];
             const sIdx = pSessions.findIndex((s) => s.id === activeSessionId);
-            if (sIdx === -1) return state;
+            if (sIdx === -1) return streamEnded(state);
 
             const targetSession = { ...pSessions[sIdx] };
             const msgs = [...targetSession.messages];
             const mIdx = msgs.findIndex((m) => m.id === assistantMsgId);
-            if (mIdx === -1) return state;
+            if (mIdx === -1) return streamEnded(state);
 
             // Ошибка — отдельными полями, а не текстом ответа: карточка показывает её локализованно
             // (decision-43), а в историю для модели текст ошибки больше не попадает.
@@ -858,8 +883,7 @@ export const useAIStudioStore = create<AIStudioState>()(
                 ...state.sessions,
                 [projectPath]: newSessions
               },
-              isStreaming: false,
-              activeStreamSessionId: null
+              ...streamEnded(state)
             };
           });
 
@@ -867,11 +891,15 @@ export const useAIStudioStore = create<AIStudioState>()(
           void sessionPersister.flushNow();
         });
 
+        const stream = { cleanup: () => {} };
         const cleanup = () => {
           unsubChunk();
           unsubComplete();
           unsubError();
+          if (liveStreams.get(streamId) === stream) liveStreams.delete(streamId);
         };
+        stream.cleanup = cleanup;
+        liveStreams.set(streamId, stream);
 
         const streamReq: AIStreamRequest = {
           sessionId: streamId,
@@ -893,16 +921,15 @@ export const useAIStudioStore = create<AIStudioState>()(
           await window.api.streamAIChat(streamReq);
         } catch (err: any) {
           console.error('streamAIChat invocation error:', err);
-          set({ isStreaming: false, activeStreamSessionId: null });
+          set(streamEnded);
           cleanup();
         }
       },
 
       retryFailedMessage: async (projectPath: string, assistantMessageId: string) => {
-        if (get().isStreaming) return;
         const sessionId = get().activeSessionId[projectPath];
         const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
-        if (!session) return;
+        if (!session || get().streamingSessions[session.id]) return;
         const target = retryTarget(session.messages || [], assistantMessageId);
         if (!target) return;
         set((state) => ({
@@ -913,7 +940,7 @@ export const useAIStudioStore = create<AIStudioState>()(
             )
           }
         }));
-        await get().sendMessage(projectPath, target.userText);
+        await get().sendMessage(projectPath, target.userText, { sessionId: session.id });
       },
 
       acceptDiff: async (projectPath: string, messageId: string, toolId: string, filePath: string, newContent: string) => {

@@ -875,6 +875,12 @@ class ClaudeBridgeService extends EventEmitter {
     return this.activeSessions.has(sessionId);
   }
 
+  /** Идёт ли в проекте ответ другой сессии Agents Studio — вкладки отвечают параллельно (TASK-171). */
+  private hasOtherActiveSession(projectPath: string, sessionId: string): boolean {
+    for (const [id, project] of this.activeSessions) if (id !== sessionId && project === projectPath) return true;
+    return false;
+  }
+
   private startSession(sessionId: string, projectPath: string, engine: HitlEngine): void {
     this.abortedSessions.delete(sessionId);
     this.activeSessions.set(sessionId, projectPath);
@@ -898,7 +904,9 @@ class ClaudeBridgeService extends EventEmitter {
     this.abortedSessions.delete(sessionId);
     this.finishSessionSubagents(sessionId, outcome === 'done' ? 'completed' : 'failed');
     hitlService.cancelSession(sessionId, outcome === 'done' ? 'Сессия завершена' : message);
-    this.setProjectStatus(projectPath, outcome === 'done' ? 'done' : outcome === 'error' ? 'error' : 'idle', message);
+    // Другая вкладка проекта ещё отвечает (TASK-171): проект остаётся «в работе».
+    if (this.hasOtherActiveSession(projectPath, sessionId)) this.setProjectStatus(projectPath, 'running', message);
+    else this.setProjectStatus(projectPath, outcome === 'done' ? 'done' : outcome === 'error' ? 'error' : 'idle', message);
 
     const engine = this.sessionEngines.get(sessionId) ?? 'api';
     const startedAt = this.sessionStartedAt.get(sessionId);
@@ -1046,7 +1054,7 @@ class ClaudeBridgeService extends EventEmitter {
     aiAgentService.abortStream(sessionId);
     this.killSessionProcesses(sessionId);
 
-    if (projectPath) {
+    if (projectPath && !this.hasOtherActiveSession(projectPath, sessionId)) {
       const current = this.projectStatuses.get(projectPath)?.status;
       if (current === 'running' || current === 'waiting_approval') {
         this.setProjectStatus(projectPath, 'idle', 'Сессия прервана пользователем');
@@ -1311,10 +1319,15 @@ class ClaudeBridgeService extends EventEmitter {
         },
         {
           executeTool: (tc) => getApiToolExecutor().execute(tc, toolContext),
-          computerTools: req.mode === 'agent' ? computerUseService.listProxyTools() : []
+          computerTools: req.mode === 'agent' ? computerUseService.listProxyTools() : [],
+          // Отмена — тоже конец ответа: вкладка снимает подписки, мост телефона и лимиты агентов его видят (TASK-171).
+          onAborted: (partial) => {
+            this.finishSession(sessionId, projectPath, 'aborted', 'Сессия прервана пользователем');
+            onComplete(partial);
+          }
         }
       );
-      // streamChat при AbortError не зовёт ни onComplete, ни onError — закрываем сессию как отменённую.
+      // Страховка: ответ закончился без колбэка — закрываем сессию как отменённую.
       if (this.activeSessions.has(sessionId)) {
         this.finishSession(sessionId, projectPath, 'aborted', 'Сессия прервана пользователем');
       }

@@ -1613,6 +1613,8 @@ export interface TranslationDictionary {
     historyDeleteMessage: string;
     historyPrompts: string;
     fromPhone: string;
+    tabAnswering: string;
+    tabWaitingApproval: string;
     /** Сессия участника общего хоста (TASK-142.3): окно хоста только читает её. */
     memberSession: (member: string) => string;
     newChat: string;

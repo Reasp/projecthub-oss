@@ -208,6 +208,11 @@ export interface StreamChatOptions {
    * без гонки с моделью (decision-46 п. 8).
    */
   onToolBoundary?: (boundary: StreamToolBoundary) => void | Promise<void>;
+  /**
+   * Отмена ответа: накопленный текст с пометкой «Отменено пользователем». Без колбэка отмена не зовёт ни
+   * `onComplete`, ни `onError` (так её ждут рой и флот); Agents Studio закрывает по нему ответ вкладки (TASK-171).
+   */
+  onAborted?: (partial: AIMessage) => void;
 }
 
 /**
@@ -748,6 +753,14 @@ class AIAgentService {
   ): Promise<void> {
     const controller = new AbortController();
     this.activeControllers.set(req.sessionId, controller);
+    const loop: ToolLoopState = { fullText: '', fullThought: '', toolCalls: [], usage: null };
+    // Что уже показано пользователю: `loop` пополняется только по концу хода, а отмена приходит посреди него.
+    const shown = { text: '', thought: '' };
+    const emit = (payload: AIStreamChunkPayload) => {
+      if (payload.text) shown.text += payload.text;
+      if (payload.thought) shown.thought += payload.thought;
+      onChunk(payload);
+    };
 
     try {
       const computerTools = req.mode === 'agent' && options.executeTool
@@ -769,11 +782,10 @@ class AIAgentService {
             ...computerTools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema }))
           ]
         : [];
-      const loop: ToolLoopState = { fullText: '', fullThought: '', toolCalls: [], usage: null };
       const maxSteps = options.maxSteps ?? DEFAULT_MAX_TOOL_STEPS;
 
       if (req.config.provider === 'anthropic') {
-        await this.runAnthropicLoop(req, systemPrompt, tools, controller.signal, onChunk, loop, maxSteps, options.executeTool, options.onToolBoundary);
+        await this.runAnthropicLoop(req, systemPrompt, tools, controller.signal, emit, loop, maxSteps, options.executeTool, options.onToolBoundary);
       } else {
         // OpenAI-совместимым провайдерам инструменты отдаются только вместе с исполнителем:
         // без него вызовы остались бы без результата.
@@ -782,7 +794,7 @@ class AIAgentService {
           systemPrompt,
           options.executeTool ? tools : [],
           controller.signal,
-          onChunk,
+          emit,
           loop,
           maxSteps,
           options.executeTool,
@@ -809,6 +821,15 @@ class AIAgentService {
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         onChunk({ text: '\n\n*(Отменено пользователем)*' });
+        // Вызовы инструментов не передаются: окно оставляет те, что уже пришли чанками.
+        options.onAborted?.({
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: `${shown.text}\n\n*(Отменено пользователем)*`.trim(),
+          thought: shown.thought || undefined,
+          timestamp: new Date().toISOString(),
+          ...(loop.usage ? { usage: loop.usage } : {})
+        });
       } else {
         const info = toProviderErrorInfo(err, { provider: req.config.provider, ...(req.config.model ? { model: req.config.model } : {}) });
         const message = info?.message || err?.message || String(err);

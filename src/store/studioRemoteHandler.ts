@@ -12,13 +12,13 @@ import type { CreateSessionOptions, SendMessageOptions } from './useAIStudioStor
 export interface StudioStorePort {
   sessions: Record<string, AISession[]>;
   config: AIProviderConfig;
-  isStreaming: boolean;
-  activeStreamSessionId: string | null;
+  /** sessionId -> идёт ответ (TASK-171). */
+  streamingSessions: Record<string, true>;
   loadSessions(projectPath: string): Promise<void>;
   createSession(projectPath: string, initialTitle?: string, opts?: CreateSessionOptions): string;
   reopenSession(projectPath: string, session: AISession, activate?: boolean): void;
   sendMessage(projectPath: string, text: string, opts?: SendMessageOptions): Promise<void>;
-  abortStream(): Promise<void>;
+  abortStream(sessionId: string): Promise<void>;
   clearSession(projectPath: string, sessionId?: string): void;
 }
 
@@ -34,10 +34,10 @@ export interface StudioRemoteResult {
   error?: string;
 }
 
-export function busyError(state: Pick<StudioStorePort, 'sessions' | 'activeStreamSessionId'>): string {
-  const id = state.activeStreamSessionId;
-  const title = id ? Object.values(state.sessions).flat().find((s) => s.id === id)?.title : undefined;
-  return `Agents Studio на ПК уже отвечает${title ? ` в сессии «${title}»` : ''}. Дождитесь окончания или остановите тот ответ.`;
+/** Отказ, когда отвечает эта же сессия; другие вкладки проекта телефону не мешают (TASK-171). */
+export function busyError(state: Pick<StudioStorePort, 'sessions'>, sessionId: string): string {
+  const title = Object.values(state.sessions).flat().find((s) => s.id === sessionId)?.title;
+  return `В сессии${title ? ` «${title}»` : ''} агент ещё отвечает. Дождитесь окончания или остановите ответ.`;
 }
 
 export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload, deps: StudioRemoteDeps): Promise<StudioRemoteResult> {
@@ -46,15 +46,15 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
 
   if (req.kind === 'abort') {
     const state = deps.getState();
-    if (!state.isStreaming || state.activeStreamSessionId !== req.sessionId) return { ok: false, error: 'В этой сессии агент сейчас не отвечает' };
-    await state.abortStream();
+    if (!req.sessionId || !state.streamingSessions[req.sessionId]) return { ok: false, error: 'В этой сессии агент сейчас не отвечает' };
+    await state.abortStream(req.sessionId);
     return { ok: true, sessionId: req.sessionId };
   }
 
   if (req.kind === 'clear') {
     // /clear с телефона: та же очистка, что кнопкой на ПК — история и сессия Claude CLI сбрасываются.
     const state = deps.getState();
-    if (state.isStreaming && state.activeStreamSessionId === req.sessionId) return { ok: false, error: 'Агент ещё отвечает — сначала остановите ответ' };
+    if (req.sessionId && state.streamingSessions[req.sessionId]) return { ok: false, error: 'Агент ещё отвечает — сначала остановите ответ' };
     if (!(state.sessions[projectPath] || []).some((s) => s.id === req.sessionId)) return { ok: false, error: 'Очистить можно только сессию, открытую во вкладке на ПК' };
     state.clearSession(projectPath, req.sessionId);
     return { ok: true, sessionId: req.sessionId };
@@ -65,8 +65,6 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
   if (!text) return { ok: false, error: 'Пустой промпт' };
 
   await deps.getState().loadSessions(projectPath);
-  // Поток у Agents Studio один на всё приложение: второй ответ параллельно не запустить.
-  if (deps.getState().isStreaming) return { ok: false, error: busyError(deps.getState()) };
 
   let sessionId = req.sessionId;
   if (sessionId) {
@@ -76,6 +74,8 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
     if (!known && !fromDisk) return { ok: false, error: 'Сессия не найдена на ПК — возможно, её удалили' };
     // Чужая сессия участника общего хоста — только для чтения (TASK-142.3); хост проверяет это и до окна.
     if (!canWriteStudioSession((known ?? fromDisk)!, req.memberId)) return { ok: false, error: STUDIO_READ_ONLY_ERROR };
+    // Занята только сама сессия: ответы других вкладок идут параллельно (TASK-171).
+    if (deps.getState().streamingSessions[sessionId]) return { ok: false, error: busyError(deps.getState(), sessionId) };
     if (!open && fromDisk) {
       // Сессия из истории: возвращаем её во вкладки, не переключая вкладку на ПК.
       deps.getState().reopenSession(projectPath, fromDisk, false);
@@ -92,8 +92,8 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
   const state = deps.getState();
   const config = applyStudioSelection(state.config, parseStudioSelection(req.selection));
   const mode = parseStudioMode(req.mode);
-  // sendMessage ставит isStreaming синхронно, до первого await, — ждать весь ответ не нужно.
+  // sendMessage ставит флаг стрима сессии синхронно, до первого await, — ждать весь ответ не нужно.
   void state.sendMessage(projectPath, text, { sessionId, config, ...(mode ? { mode } : {}), ...(req.memberId ? { memberId: req.memberId } : {}) });
-  if (!deps.getState().isStreaming) return { ok: false, error: 'Agents Studio не начала ответ' };
+  if (!deps.getState().streamingSessions[sessionId]) return { ok: false, error: 'Agents Studio не начала ответ' };
   return { ok: true, sessionId };
 }
