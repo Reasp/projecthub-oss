@@ -4,7 +4,12 @@
 //   node scripts/version.mjs bump [--stage]   — третье число + 1 от версии HEAD во всех файлах рабочего дерева;
 //                                              --stage пишет ту же правку и в текущий индекс git (учитывает GIT_INDEX_FILE),
 //                                              поверх содержимого индекса, а не рабочего дерева
-//   node scripts/version.mjs verify --range A..B — каждый коммит первой линии A..B, меняющий код, поднял версию (CI)
+//   node scripts/version.mjs ensure-staged    — для git-хуков .githooks: коммит с кодом в master без повышения версии
+//                                              получает следующую (в индекс, который собирается в коммит)
+//   node scripts/version.mjs ensure-merge [1] — для post-merge: коммит слияния с кодом в master без повышения версии
+//                                              дополняется ею (--amend); аргумент 1 — squash, пропускается
+//   node scripts/version.mjs install-hooks   — core.hooksPath = .githooks (npm install → prepare)
+//   node scripts/version.mjs verify --range A..B — аудит: каждый коммит первой линии A..B, меняющий код, поднял версию
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -81,6 +86,66 @@ function bump(stage) {
   console.log(`🏷️  Версия ${base} → ${next}${stage ? ' (в рабочем дереве и в индексе)' : ''}`);
 }
 
+/** Ветки, в которых коммит с кодом поднимает версию. В остальных ветках и worktree её поднимает слияние в master. */
+const MAIN_BRANCHES = new Set(['master', 'main']);
+
+/**
+ * Для git-хуков pre-commit и pre-merge-commit: коммит в master, меняющий код, получает следующую версию, если её в нём
+ * ещё не подняли. Ручное повышение (например, второго числа) не трогается.
+ */
+function ensureStaged() {
+  const branch = gitOrNull(['symbolic-ref', '--short', '-q', 'HEAD'])?.trim();
+  if (!branch || !MAIN_BRANCHES.has(branch)) return;
+  const head = versionAt('HEAD');
+  if (!head) return;
+  const changed = git(['diff', '--cached', '--name-only', 'HEAD']).split('\n').filter(Boolean);
+  if (!changed.some(isCodePath)) return;
+  const staged = readVersions(gitOrNull(['show', ':package.json']) ?? '', 1)[0];
+  if (compareVersions(staged, head) > 0) return;
+  bump(true);
+}
+
+/**
+ * Для git-хука post-merge: после pre-merge-commit git индекс не перечитывает, поэтому коммит слияния, принёсший код в
+ * master без повышения версии, дополняется ею сразу после создания (`--amend`). Fast-forward и squash не трогаются:
+ * у fast-forward нет своего коммита, squash коммитится обычным `git commit` через pre-commit.
+ */
+function ensureMerge(squash) {
+  if (squash) return;
+  const branch = gitOrNull(['symbolic-ref', '--short', '-q', 'HEAD'])?.trim();
+  if (!branch || !MAIN_BRANCHES.has(branch)) return;
+  const parents = (gitOrNull(['rev-list', '--parents', '-n', '1', 'HEAD']) ?? '').trim().split(/\s+/).slice(1);
+  if (parents.length < 2) return;
+  const changed = git(['diff', '--name-only', parents[0], 'HEAD']).split('\n').filter(Boolean);
+  if (!changed.some(isCodePath)) return;
+  if (compareVersions(versionAt('HEAD'), versionAt(parents[0])) > 0) return;
+  bump(true);
+  // `commit --amend` во время post-merge запрещён (MERGE_HEAD ещё на месте): коммит слияния пересобирается из индекса с
+  // теми же родителями, автором и сообщением.
+  const head = git(['rev-parse', 'HEAD']).trim();
+  const [name, email, date] = git(['log', '-1', '--format=%an%x00%ae%x00%aD', head]).trim().split('\0');
+  const tree = git(['write-tree']).trim();
+  const message = git(['log', '-1', '--format=%B', head]);
+  const env = { ...process.env, GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: date };
+  const args = ['commit-tree', tree, ...parents.flatMap((p) => ['-p', p])];
+  const amended = execFileSync('git', args, { cwd: rootDir, encoding: 'utf-8', input: message, env }).trim();
+  git(['update-ref', '-m', 'post-merge: версия приложений (TASK-193)', 'HEAD', amended, head]);
+}
+
+/** Подключает .githooks (npm install → prepare). Чужой core.hooksPath не перезаписывает. */
+function installHooks() {
+  if (gitOrNull(['rev-parse', '--is-inside-work-tree'])?.trim() !== 'true') return;
+  if (!fs.existsSync(path.join(rootDir, '.githooks', 'pre-commit'))) return;
+  const current = gitOrNull(['config', '--get', 'core.hooksPath'])?.trim();
+  if (current === '.githooks') return;
+  if (current) {
+    console.warn(`⚠️  core.hooksPath = ${current}: хуки версии (.githooks) не подключены, поднимайте версию npm run version:bump`);
+    return;
+  }
+  git(['config', 'core.hooksPath', '.githooks']);
+  console.log('🪝 git-хуки подключены: core.hooksPath = .githooks (версия приложений, TASK-193)');
+}
+
 function verify(range) {
   if (!range) throw new Error('verify: нужен --range A..B');
   const [from, toRaw] = range.split('..');
@@ -115,9 +180,12 @@ const [cmd, ...rest] = process.argv.slice(2);
 try {
   if (cmd === 'check') check();
   else if (cmd === 'bump') bump(rest.includes('--stage'));
+  else if (cmd === 'ensure-staged') ensureStaged();
+  else if (cmd === 'ensure-merge') ensureMerge(rest[0] === '1');
+  else if (cmd === 'install-hooks') installHooks();
   else if (cmd === 'verify') verify(rest[rest.indexOf('--range') + 1]);
   else {
-    console.error('Использование: node scripts/version.mjs check | bump [--stage] | verify --range A..B');
+    console.error('Использование: node scripts/version.mjs check | bump [--stage] | ensure-staged | ensure-merge [1] | install-hooks | verify --range A..B');
     process.exit(2);
   }
 } catch (err) {

@@ -1,0 +1,2 @@
+# git-хуки выполняет sh: с CRLF после checkout на Windows (core.autocrlf) они падают на «\r» (TASK-193).
+.githooks/* text eol=lf
