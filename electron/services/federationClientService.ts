@@ -91,6 +91,8 @@ interface PeerConnection {
   sessionProtocol?: number;
   /** Ошибка, после которой переподключение бессмысленно (PIN, ключ, подмена ключа хоста, «только v2»). */
   fatal: boolean;
+  /** WebSocket-ping подключённому хосту: простаивающее соединение не закроет сеть, мёртвое заметим без тайм-аута ОС. */
+  heartbeatTimer: NodeJS.Timeout | null;
 }
 
 function errorText(err: unknown): string {
@@ -98,11 +100,15 @@ function errorText(err: unknown): string {
 }
 
 const RPC_TIMEOUT_MS = 30_000;
+/** Интервал ping: соединение без трафика сеть между ПК рвала примерно через 2 минуты (TASK-181). */
+const HEARTBEAT_MS = 25_000;
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 const PEERS_SECRET_KEY = 'federation.peers';
 
 class FederationClientService {
   private peers = new Map<string, PeerConnection>();
+  /** Поле, а не константа — тесты укорачивают интервал. */
+  private heartbeatMs = HEARTBEAT_MS;
   private loaded: Promise<void> | null = null;
   /** Идентификатор и имя этой машины как устройства на удалённых хостах. */
   private localHostId = '';
@@ -161,7 +167,8 @@ class FederationClientService {
       session: null,
       pendingHandshake: null,
       inbox: Promise.resolve(),
-      fatal: false
+      fatal: false,
+      heartbeatTimer: null
     };
   }
 
@@ -413,6 +420,7 @@ class FederationClientService {
   }
 
   private closeSocket(peer: PeerConnection): void {
+    this.stopHeartbeat(peer);
     if (peer.reconnectTimer) {
       clearTimeout(peer.reconnectTimer);
       peer.reconnectTimer = null;
@@ -434,6 +442,41 @@ class FederationClientService {
       peer.pending.delete(id);
     }
     this.rejectHandshakeWaiters(peer, new Error('Соединение с хостом закрыто'));
+  }
+
+  /** Ping раз в heartbeatMs; не пришёл pong к следующему тику — соединение мёртвое, рвём его, close переподключит. */
+  private startHeartbeat(peer: PeerConnection, ws: WebSocket): void {
+    if (peer.heartbeatTimer) return; // повторный handshake_ack (после одобрения) на том же сокете
+    let awaitingPong = false;
+    ws.on('pong', () => {
+      awaitingPong = false;
+    });
+    peer.heartbeatTimer = setInterval(() => {
+      if (peer.ws !== ws || ws.readyState !== WebSocket.OPEN) {
+        this.stopHeartbeat(peer);
+        return;
+      }
+      if (awaitingPong) {
+        logger.warn(`[Federation] No pong from ${peer.credentials.machineName} in ${this.heartbeatMs / 1000} s, reconnecting`);
+        this.stopHeartbeat(peer);
+        ws.terminate();
+        return;
+      }
+      awaitingPong = true;
+      try {
+        ws.ping();
+      } catch {
+        // сокет закрывается — close обработает
+      }
+    }, this.heartbeatMs);
+    peer.heartbeatTimer.unref?.();
+  }
+
+  private stopHeartbeat(peer: PeerConnection): void {
+    if (peer.heartbeatTimer) {
+      clearInterval(peer.heartbeatTimer);
+      peer.heartbeatTimer = null;
+    }
   }
 
   private rejectHandshakeWaiters(peer: PeerConnection, err: Error): void {
@@ -492,8 +535,9 @@ class FederationClientService {
       peer.inbox = peer.inbox.then(() => (peer.ws === ws ? this.handlePeerMessage(peer, ws, text) : undefined)).catch(() => undefined);
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code: number, reason: Buffer) => {
       const wasConnected = peer.status === 'connected';
+      this.stopHeartbeat(peer);
       // Отказ хоста без шанса на повтор (ключ, «только v2») остаётся ошибкой, а не «не в сети».
       peer.status = peer.manualDisconnect ? 'idle' : peer.fatal ? 'error' : 'offline';
       peer.connectedAt = undefined;
@@ -503,7 +547,8 @@ class FederationClientService {
         call.reject(new Error('Соединение с хостом закрыто'));
         peer.pending.delete(id);
       }
-      if (wasConnected) logger.info(`[Federation] Peer disconnected: ${peer.credentials.machineName}`);
+      // Код и причина закрытия отличают разрыв сети (1006) от закрытия хостом (4001 — заменён новым соединением и т.п.).
+      if (wasConnected) logger.info(`[Federation] Peer disconnected: ${peer.credentials.machineName} (code ${code}${reason?.length ? `, ${String(reason)}` : ''})`);
       this.notifyPeersChanged();
       this.scheduleReconnect(peer);
     });
@@ -644,6 +689,7 @@ class FederationClientService {
     peer.error = undefined;
     peer.connectedAt = Date.now();
     peer.reconnectAttempt = 0;
+    if (peer.ws) this.startHeartbeat(peer, peer.ws);
 
     const remoteLastEventId = Number(result.lastEventId) || 0;
     this.resolveHandshakeWaiters(peer);
