@@ -1,6 +1,6 @@
 {
   "name": "project-hub",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "description": "ProjectHub — Единая десктопная панель управления проектами с обвязкой ProjectTemplate (Backlog.md, Git, RAG, MCP, Dev-окружение)",
   "main": "dist-electron/main.js",
@@ -59,6 +59,7 @@
     "appId": "com.projecthub.desktop",
     "productName": "ProjectHub",
     "icon": "build/icon.ico",
+    "afterPack": "./scripts/mac/after-pack.mjs",
     "protocols": [
       {
         "name": "ProjectHub",
@@ -170,6 +171,9 @@
       ],
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
+      "identity": "-",
+      "sign": "./scripts/mac/sign.mjs",
+      "timestamp": "none",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
