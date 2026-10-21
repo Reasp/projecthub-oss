@@ -112,7 +112,8 @@ import { classifyLanAddresses, rankLanAddresses } from './lanAddresses.js';
 import { resolveTunnelCommand } from './tunnelCommand.js';
 import treeKill from 'tree-kill';
 import { buildHostEndpoints, relayEndpoint, type RemoteEndpoint } from '../../src/utils/remoteEndpoints.js';
-import { isPeerIntroduction, pickPeerAddress } from '../../src/utils/fleetIntroduce.js';
+import { isPeerIntroduction, peerAddressCandidates } from '../../src/utils/fleetIntroduce.js';
+import { firstReachableAddress } from './peerReachability.js';
 import matter from 'gray-matter';
 import {
   MOBILE_CLIENT_DIST,
@@ -279,6 +280,8 @@ const RPC_IDEMPOTENCY_TTL_MS = 60 * 1000;
 const AGENT_OUTPUT_TAIL_CHARS = 8000;
 /** Период heartbeat/метаданных в каталог релея (TASK-66): релей считает хост протухшим через 90с. */
 const FEDERATION_HEARTBEAT_MS = 30 * 1000;
+/** Проба адресов соседа при знакомстве (TASK-198): вместе с рукопожатием укладывается в тайм-аут RPC телефона (15 с). */
+const INTRODUCE_PROBE_TIMEOUT_MS = 4 * 1000;
 
 /**
  * `ownerId` каталога федерации (TASK-66, decision-11 п.2) — хэш общего федеративного секрета
@@ -3302,8 +3305,11 @@ class RemoteControlService {
     if (intro.hostId === this.hostId) throw new Error('Это тот же компьютер');
     const peers = await federationClientService.listPeers();
     if (peers.some((p) => p.hostId === intro.hostId && p.paired && p.status === 'connected')) return { status: 'already', connected: true };
-    const address = pickPeerAddress(intro, getLocalIpAddresses());
-    if (!address) throw new Error(`У компьютера «${intro.machineName}» нет адреса, доступного этому ПК`);
+    const candidates = peerAddressCandidates(intro, getLocalIpAddresses());
+    if (!candidates.length) throw new Error(`У компьютера «${intro.machineName}» нет адреса, доступного этому ПК`);
+    const address = await firstReachableAddress(candidates, INTRODUCE_PROBE_TIMEOUT_MS).catch((err: unknown) => {
+      throw new Error(`Нет связи с «${intro.machineName}»: ${err instanceof Error ? err.message : String(err)}`);
+    });
     const state = await federationClientService.addPeer({
       hostId: intro.hostId,
       machineName: intro.machineName,

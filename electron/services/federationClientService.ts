@@ -25,6 +25,7 @@ import { isHostKey } from '../../src/utils/remoteSessionV2Node.js';
 import { secretStorageService } from './secretStorageService.js';
 import { logger } from './logger.js';
 import { appEventBus } from './eventBus.js';
+import { describePeerConnectError } from './peerReachability.js';
 
 /**
  * Hub-режим федерации (TASK-66, decision-11 п.4): ProjectHub как КЛИЕНТ другого ProjectHub.
@@ -572,7 +573,7 @@ class FederationClientService {
 
     ws.on('error', (err: Error) => {
       // Офлайн-хост — это статус, а не ошибка приложения (AC #5): сообщение кладём в состояние.
-      peer.error = err?.message || 'Ошибка соединения';
+      peer.error = describePeerConnectError(err);
       if (peer.status !== 'connected') peer.status = 'offline';
       this.notifyPeersChanged();
     });

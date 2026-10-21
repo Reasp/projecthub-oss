@@ -159,21 +159,34 @@ function hostOf(url: string): string {
   }
 }
 
+export interface PeerAddress {
+  transport: 'lan' | 'relay';
+  address: string;
+}
+
 /**
- * Адрес соседа для hub-режима (decision-143 п. 3): LAN в той же подсети /24, что у этого ПК, затем VPN, туннель, релей,
- * затем любой LAN. `null` — адресов нет.
+ * Адреса соседа для hub-режима в порядке предпочтения (decision-143 п. 3): LAN в той же подсети /24, что у этого ПК, затем
+ * VPN, туннель, релей, затем любой LAN. Остальные — запасные, если первый недоступен: macOS без разрешения «Локальная
+ * сеть» не пускает в LAN (TASK-198).
  */
-export function pickPeerAddress(
-  intro: { endpoints: RemoteEndpoint[]; relayUrl?: string },
-  localIps: readonly string[]
-): { transport: 'lan' | 'relay'; address: string } | null {
+export function peerAddressCandidates(intro: { endpoints: RemoteEndpoint[]; relayUrl?: string }, localIps: readonly string[]): PeerAddress[] {
   const eps = intro.endpoints.filter((e) => e && typeof e.url === 'string');
   const lan = eps.filter((e) => e.kind === 'lan');
   const near = lan.find((e) => localIps.some((ip) => sameSubnet24(ip, hostOf(e.url))));
-  const direct = near ?? eps.find((e) => e.kind === 'vpn') ?? eps.find((e) => e.kind === 'tunnel');
-  if (direct) return { transport: 'lan', address: direct.url };
   const relay = eps.find((e) => e.kind === 'relay')?.url ?? intro.relayUrl;
-  if (relay && /^wss?:\/\//i.test(relay)) return { transport: 'relay', address: relay };
-  if (lan[0]) return { transport: 'lan', address: lan[0].url };
-  return null;
+  const out: PeerAddress[] = [];
+  const add = (transport: PeerAddress['transport'], address: string | undefined) => {
+    if (address && !out.some((a) => a.address === address)) out.push({ transport, address });
+  };
+  add('lan', near?.url);
+  add('lan', eps.find((e) => e.kind === 'vpn')?.url);
+  add('lan', eps.find((e) => e.kind === 'tunnel')?.url);
+  if (relay && /^wss?:\/\//i.test(relay)) add('relay', relay);
+  add('lan', lan[0]?.url);
+  return out;
+}
+
+/** Предпочтительный адрес соседа (`peerAddressCandidates`). `null` — адресов нет. */
+export function pickPeerAddress(intro: { endpoints: RemoteEndpoint[]; relayUrl?: string }, localIps: readonly string[]): PeerAddress | null {
+  return peerAddressCandidates(intro, localIps)[0] ?? null;
 }

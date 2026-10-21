@@ -1,6 +1,6 @@
 {
   "name": "project-hub",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "ProjectHub — Единая десктопная панель управления проектами с обвязкой ProjectTemplate (Backlog.md, Git, RAG, MCP, Dev-окружение)",
   "main": "dist-electron/main.js",
@@ -173,7 +173,8 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "ProjectHub использует микрофон для голосового управления и ассистента."
+        "NSMicrophoneUsageDescription": "ProjectHub использует микрофон для голосового управления и ассистента.",
+        "NSLocalNetworkUsageDescription": "ProjectHub подключается к другим вашим компьютерам и телефону в локальной сети."
       }
     },
     "dmg": {
