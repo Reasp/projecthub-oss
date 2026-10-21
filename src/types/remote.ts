@@ -299,7 +299,41 @@ export type RemoteRpcMethod =
   // Голосовой промпт: PCM с телефона частями, распознавание на этом ПК (TASK-140.7, decision-121)
   | 'voice_chunk'
   // Ограничения запуска агента до нажатия «Запустить» (бюджеты Team, decision-124)
-  | 'check_agent_launch';
+  | 'check_agent_launch'
+  // Документация проекта на телефоне (TASK-140.17): список без текстов и документ со сверкой хэша
+  | 'get_docs'
+  | 'get_doc';
+
+/** Документ или решение в ответе `get_docs` — без текста, с хэшем содержимого для сверки кэша телефона. */
+export interface RemoteDocEntry {
+  kind: 'doc' | 'decision';
+  /** `doc-5`, `decision-46`. */
+  id: string;
+  title: string;
+  /** Раздел дерева через `/` (decision-68). */
+  section?: string;
+  /** Путь от корня проекта: `backlog/docs/doc-5 - Title.md`; им же запрашивается `get_doc`. */
+  path: string;
+  /** sha256 байтов файла, первые 32 hex-символа. */
+  hash: string;
+  size: number;
+  /** `date` решения или `created_date` документа — строкой. */
+  date?: string;
+  status?: string;
+}
+
+/** Ответ `get_docs`. */
+export interface RemoteDocsList {
+  docs: RemoteDocEntry[];
+}
+
+/**
+ * Ответ `get_doc` (параметры `projectPath`, `path`, `knownHash`): хэш совпал с `knownHash` — без текста, иначе текст
+ * файла целиком вместе с frontmatter.
+ */
+export type RemoteDocContent =
+  | { path: string; hash: string; unchanged: true }
+  | { path: string; hash: string; unchanged?: false; content: string; size: number };
 
 /** Ответ `check_agent_launch`: в открытой редакции хоста — `allowed` без примечаний. */
 export interface RemoteLaunchCheck {

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CheckIcon, CopyIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { parseMarkdownBlocks, type MarkdownBlock } from '../../../src/components/common/markdownBlocks';
+import { useT } from '../i18n/react';
 import { copyText } from '../platform/clipboard';
 import { parseInline, type InlineToken } from './markdownInline';
 
@@ -11,7 +12,13 @@ import { parseInline, type InlineToken } from './markdownInline';
  * свой, без сторов ПК. HTML из ответа не исполняется: всё идёт текстом через React.
  */
 
+/** Переход по ссылке `[[doc-5]]`/`[[decision-46#Decision]]` (TASK-140.17); без обработчика ссылка остаётся текстом. */
+export type DocLinkHandler = (id: string, anchor?: string) => void;
+
+const DocLinkContext = createContext<DocLinkHandler | null>(null);
+
 function Inline({ tokens }: { tokens: InlineToken[] }) {
+  const onDocLink = useContext(DocLinkContext);
   return (
     <>
       {tokens.map((t, i) => {
@@ -40,6 +47,18 @@ function Inline({ tokens }: { tokens: InlineToken[] }) {
                 {t.text}
               </a>
             );
+          case 'docref':
+            if (!onDocLink) return <span key={i}>{t.raw}</span>;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onDocLink(t.id, t.anchor)}
+                className="inline text-left text-indigo-300 underline decoration-dotted underline-offset-2 active:text-indigo-200"
+              >
+                {t.label}
+              </button>
+            );
           default:
             return <span key={i}>{t.text}</span>;
         }
@@ -55,6 +74,7 @@ function InlineText({ text }: { text: string }) {
 
 /** Блок кода: язык, кнопка «Копировать» и прокрутка по горизонтали — строки не переносятся. */
 export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  const tr = useT();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -64,15 +84,15 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   return (
     <div className="my-2 overflow-hidden rounded-xl border border-ph-line bg-black/40">
       <div className="flex items-center justify-between border-b border-ph-line px-3 py-1">
-        <span className="font-mono text-[11px] uppercase tracking-wide text-slate-500">{lang && lang !== 'text' ? lang : 'код'}</span>
+        <span className="font-mono text-[11px] uppercase tracking-wide text-slate-500">{lang && lang !== 'text' ? lang : tr.pairing.ui.code}</span>
         <button
           type="button"
           onClick={async () => setCopied(await copyText(code))}
           className="-mr-2 flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-slate-300 active:bg-ph-hover"
-          aria-label="Копировать код"
+          aria-label={tr.pairing.ui.copyCode}
         >
           {copied ? <CheckIcon size={15} className="text-emerald-400" /> : <CopyIcon size={15} />}
-          {copied ? 'Скопировано' : 'Копировать'}
+          {copied ? tr.common.copied : tr.common.copy}
         </button>
       </div>
       <pre className="selectable overflow-x-auto px-3 py-2 font-mono text-[12.5px] leading-relaxed text-slate-100">
@@ -95,7 +115,7 @@ function Block({ b }: { b: MarkdownBlock }): ReactNode {
     case 'heading': {
       const size = (b.level ?? 1) <= 1 ? 'text-[18px]' : b.level === 2 ? 'text-[16.5px]' : 'text-[15px]';
       return (
-        <div className={clsx('mb-1 mt-3 font-semibold first:mt-0', size)}>
+        <div data-md-heading="" className={clsx('mb-1 mt-3 font-semibold first:mt-0', size)}>
           <InlineText text={b.raw ?? ''} />
         </div>
       );
@@ -166,13 +186,15 @@ function Block({ b }: { b: MarkdownBlock }): ReactNode {
   }
 }
 
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, onDocLink }: { text: string; onDocLink?: DocLinkHandler }) {
   const blocks = useMemo(() => parseMarkdownBlocks(text), [text]);
   return (
-    <div className="selectable break-words">
-      {blocks.map((b, i) => (
-        <Block key={i} b={b} />
-      ))}
-    </div>
+    <DocLinkContext.Provider value={onDocLink ?? null}>
+      <div className="selectable break-words">
+        {blocks.map((b, i) => (
+          <Block key={i} b={b} />
+        ))}
+      </div>
+    </DocLinkContext.Provider>
   );
 }

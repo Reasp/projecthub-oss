@@ -11,11 +11,14 @@ export type InlineToken =
   | { type: 'code'; text: string }
   | { type: 'bold'; children: InlineToken[] }
   | { type: 'italic'; children: InlineToken[] }
-  | { type: 'link'; text: string; href: string };
+  | { type: 'link'; text: string; href: string }
+  /** Ссылка Backlog.md `[[decision-46]]`, `[[doc-5|подпись]]`, `[[decision-46#Decision]]` (TASK-140.17); `raw` — как в тексте. */
+  | { type: 'docref'; id: string; anchor?: string; label: string; raw: string };
 
 // Жирный может содержать целый *курсив* (`**проверь *всё***`); в адресе ссылки — скобки одного уровня.
+// Последняя альтернатива — ссылка `[[id#якорь|подпись]]` (decision-68, decision-69).
 const INLINE_RE =
-  /(`+)([\s\S]*?)\1|\*\*((?:[^*]|\*[^*\s](?:[^*]*[^*\s])?\*)+?)\*\*|\*([^*\s](?:[^*]*[^*\s])?)\*|\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g;
+  /(`+)([\s\S]*?)\1|\*\*((?:[^*]|\*[^*\s](?:[^*]*[^*\s])?\*)+?)\*\*|\*([^*\s](?:[^*]*[^*\s])?)\*|\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])|\[\[\s*((?:decision|doc|task|mem)-\d+(?:\.\d+)*)\s*(?:#([^\]|\n]*))?(?:\|([^\]\n]*))?\]\]/gi;
 
 /** Ссылка, которую можно открыть: только http(s) и mailto. `javascript:` и прочее — просто текст. */
 export function safeHref(href: string): string | null {
@@ -33,7 +36,7 @@ export function parseInline(text: string, depth = 0): InlineToken[] {
   };
   let pos = 0;
   INLINE_RE.lastIndex = 0;
-  const re = new RegExp(INLINE_RE.source, 'g');
+  const re = new RegExp(INLINE_RE.source, INLINE_RE.flags);
   for (let m = re.exec(text); m; m = re.exec(text)) {
     pushText(text.slice(pos, m.index));
     pos = m.index + m[0].length;
@@ -49,6 +52,16 @@ export function parseInline(text: string, depth = 0): InlineToken[] {
       else pushText(m[5]);
     } else if (m[7] !== undefined) {
       out.push({ type: 'link', text: m[7], href: m[7] });
+    } else if (m[8] !== undefined) {
+      const anchor = m[9]?.trim();
+      const alias = m[10]?.trim();
+      out.push({
+        type: 'docref',
+        id: m[8].toLowerCase(),
+        ...(anchor ? { anchor } : {}),
+        label: alias || (anchor ? `${m[8]}#${anchor}` : m[8]),
+        raw: m[0]
+      });
     }
   }
   pushText(text.slice(pos));

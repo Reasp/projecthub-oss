@@ -64,6 +64,7 @@ import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { hitlService } from './hitlService.js';
 import { confirmProofPayload, parseConfirmKey, verifyConfirmProof } from './hitlConfirmProof.js';
 import { fitsPhoneReview, hitlDetailForPhone } from './remoteHitlDetail.js';
+import { listRemoteDocs, readRemoteDoc } from './remoteDocs.js';
 import { parsePushAction, parsePushRegistration, verifyPushAction, type PushHostEndpoint, type PushRegistration } from './remotePush.js';
 import { RemotePushService, type PushTarget } from './remotePushService.js';
 import { RemoteInboxService, type InboxTask, type NoteContext } from './remoteInboxService.js';
@@ -2926,6 +2927,17 @@ class RemoteControlService {
       case 'get_tasks': {
         if (!activePath) return [];
         return await this.loadBacklogTasks(activePath);
+      }
+
+      // Документация на телефоне (TASK-140.17): только чтение, проект — из реестра, путь — внутри его backlog.
+      case 'get_docs': {
+        if (!activePath) return { docs: [] };
+        return { docs: await listRemoteDocs(await assertRegisteredProject(String(activePath))) };
+      }
+
+      case 'get_doc': {
+        if (!activePath) throw new Error('No active project specified');
+        return await readRemoteDoc(await assertRegisteredProject(String(activePath)), params.path, params.knownHash);
       }
 
       case 'update_task_status': {
