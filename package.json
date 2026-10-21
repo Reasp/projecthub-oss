@@ -217,6 +217,7 @@
     "graphology": "0.26.0",
     "graphology-layout-forceatlas2": "0.10.1",
     "gray-matter": "^4.0.3",
+    "ignore": "^7.0.13",
     "mermaid": "^11.17.2",
     "node-pty": "^1.1.0",
     "qrcode": "^1.5.4",

@@ -57,6 +57,9 @@ import { assertInsideProject, isRegisteredProjectRoot } from './pathGuard';
 import { projectRegistry } from './projectRegistry';
 import { invalidateInspectCache } from './projectScanner';
 import { processManager } from './processManager';
+import { buildIndexItem, type InitIndexView } from './initCodeIndex';
+import type { IndexProfileId } from './codeIndexProfiles';
+import { detectIndexProfiles, GITNEXUS_IGNORE_FILE } from './codeIndexService';
 
 export interface InitRequest {
   targetDir: string;
@@ -72,6 +75,8 @@ export interface InitRequest {
   sets?: Record<string, boolean>;
   commands?: Record<string, boolean>;
   gitHooks?: boolean;
+  /** Профили индексации GitNexus (decision-131); не задано — из блока `.gitnexusignore` или по стеку. */
+  indexProfiles?: IndexProfileId[];
 }
 
 export interface InitOptionView {
@@ -110,6 +115,8 @@ export interface InitPreview {
   stacks: Array<{ id: string; label: string }>;
   items: InitPlanItem[];
   template: InitTemplateView | null;
+  /** Профиль индексации кода GitNexus (decision-131). */
+  index: InitIndexView;
 }
 
 export interface InitApplyRequest extends InitRequest {
@@ -344,6 +351,20 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
     contribution
   );
 
+  // Индексация кода (decision-131): блок в .gitnexusignore по профилю стека. По умолчанию — только там, где GitNexus
+  // уже есть или его ставит шаблон.
+  const detectedIndex = await detectIndexProfiles(root);
+  const existingIgnore = existsSync(root) ? await readText(root, GITNEXUS_IGNORE_FILE) : null;
+  const index = buildIndexItem({
+    existing: existingIgnore,
+    suggested: detectedIndex.suggested,
+    requested: request.indexProfiles,
+    context: detectedIndex.context,
+    locale,
+    enabledByDefault: Boolean(layerResult?.features.gitnexus) || existsSync(path.join(root, '.gitnexus')) || existingIgnore !== null
+  });
+  plan.items.push(index.item);
+
   return {
     preview: {
       targetDir: root,
@@ -352,7 +373,8 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
       registered,
       stacks: plan.stacks.map(({ id, label }) => ({ id, label })),
       items: plan.items,
-      template: templateView
+      template: templateView,
+      index: index.view
     },
     templateDir,
     layer: layerResult,

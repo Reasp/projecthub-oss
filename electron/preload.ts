@@ -671,6 +671,13 @@ const api: IElectronAPI = {
   getCodeGraph: (projectPath: string, force?: boolean) => ipcRenderer.invoke('graph:getCode', projectPath, force === true),
   getDocsGraph: (projectPath: string) => ipcRenderer.invoke('graph:getDocs', projectPath),
 
+  // Настройка индексации GitNexus и переиндексация (TASK-176, decision-131)
+  codeIndexState: (projectPath: string) => ipcRenderer.invoke('codeIndex:getState', projectPath),
+  codeIndexPreview: (projectPath: string, settings: unknown, locale: string) => ipcRenderer.invoke('codeIndex:preview', projectPath, settings, locale),
+  codeIndexSave: (projectPath: string, settings: unknown, locale: string) => ipcRenderer.invoke('codeIndex:save', projectPath, settings, locale),
+  codeIndexReindex: (projectPath: string, force: boolean) => ipcRenderer.invoke('codeIndex:reindex', projectPath, force === true),
+  indexDocsDir: (projectPath: string) => ipcRenderer.invoke('docs:indexDocsDir', projectPath),
+
   // Память проекта (TASK-76): факты backlog/memory — список, правка человеком, удаление
   listMemory: (projectPath: string) => ipcRenderer.invoke('memory:list', projectPath),
   writeMemory: (projectPath: string, draft: MemoryDraftInput, replace?: string) =>

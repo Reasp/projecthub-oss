@@ -1462,6 +1462,22 @@ export interface IElectronAPI {
   getCodeGraph: (projectPath: string, force?: boolean) => Promise<ProjectGraphResult>;
   getDocsGraph: (projectPath: string) => Promise<ProjectGraphResult>;
 
+  // Настройка индексации GitNexus и переиндексация — TASK-176, decision-131
+  codeIndexState: (projectPath: string) => Promise<import('./projectInit').IpcResult<import('./codeIndex').CodeIndexState>>;
+  codeIndexPreview: (
+    projectPath: string,
+    settings: import('./codeIndex').CodeIndexSettings,
+    locale: string
+  ) => Promise<import('./projectInit').IpcResult<import('./codeIndex').IndexScanResult>>;
+  codeIndexSave: (
+    projectPath: string,
+    settings: import('./codeIndex').CodeIndexSettings,
+    locale: string
+  ) => Promise<import('./projectInit').IpcResult<{ changed: boolean }>>;
+  codeIndexReindex: (projectPath: string, force: boolean) => Promise<import('./projectInit').IpcResult<ManagedProcess>>;
+  /** Каталог со скриптом index-docs относительно корня проекта ('' — корень); `null` — скрипта нет. */
+  indexDocsDir: (projectPath: string) => Promise<string | null>;
+
   // Память проекта (TASK-76, decision-51)
   listMemory: (projectPath: string) => Promise<MemoryListResult>;
   writeMemory: (projectPath: string, draft: MemoryDraftInput, replace?: string) => Promise<MemoryWriteResult>;

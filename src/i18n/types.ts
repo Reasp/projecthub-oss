@@ -1093,6 +1093,49 @@ export interface TranslationDictionary {
     docsNoIndex: string;
     docsNoIndexHint: string;
     loadError: string;
+    /** Переиндексация и настройка индексации GitNexus (TASK-176). */
+    reindex: string;
+    reindexing: string;
+    reindexFailed: string;
+    indexSettings: string;
+    buildIndex: string;
+  };
+  /** Настройка индексации GitNexus (TASK-176, decision-131). */
+  codeIndex: {
+    title: string;
+    subtitle: string;
+    stack: string;
+    noStack: string;
+    indexNow: string;
+    noIndex: string;
+    rulesChanged: string;
+    broken: string;
+    profiles: string;
+    suggested: string;
+    groups: string;
+    noGroups: string;
+    headersOnly: string;
+    foundPlugins: string;
+    noPlugins: string;
+    custom: string;
+    customHint: string;
+    userLines: string;
+    noUserLines: string;
+    preview: string;
+    counting: string;
+    included: string;
+    excluded: string;
+    skippedLarge: string;
+    truncated: string;
+    topIncluded: string;
+    topExcluded: string;
+    rootDir: string;
+    elapsed: string;
+    save: string;
+    saveReindex: string;
+    saved: string;
+    unchanged: string;
+    loadError: string;
   };
   /** Security Health (TASK-73, decision-56): вкладка проекта, коммит с секретом, безопасность слота Swarm. */
   security: {
@@ -1853,7 +1896,13 @@ export interface TranslationDictionary {
     groupDocs: string;
     groupRules: string;
     groupMcp: string;
+    groupIndex: string;
     groupTemplate: string;
+    indexTitle: string;
+    indexDesc: string;
+    indexSuggested: string;
+    indexNone: string;
+    indexPlugins: string;
     actionCreate: string;
     actionAppend: string;
     actionMerge: string;

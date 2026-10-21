@@ -45,6 +45,8 @@ export interface GraphExplorerProps {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
   onReload: () => void;
+  /** Дополнительные кнопки в шапке — переиндексация и настройка индексации графа кода (TASK-176). */
+  actions?: React.ReactNode;
 }
 
 /** Общая пустая таблица цветов: новый `{}` на каждый рендер пересоздавал бы граф и рендерер. */
@@ -98,7 +100,8 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
   subtitle,
   title,
   icon: Icon,
-  onReload
+  onReload,
+  actions
 }) => {
   const { t } = useTranslation();
   const g = t.graph;
@@ -389,6 +392,7 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {actions}
           <button type="button" className={iconButton} onClick={() => zoom(1 / 1.5)} title={g.zoomIn}>
             <ZoomIn className="w-4 h-4" />
           </button>

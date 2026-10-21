@@ -22,7 +22,8 @@ import {
   Package,
   Terminal,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Network
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
@@ -58,7 +59,7 @@ type Step = 'setup' | 'preview' | 'applying' | 'done';
 
 const RULE_TARGET_OPTIONS = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md', '.agents/rules/projecthub.md'];
 const DEFAULT_RULE_TARGETS = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'];
-const GROUP_ORDER: InitGroup[] = ['git', 'tasks', 'docs', 'rules', 'mcp', 'template'];
+const GROUP_ORDER: InitGroup[] = ['git', 'tasks', 'docs', 'rules', 'mcp', 'index', 'template'];
 
 const GROUP_ICON: Record<InitGroup, React.FC<{ className?: string }>> = {
   git: GitBranch,
@@ -66,6 +67,7 @@ const GROUP_ICON: Record<InitGroup, React.FC<{ className?: string }>> = {
   docs: BookOpen,
   rules: ScrollText,
   mcp: Server,
+  index: Network,
   template: Package
 };
 
@@ -106,6 +108,8 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
   const [sets, setSets] = useState<Record<string, boolean>>({});
   const [gitHooks, setGitHooks] = useState<boolean | undefined>(undefined);
   const [commands, setCommands] = useState<Record<string, boolean>>({});
+  // Профили индексации GitNexus (decision-131); undefined — как предложит main по блоку или стеку.
+  const [indexProfiles, setIndexProfiles] = useState<string[] | undefined>(undefined);
   const [preview, setPreview] = useState<InitPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,6 +157,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
     setFeatures({});
     setSets({});
     setCommands({});
+    setIndexProfiles(undefined);
     setGitHooks(undefined);
     setClaudeAccountId('');
     setInitialClaudeAccountId('');
@@ -202,9 +207,10 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
       features,
       sets,
       commands,
-      gitHooks
+      gitHooks,
+      indexProfiles: indexProfiles as InitRequest['indexProfiles']
     }),
-    [targetDir, mode, projectName, language, rulesMode, rulesTargets, templateId, placement, features, sets, commands, gitHooks]
+    [targetDir, mode, projectName, language, rulesMode, rulesTargets, templateId, placement, features, sets, commands, gitHooks, indexProfiles]
   );
 
   // Предпросмотр пересчитывается при каждом изменении настроек: по нему окно знает фичи шаблона и что уже есть.
@@ -293,6 +299,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
     docs: ti.groupDocs,
     rules: ti.groupRules,
     mcp: ti.groupMcp,
+    index: ti.groupIndex,
     template: ti.groupTemplate
   };
 
@@ -554,6 +561,45 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
                   </div>
                 </div>
               </section>
+
+              {/* Индексация кода GitNexus (decision-131): профиль по найденному стеку */}
+              {preview?.index && (
+                <section className="space-y-2" data-testid="init-index">
+                  <div>
+                    <h3 className="font-medium text-slate-200 text-[11px]">{ti.indexTitle}</h3>
+                    <p className="text-[11px] text-slate-400">{ti.indexDesc}</p>
+                  </div>
+                  <div className={`${card} space-y-2`}>
+                    <div className="flex flex-wrap gap-1.5">
+                      {preview.index.profiles.map((profile) => {
+                        const on = preview.index.selected.includes(profile.id);
+                        return (
+                          <label
+                            key={profile.id}
+                            className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border cursor-pointer ${on ? 'border-indigo-500/60 bg-indigo-500/10 text-slate-100' : 'border-slate-800 text-slate-400 hover:border-slate-700'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() =>
+                                setIndexProfiles(on ? preview.index.selected.filter((id) => id !== profile.id) : [...preview.index.selected, profile.id])
+                              }
+                              className="w-3 h-3"
+                              data-testid={`init-index-${profile.id}`}
+                            />
+                            {profile.label}
+                            {preview.index.suggested.includes(profile.id) && <span className="text-[10px] text-emerald-400">{ti.indexSuggested}</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {preview.index.selected.length === 0 && <div className="text-[11px] text-slate-500">{ti.indexNone}</div>}
+                    {preview.index.marketplacePlugins.length > 0 && (
+                      <div className="text-[11px] text-slate-400">{ti.indexPlugins.replace('{list}', preview.index.marketplacePlugins.join(', '))}</div>
+                    )}
+                  </div>
+                </section>
+              )}
 
               {/* Аккаунт Claude Code (decision-87 п. 4): выбор есть, только когда профилей больше одного */}
               {claudeAccounts.length > 1 && (

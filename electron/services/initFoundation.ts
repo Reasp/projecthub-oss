@@ -32,7 +32,7 @@ export type InitLocale = 'ru' | 'en';
  */
 export type InitAction = 'create' | 'append' | 'merge' | 'replace' | 'delete' | 'skip';
 
-export type InitGroup = 'git' | 'tasks' | 'docs' | 'rules' | 'mcp' | 'template';
+export type InitGroup = 'git' | 'tasks' | 'docs' | 'rules' | 'mcp' | 'index' | 'template';
 
 /** Почему выбрано действие — код причины, текст подбирает интерфейс (i18n). */
 export type InitReason =

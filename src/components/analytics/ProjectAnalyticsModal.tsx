@@ -333,7 +333,7 @@ export const ProjectAnalyticsModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="flex justify-between p-2.5 rounded-lg bg-ph-elevated border border-slate-800">
                   <span className="text-slate-400">{t.analytics.ragEmbeddingModel}</span>
                   <span className="font-mono text-indigo-300">
-                    {selectedProject.ragStatus?.model || 'BAAI/bge-small-en-v1.5'}
+                    {selectedProject.ragStatus?.model || 'Xenova/multilingual-e5-small'}
                   </span>
                 </div>
 

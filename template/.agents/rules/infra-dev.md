@@ -409,7 +409,7 @@ npm run env-server                   # MCP-сервер env-tools (обычно 
 npx backlog.md mcp start             # нативный MCP-сервер Backlog.md (обычно через .mcp.json)
 npx backlog.md doc create "<Заголовок>" -t guide   # новый документ (никогда не создавать .md руками)
 npx backlog.md decision create "<Заголовок>"        # новое архитектурное решение (ADR)
-gitnexus analyze                     # (пере)индексировать код GitNexus; post-commit делает это сам
+gitnexus analyze --skip-agents-md --skip-skills  # (пере)индексировать код GitNexus без правки CLAUDE.md/AGENTS.md; post-commit делает это сам; что индексировать — блок ProjectHub в .gitnexusignore
 npm run bootstrap                    # поставить git/node/... под текущую ОС (scripts/bootstrap/stack.json)
 npm run lightrag-setup                # ОДНОРАЗОВО: venv + lightrag-hku + модели Ollama (если features.lightrag)
 npm run lightrag-index                # построить граф документации (LightRAG)

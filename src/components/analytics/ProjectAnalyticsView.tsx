@@ -303,8 +303,8 @@ export const ProjectAnalyticsView: React.FC = () => {
 
             <div className="px-2.5 py-2 rounded-md hover:bg-ph-hover/60 flex flex-col justify-between">
               <span className="text-slate-400 text-[11px]">Model</span>
-              <span className="text-xs font-mono text-slate-300 truncate mt-0.5" title={selectedProject.ragStatus?.model || 'BAAI/bge-small-en-v1.5'}>
-                {selectedProject.ragStatus?.model || 'bge-small-en-v1.5'}
+              <span className="text-xs font-mono text-slate-300 truncate mt-0.5" title={selectedProject.ragStatus?.model || 'Xenova/multilingual-e5-small'}>
+                {selectedProject.ragStatus?.model || 'multilingual-e5-small'}
               </span>
             </div>
 

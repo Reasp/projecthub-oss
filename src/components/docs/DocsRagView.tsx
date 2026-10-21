@@ -183,7 +183,9 @@ export const DocsRagView: React.FC = () => {
       finish();
     });
 
-    const proc = await startProcessAction('npm run index-docs', 'index-docs');
+    // Скрипт index-docs лежит в корне или в .projecthub/infra (как в docsReindex.ts); cwd — относительно корня.
+    const docsDir = await window.api.indexDocsDir(projectPath).catch(() => null);
+    const proc = await startProcessAction('npm run index-docs', 'index-docs', docsDir ? { cwd: docsDir } : undefined);
     // Не запустился (ошибка) или уже завершился до подписки — не ждать событие.
     if (!proc || proc.status !== 'running') {
       finish();

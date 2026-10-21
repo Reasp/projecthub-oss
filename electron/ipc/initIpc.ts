@@ -21,6 +21,7 @@ import {
 } from '../services/templateCatalog';
 import { previewSaveProject, saveProjectAsTemplate, type SaveTemplateOptions } from '../services/templateSaveService';
 import { assertRegisteredProject } from '../services/projectPathGuard';
+import { isIndexProfileId } from '../services/codeIndexProfiles';
 
 /** Результат IPC без исключений: рендерер показывает текст ошибки в окне. */
 type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -49,7 +50,8 @@ function asRequest(raw: unknown): InitRequest {
     features: bools(r.features),
     sets: bools(r.sets),
     commands: bools(r.commands),
-    gitHooks: typeof r.gitHooks === 'boolean' ? r.gitHooks : undefined
+    gitHooks: typeof r.gitHooks === 'boolean' ? r.gitHooks : undefined,
+    indexProfiles: Array.isArray(r.indexProfiles) ? r.indexProfiles.filter(isIndexProfileId) : undefined
   };
 }
 

@@ -207,7 +207,7 @@ async function main() {
   if (config.features.gitnexus) {
     const probe = spawnSync('gitnexus', ['--version'], { shell: true, stdio: 'ignore' });
     if (probe.status !== 0) {
-      console.log('\ngitnexus: CLI не найден в PATH — установите глобально: npm i -g gitnexus, затем в корне проекта: gitnexus analyze');
+      console.log('\ngitnexus: CLI не найден в PATH — установите глобально: npm i -g gitnexus, затем в корне проекта: gitnexus analyze --skip-agents-md --skip-skills');
     }
   }
 
@@ -236,7 +236,7 @@ async function main() {
 
   console.log('\nДальше:');
   if (config.features.docsRag) console.log('  npm run index-docs     # собрать векторный индекс документации');
-  if (config.features.gitnexus) console.log('  gitnexus analyze        # проиндексировать код (в корне проекта); post-commit хук будет обновлять сам');
+  if (config.features.gitnexus) console.log('  gitnexus analyze --skip-agents-md --skip-skills  # проиндексировать код (в корне проекта); post-commit хук будет обновлять сам');
   if (config.features.bootstrap) console.log('  npm run bootstrap       # поставить git/node/… под текущую ОС');
   if (config.features.lightrag) {
     console.log('  npm run lightrag-setup  # ОДНОРАЗОВО: venv, lightrag-hku, модели Ollama (несколько ГБ, отдельный шаг)');

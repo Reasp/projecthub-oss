@@ -147,7 +147,7 @@
   "commands": [
     { "id": "install", "label": "npm install", "run": "npm install", "cwd": "infra", "default": true },
     { "id": "index-docs", "label": "npm run index-docs", "run": "npm run index-docs", "cwd": "infra", "default": true, "when": "docsRag" },
-    { "id": "gitnexus-analyze", "label": "gitnexus analyze", "run": "gitnexus analyze", "cwd": "project", "default": false, "when": "gitnexus" },
+    { "id": "gitnexus-analyze", "label": "gitnexus analyze", "run": "gitnexus analyze --skip-agents-md --skip-skills", "cwd": "project", "default": false, "when": "gitnexus" },
     { "id": "lightrag-setup", "label": "npm run lightrag-setup", "run": "npm run lightrag-setup", "cwd": "infra", "default": false, "when": "lightrag" }
   ],
   "gitHooks": {

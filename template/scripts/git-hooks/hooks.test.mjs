@@ -25,9 +25,19 @@ function sandboxDir() {
   return mkdtempSync(join(tmpdir(), 'infra-hooks-'));
 }
 
-/** post-commit: песочница с заглушкой gitnexus. failFirstAnalyze повторяет боевой отказ. */
-function runPostCommit({ failFirstAnalyze, indexed = true }) {
+/**
+ * post-commit: песочница с заглушкой gitnexus. failFirstAnalyze повторяет боевой отказ.
+ * commitFiles — песочница становится репозиторием, и последний коммит содержит эти файлы.
+ */
+function runPostCommit({ failFirstAnalyze, indexed = true, commitFiles = null }) {
   const dir = sandboxDir();
+  if (commitFiles) {
+    const git = (...args) => spawnSync('git', args, { cwd: dir, encoding: 'utf-8' });
+    git('init', '-q');
+    for (const file of commitFiles) writeFileSync(join(dir, file), 'x\n');
+    git('add', ...commitFiles);
+    git('-c', 'user.email=hook@test', '-c', 'user.name=hook', 'commit', '-qm', 'test');
+  }
   copyFileSync(join(HOOKS, 'post-commit'), join(dir, 'hook.sh'));
   if (indexed) mkdirSync(join(dir, '.gitnexus'));
   writeFileSync(
@@ -56,16 +66,30 @@ process.exit(0);
 
 test('post-commit: после падения переиндексации добивает полной пересборкой', { skip }, () => {
   const { run, log } = runPostCommit({ failFirstAnalyze: true });
-  assert.deepEqual(log, ['analyze', 'clean --force', 'analyze'], `ожидался analyze → clean → analyze, вышло: ${log.join(' | ')}`);
+  const ANALYZE = 'analyze --skip-agents-md --skip-skills';
+  assert.deepEqual(log, [ANALYZE, 'clean --force', ANALYZE], `ожидался analyze → clean → analyze, вышло: ${log.join(' | ')}`);
   assert.equal(run.status, 0, 'хук не должен падать сам: post-commit уже ничего не отменит');
   assert.match(run.stdout, /пересобран начисто/, `нет сообщения об успешной пересборке:\n${run.stdout}`);
 });
 
 test('post-commit: при успешной переиндексации ничего не пересобирает', { skip }, () => {
   const { run, log } = runPostCommit({ failFirstAnalyze: false });
-  assert.deepEqual(log, ['analyze'], `лишние вызовы после успешного analyze: ${log.join(' | ')}`);
+  assert.deepEqual(log, ['analyze --skip-agents-md --skip-skills'], `лишние вызовы после успешного analyze: ${log.join(' | ')}`);
   assert.equal(run.status, 0);
   assert.doesNotMatch(run.stdout, /clean/, 'хук предлагает очистку там, где всё прошло успешно');
+});
+
+test('post-commit: коммит с .gitnexusignore или .gitignore — полный проход (--force)', { skip }, () => {
+  for (const file of ['.gitnexusignore', '.gitignore']) {
+    const { run, log } = runPostCommit({ failFirstAnalyze: false, commitFiles: [file, 'a.txt'] });
+    assert.deepEqual(log, ['analyze --force --skip-agents-md --skip-skills'], `${file}: ${log.join(' | ')}`);
+    assert.equal(run.status, 0);
+  }
+});
+
+test('post-commit: коммит без правил индексации — обычный инкрементальный проход', { skip }, () => {
+  const { log } = runPostCommit({ failFirstAnalyze: false, commitFiles: ['src.ts'] });
+  assert.deepEqual(log, ['analyze --skip-agents-md --skip-skills']);
 });
 
 test('post-commit: в проекте без .gitnexus/ молча ничего не делает', { skip }, () => {

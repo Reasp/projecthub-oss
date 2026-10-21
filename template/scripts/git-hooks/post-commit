@@ -14,6 +14,18 @@
 # GITNEXUS_HOOK_CMD — переопределение команды (ей передаются analyze / clean --force). Нужно, если
 # gitnexus зовётся нестандартно, и через него же проверяется сам хук: scripts/git-hooks/hooks.test.mjs.
 # INFRA_HOOKS_SKIP=1 или GITNEXUS_HOOK_SKIP=1 — пропустить (деплой-скрипты, CI).
+#
+# analyze идёт с --skip-agents-md --skip-skills: без них GitNexus при каждом коммите правит свою секцию
+# в CLAUDE.md/AGENTS.md и кладёт скиллы в .claude/skills/gitnexus (decision-131). Что индексировать —
+# блок ProjectHub в .gitnexusignore.
+ANALYZE_FLAGS="--skip-agents-md --skip-skills"
+
+# Коммит поменял правила индексации — полный проход: инкрементальный убирает ставшие исключёнными
+# файлы, но оставляет в графе их папки (decision-131).
+FORCE_FLAG=""
+if git diff-tree --root --no-commit-id --name-only -r HEAD 2>/dev/null | grep -qx -e '.gitnexusignore' -e '.gitignore'; then
+  FORCE_FLAG="--force"
+fi
 
 if [ "$INFRA_HOOKS_SKIP" = "1" ] || [ "$GITNEXUS_HOOK_SKIP" = "1" ]; then
   exit 0
@@ -65,7 +77,8 @@ if ! resolve_runner yes; then
 fi
 
 echo "[GitNexus Hook] Запуск автоматической переиндексации GitNexus после коммита..."
-if run_gitnexus analyze; then
+# Без кавычек намеренно: пустой FORCE_FLAG не должен стать пустым аргументом.
+if run_gitnexus analyze $FORCE_FLAG $ANALYZE_FLAGS; then
   exit 0
 fi
 
@@ -75,15 +88,15 @@ run_gitnexus clean --force
 
 if ! resolve_runner no; then
   echo "[GitNexus Hook] ВНИМАНИЕ: пересобирать индекс нечем (нет gitnexus на PATH и нет npx)."
-  echo "[GitNexus Hook] Индекс СЛОМАН. Почини вручную: gitnexus analyze"
+  echo "[GitNexus Hook] Индекс СЛОМАН. Почини вручную: gitnexus analyze $ANALYZE_FLAGS"
   exit 0
 fi
 
-if run_gitnexus analyze; then
+if run_gitnexus analyze $ANALYZE_FLAGS; then
   echo "[GitNexus Hook] Индекс пересобран начисто."
   exit 0
 fi
 
 echo "[GitNexus Hook] ВНИМАНИЕ: индекс остался сломанным — impact/context будут отвечать неверно."
-echo "[GitNexus Hook] Почини вручную: gitnexus clean --force && gitnexus analyze"
+echo "[GitNexus Hook] Почини вручную: gitnexus clean --force && gitnexus analyze $ANALYZE_FLAGS"
 exit 0

@@ -142,7 +142,7 @@ node scripts/bootstrap/bootstrap.mjs
 выполни **в корне проекта**:
 
 ```bash
-gitnexus analyze          # глобальный CLI (npm i -g gitnexus); дальше post-commit хук обновляет индекс сам
+gitnexus analyze --skip-agents-md --skip-skills  # глобальный CLI (npm i -g gitnexus); дальше post-commit хук обновляет индекс сам
 ```
 
 Выполнять **до** шага 7 (sync-rules) — `gitnexus analyze` тоже пишет секцию в `AGENTS.md`, и
