@@ -1,4 +1,5 @@
 import type { AIProviderConfig, StudioSessionAgent } from '../types/electron';
+import { claudeEngineOf } from './connections';
 
 /**
  * Агент вкладки Agents Studio (TASK-170): у каждой вкладки свои провайдер, модель и аккаунт Claude Code.
@@ -7,14 +8,18 @@ import type { AIProviderConfig, StudioSessionAgent } from '../types/electron';
 
 const PROVIDERS: ReadonlyArray<AIProviderConfig['provider']> = ['anthropic', 'openrouter', 'deepseek', 'ollama', 'custom', 'openai-compatible'];
 
-/** Конфиг запроса вкладки: общий конфиг, поверх него провайдер и модель вкладки. */
+/**
+ * Конфиг запроса вкладки: общий конфиг, поверх него провайдер и модель вкладки. Движок Claude — общий, если общий
+ * провайдер тоже Claude; иначе подписка: ключ Anthropic в общем поле не должен молча увести вкладку на API.
+ */
 export function sessionRequestConfig(global: AIProviderConfig, agent: StudioSessionAgent | undefined): AIProviderConfig {
   if (!agent) return global;
-  const { profileId: _profileId, ...rest } = global;
+  const { profileId: _profileId, engine: _engine, ...rest } = global;
   return {
     ...rest,
     provider: agent.provider,
     model: agent.model,
+    ...(agent.provider === 'anthropic' ? { engine: claudeEngineOf(global) } : {}),
     ...(agent.provider === 'openai-compatible' && agent.profileId ? { profileId: agent.profileId } : {})
   };
 }

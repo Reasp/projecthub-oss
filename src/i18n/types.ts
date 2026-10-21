@@ -3077,6 +3077,43 @@ export interface TranslationDictionary {
     modelPlaceholder: string;
   };
   /** Усилие рассуждений сессии и слота (TASK-70.3, decision-41). */
+  aiConnections: {
+    title: string;
+    description: string;
+    add: string;
+    addTitle: string;
+    groupSubscription: string;
+    groupApiKey: string;
+    groupServer: string;
+    claudeAccount: string;
+    claudeAccountHint: string;
+    claudeDirectory: string;
+    claudeDirectoryHint: string;
+    anthropicKeyHint: string;
+    anthropicKeyBlocked: string;
+    anthropicKeyExists: string;
+    providerClaudeCode: string;
+    providerAnthropicApi: string;
+    keyStored: string;
+    noKey: string;
+    local: string;
+    keyPlaceholder: string;
+    keyApplyHint: string;
+    keyDone: string;
+    changeKey: string;
+    removeKey: string;
+    legacyBadge: string;
+    legacyHint: string;
+    legacyMigrate: string;
+    editProfile: string;
+    deleteProfile: string;
+    defaultModel: string;
+    defaultModelHint: string;
+    engineSubscription: string;
+    engineApiKey: string;
+    engineTitle: string;
+    legacyActive: string;
+  };
   reasoningEffort: {
     label: string;
     /** Короткая подпись для компактного выбора в слоте Swarm. */

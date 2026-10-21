@@ -1,13 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
-  Key,
   Cpu,
   Sliders,
   Sparkles,
-  Server,
   CheckCircle2,
-  Eye,
   EyeOff,
   ShieldCheck,
   FileCode,
@@ -23,20 +20,20 @@ import {
   Layers,
   Network,
 } from '../common/icons';
-import { BrandLogo, ClaudeLogo } from '../common/BrandLogo';
 import { useAIStudioStore, DEFAULT_AUTO_APPROVE_RULES } from '../../store/useAIStudioStore';
 import { useHitlStore } from '../../store/useHitlStore';
 import type { AIProviderConfig, AutoApproveRules } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTimers } from '../../hooks/useTimeoutState';
-import { LlmProfilesSection } from './LlmProfilesSection';
 import { PricingEditorSection } from './PricingEditorSection';
 import { ModelTiersSection } from './ModelTiersSection';
 import { useLlmProfiles } from './ProviderProfileSelect';
 import { ReasoningEffortSelect } from './ReasoningEffortSelect';
-import { ClaudeAccountsPanel } from './ClaudeAccountsPanel';
+import { ConnectionsPanel } from './ConnectionsPanel';
+import { ModelSelectorDropdown } from './ModelSelectorDropdown';
 import { effortTargetKind } from '../../lib/reasoningEffort';
-import { mainChoiceOf, mainChoicePatch, mainEngineOfForm, type MainChoice } from '../../lib/modelAssignmentEditor';
+import { mainEngineOfForm } from '../../lib/modelAssignmentEditor';
+import { claudeEngineOf, defaultModelPatch, hasAnthropicKey, legacyProviderOf } from '../../lib/connections';
 import { ModelAssignmentsSection } from './ModelAssignmentsSection';
 
 export type AISettingsTab = 'general' | 'autoApprove' | 'pricing' | 'tiers' | 'assignments';
@@ -50,39 +47,9 @@ interface AISettingsModalProps {
   focusPurpose?: string;
 }
 
-// Справочные подсказки поля «Модель», а не рекомендация: модель выбирает пользователь (decision-26 п. 0).
-// `default`/`sonnet`/`opus`/`haiku` — алиасы Claude CLI; для API-пути нужен полный идентификатор модели.
-const MODEL_PRESETS: Record<string, string[]> = {
-  anthropic: [
-    'default',
-    'sonnet',
-    'opus',
-    'haiku',
-    'claude-fable-5-1',
-    'claude-opus-5',
-    'claude-sonnet-5',
-    'claude-haiku-4-5'
-  ],
-  openrouter: [
-    'deepseek/deepseek-r1',
-    'deepseek/deepseek-chat',
-    'openai/gpt-4o',
-    'google/gemini-2.0-flash-001'
-  ],
-  deepseek: [
-    'deepseek-chat',
-    'deepseek-reasoner'
-  ],
-  ollama: [
-    'qwen2.5-coder:7b',
-    'deepseek-r1:8b',
-    'llama3.3:70b',
-    'mistral:latest'
-  ],
-  custom: [
-    'custom-model'
-  ]
-};
+// Подсказки поля модели для API-пути Anthropic: ему нужен полный идентификатор, алиасы Claude CLI не подходят.
+// Справка, а не рекомендация: модель выбирает пользователь (decision-26 п. 0).
+const ANTHROPIC_API_MODELS = ['claude-fable-5-1', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'];
 
 export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose, initialTab, focusPurpose }) => {
   const { t } = useTranslation();
@@ -94,7 +61,6 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
     ...config,
     autoApproveRules: config.autoApproveRules || { ...DEFAULT_AUTO_APPROVE_RULES }
   });
-  const [showKey, setShowKey] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   // Отложенное закрытие после сохранения: таймер снимается при размонтировании (TASK-50)
   const { setTimer } = useTimers();
@@ -103,26 +69,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   const [newWritePattern, setNewWritePattern] = useState('');
   const [newReadPattern, setNewReadPattern] = useState('');
   const [newCommandPattern, setNewCommandPattern] = useState('');
-  // Модели каталога выбранного профиля openai-compatible — подсказки поля «Модель» (TASK-70.2)
-  const [catalogModels, setCatalogModels] = useState<string[]>([]);
   // Формат усилия профиля — для подсказки под выбором усилия рассуждений.
   const llmProfiles = useLlmProfiles(isOpen);
-  const handleCatalogChange = useCallback((models: string[]) => setCatalogModels(models), []);
-
-  // Ручной перенос прежнего провайдера в профиль (decision-40): профиль создаётся в main из сохранённых
-  // настроек, форма переключается на него, а ai-config.json меняется только по «Сохранить».
-  const [legacyImport, setLegacyImport] = useState<{ busy: boolean; message?: string; error?: boolean }>({ busy: false });
-  const handleImportLegacy = async () => {
-    setLegacyImport({ busy: true });
-    try {
-      const profile = await window.api.importLegacyLlmProfile(form.provider);
-      setForm((prev) => ({ ...prev, provider: 'openai-compatible', profileId: profile.id }));
-      setLegacyImport({ busy: false, message: t.providerSelect.importLegacyDone.replace('{name}', profile.name) });
-    } catch (err) {
-      const message = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err);
-      setLegacyImport({ busy: false, message, error: true });
-    }
-  };
 
   useEffect(() => {
     if (isOpen) {
@@ -197,27 +145,15 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
     updateRules({ commandDenyList: current.filter((p) => p !== pat) });
   };
 
-  /**
-   * Пункт списка «Провайдер». «Claude Code (подписка)» и «Anthropic (API-ключ)» — один провайдер с явным движком
-   * (decision-74 п. 2, TASK-134.3): выбор пункта пишет `engine`, сохранённый ключ при подписке не мешает.
-   */
-  const handleProviderChange = (choice: MainChoice) => {
-    const { provider, engine } = mainChoicePatch(choice);
-    let defaultBaseUrl = form.baseUrl;
-    if (provider === 'ollama') defaultBaseUrl = 'http://127.0.0.1:11434';
-    if (provider === 'deepseek') defaultBaseUrl = 'https://api.deepseek.com';
-
-    // Модель прежнего провайдера новому не подходит, а MODEL_PRESETS — подсказки поля, не выбор
-    // (decision-26 п. 0): модель выбирает пользователь, пустая даёт понятную ошибку при запросе (TASK-92).
+  // Подключения и модель по умолчанию (TASK-172): правка формы, сохраняется кнопкой «Сохранить».
+  const patchForm = (patch: Partial<AIProviderConfig>) =>
     setForm((prev) => {
-      const next: AIProviderConfig = { ...prev, provider, model: provider === prev.provider ? prev.model : '', baseUrl: defaultBaseUrl };
-      if (engine) next.engine = engine;
-      else delete next.engine;
+      const next = { ...prev, ...patch };
+      for (const key of Object.keys(patch) as (keyof AIProviderConfig)[]) if (patch[key] === undefined) delete next[key];
       return next;
     });
-  };
-  const mainChoice = mainChoiceOf(form);
-  const subscription = mainChoice === 'claude-subscription';
+  const legacy = legacyProviderOf(form);
+  const claudeEngine = claudeEngineOf(form);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,226 +272,65 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
           {/* TAB 1: GENERAL (LLM PROVIDERS & MODELS) */}
           {activeTab === 'general' && (
             <div className="space-y-5">
-              {/* Аккаунты Claude Code по подписке: профили, вход и выход каждого (TASK-152.2, decision-87) */}
-              <ClaudeAccountsPanel />
+              {/* Аккаунты, ключи и серверы моделей одним списком (TASK-172) */}
+              <ConnectionsPanel form={form} onFormChange={patchForm} />
 
-              {/* Provider Selection */}
-              <div>
-                <label className="font-medium text-slate-200 text-[11px] block mb-2">
-                  {t.aiStudio.settingsModal.provider}:
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['claude-subscription', 'anthropic-api'] as const).map((choice) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      onClick={() => handleProviderChange(choice)}
-                      data-testid={`ai-provider-${choice}`}
-                      className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
-                        mainChoice === choice
-                          ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
-                          : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
-                        <ClaudeLogo className="w-3.5 h-3.5" />
-                        {choice === 'claude-subscription'
-                          ? t.aiStudio.settingsModal.providerSubscription
-                          : t.aiStudio.settingsModal.providerAnthropicApi}
-                      </span>
-                      <span className="text-[11px] text-slate-400">
-                        {choice === 'claude-subscription'
-                          ? t.aiStudio.settingsModal.providerSubscriptionHint
-                          : t.aiStudio.settingsModal.providerAnthropicApiHint}
-                      </span>
-                    </button>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={() => handleProviderChange('openrouter')}
-                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
-                      form.provider === 'openrouter'
-                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
-                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
-                      <BrandLogo name="openrouter" className="w-3.5 h-3.5" />
-                      OpenRouter
-                    </span>
-                    <span className="text-[11px] text-slate-400">Multi-Model Proxy</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleProviderChange('deepseek')}
-                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
-                      form.provider === 'deepseek'
-                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
-                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
-                      <BrandLogo name="deepseek" className="w-3.5 h-3.5" />
-                      DeepSeek API
-                    </span>
-                    <span className="text-[11px] text-slate-400">V3 & R1</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleProviderChange('ollama')}
-                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
-                      form.provider === 'ollama'
-                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
-                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
-                      <BrandLogo name="ollama" className="w-3.5 h-3.5 text-slate-100" />
-                      Local Ollama
-                    </span>
-                    <span className="text-[11px] text-slate-400">100% Offline</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleProviderChange('custom')}
-                    className={`p-3 rounded-lg border text-left transition flex flex-col gap-1 ${
-                      form.provider === 'custom'
-                        ? 'bg-indigo-500/10 border-indigo-400/70 text-white'
-                        : 'bg-ph-panel border-ph-line text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5 font-medium text-xs text-slate-100">
-                      <Server className="w-3.5 h-3.5 text-slate-400" />
-                      Custom OpenAI Endpoint
-                    </span>
-                    <span className="text-[11px] text-slate-400">vLLM, LM Studio, LiteLLM</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleProviderChange('openai-compatible')}
-                    className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
-                      form.provider === 'openai-compatible'
-                        ? 'bg-cyan-600/15 border-cyan-500/50 text-white shadow-sm ring-1 ring-cyan-500/30'
-                        : 'bg-ph-hover border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                    }`}
-                  >
-                    <span className="font-semibold text-xs text-cyan-300">{t.llmProfiles.providerButton}</span>
-                    <span className="text-[11px] text-slate-400">{t.llmProfiles.providerButtonHint}</span>
-                  </button>
-                </div>
-              </div>
-
-              {form.provider === 'openai-compatible' && (
-                <LlmProfilesSection
-                  profileId={form.profileId}
-                  onSelectProfile={(profileId) => setForm((prev) => ({ ...prev, profileId }))}
-                  onCatalogChange={handleCatalogChange}
-                />
-              )}
-
-              {['openrouter', 'deepseek', 'ollama', 'custom'].includes(form.provider) && (
-                <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={handleImportLegacy}
-                    disabled={legacyImport.busy}
-                    title={t.providerSelect.importLegacyHint}
-                    className="px-2.5 py-1 rounded-lg border border-slate-700 bg-ph-raised text-slate-200 hover:bg-ph-hover disabled:opacity-50"
-                  >
-                    {t.providerSelect.importLegacy}
-                  </button>
-                  <span className="text-slate-400">{t.providerSelect.importLegacyHint}</span>
-                </div>
-              )}
-              {legacyImport.message && (
-                <p className={`text-[11px] ${legacyImport.error ? 'text-rose-400' : 'text-emerald-400'}`}>{legacyImport.message}</p>
-              )}
-
-              {/* API Key: у подписки ключа нет — запросы идут через Claude Code CLI (TASK-134.3) */}
-              {subscription && (
-                <p className="text-[11px] text-slate-400 flex items-center gap-1.5" data-testid="ai-subscription-no-key">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  {t.aiStudio.settingsModal.subscriptionNoKey}
-                </p>
-              )}
-              {!subscription && form.provider !== 'ollama' && form.provider !== 'openai-compatible' && (
+              {/* Модель по умолчанию: тот же список, что в поле ввода вкладки (TASK-170, TASK-172) */}
+              <section className="space-y-2 pt-4 border-t border-ph-line" data-testid="default-model">
                 <div>
-                  <label className="font-medium text-slate-200 text-[11px] block mb-1.5 flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-indigo-400" />
-                    {t.aiStudio.settingsModal.apiKey} ({form.provider.toUpperCase()})
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showKey ? 'text' : 'password'}
-                      value={form.apiKey || ''}
-                      onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                      placeholder={
-                        form.provider === 'anthropic'
-                          ? t.aiStudio.settingsModal.apiKeyPlaceholderAnthropic
-                          : form.provider === 'openrouter'
-                          ? 'sk-or-v1-...'
-                          : 'sk-...'
-                      }
-                      className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 font-mono focus:outline-none focus:border-indigo-500 pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowKey(!showKey)}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white p-1 rounded"
-                    >
-                      {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
-                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span>{t.aiStudio.settingsModal.dpapiEncryptionHint}</span>
-                  </div>
+                  <h3 className="text-xs font-medium text-slate-100">{t.aiConnections.defaultModel}</h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{t.aiConnections.defaultModelHint}</p>
                 </div>
-              )}
-
-              {/* Model & Base URL */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="font-medium text-slate-200 text-[11px] block mb-1.5 flex items-center gap-1.5">
-                    <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-                    {t.aiStudio.settingsModal.model}
-                  </label>
-                  <input
-                    type="text"
-                    list="model-options"
-                    value={form.model}
-                    onChange={(e) => setForm({ ...form, model: e.target.value })}
-                    className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
-                    placeholder={form.provider === 'openai-compatible' ? t.llmProfiles.modelPlaceholder : 'Model name...'}
-                  />
-                  <datalist id="model-options">
-                    {(form.provider === 'openai-compatible' ? catalogModels : MODEL_PRESETS[form.provider] || []).map((m) => (
-                      <option key={m} value={m} />
-                    ))}
-                  </datalist>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <ModelSelectorDropdown config={form} placement="auto" onSelect={(selection) => patchForm(defaultModelPatch(form, selection))} />
+                  {form.provider === 'anthropic' && hasAnthropicKey(form) && (
+                    <div className="flex items-center p-0.5 rounded-md bg-ph-raised" role="radiogroup" aria-label={t.aiConnections.engineTitle} title={t.aiConnections.engineTitle}>
+                      {(['claude-cli', 'api'] as const).map((engine) => (
+                        <button
+                          key={engine}
+                          type="button"
+                          role="radio"
+                          aria-checked={claudeEngine === engine}
+                          onClick={() => patchForm({ engine })}
+                          data-testid={`default-engine-${engine}`}
+                          className={`h-6 px-2 rounded text-xs transition ${
+                            claudeEngine === engine ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {engine === 'claude-cli' ? t.aiConnections.engineSubscription : t.aiConnections.engineApiKey}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-
-                {(form.provider === 'ollama' || form.provider === 'custom') && (
+                {/* API-пути Anthropic нужен полный идентификатор модели, алиасы Claude CLI ему не подходят */}
+                {form.provider === 'anthropic' && claudeEngine === 'api' && (
                   <div>
                     <label className="font-medium text-slate-200 text-[11px] block mb-1.5 flex items-center gap-1.5">
-                      <Server className="w-3.5 h-3.5 text-indigo-400" />
-                      {t.aiStudio.settingsModal.baseUrl}
+                      <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+                      {t.aiStudio.settingsModal.model}
                     </label>
                     <input
                       type="text"
-                      value={form.baseUrl || ''}
-                      onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-                      placeholder="http://127.0.0.1:11434"
-                      className="w-full bg-ph-hover border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                      list="anthropic-api-models"
+                      value={form.model}
+                      onChange={(e) => setForm({ ...form, model: e.target.value })}
+                      className="w-full bg-ph-hover border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                      placeholder="claude-..."
                     />
+                    <datalist id="anthropic-api-models">
+                      {ANTHROPIC_API_MODELS.map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
                   </div>
                 )}
-              </div>
+                {legacy && (
+                  <p className="text-[11px] text-amber-300/90">
+                    {t.aiConnections.legacyActive.replace('{name}', legacy)}
+                  </p>
+                )}
+              </section>
 
               {/* Sliders: Temperature & Thinking */}
               <div className="p-4 rounded-xl bg-ph-hover/60 border border-slate-800 space-y-4">

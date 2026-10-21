@@ -13,8 +13,11 @@ export type ModelSelection = Pick<AIProviderConfig, 'provider' | 'profileId' | '
 interface ModelSelectorDropdownProps {
   config: AIProviderConfig;
   onSelect: (selection: ModelSelection) => void;
-  /** `above` — меню вверх от кнопки и кнопка без рамки: нижняя строка поля ввода Studio (TASK-169). */
-  placement?: 'below' | 'above';
+  /**
+   * `above` — меню вверх от кнопки и кнопка без рамки: нижняя строка поля ввода Studio (TASK-169).
+   * `auto` — туда, где больше места, по левому краю кнопки: середина окна настроек (TASK-172).
+   */
+  placement?: 'below' | 'above' | 'auto';
 }
 
 const CLI_GROUP_KEY = 'claude-cli';
@@ -106,11 +109,15 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
   const updateMenuPos = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setMenuPos(
-      placement === 'above'
-        ? { bottom: window.innerHeight - rect.top + 6, left: Math.max(8, Math.min(rect.left, window.innerWidth - 392)) }
-        : { top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) }
-    );
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - 392));
+    if (placement === 'above') setMenuPos({ bottom: window.innerHeight - rect.top + 6, left });
+    else if (placement === 'auto')
+      setMenuPos(
+        rect.top > window.innerHeight - rect.bottom
+          ? { bottom: window.innerHeight - rect.top + 6, left }
+          : { top: rect.bottom + 6, left }
+      );
+    else setMenuPos({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
   }, [placement]);
 
   useLayoutEffect(() => {
