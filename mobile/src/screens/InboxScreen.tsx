@@ -21,23 +21,24 @@ import { useInboxFeed } from '../app/useInbox';
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../components/ui';
 import { Screen } from '../components/Screen';
 import { checksSummary, criteriaDone, projectName, timeAgo, type FeedSource } from '../protocol/inbox';
-import { RISK_TEXT, canApproveInApp, capabilitiesFor, type AgentTaskGroup, type HitlItem } from '../protocol/models';
+import { canApproveInApp, capabilitiesFor, type AgentTaskGroup, type HitlItem } from '../protocol/models';
+import { useT } from '../i18n/react';
+import type { Dict } from '../i18n';
 import type { RemoteInboxEvent, RemoteReviewItem } from '../../../src/types/remote';
 
 /** Почему нет кнопки для `high`: в браузере биометрии нет вовсе, в приложении ключ регистрируется при сопряжении по QR. */
-function highRiskHint(app: boolean): string {
-  return app
-    ? 'Высокий риск: одобрить можно на ПК. Чтобы одобрять отпечатком, включите его в телефоне и сопрягите с ПК заново по QR'
-    : 'Высокий риск: одобрить можно на ПК или в приложении с биометрией';
+function highRiskHint(tr: Dict, app: boolean): string {
+  return app ? tr.inbox.highRiskHintApp : tr.inbox.highRiskHintWeb;
 }
 
 /** Имя компьютера у записи, когда ПК больше одного; без связи — пометка «нет связи». */
 function HostTag({ source, multi }: { source: FeedSource; multi: boolean }) {
+  const tr = useT();
   if (!multi && source.online) return null;
   return (
     <span data-testid="inbox-host" className={clsx('inline-flex items-center gap-1', !source.online && 'text-amber-300')}>
       {!source.online && <WifiSlashIcon size={12} />}
-      <Badge tone={source.online ? 'accent' : 'warning'}>{source.online ? source.machineName : `${source.machineName} · нет связи`}</Badge>
+      <Badge tone={source.online ? 'accent' : 'warning'}>{source.online ? source.machineName : tr.inbox.hostOffline(source.machineName)}</Badge>
     </span>
   );
 }
@@ -47,15 +48,17 @@ function canDecideOn(source: FeedSource): boolean {
 }
 
 function NoRightsHint({ source }: { source: FeedSource }) {
+  const tr = useT();
   return (
     <div className="mt-2 text-[12px] text-slate-400">
-      {source.online ? 'У этого устройства нет права на решения — решите на ПК.' : `Нет связи с «${source.machineName}» — решить можно, когда он снова в сети.`}
+      {source.online ? tr.inbox.noRights : tr.inbox.offlineDecideLater(source.machineName)}
     </div>
   );
 }
 
 function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem; multi: boolean }) {
   const { store, platform, inbox, switchHost } = useServices();
+  const tr = useT();
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   // Подписка на соединение: кнопка появляется, как только хост подтвердит ключ подтверждения этого сопряжения.
@@ -81,7 +84,7 @@ function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem;
             {item.tool && <Badge tone="warning">{item.tool}</Badge>}
             {item.risk && (
               <Badge tone={item.risk === 'high' ? 'danger' : item.risk === 'moderate' ? 'warning' : 'success'}>
-                <span data-testid="hitl-risk">{RISK_TEXT[item.risk]}</span>
+                <span data-testid="hitl-risk">{tr.inbox.risk[item.risk]}</span>
               </Badge>
             )}
           </div>
@@ -97,24 +100,24 @@ function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem;
       {canDecide ? (
         <div className="mt-3 flex gap-2">
           <Button variant="secondary" className="flex-1" disabled={busy} haptic={null} onClick={() => decide(false)}>
-            <XIcon size={18} /> Отклонить
+            <XIcon size={18} /> {tr.inbox.reject}
           </Button>
           {canApproveInApp(item) ? (
             <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => decide(true)}>
-              <CheckIcon size={18} /> Одобрить
+              <CheckIcon size={18} /> {tr.inbox.approve}
             </Button>
           ) : !source.active ? (
             // Высокий риск с другого ПК: запрос целиком и биометрия — на открытом ПК (decision-117 п. 7).
             <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => switchHost(source.profileId)}>
-              <FingerprintIcon size={18} /> <span data-testid="hitl-open-host">Открыть ПК</span>
+              <FingerprintIcon size={18} /> <span data-testid="hitl-open-host">{tr.inbox.openHost}</span>
             </Button>
           ) : canApproveInApp(item, biometric) ? (
             // Высокий риск: сначала запрос целиком, затем биометрия (decision-114).
             <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => setReviewing(true)}>
-              <FingerprintIcon size={18} /> <span data-testid="hitl-review-open">Проверить и одобрить</span>
+              <FingerprintIcon size={18} /> <span data-testid="hitl-review-open">{tr.inbox.reviewAndApprove}</span>
             </Button>
           ) : (
-            <div className="flex-1 self-center text-[12px] leading-snug text-slate-400">{highRiskHint(platform.confirm !== undefined)}</div>
+            <div className="flex-1 self-center text-[12px] leading-snug text-slate-400">{highRiskHint(tr, platform.confirm !== undefined)}</div>
           )}
         </div>
       ) : (
@@ -131,6 +134,7 @@ function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem;
  */
 function AgentTaskCard({ source, group, multi }: { source: FeedSource; group: AgentTaskGroup; multi: boolean }) {
   const { inbox, platform } = useServices();
+  const tr = useT();
   const [busy, setBusy] = useState(false);
   const approve = async (ids: string[]) => {
     setBusy(true);
@@ -146,7 +150,7 @@ function AgentTaskCard({ source, group, multi }: { source: FeedSource; group: Ag
         <ListChecksIcon size={20} className="mt-0.5 shrink-0 text-violet-400" />
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-medium leading-snug">
-            {group.tasks.length > 1 ? `Агент завёл задачи: ${group.tasks.length}` : 'Агент завёл задачу'}
+            {group.tasks.length > 1 ? tr.inbox.agentCreatedTasks(group.tasks.length) : tr.inbox.agentCreatedTask}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
             <HostTag source={source} multi={multi} />
@@ -171,7 +175,7 @@ function AgentTaskCard({ source, group, multi }: { source: FeedSource; group: Ag
       {canDecide ? (
         <div className="mt-3">
           <Button variant="success" className="w-full" disabled={busy} haptic={null} onClick={() => approve(all)}>
-            <CheckIcon size={18} /> {group.tasks.length > 1 ? `Подтвердить все (${group.tasks.length})` : 'Подтвердить'}
+            <CheckIcon size={18} /> {group.tasks.length > 1 ? tr.inbox.confirmAll(group.tasks.length) : tr.common.confirm}
           </Button>
         </div>
       ) : (
@@ -183,6 +187,7 @@ function AgentTaskCard({ source, group, multi }: { source: FeedSource; group: Ag
 
 /** Задача в Review: прогресс критериев и чеков; по нажатию — проверка целиком. */
 function ReviewCard({ source, item, multi }: { source: FeedSource; item: RemoteReviewItem; multi: boolean }) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   const crit = criteriaDone(item);
   const checks = checksSummary(item);
@@ -201,11 +206,11 @@ function ReviewCard({ source, item, multi }: { source: FeedSource; item: RemoteR
               <Badge>{projectName(item.projectPath)}</Badge>
               {crit.total > 0 && (
                 <Badge tone={crit.done === crit.total ? 'success' : 'review'}>
-                  критерии {crit.done}/{crit.total}
+                  {tr.inbox.criteriaBadge(crit.done, crit.total)}
                 </Badge>
               )}
               {checks && <Badge tone={checks.failed > 0 ? 'danger' : 'success'}>{checks.text}</Badge>}
-              {shots > 0 && <Badge>скриншотов: {shots}</Badge>}
+              {shots > 0 && <Badge>{tr.inbox.screenshotsBadge(shots)}</Badge>}
             </div>
           </div>
         </div>
@@ -225,6 +230,7 @@ const EVENT_ICON: Record<RemoteInboxEvent['kind'], ReactNode> = {
 
 function EventRow({ source, event, multi }: { source: FeedSource; event: RemoteInboxEvent; multi: boolean }) {
   const { inbox } = useServices();
+  const tr = useT();
   const note = event.kind === 'agent_note';
   const warn = event.level === 'error' || event.level === 'warning';
   return (
@@ -241,7 +247,7 @@ function EventRow({ source, event, multi }: { source: FeedSource; event: RemoteI
         </div>
       </div>
       {canDecideOn(source) && (
-        <button type="button" aria-label="Убрать" data-testid="inbox-dismiss" onClick={() => void inbox.dismiss(source, [event.id])} className="-mr-1 rounded-full p-1.5 text-slate-500 active:bg-ph-hover">
+        <button type="button" aria-label={tr.inbox.dismiss} data-testid="inbox-dismiss" onClick={() => void inbox.dismiss(source, [event.id])} className="-mr-1 rounded-full p-1.5 text-slate-500 active:bg-ph-hover">
           <XIcon size={16} />
         </button>
       )}
@@ -256,6 +262,7 @@ function EventRow({ source, event, multi }: { source: FeedSource; event: RemoteI
  */
 export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
   const { store, pool, inbox } = useServices();
+  const tr = useT();
   const [filter, setFilter] = useState<string | null>(null);
   const feed = useInboxFeed(filter);
   const tasks = useAppState((s) => s.tasks);
@@ -277,7 +284,7 @@ export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
     >
       {multi && (
         <div className="-mx-3 mb-2 flex gap-1.5 overflow-x-auto px-3 pb-1" role="tablist" data-testid="inbox-hosts">
-          {[{ profileId: null as string | null, machineName: 'Все', online: true, count: feed.hosts.reduce((n, h) => n + h.count, 0) }, ...feed.hosts].map((h) => (
+          {[{ profileId: null as string | null, machineName: tr.inbox.allHosts, online: true, count: feed.hosts.reduce((n, h) => n + h.count, 0) }, ...feed.hosts].map((h) => (
             <button
               key={h.profileId ?? 'all'}
               type="button"
@@ -297,11 +304,11 @@ export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
         </div>
       )}
 
-      {empty && <EmptyState icon={<TrayIcon size={40} />} title="Агентам ничего не нужно" hint="Запросы на одобрение, задачи на проверке и сообщения агентов появятся здесь." />}
+      {empty && <EmptyState icon={<TrayIcon size={40} />} title={tr.inbox.emptyTitle} hint={tr.inbox.emptyHint} />}
 
       {feed.hitl.length > 0 && (
         <>
-          <SectionTitle>Ждут решения</SectionTitle>
+          <SectionTitle>{tr.inbox.sectionHitl}</SectionTitle>
           {feed.hitl.map(({ source, item }) => (
             <HitlCard key={`${source.profileId}:${item.requestId}`} source={source} item={item} multi={multi} />
           ))}
@@ -310,7 +317,7 @@ export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
 
       {feed.agentGroups.length > 0 && (
         <>
-          <SectionTitle>Задачи от агентов</SectionTitle>
+          <SectionTitle>{tr.inbox.sectionAgentTasks}</SectionTitle>
           {feed.agentGroups.map(({ source, item }) => (
             <AgentTaskCard key={`${source.profileId}:${item.projectPath}\n${item.reporter}`} source={source} group={item} multi={multi} />
           ))}
@@ -319,7 +326,7 @@ export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
 
       {feed.review.length > 0 && (
         <>
-          <SectionTitle>На проверке</SectionTitle>
+          <SectionTitle>{tr.inbox.sectionReview}</SectionTitle>
           {feed.review.map(({ source, item }) => (
             <ReviewCard key={`${source.profileId}:${item.projectPath}:${item.id}`} source={source} item={item} multi={multi} />
           ))}
@@ -328,10 +335,10 @@ export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
 
       {legacyReview.length > 0 && (
         <>
-          <SectionTitle>На проверке</SectionTitle>
+          <SectionTitle>{tr.inbox.sectionReview}</SectionTitle>
           <Card onClick={onOpenReview}>
             <div className="flex items-center justify-between">
-              <span className="text-[15px]">Задачи в Review</span>
+              <span className="text-[15px]">{tr.inbox.legacyReviewTasks}</span>
               <Badge tone="review">{legacyReview.length}</Badge>
             </div>
             <div className="mt-1 truncate text-[13px] text-slate-400">{legacyReview.map((t) => t.id).join(', ')}</div>
@@ -344,11 +351,11 @@ export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
           <SectionTitle
             action={
               <button type="button" onClick={() => void dismissAll()} className="text-[12px] text-slate-400 active:text-slate-200" data-testid="inbox-dismiss-all">
-                Очистить
+                {tr.inbox.clearEvents}
               </button>
             }
           >
-            События
+            {tr.inbox.sectionEvents}
           </SectionTitle>
           {feed.events.map(({ source, item }) => (
             <EventRow key={`${source.profileId}:${item.id}`} source={source} event={item} multi={multi} />

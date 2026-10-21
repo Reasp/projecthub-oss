@@ -1,4 +1,5 @@
 import { createContext, useContext, useSyncExternalStore, type ReactNode } from 'react';
+import type { Language } from '../i18n';
 import type { Platform } from '../platform/types';
 import type { HostProfile } from '../protocol/pairing';
 import type { ProfileList } from '../protocol/profiles';
@@ -29,6 +30,8 @@ export interface AppServices {
   enrollHost(hostId: string): Promise<boolean>;
   /** Забыть хост: стереть его ключ и токен на телефоне (по умолчанию — открытый). */
   forget(profileId?: string): Promise<void>;
+  /** Сменить язык интерфейса и запомнить выбор (TASK-140.15). */
+  setLanguage(lang: Language): void;
 }
 
 const ServicesContext = createContext<AppServices | null>(null);

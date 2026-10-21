@@ -5,17 +5,20 @@ import type { RemoteProcessSummary } from '../../../src/types/remote';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, Confirm, EmptyState, SectionTitle, Sheet } from '../components/ui';
 import { Screen } from '../components/Screen';
+import { useT } from '../i18n/react';
 import { capabilitiesFor } from '../protocol/models';
 
-const STATUS: Record<RemoteProcessSummary['status'], { label: string; tone: 'success' | 'neutral' | 'danger' | 'warning' }> = {
-  running: { label: 'работает', tone: 'success' },
-  stopped: { label: 'остановлен', tone: 'neutral' },
-  failed: { label: 'упал', tone: 'danger' },
-  unknown: { label: 'неизвестно', tone: 'warning' }
+/** Цвет значка статуса; подпись — из словаря `processes.status` на текущем языке. */
+const STATUS_TONE: Record<RemoteProcessSummary['status'], 'success' | 'neutral' | 'danger' | 'warning'> = {
+  running: 'success',
+  stopped: 'neutral',
+  failed: 'danger',
+  unknown: 'warning'
 };
 
 function LogSheet({ proc, onClose }: { proc: RemoteProcessSummary | null; onClose: () => void }) {
   const { store } = useServices();
+  const tr = useT();
   const logs = useAppState((s) => s.logs);
   const text = proc ? (logs[proc.id] ?? '') : '';
   const ref = useRef<HTMLPreElement>(null);
@@ -39,15 +42,15 @@ function LogSheet({ proc, onClose }: { proc: RemoteProcessSummary | null; onClos
         }}
         className="selectable h-[60vh] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-ph-base p-2 font-mono text-[11px] leading-relaxed text-sky-300"
       >
-        {text || 'Логов пока нет.'}
+        {text || tr.processes.noLogs}
       </pre>
       <div className="mt-2 flex gap-2">
         <Button size="sm" onClick={() => proc && void store.loadLogs(proc, 500)}>
-          <ArrowClockwiseIcon size={16} /> Перечитать
+          <ArrowClockwiseIcon size={16} /> {tr.processes.reload}
         </Button>
         {!follow && (
           <Button size="sm" onClick={() => setFollow(true)}>
-            К концу
+            {tr.processes.toEnd}
           </Button>
         )}
       </div>
@@ -58,6 +61,7 @@ function LogSheet({ proc, onClose }: { proc: RemoteProcessSummary | null; onClos
 /** Процессы проекта, их логи и действия `.projecthub.json` (run/test/deploy). */
 export function ProcessesScreen() {
   const { store } = useServices();
+  const tr = useT();
   const processes = useAppState((s) => s.processes);
   const projectPath = useAppState((s) => s.projectPath);
   const conn = useAppState((s) => s.conn);
@@ -65,19 +69,19 @@ export function ProcessesScreen() {
   const [openProc, setOpenProc] = useState<RemoteProcessSummary | null>(null);
   const [confirmDeploy, setConfirmDeploy] = useState(false);
 
-  if (!projectPath) return <EmptyState icon={<TerminalWindowIcon size={40} />} title="Проект не выбран" />;
+  if (!projectPath) return <EmptyState icon={<TerminalWindowIcon size={40} />} title={tr.common.noProject} />;
 
   return (
     <Screen onRefresh={() => store.refreshProcesses()}>
       {canWrite && (
         <>
-          <SectionTitle>Действия проекта</SectionTitle>
+          <SectionTitle>{tr.processes.projectActions}</SectionTitle>
           <div className="grid grid-cols-3 gap-2">
             <Button size="sm" onClick={() => void store.runAction('run')}>
               <PlayIcon size={16} /> Run
             </Button>
             <Button size="sm" onClick={() => void store.runAction('test')}>
-              Тесты
+              {tr.processes.tests}
             </Button>
             <Button size="sm" onClick={() => setConfirmDeploy(true)}>
               Deploy
@@ -86,12 +90,14 @@ export function ProcessesScreen() {
         </>
       )}
 
-      <SectionTitle>Процессы</SectionTitle>
+      <SectionTitle>{tr.processes.processes}</SectionTitle>
       {processes.length === 0 ? (
-        <EmptyState icon={<TerminalWindowIcon size={40} />} title="Нет процессов" hint="Запущенные dev-серверы и вотчеры появятся здесь." />
+        <EmptyState icon={<TerminalWindowIcon size={40} />} title={tr.processes.emptyTitle} hint={tr.processes.emptyHint} />
       ) : (
         processes.map((p) => {
-          const st = STATUS[p.status] ?? STATUS.unknown;
+          // Статус с хоста новее клиента — как «неизвестно».
+          const status = Object.prototype.hasOwnProperty.call(STATUS_TONE, p.status) ? p.status : 'unknown';
+          const st = { label: tr.processes.status[status], tone: STATUS_TONE[status] };
           return (
             <Card key={p.id} className="mb-2">
               <button type="button" className="block w-full text-left" onClick={() => setOpenProc(p)}>
@@ -103,7 +109,7 @@ export function ProcessesScreen() {
                 <div className="mt-1 truncate font-mono text-[11px] text-slate-400">{p.command}</div>
                 <div className="mt-0.5 text-[11px] text-slate-500">
                   {p.pid ? `PID ${p.pid}` : ''}
-                  {p.port ? ` · порт ${p.port}` : ''}
+                  {p.port ? ` · ${tr.processes.port(p.port)}` : ''}
                   {p.source === 'env-tools' ? ' · env-tools' : ''}
                 </div>
               </button>
@@ -111,11 +117,11 @@ export function ProcessesScreen() {
                 <div className="mt-2 flex gap-2">
                   {p.status === 'running' ? (
                     <Button size="sm" variant="danger" haptic="medium" onClick={() => void store.stopProcess(p.id)}>
-                      <StopIcon size={16} /> Стоп
+                      <StopIcon size={16} /> {tr.processes.stop}
                     </Button>
                   ) : null}
                   <Button size="sm" haptic="medium" onClick={() => void store.restartProcess(p.id)}>
-                    <ArrowClockwiseIcon size={16} /> {p.status === 'running' ? 'Перезапуск' : 'Запустить'}
+                    <ArrowClockwiseIcon size={16} /> {p.status === 'running' ? tr.processes.restart : tr.processes.start}
                   </Button>
                 </div>
               )}
@@ -127,9 +133,9 @@ export function ProcessesScreen() {
       <LogSheet proc={openProc} onClose={() => setOpenProc(null)} />
       <Confirm
         open={confirmDeploy}
-        title="Запустить deploy?"
-        body="Команда deploy из .projecthub.json выполнится на ПК."
-        confirmText="Запустить"
+        title={tr.processes.deployTitle}
+        body={tr.processes.deployBody}
+        confirmText={tr.processes.deployConfirm}
         danger
         onCancel={() => setConfirmDeploy(false)}
         onConfirm={() => {

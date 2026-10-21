@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { parsePairingHash, parseTelegramStartParam } from '../protocol/pairing';
 import { isWebCryptoAvailable } from '../protocol/webCodec';
 import { consumeLocationHash, readHostDefaults } from './hostDefaults';
@@ -59,7 +60,7 @@ export function createTelegramPlatform(): Platform {
     scanQr: tg?.showScanQrPopup
       ? () =>
           new Promise<string | null>((resolve) => {
-            tg.showScanQrPopup!({ text: 'Наведите камеру на QR-код в ProjectHub' }, (text) => {
+            tg.showScanQrPopup!({ text: t().pairing.scanHint }, (text) => {
               tg.closeScanQrPopup?.();
               resolve(text || null);
               return true;

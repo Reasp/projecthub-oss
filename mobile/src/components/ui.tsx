@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { XIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { useHaptic } from '../app/context';
+import { useT } from '../i18n/react';
 
 /**
  * Базовые элементы мобильного клиента на токенах TASK-127. Оверлеи — через `createPortal` в
@@ -96,6 +97,7 @@ export function SectionTitle({ children, action }: { children: ReactNode; action
  * Нижний лист: закрывается крестиком, тапом по фону и жестом вниз за ручку.
  */
 export function Sheet({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title?: ReactNode; children: ReactNode; footer?: ReactNode }) {
+  const tr = useT();
   const [dragY, setDragY] = useState(0);
   const start = useRef<number | null>(null);
 
@@ -134,7 +136,7 @@ export function Sheet({ open, onClose, title, children, footer }: { open: boolea
         </div>
         <div className="flex items-center justify-between px-4 pb-2">
           <div className="min-w-0 flex-1 truncate text-[17px] font-semibold">{title}</div>
-          <button type="button" aria-label="Закрыть" onClick={onClose} className="-mr-2 rounded-full p-2 text-slate-400 active:bg-ph-hover">
+          <button type="button" aria-label={tr.common.close} onClick={onClose} className="-mr-2 rounded-full p-2 text-slate-400 active:bg-ph-hover">
             <XIcon size={20} />
           </button>
         </div>
@@ -164,6 +166,7 @@ export function Confirm({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const tr = useT();
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-[10001] flex items-center justify-center p-6">
@@ -173,7 +176,7 @@ export function Confirm({
         {body && <div className="mt-2 text-[14px] text-slate-300">{body}</div>}
         <div className="mt-5 flex gap-2">
           <Button className="flex-1" onClick={onCancel}>
-            Отмена
+            {tr.common.cancel}
           </Button>
           <Button className="flex-1" variant={danger ? 'danger' : 'primary'} haptic="medium" onClick={onConfirm}>
             {confirmText}

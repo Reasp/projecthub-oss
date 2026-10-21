@@ -1,0 +1,138 @@
+/** Оболочка приложения: шапка, нижнее меню, переключатель компьютеров, настройки, карточка компьютера. */
+export const en = {
+  tabs: {
+    inbox: 'Inbox',
+    docs: 'Docs',
+    tasks: 'Tasks',
+    processes: 'Processes',
+    studio: 'Studio'
+  },
+  studioSections: { chat: 'Chat', agents: 'Agents' },
+  settings: 'Settings',
+  conn: {
+    idle: 'Not connected',
+    connecting: 'Connecting…',
+    pairing: 'Handshake…',
+    awaiting_approval: 'Approve this device on the computer',
+    reconnecting: 'Reconnecting…',
+    failed: 'Connection error'
+  } as Record<string, string>,
+  retryIn: (s: number) => ` in ${s} s`,
+  awaiting: {
+    title: 'Approve this device on the computer',
+    before: 'In ProjectHub on the computer, open ',
+    after: (device: string) => ` in the status bar and approve “${device}” in the list of connected devices. The app will continue on its own.`,
+    waiting: 'Waiting for approval…',
+    otherComputer: 'Another computer'
+  },
+  hostState: {
+    online: 'online',
+    awaiting: 'awaiting approval',
+    connecting: 'connecting…',
+    offline: 'offline'
+  },
+  linked: 'connected',
+  notLinked: 'not connected',
+  address: (a: string) => `Address: ${a}`,
+  computers: 'Computers',
+  via: (name: string) => `via ${name}`,
+  pendingTitle: 'Awaiting decision',
+  pending: (n: number) => `${n} awaiting decision`,
+  addComputer: 'Add computer',
+  computerDetails: 'Computer details',
+  project: 'Project',
+  noProjects: 'ProjectHub on this computer has no projects.',
+  noProjectsOffline: 'No connection to the computer — the project list will appear once connected.',
+  federation: 'Federation of this computer',
+  unpaired: 'Not paired with this computer — scan its QR code',
+  enroll: 'Connect',
+  federationHint: 'Access to a neighbouring computer is issued as a separate token through this computer. Computers from other pairings are not listed here.',
+  enrolled: (name: string) => `Access to “${name}” granted`,
+  language: 'Language',
+  notifications: 'Notifications',
+  pushFrom: (name: string) => `Push from “${name}”`,
+  pushOn: 'Turn on',
+  pushOff: 'Turn off',
+  pushTest: 'Test',
+  pushNeedsDistributor: 'You need a UnifiedPush distributor app such as ntfy: notifications arrive without Google services.',
+  pushNote: 'Content is encrypted with this phone’s key: the notification server only sees ciphertext. While you are at this computer or the app is open, no push is sent.',
+  pushOffline: 'Connect to the computer to change its notifications.',
+  device: 'Device',
+  keyNotSaved: 'key is not saved',
+  openNow: 'Open now',
+  openComputer: 'Open',
+  forget: 'Forget this computer',
+  forgetTitle: 'Forget computer?',
+  forgetBody: (name: string) =>
+    `The device key and token for “${name}” will be removed from this phone; other computers stay. To connect again you will need its QR code. The device stays in the list on the computer — revoke it there.`,
+  forgetConfirm: 'Forget'
+};
+
+export const ru: typeof en = {
+  tabs: {
+    inbox: 'Входящие',
+    docs: 'Документы',
+    tasks: 'Задачи',
+    processes: 'Процессы',
+    studio: 'Studio'
+  },
+  studioSections: { chat: 'Чат', agents: 'Агенты' },
+  settings: 'Настройки',
+  conn: {
+    idle: 'Не подключено',
+    connecting: 'Подключение…',
+    pairing: 'Рукопожатие…',
+    awaiting_approval: 'Подтвердите устройство на ПК',
+    reconnecting: 'Переподключение…',
+    failed: 'Ошибка подключения'
+  },
+  retryIn: (s: number) => ` через ${s} с`,
+  awaiting: {
+    title: 'Подтвердите устройство на ПК',
+    before: 'В ProjectHub на компьютере откройте ',
+    after: (device: string) => ` в строке состояния и одобрите «${device}» в списке подключённых устройств. Приложение продолжит само.`,
+    waiting: 'Ждём подтверждения…',
+    otherComputer: 'Другой компьютер'
+  },
+  hostState: {
+    online: 'в сети',
+    awaiting: 'ждёт одобрения',
+    connecting: 'подключение…',
+    offline: 'не в сети'
+  },
+  linked: 'на связи',
+  notLinked: 'нет связи',
+  address: (a: string) => `Адрес: ${a}`,
+  computers: 'Компьютеры',
+  via: (name: string) => `через ${name}`,
+  pendingTitle: 'Ждут решения',
+  pending: (n: number) => `Ждут решения: ${n}`,
+  addComputer: 'Добавить компьютер',
+  computerDetails: 'О компьютере',
+  project: 'Проект',
+  noProjects: 'В ProjectHub на этом компьютере нет проектов.',
+  noProjectsOffline: 'Нет связи с компьютером — список проектов появится после подключения.',
+  federation: 'Федерация этого компьютера',
+  unpaired: 'Не сопряжён с этим ПК — отсканируйте его QR',
+  enroll: 'Подключить',
+  federationHint: 'Доступ к соседнему ПК выдаётся отдельным токеном через этот компьютер. Компьютеры других сопряжений сюда не попадают.',
+  enrolled: (name: string) => `Доступ к «${name}» получен`,
+  language: 'Язык',
+  notifications: 'Уведомления',
+  pushFrom: (name: string) => `Push с «${name}»`,
+  pushOn: 'Включить',
+  pushOff: 'Выключить',
+  pushTest: 'Проверить',
+  pushNeedsDistributor: 'Нужно приложение-дистрибьютор UnifiedPush, например ntfy: уведомления идут без сервисов Google.',
+  pushNote: 'Содержимое шифруется ключом этого телефона: сервер уведомлений видит только шифртекст. Пока вы за этим ПК или приложение открыто, push не приходят.',
+  pushOffline: 'Подключитесь к компьютеру, чтобы изменить его уведомления.',
+  device: 'Устройство',
+  keyNotSaved: 'ключ не сохраняется',
+  openNow: 'Открыт сейчас',
+  openComputer: 'Открыть',
+  forget: 'Забыть этот компьютер',
+  forgetTitle: 'Забыть компьютер?',
+  forgetBody: (name: string) =>
+    `Ключ и токен устройства для «${name}» удалятся с телефона, остальные компьютеры останутся. Чтобы подключиться снова, понадобится QR-код. На ПК устройство остаётся в списке — отзовите его там.`,
+  forgetConfirm: 'Забыть'
+};

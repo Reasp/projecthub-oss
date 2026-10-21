@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import type { RemoteTaskSummary } from '../../../src/types/remote';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, EmptyState, Sheet, Spinner } from '../components/ui';
+import { useT } from '../i18n/react';
 import { capabilitiesFor, criteriaProgress, groupTasksByStatus, KANBAN_STATUSES } from '../protocol/models';
 
 const STATUS_TONE: Record<string, 'neutral' | 'accent' | 'review' | 'success'> = {
@@ -38,6 +39,7 @@ function TaskCard({ task, onOpen }: { task: RemoteTaskSummary; onOpen: () => voi
 
 function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose: () => void }) {
   const { store } = useServices();
+  const tr = useT();
   const conn = useAppState((s) => s.conn);
   const tasks = useAppState((s) => s.tasks);
   const canWrite = capabilitiesFor(conn.rights, conn.readOnly).write;
@@ -49,7 +51,7 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
       {current && (
         <>
           <div className="text-[16px] font-medium leading-snug">{current.title}</div>
-          <div className="mt-3 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Статус</div>
+          <div className="mt-3 text-[12px] font-semibold uppercase tracking-wide text-slate-400">{tr.tasks.status}</div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {KANBAN_STATUSES.map((s) => (
               <Button
@@ -66,7 +68,7 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
           </div>
           {current.criteria.length > 0 && (
             <>
-              <div className="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Критерии приёмки</div>
+              <div className="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">{tr.tasks.criteria}</div>
               <ul className="mt-2 space-y-1">
                 {current.criteria.map((c, i) => (
                   <li key={i}>
@@ -88,7 +90,7 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
               </ul>
             </>
           )}
-          {!canWrite && <div className="mt-4 text-[12px] text-slate-400">Изменять задачи с этого устройства нельзя: права только на чтение или решения.</div>}
+          {!canWrite && <div className="mt-4 text-[12px] text-slate-400">{tr.tasks.readOnlyHint}</div>}
         </>
       )}
     </Sheet>
@@ -97,6 +99,7 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
 
 function CreateTaskSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { store } = useServices();
+  const tr = useT();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
@@ -114,10 +117,10 @@ function CreateTaskSheet({ open, onClose }: { open: boolean; onClose: () => void
     <Sheet
       open={open}
       onClose={onClose}
-      title="Новая задача"
+      title={tr.tasks.newTask}
       footer={
         <Button variant="primary" className="w-full" disabled={!title.trim() || busy} onClick={submit}>
-          {busy ? <Spinner /> : 'Создать'}
+          {busy ? <Spinner /> : tr.tasks.create}
         </Button>
       }
     >
@@ -125,14 +128,14 @@ function CreateTaskSheet({ open, onClose }: { open: boolean; onClose: () => void
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         maxLength={110}
-        placeholder="Заголовок"
+        placeholder={tr.tasks.titlePlaceholder}
         className="w-full rounded-xl border border-ph-line bg-ph-raised px-3 py-3 text-[15px] outline-none focus:border-indigo-500"
       />
       <textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         rows={6}
-        placeholder="Описание (Markdown)"
+        placeholder={tr.tasks.descriptionPlaceholder}
         className="mt-2 w-full rounded-xl border border-ph-line bg-ph-raised px-3 py-3 text-[15px] outline-none focus:border-indigo-500"
       />
     </Sheet>
@@ -142,6 +145,7 @@ function CreateTaskSheet({ open, onClose }: { open: boolean; onClose: () => void
 /** Kanban задач Backlog.md: колонки прокручиваются вбок со снапом, задача открывается листом. */
 export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
   const { store } = useServices();
+  const tr = useT();
   const tasks = useAppState((s) => s.tasks);
   const loaded = useAppState((s) => s.tasksLoaded);
   const projectPath = useAppState((s) => s.projectPath);
@@ -166,7 +170,7 @@ export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- columns меняются при каждом обновлении задач
   }, [focusStatus]);
 
-  if (!projectPath) return <EmptyState icon={<KanbanIcon size={40} />} title="Проект не выбран" hint="Выберите проект в шапке." />;
+  if (!projectPath) return <EmptyState icon={<KanbanIcon size={40} />} title={tr.common.noProject} hint={tr.tasks.noProjectHint} />;
   if (!loaded)
     return (
       <div className="flex justify-center py-16">
@@ -192,7 +196,7 @@ export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
         ))}
         <button
           type="button"
-          aria-label="Обновить задачи"
+          aria-label={tr.tasks.refresh}
           onClick={() => void store.refreshTasks()}
           className="ml-auto shrink-0 rounded-full p-1.5 text-slate-400 active:bg-ph-hover"
         >
@@ -215,7 +219,7 @@ export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
               <Badge tone={STATUS_TONE[c.status] ?? 'neutral'}>{c.status}</Badge>
             </div>
             {c.tasks.length === 0 ? (
-              <div className="py-10 text-center text-[13px] text-slate-500">Пусто</div>
+              <div className="py-10 text-center text-[13px] text-slate-500">{tr.tasks.empty}</div>
             ) : (
               c.tasks.map((t) => <TaskCard key={t.filePath} task={t} onOpen={() => setOpenTask(t)} />)
             )}
@@ -225,7 +229,7 @@ export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
       {canWrite && (
         <button
           type="button"
-          aria-label="Новая задача"
+          aria-label={tr.tasks.newTask}
           onClick={() => setCreating(true)}
           className="fixed bottom-[calc(76px+env(safe-area-inset-bottom))] right-4 z-10 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500 text-white shadow-lg shadow-black/40 active:scale-95"
         >

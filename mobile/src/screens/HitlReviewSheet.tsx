@@ -3,7 +3,8 @@ import { FingerprintIcon, XIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { useServices } from '../app/context';
 import { Badge, Button, Sheet, Spinner } from '../components/ui';
-import { RISK_TEXT, diffLineKind, type HitlItem } from '../protocol/models';
+import { diffLineKind, type HitlItem } from '../protocol/models';
+import { useT } from '../i18n/react';
 import type { RemoteHitlDetail } from '../../../src/types/remote';
 
 const LINE_CLASS: Record<ReturnType<typeof diffLineKind>, string> = {
@@ -20,6 +21,7 @@ const LINE_CLASS: Record<ReturnType<typeof diffLineKind>, string> = {
  */
 export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open: boolean; onClose: () => void }) {
   const { store, platform } = useServices();
+  const tr = useT();
   const [detail, setDetail] = useState<RemoteHitlDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -51,11 +53,11 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
     <Sheet
       open={open}
       onClose={onClose}
-      title="Проверьте перед одобрением"
+      title={tr.inbox.hitlReviewTitle}
       footer={
         <div className="flex gap-2">
           <Button variant="secondary" className="flex-1" disabled={busy} haptic={null} onClick={() => decide(false)}>
-            <XIcon size={18} /> Отклонить
+            <XIcon size={18} /> {tr.inbox.reject}
           </Button>
           <Button
             variant="success"
@@ -64,7 +66,7 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
             haptic={null}
             onClick={() => decide(true)}
           >
-            <FingerprintIcon size={18} /> <span data-testid="hitl-biometric-approve">Одобрить</span>
+            <FingerprintIcon size={18} /> <span data-testid="hitl-biometric-approve">{tr.inbox.approve}</span>
           </Button>
         </div>
       }
@@ -72,7 +74,7 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
       <div className="text-[15px] font-medium leading-snug">{item.title}</div>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
         {(detail?.tool || item.tool) && <Badge tone="warning">{detail?.tool || item.tool}</Badge>}
-        <Badge tone="danger">{RISK_TEXT[detail?.risk ?? item.risk ?? 'high']}</Badge>
+        <Badge tone="danger">{tr.inbox.risk[detail?.risk ?? item.risk ?? 'high']}</Badge>
       </div>
       {(detail?.riskReason || item.riskReason) && <div className="mt-1 text-[12px] text-slate-500">{detail?.riskReason || item.riskReason}</div>}
 
@@ -81,11 +83,11 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
           <Spinner />
         </div>
       )}
-      {!loading && !detail && <div className="mt-4 text-[13px] text-slate-400">Не удалось загрузить запрос — возможно, он уже решён на ПК.</div>}
+      {!loading && !detail && <div className="mt-4 text-[13px] text-slate-400">{tr.inbox.hitlLoadFailed}</div>}
 
       {detail?.command && (
         <>
-          <div className="mt-3 text-[12px] uppercase tracking-wide text-slate-500">Команда целиком</div>
+          <div className="mt-3 text-[12px] uppercase tracking-wide text-slate-500">{tr.inbox.fullCommand}</div>
           <pre data-testid="hitl-full-command" className="selectable mt-1 whitespace-pre-wrap break-all rounded-lg bg-ph-base p-2 font-mono text-[12px] text-slate-100">
             $ {detail.command}
           </pre>
@@ -96,7 +98,7 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
       )}
       {detail?.diff && (
         <>
-          <div className="mt-3 text-[12px] uppercase tracking-wide text-slate-500">Изменения: {detail.diff.filePath}</div>
+          <div className="mt-3 text-[12px] uppercase tracking-wide text-slate-500">{tr.inbox.changesOf(detail.diff.filePath)}</div>
           <div data-testid="hitl-full-diff" className="selectable mt-1 overflow-x-auto rounded-lg bg-ph-base py-1 font-mono text-[12px]">
             {detail.diff.patch.split('\n').map((line, i) => (
               <div key={i} className={clsx('whitespace-pre px-2', LINE_CLASS[diffLineKind(line)])}>
@@ -109,7 +111,7 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
       {!detail?.diff && detail?.filePath && !detail.command && <div className="mt-3 font-mono text-[12px] text-slate-300">{detail.filePath}</div>}
       {truncated && (
         <div className="mt-3 rounded-lg border border-amber-900/60 p-2 text-[13px] text-amber-200">
-          Изменения не помещаются на экран телефона — одобрить можно только на ПК, где они видны целиком.
+          {tr.inbox.diffTooLarge}
         </div>
       )}
     </Sheet>

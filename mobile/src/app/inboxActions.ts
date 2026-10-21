@@ -1,4 +1,5 @@
 import type { RemoteAgentTaskApproval, RemoteReviewItem, RemoteReviewResult, RemoteScreenshotChunk } from '../../../src/types/remote';
+import { t } from '../i18n';
 import { fetchScreenshot, type FeedSource } from '../protocol/inbox';
 import { hitlRejectReason, type HitlItem } from '../protocol/models';
 import type { RpcMethod } from '../protocol/remoteClient';
@@ -36,7 +37,7 @@ export class InboxActions {
 
   private offline(source: FeedSource): boolean {
     if (source.online) return false;
-    this.store.showToast(`Нет связи с «${source.machineName}» — действие недоступно`, 'error');
+    this.store.showToast(t().inbox.offlineAction(source.machineName), 'error');
     return true;
   }
 
@@ -55,7 +56,7 @@ export class InboxActions {
         this.store.showToast(hitlRejectReason(res.reason), 'error');
         return false;
       }
-      this.store.showToast(`${approve ? 'Одобрено' : 'Отклонено'} на «${source.machineName}»`, 'success');
+      this.store.showToast(approve ? t().inbox.approvedOn(source.machineName) : t().inbox.rejectedOn(source.machineName), 'success');
       return true;
     } catch (err) {
       this.store.showToast(errorText(err), 'error');
@@ -70,7 +71,10 @@ export class InboxActions {
     if (source.active) return this.store.approveAgentTasks(projectPath, taskIds);
     try {
       const res = await this.rpc<RemoteAgentTaskApproval>(source, 'approve_agent_tasks', { projectPath, taskIds });
-      this.store.showToast(res.approved.length > 0 ? `Подтверждено задач: ${res.approved.length}` : 'Задачи уже подтверждены', res.approved.length > 0 ? 'success' : 'info');
+      this.store.showToast(
+        res.approved.length > 0 ? t().inbox.tasksConfirmed(res.approved.length) : t().inbox.tasksAlreadyConfirmed,
+        res.approved.length > 0 ? 'success' : 'info'
+      );
       return res.approved.length > 0;
     } catch (err) {
       this.store.showToast(errorText(err), 'error');
@@ -105,8 +109,8 @@ export class InboxActions {
         ...(comment.trim() ? { comment: comment.trim() } : {}),
         ...(action === 'return' && restart ? { restart: true } : {})
       });
-      const text =
-        action === 'done' ? `${item.id} принята — Done` : res.swarmId ? `${item.id} возвращена, агент перезапущен` : `${item.id} возвращена в работу`;
+      const tr = t().inbox;
+      const text = action === 'done' ? tr.taskAccepted(item.id) : res.swarmId ? tr.taskReturnedRestarted(item.id) : tr.taskReturned(item.id);
       this.store.showToast(text, 'success');
       if (source.active) {
         void this.store.refreshTasks();
@@ -131,7 +135,7 @@ export class InboxActions {
         relPath
       });
     } catch (err) {
-      this.store.showToast(`Скриншот не загружен: ${errorText(err)}`, 'error');
+      this.store.showToast(t().inbox.screenshotFailed(errorText(err)), 'error');
       return null;
     }
   }

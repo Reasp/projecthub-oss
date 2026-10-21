@@ -21,6 +21,7 @@ public class AgentsWidget extends AppWidgetProvider {
     @Override
     public void onUpdate(Context ctx, AppWidgetManager manager, int[] ids) {
         List<ProgressFormat.Entry> list = ProgressNotifier.load(ctx);
+        Texts t = Texts.of(ctx);
         for (int id : ids) {
             RemoteViews v = new RemoteViews(ctx.getPackageName(), R.layout.widget_agents);
             v.setViewVisibility(R.id.widget_empty, list.isEmpty() ? View.VISIBLE : View.GONE);
@@ -31,8 +32,8 @@ public class AgentsWidget extends AppWidgetProvider {
                 }
                 ProgressFormat.Entry e = list.get(i);
                 v.setViewVisibility(ROWS[i], View.VISIBLE);
-                v.setTextViewText(TITLES[i], ProgressFormat.title(e));
-                v.setTextViewText(STEPS[i], ProgressFormat.widgetLine(e));
+                v.setTextViewText(TITLES[i], ProgressFormat.title(t, e));
+                v.setTextViewText(STEPS[i], ProgressFormat.widgetLine(t, e));
                 boolean indeterminate = e.percent < 0 && ProgressFormat.ongoing(e.state);
                 v.setProgressBar(BARS[i], 100, Math.max(0, e.percent), indeterminate);
                 v.setOnClickPendingIntent(ROWS[i], PushNotifier.openIntent(ctx, e.instance, null, ("widget\n" + e.key()).hashCode()));

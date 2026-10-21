@@ -32,9 +32,10 @@ final class PushNotifier {
     static void ensureChannel(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-        if (nm == null || nm.getNotificationChannel(CHANNEL) != null) return;
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "Запросы агентов", NotificationManager.IMPORTANCE_HIGH);
-        ch.setDescription("Агенту на компьютере нужно решение");
+        if (nm == null) return;
+        // У существующего канала система обновит только название и описание — они следуют за языком телефона.
+        NotificationChannel ch = new NotificationChannel(CHANNEL, ctx.getString(R.string.channel_requests_name), NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription(ctx.getString(R.string.channel_requests_description));
         nm.createNotificationChannel(ch);
     }
 
@@ -69,10 +70,10 @@ final class PushNotifier {
         return PendingIntent.getBroadcast(ctx, notifId * 2 + ("allow".equals(decision) ? 1 : 0), intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
-    private static String riskText(String risk) {
-        if ("low".equals(risk)) return "низкий риск";
-        if ("moderate".equals(risk)) return "средний риск";
-        return "высокий риск";
+    private static String riskText(Context ctx, String risk) {
+        if ("low".equals(risk)) return ctx.getString(R.string.risk_low);
+        if ("moderate".equals(risk)) return ctx.getString(R.string.risk_moderate);
+        return ctx.getString(R.string.risk_high);
     }
 
     private static NotificationCompat.Builder base(Context ctx) {
@@ -95,7 +96,7 @@ final class PushNotifier {
     /** Push не расшифровался: только нейтральный текст, содержимое не угадываем. */
     static void showNeutral(Context ctx, PushRegistry.Reg reg) {
         int id = ("neutral\n" + reg.instance).hashCode();
-        post(ctx, id, base(ctx).setContentTitle(reg.label == null || reg.label.isEmpty() ? "ProjectHub" : reg.label).setContentText("Агенту нужно решение").setContentIntent(openIntent(ctx, reg.instance, null, id)));
+        post(ctx, id, base(ctx).setContentTitle(reg.label == null || reg.label.isEmpty() ? "ProjectHub" : reg.label).setContentText(ctx.getString(R.string.hitl_neutral_text)).setContentIntent(openIntent(ctx, reg.instance, null, id)));
     }
 
     static void show(Context ctx, PushRegistry.Reg reg, byte[] plaintext) throws Exception {
@@ -108,7 +109,7 @@ final class PushNotifier {
         }
         if ("test".equals(type)) {
             int id = ("test\n" + reg.instance).hashCode();
-            post(ctx, id, base(ctx).setContentTitle(host).setContentText("Уведомления с этого компьютера работают").setContentIntent(openIntent(ctx, reg.instance, null, id)));
+            post(ctx, id, base(ctx).setContentTitle(host).setContentText(ctx.getString(R.string.push_test_text)).setContentIntent(openIntent(ctx, reg.instance, null, id)));
             return;
         }
         if ("note".equals(type)) {
@@ -130,29 +131,29 @@ final class PushNotifier {
         if (!p.optString("cmd", "").isEmpty()) big.append("\n$ ").append(p.optString("cmd"));
         else if (!p.optString("file", "").isEmpty()) big.append("\n").append(p.optString("file"));
         String why = p.optString("why", "");
-        big.append("\n").append(riskText(risk)).append(why.isEmpty() ? "" : " — " + why);
+        big.append("\n").append(riskText(ctx, risk)).append(why.isEmpty() ? "" : " — " + why);
         String who = p.optString("agent", "");
         String proj = p.optString("proj", "");
 
         NotificationCompat.Builder b = base(ctx)
-            .setContentTitle(host + ": агенту нужно решение")
+            .setContentTitle(ctx.getString(R.string.hitl_title, host))
             .setContentText(what)
-            .setSubText(riskText(risk) + (proj.isEmpty() ? "" : " · " + proj) + (who.isEmpty() ? "" : " · " + who))
+            .setSubText(riskText(ctx, risk) + (proj.isEmpty() ? "" : " · " + proj) + (who.isEmpty() ? "" : " · " + who))
             .setStyle(new NotificationCompat.BigTextStyle().bigText(big.toString()))
             .setContentIntent(openIntent(ctx, reg.instance, rid, id))
             .setWhen(p.optLong("ts", System.currentTimeMillis()))
             .setShowWhen(true);
 
         if (p.optBoolean("dec", false)) {
-            b.addAction(new NotificationCompat.Action.Builder(0, "Отклонить", actionIntent(ctx, reg, p, "deny", id)).build());
+            b.addAction(new NotificationCompat.Action.Builder(0, ctx.getString(R.string.action_deny), actionIntent(ctx, reg, p, "deny", id)).build());
             if ("low".equals(risk)) {
-                b.addAction(new NotificationCompat.Action.Builder(0, "Одобрить", actionIntent(ctx, reg, p, "allow", id)).build());
+                b.addAction(new NotificationCompat.Action.Builder(0, ctx.getString(R.string.action_approve), actionIntent(ctx, reg, p, "allow", id)).build());
             } else if ("moderate".equals(risk) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // Средний риск — только после разблокировки: система спросит PIN или отпечаток до нажатия.
-                b.addAction(new NotificationCompat.Action.Builder(0, "Одобрить", actionIntent(ctx, reg, p, "allow", id)).setAuthenticationRequired(true).build());
+                b.addAction(new NotificationCompat.Action.Builder(0, ctx.getString(R.string.action_approve), actionIntent(ctx, reg, p, "allow", id)).setAuthenticationRequired(true).build());
             } else {
                 // Высокий риск (и средний на Android до 12) — в приложении, где видно всё и спрашивается биометрия.
-                b.addAction(new NotificationCompat.Action.Builder(0, "Проверить", openIntent(ctx, reg.instance, rid, id)).build());
+                b.addAction(new NotificationCompat.Action.Builder(0, ctx.getString(R.string.action_review), openIntent(ctx, reg.instance, rid, id)).build());
             }
         }
         post(ctx, id, b);
@@ -164,7 +165,7 @@ final class PushNotifier {
      */
     private static void showNote(Context ctx, PushRegistry.Reg reg, JSONObject p, String host) {
         ensureNoteChannel(ctx);
-        PushNoteFormat f = PushNoteFormat.of(host, p.optString("agent", ""), p.optString("text", ""), p.optString("lvl", "info"), p.optString("proj", ""));
+        PushNoteFormat f = PushNoteFormat.of(Texts.of(ctx), host, p.optString("agent", ""), p.optString("text", ""), p.optString("lvl", "info"), p.optString("proj", ""));
         int id = ("note\n" + p.optString("hid") + "\n" + p.optString("nid")).hashCode();
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, NOTE_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_projecthub)
@@ -186,9 +187,9 @@ final class PushNotifier {
     static void ensureNoteChannel(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-        if (nm == null || nm.getNotificationChannel(NOTE_CHANNEL) != null) return;
-        NotificationChannel ch = new NotificationChannel(NOTE_CHANNEL, "Сообщения агентов", NotificationManager.IMPORTANCE_HIGH);
-        ch.setDescription("Агент на компьютере зовёт вас: готово, ошибка, нужно внимание");
+        if (nm == null) return;
+        NotificationChannel ch = new NotificationChannel(NOTE_CHANNEL, ctx.getString(R.string.channel_notes_name), NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription(ctx.getString(R.string.channel_notes_description));
         nm.createNotificationChannel(ch);
     }
 

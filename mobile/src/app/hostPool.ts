@@ -3,6 +3,7 @@ import type { EndpointKind } from '../../../src/utils/remoteEndpoints';
 import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox';
 import { profileProblems, type HostProfile } from '../protocol/pairing';
 import type { ClientSnapshot, ConnectionState, RpcMethod } from '../protocol/remoteClient';
+import { t } from '../i18n';
 
 /**
  * Фоновые соединения к остальным хостам телефона (TASK-140.2, [[decision-111]]): переключатель показывает статус,
@@ -84,7 +85,7 @@ export class HostPool {
   /** RPC к фоновому ПК его соединением и токеном его сопряжения — решение не уйдёт другому ПК. */
   rpc<T = unknown>(id: string, method: RpcMethod, params: Record<string, unknown> = {}): Promise<T> {
     const entry = this.entries.get(id);
-    if (!entry || this.summaries[id]?.state !== 'ready') return Promise.reject(new Error('Нет связи с этим компьютером'));
+    if (!entry || this.summaries[id]?.state !== 'ready') return Promise.reject(new Error(t().store.hostOffline));
     return entry.client.rpc<T>(method, params);
   }
 

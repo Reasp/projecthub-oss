@@ -1,0 +1,59 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- Русские строки нативной части (TASK-140.15); английские по умолчанию — в values/strings.xml. -->
+<resources>
+    <!-- Виджет «Агенты» -->
+    <string name="widget_agents_label">Агенты ProjectHub</string>
+    <string name="widget_agents_description">Ход агентов на ваших компьютерах</string>
+    <string name="widget_agents_empty">Агенты не работают</string>
+
+    <!-- Каналы уведомлений -->
+    <string name="channel_requests_name">Запросы агентов</string>
+    <string name="channel_requests_description">Агенту на компьютере нужно решение</string>
+    <string name="channel_notes_name">Сообщения агентов</string>
+    <string name="channel_notes_description">Агент на компьютере зовёт вас: готово, ошибка, нужно внимание</string>
+    <string name="channel_progress_name">Ход агентов</string>
+    <string name="channel_progress_description">Что делает агент на компьютере: итерация, проверки, ожидание решения</string>
+
+    <!-- Кнопки уведомлений -->
+    <string name="action_deny">Отклонить</string>
+    <string name="action_approve">Одобрить</string>
+    <string name="action_review">Проверить</string>
+    <string name="action_decide">Решить</string>
+
+    <!-- Запрос решения -->
+    <string name="hitl_title">%1$s: агенту нужно решение</string>
+    <string name="hitl_neutral_text">Агенту нужно решение</string>
+    <string name="push_test_text">Уведомления с этого компьютера работают</string>
+    <string name="risk_low">низкий риск</string>
+    <string name="risk_moderate">средний риск</string>
+    <string name="risk_high">высокий риск</string>
+
+    <!-- Итог нажатия кнопки в уведомлении -->
+    <string name="outcome_push_off">Push для этого компьютера выключен — откройте приложение</string>
+    <string name="outcome_sign_failed">Не удалось подписать решение — откройте приложение</string>
+    <string name="outcome_no_connection">Нет связи с компьютером — откройте приложение</string>
+    <string name="outcome_approved">Одобрено</string>
+    <string name="outcome_denied">Отклонено</string>
+    <string name="outcome_confirm_in_app">Для такого риска нужно подтверждение в приложении</string>
+    <string name="outcome_already_decided">Уже решено</string>
+    <string name="outcome_not_found">Запрос не найден — возможно, истёк</string>
+    <string name="outcome_rejected">Компьютер не принял решение — откройте приложение</string>
+
+    <!-- Агент: сообщения и ход -->
+    <string name="agent_default">Агент</string>
+    <string name="note_default_text">Агент прислал сообщение</string>
+    <string name="note_level_error">ошибка</string>
+    <string name="note_level_warning">нужно внимание</string>
+    <string name="note_level_success">готово</string>
+    <string name="note_level_info">сообщение</string>
+    <string name="state_running">работает</string>
+    <string name="state_waiting">ждёт решения</string>
+    <string name="state_done">готово</string>
+    <string name="state_failed">ошибка</string>
+    <string name="state_stopped">остановлен</string>
+    <string name="chip_waiting">ждёт</string>
+
+    <!-- Подтверждение биометрией -->
+    <string name="biometric_title">Подтвердите решение</string>
+    <string name="biometric_cancel">Отмена</string>
+</resources>

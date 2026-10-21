@@ -4,8 +4,9 @@ import clsx from 'clsx';
 import { useServices } from '../app/context';
 import { Badge, Button, Sheet, Spinner } from '../components/ui';
 import { Markdown } from '../components/Markdown';
-import { CHECK_STATUS_TEXT, OUTCOME_TEXT, projectName, type FeedSource } from '../protocol/inbox';
+import { checkStatusText, outcomeText, projectName, type FeedSource } from '../protocol/inbox';
 import { capabilitiesFor } from '../protocol/models';
+import { useT } from '../i18n/react';
 import type { RemoteReviewItem, RemoteReviewScreenshot } from '../../../src/types/remote';
 
 /** Скриншот проверки `ui-smoke`: грузится по нажатию, частями с того ПК, где лежит отчёт. */
@@ -40,6 +41,7 @@ function Shot({ source, item, shot }: { source: FeedSource; item: RemoteReviewIt
  */
 export function ReviewSheet({ source, item, open, onClose }: { source: FeedSource; item: RemoteReviewItem; open: boolean; onClose: () => void }) {
   const { inbox, platform } = useServices();
+  const tr = useT();
   const [mode, setMode] = useState<'view' | 'return'>('view');
   const [comment, setComment] = useState('');
   const [restart, setRestart] = useState(Boolean(item.roleSlug));
@@ -59,14 +61,14 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
   };
 
   const footer = !canDecide ? (
-    <div className="text-[12px] text-slate-400">{source.online ? 'У этого устройства нет права на решения — решите на ПК.' : `Нет связи с «${source.machineName}».`}</div>
+    <div className="text-[12px] text-slate-400">{source.online ? tr.inbox.noRights : tr.inbox.offlineShort(source.machineName)}</div>
   ) : mode === 'view' ? (
     <div className="flex gap-2">
       <Button variant="secondary" className="flex-1" disabled={busy} haptic={null} onClick={() => setMode('return')}>
-        <ArrowUUpLeftIcon size={18} /> <span data-testid="review-return-open">Вернуть</span>
+        <ArrowUUpLeftIcon size={18} /> <span data-testid="review-return-open">{tr.inbox.returnTask}</span>
       </Button>
       <Button variant="success" className="flex-1" disabled={busy} haptic={null} onClick={() => act('done')}>
-        <CheckIcon size={18} /> <span data-testid="review-accept">Принять</span>
+        <CheckIcon size={18} /> <span data-testid="review-accept">{tr.inbox.accept}</span>
       </Button>
     </div>
   ) : (
@@ -77,21 +79,21 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
         rows={3}
         autoFocus
         data-testid="review-comment"
-        placeholder="Что исправить — уйдёт агенту и в заметки задачи"
+        placeholder={tr.inbox.returnPlaceholder}
         className="w-full resize-none rounded-lg border border-ph-line bg-ph-base p-2 text-[14px] text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
       />
       {item.roleSlug && caps.write && (
         <label className="mt-2 flex items-center gap-2 text-[13px] text-slate-300">
           <input type="checkbox" checked={restart} onChange={(e) => setRestart(e.target.checked)} data-testid="review-restart" />
-          Перезапустить агента ({item.roleSlug})
+          {tr.inbox.restartAgent(item.roleSlug)}
         </label>
       )}
       <div className="mt-2 flex gap-2">
         <Button variant="ghost" className="flex-1" disabled={busy} onClick={() => setMode('view')}>
-          Назад
+          {tr.common.back}
         </Button>
         <Button variant="primary" className="flex-1" disabled={busy || !comment.trim()} haptic={null} onClick={() => act('return')}>
-          <span data-testid="review-return-send">Вернуть агенту</span>
+          <span data-testid="review-return-send">{tr.inbox.returnToAgent}</span>
         </Button>
       </div>
     </div>
@@ -102,8 +104,8 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
       <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
         <Badge tone="accent">{source.machineName}</Badge>
         <Badge>{projectName(item.projectPath)}</Badge>
-        {report?.outcome && <Badge tone={report.outcome === 'success' ? 'success' : 'warning'}>{OUTCOME_TEXT[report.outcome] ?? report.outcome}</Badge>}
-        {report && <span>итераций: {report.iterations}</span>}
+        {report?.outcome && <Badge tone={report.outcome === 'success' ? 'success' : 'warning'}>{outcomeText(report.outcome)}</Badge>}
+        {report && <span>{tr.inbox.iterations(report.iterations)}</span>}
         {typeof report?.costUsd === 'number' && <span>${report.costUsd.toFixed(2)}</span>}
       </div>
 
@@ -113,8 +115,8 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
         </div>
       )}
 
-      <div className="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Критерии приёмки</div>
-      {item.criteria.length === 0 && <div className="mt-1 text-[13px] text-slate-400">В задаче нет критериев.</div>}
+      <div className="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">{tr.inbox.acceptanceCriteria}</div>
+      {item.criteria.length === 0 && <div className="mt-1 text-[13px] text-slate-400">{tr.inbox.noCriteria}</div>}
       <ul className="mt-1 space-y-2" data-testid="review-criteria">
         {item.criteria.map((c) => {
           const ok = c.completed || c.accepted;
@@ -151,7 +153,7 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
 
       {report && report.checks.length > 0 && (
         <>
-          <div className="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Проверки</div>
+          <div className="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">{tr.inbox.checks}</div>
           <ul className="mt-1 space-y-1.5" data-testid="review-checks">
             {report.checks.map((check, i) => {
               const bad = check.status === 'failed' || check.status === 'timeout' || check.status === 'error';
@@ -160,11 +162,11 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
                   <div className="flex items-center gap-2 text-[14px]">
                     {bad ? <WarningCircleIcon size={16} className="shrink-0 text-rose-400" /> : <CheckCircleIcon size={16} className={clsx('shrink-0', check.status === 'passed' ? 'text-emerald-400' : 'text-slate-500')} />}
                     <span className="min-w-0 flex-1 truncate">{check.name}</span>
-                    <Badge tone={bad ? 'danger' : check.status === 'passed' ? 'success' : 'neutral'}>{CHECK_STATUS_TEXT[check.status] ?? check.status}</Badge>
+                    <Badge tone={bad ? 'danger' : check.status === 'passed' ? 'success' : 'neutral'}>{checkStatusText(check.status)}</Badge>
                   </div>
                   {(typeof check.passedTests === 'number' || typeof check.failedTests === 'number') && (
                     <div className="mt-0.5 pl-6 text-[12px] text-slate-400">
-                      тестов: {check.passedTests ?? 0} прошло{check.failedTests ? `, ${check.failedTests} упало` : ''}
+                      {tr.inbox.testsLine(check.passedTests ?? 0, check.failedTests ?? 0)}
                     </div>
                   )}
                   {check.detail && <pre className="selectable mt-1 whitespace-pre-wrap break-words pl-6 font-mono text-[11px] text-slate-400">{check.detail}</pre>}
@@ -177,14 +179,14 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
 
       {otherShots.length > 0 && (
         <>
-          <div className="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Скриншоты ui-smoke</div>
+          <div className="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">{tr.inbox.uiSmokeShots}</div>
           {otherShots.map((s) => (
             <Shot key={s.relPath} source={source} item={item} shot={s} />
           ))}
         </>
       )}
 
-      {!report && <div className="mt-4 text-[12px] text-slate-500">Отчёта цикла «до готовности» по задаче нет — проверьте результат на ПК.</div>}
+      {!report && <div className="mt-4 text-[12px] text-slate-500">{tr.inbox.noReport}</div>}
     </Sheet>
   );
 }

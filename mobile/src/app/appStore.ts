@@ -40,6 +40,7 @@ import type { ConfirmPort, PushPort } from '../platform/types';
 import { uploadInChunks, type PreparedAttachment } from '../protocol/attachments';
 import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox';
 import { sendVoice } from '../protocol/voice';
+import { t } from '../i18n';
 
 /**
  * Состояние экранов и действия мобильного клиента (TASK-140.1). Без React: экраны читают его
@@ -306,13 +307,13 @@ export class AppStore {
     const item = this.state.hitl.find((h) => h.requestId === requestId);
     const hostId = this.state.conn.hostId || this.state.status?.hostId || '';
     if (!item?.risk || !this.confirm || !this.canConfirmBiometric() || !hostId) {
-      this.showToast('Биометрия для этого компьютера не настроена: одобрите на ПК', 'error');
+      this.showToast(t().store.biometricNotSetUp, 'error');
       return false;
     }
     let proof: string;
     try {
       proof = await this.confirm.sign(this.state.conn.deviceId, hitlConfirmPayload(hostId, requestId, 'allow', item.risk), {
-        title: 'Одобрить действие агента',
+        title: t().store.biometricTitle,
         subtitle: item.title.slice(0, 120),
         description: item.command ? item.command.slice(0, 300) : (item.filePath ?? '')
       });
@@ -344,7 +345,7 @@ export class AppStore {
       this.showToast(hitlRejectReason(res.reason), 'error');
       return false;
     }
-    this.showToast(approve ? 'Одобрено' : 'Отклонено', 'success');
+    this.showToast(approve ? t().store.approved : t().store.rejected, 'success');
     return true;
   }
 
@@ -396,8 +397,8 @@ export class AppStore {
       this.set({ agentTasks: prev });
       return false;
     }
-    if (res.approved.length > 0) this.showToast(res.approved.length > 1 ? `Подтверждено задач: ${res.approved.length}` : `Подтверждена ${res.approved[0]}`, 'success');
-    else this.showToast('Задачи уже подтверждены', 'info');
+    if (res.approved.length > 0) this.showToast(res.approved.length > 1 ? t().inbox.tasksConfirmed(res.approved.length) : t().store.agentTaskApproved(res.approved[0]), 'success');
+    else this.showToast(t().inbox.tasksAlreadyConfirmed, 'info');
     if (projectPath === this.state.projectPath) this.debounced('tasks', () => void this.refreshTasks());
     return res.approved.length > 0;
   }
@@ -439,7 +440,7 @@ export class AppStore {
   async createTask(title: string, description: string): Promise<boolean> {
     const res = await this.call('create_task', this.withProject({ title, description }));
     if (res) {
-      this.showToast('Задача создана', 'success');
+      this.showToast(t().store.taskCreated, 'success');
       await this.refreshTasks();
     }
     return Boolean(res);
@@ -465,7 +466,7 @@ export class AppStore {
   async runAction(action: string): Promise<boolean> {
     const res = await this.call('run_action', this.withProject({ action }));
     if (res) {
-      this.showToast('Запущено', 'success');
+      this.showToast(t().store.actionStarted, 'success');
       await this.refreshProcesses();
     }
     return Boolean(res);
@@ -490,7 +491,7 @@ export class AppStore {
 
   async stopSwarm(swarmId: string): Promise<void> {
     if (await this.call('stop_swarm', { swarmId })) {
-      this.showToast('Остановлено', 'success');
+      this.showToast(t().store.stopped, 'success');
       await this.refreshSwarms();
     }
   }
@@ -498,7 +499,7 @@ export class AppStore {
   async startAssignedAgent(taskId: string, taskTitle: string, roleSlug: string, prompt: string): Promise<boolean> {
     const res = await this.call('start_assigned_agent', this.withProject({ taskId, taskTitle, roleSlug, prompt: prompt || undefined }));
     if (res) {
-      this.showToast('Агент запущен', 'success');
+      this.showToast(t().store.agentStarted, 'success');
       await this.refreshSwarms();
     }
     return Boolean(res);
@@ -582,8 +583,8 @@ export class AppStore {
     const res = await this.call('studio_clear', this.withProject({ sessionId }));
     if (!res) return false;
     // Не перечитываем с диска: окно пишет сессию с задержкой (1,5 с), и телефон получил бы старую историю.
-    if (this.state.studio.sessionId === sessionId) this.setStudio({ messages: [], olderOmitted: 0, title: 'Новый диалог', sessionUsage: null });
-    this.showToast('Сессия очищена', 'success');
+    if (this.state.studio.sessionId === sessionId) this.setStudio({ messages: [], olderOmitted: 0, title: t().store.newChat, sessionUsage: null });
+    this.showToast(t().store.sessionCleared, 'success');
     this.debounced('studioSessions', () => void this.refreshStudioSessions());
     return true;
   }
@@ -624,7 +625,7 @@ export class AppStore {
       if (text) this.showToast(text, kind);
       return enabled;
     };
-    if (!(await this.push.requestPermission())) return done(false, 'Разрешите уведомления для ProjectHub в настройках телефона');
+    if (!(await this.push.requestPermission())) return done(false, t().store.allowNotifications);
     let data;
     try {
       data = await this.push.register(instance, label);
@@ -642,7 +643,7 @@ export class AppStore {
       await this.push.unregister(instance);
       return done(false);
     }
-    return done(true, `Уведомления с «${label}» включены`, 'success');
+    return done(true, t().store.pushEnabled(label), 'success');
   }
 
   async disablePush(instance: string): Promise<void> {
@@ -654,7 +655,7 @@ export class AppStore {
   }
 
   async testPush(): Promise<void> {
-    if (await this.call('push_test', {})) this.showToast('Проверочное уведомление отправлено', 'success');
+    if (await this.call('push_test', {})) this.showToast(t().store.pushTestSent, 'success');
   }
 
   /**
@@ -664,10 +665,10 @@ export class AppStore {
   async transcribeVoice(samples: Float32Array, language: 'ru' | 'en' | 'auto'): Promise<string | null> {
     try {
       const res = await sendVoice((params) => this.client.rpc('voice_chunk', params), samples, language);
-      if (!res.text) this.showToast('Речь не распознана — скажите ещё раз', 'info');
+      if (!res.text) this.showToast(t().store.voiceNotRecognized, 'info');
       return res.text;
     } catch (err) {
-      this.showToast(`Голос не распознан: ${errorText(err)}`, 'error');
+      this.showToast(t().store.voiceFailed(errorText(err)), 'error');
       return null;
     }
   }
@@ -678,7 +679,7 @@ export class AppStore {
     try {
       return await uploadInChunks((params) => this.client.rpc('studio_attach', this.withProject(params)), file, onProgress);
     } catch (err) {
-      this.showToast(`Вложение «${file.name}» не загружено: ${errorText(err)}`, 'error');
+      this.showToast(t().store.attachmentFailed(file.name, errorText(err)), 'error');
       return null;
     }
   }
@@ -724,7 +725,7 @@ export class AppStore {
   async abortStudio(): Promise<void> {
     const { sessionId } = this.state.studio;
     if (!sessionId) return;
-    if (await this.call('studio_abort', this.withProject({ sessionId }))) this.showToast('Ответ остановлен', 'info');
+    if (await this.call('studio_abort', this.withProject({ sessionId }))) this.showToast(t().store.answerStopped, 'info');
   }
 
   // ── события хоста ──
@@ -754,7 +755,7 @@ export class AppStore {
     if (current) {
       const messages =
         event === 'studio:error'
-          ? [...this.state.studio.messages, { id: `e${Date.now()}`, role: 'error' as const, text: String(d.error || 'Ошибка агента') }]
+          ? [...this.state.studio.messages, { id: `e${Date.now()}`, role: 'error' as const, text: String(d.error || t().store.agentError) }]
           : this.state.studio.messages;
       this.setStudio({ sessions, busy: false, messages });
       this.debounced('studioReload', () => {

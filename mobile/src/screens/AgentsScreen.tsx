@@ -4,6 +4,7 @@ import type { RemoteAgentOutput, RemoteLaunchCheck, RemoteSwarmAgentSummary, Rem
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, Confirm, EmptyState, SectionTitle, Sheet, Spinner } from '../components/ui';
 import { Screen } from '../components/Screen';
+import { useT } from '../i18n/react';
 import { capabilitiesFor, isActiveStatus, statusLabel } from '../protocol/models';
 
 function tone(status: string): 'success' | 'accent' | 'danger' | 'neutral' {
@@ -16,6 +17,7 @@ function tone(status: string): 'success' | 'accent' | 'danger' | 'neutral' {
 /** Хвост вывода агента; пока агент работает, перечитывается раз в 3 с. */
 function AgentOutputSheet({ target, onClose }: { target: { swarm: RemoteSwarmSummary; agent: RemoteSwarmAgentSummary } | null; onClose: () => void }) {
   const { store } = useServices();
+  const tr = useT();
   const [output, setOutput] = useState<RemoteAgentOutput | null>(null);
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLPreElement>(null);
@@ -55,8 +57,8 @@ function AgentOutputSheet({ target, onClose }: { target: { swarm: RemoteSwarmSum
       </div>
       {target?.agent.error && <div className="mb-2 rounded-lg bg-red-950/60 p-2 text-[13px] text-red-200">{target.agent.error}</div>}
       <pre ref={ref} className="selectable h-[58vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-ph-base p-2 font-mono text-[12px] leading-relaxed text-slate-200">
-        {output?.truncated ? '… начало вывода не показано\n\n' : ''}
-        {output?.text || (loading ? '' : 'Вывода пока нет.')}
+        {output?.truncated ? tr.agents.outputTruncated : ''}
+        {output?.text || (loading ? '' : tr.agents.noOutput)}
       </pre>
     </Sheet>
   );
@@ -64,6 +66,7 @@ function AgentOutputSheet({ target, onClose }: { target: { swarm: RemoteSwarmSum
 
 function StartAgentSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { store } = useServices();
+  const tr = useT();
   const tasks = useAppState((s) => s.tasks);
   const roles = useAppState((s) => s.roles);
   const candidates = tasks.filter((t) => t.status !== 'Done');
@@ -108,25 +111,25 @@ function StartAgentSheet({ open, onClose }: { open: boolean; onClose: () => void
     <Sheet
       open={open}
       onClose={onClose}
-      title="Запустить агента"
+      title={tr.agents.startTitle}
       footer={
         <Button variant="primary" className="w-full" disabled={!task || !roleSlug || busy || blocked} haptic="medium" onClick={submit}>
-          {busy ? <Spinner /> : 'Запустить на ПК'}
+          {busy ? <Spinner /> : tr.agents.startOnComputer}
         </Button>
       }
     >
-      <label className="text-[12px] text-slate-400">Задача</label>
+      <label className="text-[12px] text-slate-400">{tr.agents.task}</label>
       <select value={taskId} onChange={(e) => setTaskId(e.target.value)} className={`${select} mt-1`}>
-        <option value="">Выберите задачу</option>
+        <option value="">{tr.agents.chooseTask}</option>
         {candidates.map((t) => (
           <option key={t.filePath} value={t.id}>
             {t.id} — {t.title}
           </option>
         ))}
       </select>
-      <label className="mt-3 block text-[12px] text-slate-400">Роль</label>
+      <label className="mt-3 block text-[12px] text-slate-400">{tr.agents.role}</label>
       <select value={roleSlug} onChange={(e) => setRoleSlug(e.target.value)} className={`${select} mt-1`}>
-        <option value="">{roles.length ? 'Выберите роль' : 'Ролей нет'}</option>
+        <option value="">{roles.length ? tr.agents.chooseRole : tr.agents.noRoles}</option>
         {roles.map((r) => (
           <option key={r.slug} value={r.slug}>
             {r.name}
@@ -134,9 +137,15 @@ function StartAgentSheet({ open, onClose }: { open: boolean; onClose: () => void
           </option>
         ))}
       </select>
-      <label className="mt-3 block text-[12px] text-slate-400">Промпт (необязательно)</label>
-      <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder={task ? `Выполни задачу ${task.id}.` : ''} className={`${select} mt-1`} />
-      <div className="mt-2 text-[12px] text-slate-500">Агент работает в отдельном worktree на ПК, движок и модель — из роли.</div>
+      <label className="mt-3 block text-[12px] text-slate-400">{tr.agents.promptLabel}</label>
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        rows={3}
+        placeholder={task ? tr.agents.promptPlaceholder(task.id) : ''}
+        className={`${select} mt-1`}
+      />
+      <div className="mt-2 text-[12px] text-slate-500">{tr.agents.worktreeHint}</div>
       {launch && launch.notices.length > 0 && (
         <div className="mt-3 space-y-1.5" data-testid="launch-limits">
           {launch.notices.map((n, i) => (
@@ -158,6 +167,7 @@ function StartAgentSheet({ open, onClose }: { open: boolean; onClose: () => void
 /** Рои и агенты: статус, вывод, остановка, запуск назначенной задачи (decision-79 п. 8). */
 export function AgentsScreen() {
   const { store } = useServices();
+  const tr = useT();
   const swarms = useAppState((s) => s.swarms);
   const conn = useAppState((s) => s.conn);
   const canWrite = capabilitiesFor(conn.rights, conn.readOnly).write;
@@ -192,7 +202,7 @@ export function AgentsScreen() {
       </ul>
       {canWrite && isActiveStatus(s.status) && (
         <Button size="sm" variant="danger" className="mt-2" haptic="medium" onClick={() => setStopTarget(s)}>
-          <StopIcon size={16} /> Остановить
+          <StopIcon size={16} /> {tr.agents.stop}
         </Button>
       )}
     </Card>
@@ -202,16 +212,16 @@ export function AgentsScreen() {
     <Screen onRefresh={() => store.refreshSwarms()}>
       {canWrite && (
         <Button variant="primary" className="mb-2 w-full" onClick={() => setStarting(true)}>
-          <PlayIcon size={18} /> Запустить задачу агентом
+          <PlayIcon size={18} /> {tr.agents.startTask}
         </Button>
       )}
       {swarms.length === 0 ? (
-        <EmptyState icon={<RobotIcon size={40} />} title="Агенты не запускались" hint="Рои и назначенные задачи этого проекта появятся здесь." />
+        <EmptyState icon={<RobotIcon size={40} />} title={tr.agents.emptyTitle} hint={tr.agents.emptyHint} />
       ) : (
         <>
-          {active.length > 0 && <SectionTitle>Работают</SectionTitle>}
+          {active.length > 0 && <SectionTitle>{tr.agents.running}</SectionTitle>}
           {active.map(renderSwarm)}
-          {finished.length > 0 && <SectionTitle>Завершённые</SectionTitle>}
+          {finished.length > 0 && <SectionTitle>{tr.agents.finished}</SectionTitle>}
           {finished.map(renderSwarm)}
         </>
       )}
@@ -219,9 +229,9 @@ export function AgentsScreen() {
       <StartAgentSheet open={starting} onClose={() => setStarting(false)} />
       <Confirm
         open={Boolean(stopTarget)}
-        title="Остановить агентов?"
+        title={tr.agents.stopConfirmTitle}
         body={stopTarget?.taskTitle || stopTarget?.taskId}
-        confirmText="Остановить"
+        confirmText={tr.agents.stop}
         danger
         onCancel={() => setStopTarget(null)}
         onConfirm={() => {

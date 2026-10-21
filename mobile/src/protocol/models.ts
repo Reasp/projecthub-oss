@@ -1,4 +1,5 @@
 import type { DeviceRights, RemotePendingAgentTask, RemoteHitlRisk, RemotePendingApproval, RemoteTaskSummary } from '../../../src/types/remote';
+import { t } from '../i18n';
 
 /**
  * Чистые модели экранов мобильного клиента (TASK-140.1): без React, покрыты unit-тестами.
@@ -55,10 +56,11 @@ export function capabilitiesFor(rights: DeviceRights | null | undefined, hostRea
 }
 
 export function rightsLabel(rights: DeviceRights | null | undefined, hostReadOnly: boolean): string {
-  if (hostReadOnly) return 'Только чтение (хост)';
-  if (rights === 'readOnly') return 'Только чтение';
-  if (rights === 'hitl') return 'Только решения';
-  return 'Полный доступ';
+  const labels = t().models.rights;
+  if (hostReadOnly) return labels.hostReadOnly;
+  if (rights === 'readOnly') return labels.readOnly;
+  if (rights === 'hitl') return labels.hitl;
+  return labels.full;
 }
 
 // ── Kanban ──
@@ -132,8 +134,6 @@ export interface HitlItem {
   riskReason?: string;
 }
 
-export const RISK_TEXT: Record<RemoteHitlRisk, string> = { low: 'низкий риск', moderate: 'средний риск', high: 'высокий риск' };
-
 /**
  * Можно ли одобрить запрос кнопкой в приложении (decision-112 п. 3): `high` — только с биометрией (ключ подтверждения
  * сопряжения, [[decision-114]]). Окончательно решает хост; клиент лишь не предлагает заведомо отклоняемое.
@@ -162,21 +162,21 @@ export function diffLineKind(line: string): 'add' | 'del' | 'hunk' | 'meta' | 'c
 /** Почему push не включился (TASK-140.3). */
 export function pushErrorText(err: unknown): string {
   const code = (err as { code?: unknown } | null)?.code;
-  if (code === 'no_distributor') return 'Нет приложения-дистрибьютора UnifiedPush. Установите ntfy (без сервисов Google) и повторите';
-  if (code === 'timeout') return 'Дистрибьютор UnifiedPush не ответил — откройте ntfy и проверьте сервер';
-  return 'Не удалось включить уведомления';
+  const text = t().models.push;
+  if (code === 'no_distributor') return text.noDistributor;
+  if (code === 'timeout') return text.timeout;
+  return text.failed;
 }
 
 /** Текст ошибки биометрии; отмена человеком — `null`, без сообщения. */
 export function confirmErrorText(err: unknown): string | null {
   const code = (err as { code?: unknown } | null)?.code;
   if (code === 'cancelled') return null;
-  if (code === 'lockout') return 'Биометрия заблокирована после неудачных попыток — разблокируйте телефон и повторите или одобрите на ПК';
-  if (code === 'invalidated' || code === 'no_key') {
-    return 'Ключ подтверждения больше не действует (изменили отпечатки или блокировку экрана). Сопрягите телефон с ПК заново по QR';
-  }
-  if (code === 'unavailable') return 'Биометрия недоступна на этом телефоне — одобрите на ПК';
-  return 'Не удалось подтвердить биометрией — одобрите на ПК';
+  const text = t().models.biometric;
+  if (code === 'lockout') return text.lockout;
+  if (code === 'invalidated' || code === 'no_key') return text.invalidated;
+  if (code === 'unavailable') return text.unavailable;
+  return text.failed;
 }
 
 export function hitlFromEvent(data: unknown): HitlItem | null {
@@ -190,7 +190,7 @@ export function hitlFromEvent(data: unknown): HitlItem | null {
     agentName: str('agentName'),
     role: str('role'),
     tool: str('tool'),
-    title: str('description') ?? str('title') ?? 'Агенту нужно решение',
+    title: str('description') ?? str('title') ?? t().models.hitlDefaultTitle,
     details: str('details'),
     command: str('command'),
     filePath: str('filePath'),
@@ -220,12 +220,13 @@ export function replaceHitl(items: HitlItem[]): HitlItem[] {
   return items.filter((i) => (seen.has(i.requestId) ? false : (seen.add(i.requestId), true)));
 }
 
-/** Причина отказа `hitl_decision` по-русски. */
+/** Причина отказа `hitl_decision` на языке интерфейса. */
 export function hitlRejectReason(reason: string | undefined): string {
-  if (reason === 'already_decided') return 'Запрос уже решён';
-  if (reason === 'not_found') return 'Запрос не найден — возможно, истёк';
-  if (reason === 'confirmation_required') return 'Для такого риска этого подтверждения мало: одобрите на ПК или с биометрией';
-  return reason ? `Хост отклонил решение: ${reason}` : 'Хост отклонил решение';
+  const text = t().models.reject;
+  if (reason === 'already_decided') return text.alreadyDecided;
+  if (reason === 'not_found') return text.notFound;
+  if (reason === 'confirmation_required') return text.confirmationRequired;
+  return reason ? text.hostRejectedWith(reason) : text.hostRejected;
 }
 
 // ── Логи ──
@@ -255,16 +256,7 @@ export function isActiveStatus(status: string): boolean {
 }
 
 export function statusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    idle: 'Ожидает',
-    pending: 'В очереди',
-    preparing: 'Подготовка',
-    running: 'Работает',
-    completed: 'Готово',
-    failed: 'Ошибка',
-    stopped: 'Остановлен',
-    interrupted: 'Прерван',
-    budget_exceeded: 'Превышен бюджет'
-  };
-  return labels[status] ?? status;
+  // Неизвестный статус (новый на хосте) показываем как есть; `hasOwn` — чтобы `toString` и т. п. не стали подписью.
+  const labels: Record<string, string> = t().models.agentStatus;
+  return Object.prototype.hasOwnProperty.call(labels, status) ? labels[status] : status;
 }

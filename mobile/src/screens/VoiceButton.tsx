@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MicrophoneIcon, StopIcon, XIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { useServices } from '../app/context';
+import { useT } from '../i18n/react';
 import { Spinner } from '../components/ui';
 import { startVoiceRecording, voiceAvailable, type VoiceRecording } from '../platform/voiceRecorder';
 
@@ -20,6 +21,7 @@ function phoneLanguage(): 'ru' | 'auto' {
  */
 export function VoiceButton({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) {
   const { store, platform } = useServices();
+  const tr = useT();
   const [state, setState] = useState<'idle' | 'recording' | 'sending'>('idle');
   const [seconds, setSeconds] = useState(0);
   const recording = useRef<VoiceRecording | null>(null);
@@ -44,7 +46,7 @@ export function VoiceButton({ onText, disabled }: { onText: (text: string) => vo
       const text = await store.transcribeVoice(samples, phoneLanguage());
       if (text) onText(text);
     } catch (err) {
-      store.showToast(`Запись не получилась: ${err instanceof Error ? err.message : String(err)}`, 'error');
+      store.showToast(tr.studio.recordingFailed(err instanceof Error ? err.message : String(err)), 'error');
     } finally {
       setState('idle');
     }
@@ -57,7 +59,7 @@ export function VoiceButton({ onText, disabled }: { onText: (text: string) => vo
       setState('recording');
       platform.haptic('medium');
     } catch {
-      store.showToast('Нет доступа к микрофону: разрешите его ProjectHub в настройках телефона', 'error');
+      store.showToast(tr.studio.micDenied, 'error');
     }
   };
 
@@ -66,7 +68,7 @@ export function VoiceButton({ onText, disabled }: { onText: (text: string) => vo
       <div className="mb-1 flex shrink-0 items-center gap-1" data-testid="voice-recording">
         <button
           type="button"
-          aria-label="Отменить запись"
+          aria-label={tr.studio.cancelRecording}
           onClick={() => {
             recording.current?.cancel();
             recording.current = null;
@@ -78,7 +80,7 @@ export function VoiceButton({ onText, disabled }: { onText: (text: string) => vo
         </button>
         <button
           type="button"
-          aria-label="Готово — распознать на ПК"
+          aria-label={tr.studio.finishRecording}
           data-testid="voice-stop"
           onClick={() => void finish()}
           className="flex items-center gap-1.5 rounded-full bg-rose-600 px-3 py-2 text-[13px] font-medium text-white active:bg-rose-700"
@@ -92,7 +94,7 @@ export function VoiceButton({ onText, disabled }: { onText: (text: string) => vo
   return (
     <button
       type="button"
-      aria-label="Голосовой промпт"
+      aria-label={tr.studio.voicePrompt}
       data-testid="voice-start"
       disabled={disabled || state === 'sending'}
       onClick={() => void start()}

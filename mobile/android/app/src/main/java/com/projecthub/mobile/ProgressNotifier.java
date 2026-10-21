@@ -36,9 +36,11 @@ final class ProgressNotifier {
     static void ensureChannel(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-        if (nm == null || nm.getNotificationChannel(CHANNEL) != null) return;
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "Ход агентов", NotificationManager.IMPORTANCE_DEFAULT);
-        ch.setDescription("Что делает агент на компьютере: итерация, проверки, ожидание решения");
+        if (nm == null) return;
+        // Канал создаётся и при каждом показе: у существующего система обновит только название и описание — так они
+        // следуют за языком телефона, а звук и вибрация остаются как при создании.
+        NotificationChannel ch = new NotificationChannel(CHANNEL, ctx.getString(R.string.channel_progress_name), NotificationManager.IMPORTANCE_DEFAULT);
+        ch.setDescription(ctx.getString(R.string.channel_progress_description));
         ch.setShowBadge(false);
         ch.setSound(null, null);
         ch.enableVibration(false);
@@ -52,6 +54,7 @@ final class ProgressNotifier {
 
     static void show(Context ctx, PushRegistry.Reg reg, JSONObject p) {
         ProgressFormat.Entry e = entryOf(reg, p);
+        Texts t = Texts.of(ctx);
         ensureChannel(ctx);
         int id = ("prog\n" + e.key()).hashCode();
         boolean ongoing = ProgressFormat.ongoing(e.state);
@@ -60,14 +63,14 @@ final class ProgressNotifier {
         else style.setProgressIndeterminate(ongoing);
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_projecthub)
-            .setContentTitle(ProgressFormat.title(e))
-            .setContentText(ProgressFormat.text(e))
-            .setSubText(ProgressFormat.stateLabel(e.state))
+            .setContentTitle(ProgressFormat.title(t, e))
+            .setContentText(ProgressFormat.text(t, e))
+            .setSubText(ProgressFormat.stateLabel(t, e.state))
             .setStyle(style)
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setShortCriticalText(ProgressFormat.chip(e))
+            .setShortCriticalText(ProgressFormat.chip(t, e))
             .setRequestPromotedOngoing(ongoing)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setContentIntent(PushNotifier.openIntent(ctx, reg.instance, null, id))
@@ -75,7 +78,7 @@ final class ProgressNotifier {
             .setShowWhen(true);
         if (!ongoing) b.setAutoCancel(true).setTimeoutAfter(ProgressFormat.FINISHED_TTL_MS);
         if ("waiting".equals(e.state)) {
-            b.addAction(new NotificationCompat.Action.Builder(0, "Решить", PushNotifier.openIntent(ctx, reg.instance, null, id)).build());
+            b.addAction(new NotificationCompat.Action.Builder(0, ctx.getString(R.string.action_decide), PushNotifier.openIntent(ctx, reg.instance, null, id)).build());
         }
         try {
             NotificationManagerCompat.from(ctx).notify(TAG, id, b.build());

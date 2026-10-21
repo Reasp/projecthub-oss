@@ -8,6 +8,7 @@ import type {
   StudioMode,
   StudioModelSelection
 } from '../../../src/types/remote';
+import { t } from '../i18n';
 
 /**
  * Состояние Agents Studio на телефоне (TASK-140.10, decision-83) и чистые функции над ним. Сессии — те же, что
@@ -98,45 +99,71 @@ export function groupStudioSessions(sessions: RemoteStudioSessionSummary[], quer
   return { open: sorted.filter((s) => !s.archived), history: sorted.filter((s) => s.archived) };
 }
 
-/** «сейчас», «5 мин», «3 ч», «вчера», «12 окт». */
+/** «сейчас», «5 мин», «3 ч», «вчера», «12 окт.» — на языке интерфейса. */
 export function relativeTime(ts: number, now = Date.now()): string {
+  const tr = t().studio;
   const diff = Math.max(0, now - ts);
   const min = Math.floor(diff / 60_000);
-  if (min < 1) return 'сейчас';
-  if (min < 60) return `${min} мин`;
+  if (min < 1) return tr.justNow;
+  if (min < 60) return tr.minutesAgo(min);
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h} ч`;
-  if (h < 48) return 'вчера';
-  return new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  if (h < 24) return tr.hoursAgo(h);
+  if (h < 48) return tr.yesterday;
+  return new Date(ts).toLocaleDateString(tr.dateLocale, { day: 'numeric', month: 'short' });
 }
 
 /** Подпись выбора модели на кнопке: из названий каталога, если они есть. */
 export function selectionTitle(sel: StudioModelSelection | null, options: RemoteStudioOptions | null): string {
-  if (!sel) return options?.currentLabel || 'Модель ПК';
+  if (!sel) return options?.currentLabel || t().studio.pcModel;
   if (sel.provider === 'anthropic') {
     const m = options?.claudeModels.find((x) => x.id === sel.model);
     return `Claude · ${m?.name.replace(/\s*\(.*\)$/, '') || sel.model}`;
   }
   if (sel.provider === 'openai-compatible') {
     const p = options?.profiles.find((x) => x.id === sel.profileId);
-    return `${p?.name || 'Профиль'} · ${sel.model}`;
+    return `${p?.name || t().studio.profile} · ${sel.model}`;
   }
   return `${sel.provider} · ${sel.model}`;
 }
 
-export const MODE_LABEL: Record<StudioMode, string> = { agent: 'Агент', chat: 'Чат', architect: 'Архитектор' };
+/** Название режима на языке интерфейса; поля — геттеры, текст берётся в момент показа. */
+export const MODE_LABEL: Readonly<Record<StudioMode, string>> = {
+  get agent() {
+    return t().studio.modes.agent;
+  },
+  get chat() {
+    return t().studio.modes.chat;
+  },
+  get architect() {
+    return t().studio.modes.architect;
+  }
+};
 
 /** Быстрые команды Studio на телефоне (меню и ввод «/»): действия над сессией, не промпты агенту. */
 export type StudioCommandId = 'clear' | 'new' | 'usage' | 'model' | 'sessions' | 'stop';
 
-export const STUDIO_COMMANDS: Array<{ id: StudioCommandId; command: string; title: string; hint: string }> = [
-  { id: 'clear', command: '/clear', title: 'Очистить сессию', hint: 'Стереть историю диалога, как кнопкой на ПК' },
-  { id: 'new', command: '/new', title: 'Новая сессия', hint: 'Начать новый диалог (появится вкладкой на ПК)' },
-  { id: 'usage', command: '/usage', title: 'Usage', hint: 'Лимиты и расход Claude Code' },
-  { id: 'model', command: '/model', title: 'Модель и режим', hint: 'Claude Code, профили LLM, агент / чат / архитектор' },
-  { id: 'sessions', command: '/sessions', title: 'Сессии и история', hint: 'Вкладки ПК и закрытые сессии' },
-  { id: 'stop', command: '/stop', title: 'Остановить ответ', hint: 'Прервать ответ агента' }
-];
+export interface StudioCommand {
+  id: StudioCommandId;
+  command: string;
+  readonly title: string;
+  readonly hint: string;
+}
+
+/** Команда с подписью и подсказкой на языке интерфейса: геттеры читают словарь при каждом показе. */
+function studioCommand(id: StudioCommandId): StudioCommand {
+  return {
+    id,
+    command: `/${id}`,
+    get title() {
+      return t().studio.commands[id].title;
+    },
+    get hint() {
+      return t().studio.commands[id].hint;
+    }
+  };
+}
+
+export const STUDIO_COMMANDS: StudioCommand[] = (['clear', 'new', 'usage', 'model', 'sessions', 'stop'] as const).map(studioCommand);
 
 /** Подсказки при вводе «/»: команды, начинающиеся с набранного; пробел после команды — уже промпт. */
 export function matchStudioCommands(text: string): typeof STUDIO_COMMANDS {
@@ -146,9 +173,11 @@ export function matchStudioCommands(text: string): typeof STUDIO_COMMANDS {
   return STUDIO_COMMANDS.filter((c) => c.command.startsWith(q));
 }
 
-/** «12,3 тыс.», «1,2 млн» — токены в окне Usage. */
+/** «12,3 тыс.», «1,2 млн» (по-английски «12.3k», «1.2M») — токены в окне Usage. */
 export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',')} млн`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace('.', ',')} тыс.`;
+  const tr = t().studio;
+  const fixed = (v: number) => v.toFixed(1).replace('.', tr.decimal);
+  if (n >= 1_000_000) return tr.millions(fixed(n / 1_000_000));
+  if (n >= 1000) return tr.thousands(fixed(n / 1000));
   return String(n);
 }

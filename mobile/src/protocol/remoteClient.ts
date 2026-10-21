@@ -6,9 +6,7 @@ import type {
   RemoteRpcMethod
 } from '../../../src/types/remote';
 import {
-  ENDPOINT_KIND_LABEL,
   ENDPOINT_KIND_ORDER,
-  describeEndpoint,
   endpointFromAddress,
   sanitizeEndpoints,
   type EndpointKind,
@@ -23,7 +21,8 @@ import {
   type SessionFrameV2,
   type WebSessionV2
 } from '../../../src/utils/remoteSessionV2';
-import { buildWsTarget, connectionCandidates, isValidHostKey, isValidKeyHex, profileProblems, type HostProfile } from './pairing';
+import { buildWsTarget, connectionCandidates, isValidHostKey, isValidKeyHex, profileProblemText, profileProblems, type HostProfile } from './pairing';
+import { t } from '../i18n';
 
 /**
  * Клиент Remote Control для телефона (TASK-140.1): соединение, сопряжение, RPC и события. Протокол v2
@@ -158,11 +157,13 @@ export function isFatalHostError(message: string): boolean {
 }
 
 /** Хост в режиме «только v2» (decision-116), а у профиля нет ключа хоста или платформа без WebCrypto. */
-export const V2_REQUIRED_TEXT = 'Этот компьютер принимает только защищённый протокол v2. Сопрягите телефон с ним заново по QR-коду.';
+export function v2RequiredText(): string {
+  return t().store.v2Required;
+}
 
 /** Понятный текст фатальной ошибки хоста; прочие — как есть. */
 export function fatalHostErrorText(message: string): string {
-  return /only protocol v2/i.test(message) ? V2_REQUIRED_TEXT : message;
+  return /only protocol v2/i.test(message) ? v2RequiredText() : message;
 }
 
 /** Закрытие сокета хостом из списка устройств («Отключить» на ПК) — токен отозван. */
@@ -222,7 +223,18 @@ export function mergeHostEndpoints(profile: HostProfile, info: { endpoints?: unk
 
 /** Подпись пути для экрана: «локальная сеть», «VPN», «туннель», «релей». */
 export function routeLabel(route: EndpointKind | null): string {
-  return route ? ENDPOINT_KIND_LABEL[route] : '';
+  return route ? t().store.route[route] : '';
+}
+
+/** Короткая подпись адреса для экрана на языке клиента: `туннель abc.trycloudflare.com`. */
+export function endpointLabel(ep: RemoteEndpoint): string {
+  let host = ep.url;
+  try {
+    host = new URL(ep.url).hostname || ep.url;
+  } catch {
+    // не URL — показываем как есть
+  }
+  return `${routeLabel(ep.kind)} ${host}`;
 }
 
 /**
@@ -238,49 +250,55 @@ export async function frameText(raw: unknown): Promise<string> {
   return String(raw);
 }
 
-export const CONNECT_TIMEOUT_ERROR =
-  'Компьютер не отвечает в локальной сети. Проверьте, что в ProjectHub включён Remote Control и телефон в той же сети Wi-Fi. '
-  + 'Вне дома нужен адрес через интернет: включите на ПК туннель (Remote → «Запустить туннель») или релей — телефон получит адрес сам, '
-  + 'как только подключится к ПК (например, дома по Wi-Fi), или отсканируйте QR заново.';
+// Тексты ошибок — функции, а не константы: язык меняется на ходу, строка берётся в момент ошибки (TASK-140.15).
 
-export const NO_SECURE_ENDPOINT_ERROR =
-  'На этой HTTPS-странице нет адреса, по которому можно подключиться: адреса локальной сети браузер здесь не откроет. '
-  + 'Включите в ProjectHub туннель и откройте его ссылку или используйте приложение.';
+export function connectTimeoutError(): string {
+  return t().store.connectTimeout;
+}
+
+export function noSecureEndpointError(): string {
+  return t().store.noSecureEndpoint;
+}
 
 /**
  * Понятная причина, когда ни один адрес не ответил (TASK-140.9). Если в профиле только адреса локальной
  * сети — почти наверняка телефон не дома, а путей через интернет нет.
  */
 export function unreachableMessage(tried: RemoteEndpoint[], failures: string[]): string {
-  if (tried.length > 0 && tried.every((ep) => ep.kind === 'lan')) return CONNECT_TIMEOUT_ERROR;
-  const parts = [`Компьютер недоступен ни по одному адресу: ${failures.join('; ')}.`];
-  parts.push('Проверьте, что ProjectHub запущен и Remote Control включён.');
-  if (tried.some((ep) => ep.kind === 'tunnel')) {
-    parts.push('Адрес быстрого туннеля меняется при перезапуске ProjectHub: новый телефон получит, когда подключится к ПК другим путём.');
-  }
-  if (tried.some((ep) => ep.kind === 'vpn')) parts.push('Для адреса VPN на телефоне должен быть включён тот же VPN (Tailscale).');
+  if (tried.length > 0 && tried.every((ep) => ep.kind === 'lan')) return connectTimeoutError();
+  const s = t().store;
+  const parts = [s.unreachable(failures.join('; ')), s.unreachableCheck];
+  if (tried.some((ep) => ep.kind === 'tunnel')) parts.push(s.unreachableTunnel);
+  if (tried.some((ep) => ep.kind === 'vpn')) parts.push(s.unreachableVpn);
   return parts.join(' ');
 }
 
-export const WRONG_KEY_ERROR = 'Ключ не подходит к этому компьютеру. Отсканируйте QR-код заново.';
+export function wrongKeyError(): string {
+  return t().store.wrongKey;
+}
 
-export const STALE_KEY_ERROR = 'Ключ шифрования устарел: хост отвечает без шифрования. Сопрягите устройство заново.';
+export function staleKeyError(): string {
+  return t().store.staleKey;
+}
 
-export const HOST_KEY_ERROR =
-  'Компьютер не подтвердил свой ключ — возможна подмена по дороге (чужая сеть, релей). Подключение остановлено. '
-  + 'Если ProjectHub на ПК переустанавливали, отсканируйте его QR-код заново.';
+export function hostKeyError(): string {
+  return t().store.hostKey;
+}
 
-export const V2_UNSUPPORTED_ERROR =
-  'К этому компьютеру можно подключиться только по протоколу v2, а этот браузер не умеет X25519. Обновите браузер или используйте приложение.';
+export function v2UnsupportedError(): string {
+  return t().store.v2Unsupported;
+}
 
-export const HOST_TOO_OLD_ERROR = 'ProjectHub на компьютере не знает протокол v2 — обновите его. Пока можно отсканировать QR этого ПК заново.';
+export function hostTooOldError(): string {
+  return t().store.hostTooOld;
+}
 
 /** Понятная причина отказа рукопожатия v2 для экрана. */
 export function handshakeErrorMessage(err: unknown): string {
   if (err instanceof HandshakeError) {
-    if (err.code === 'host_key_mismatch' || err.code === 'bad_signature' || err.code === 'host_id_mismatch') return HOST_KEY_ERROR;
+    if (err.code === 'host_key_mismatch' || err.code === 'bad_signature' || err.code === 'host_id_mismatch') return hostKeyError();
   }
-  return `Рукопожатие v2 не удалось: ${err instanceof Error ? err.message : String(err)}`;
+  return t().store.handshakeFailed(err instanceof Error ? err.message : String(err));
 }
 
 export class RemoteClient {
@@ -372,7 +390,7 @@ export class RemoteClient {
   connect(profile: HostProfile): void {
     const problems = profileProblems(profile);
     if (problems.length > 0) {
-      this.update({ state: 'failed', error: `Профиль неполный: ${problems.join(', ')}` });
+      this.update({ state: 'failed', error: t().store.profileIncomplete(problems.map(profileProblemText).join(', ')) });
       return;
     }
     const sameHost = this.profile && this.profile.hostId && this.profile.hostId === profile.hostId;
@@ -413,7 +431,7 @@ export class RemoteClient {
   rpc<T = unknown>(method: RpcMethod, params: Record<string, unknown> = {}): Promise<T> {
     const socket = this.socket;
     if (!socket || socket.readyState !== OPEN || this.snapshot.state !== 'ready' || (!this.session && !this.codec)) {
-      return Promise.reject(new Error('Нет подключения к ProjectHub'));
+      return Promise.reject(new Error(t().store.notConnected));
     }
     return this.sendRpc<T>(socket, method, params);
   }
@@ -424,7 +442,7 @@ export class RemoteClient {
     const id = `m${Date.now().toString(36)}_${++this.rpcCounter}`;
     return new Promise<T>((resolve, reject) => {
       const timer = this.opts.timers.setTimeout(() => {
-        if (this.pending.delete(id)) reject(new Error(`Хост не ответил на ${method}`));
+        if (this.pending.delete(id)) reject(new Error(t().store.rpcTimeout(method)));
       }, this.opts.rpcTimeoutMs);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
       this.sendEncrypted(socket, { type: 'rpc_req', id, method, params }).catch((err: unknown) => {
@@ -443,7 +461,7 @@ export class RemoteClient {
     const session = this.session;
     if (session) encrypted = await session.seal(packet);
     else if (this.codec) encrypted = await this.codec.encrypt(packet);
-    else throw new Error('Нет ключа шифрования');
+    else throw new Error(t().store.noEncryptionKey);
     if (session && session !== this.session) return;
     if (socket.readyState === OPEN) socket.send(JSON.stringify(encrypted));
   }
@@ -474,7 +492,7 @@ export class RemoteClient {
     if (!this.codec) {
       // Соседа по федерации знаем только по ключу хоста — без v2 к нему не подключиться.
       this.stopped = true;
-      this.update({ state: 'failed', error: V2_UNSUPPORTED_ERROR });
+      this.update({ state: 'failed', error: v2UnsupportedError() });
       socket.close();
       return;
     }
@@ -521,7 +539,7 @@ export class RemoteClient {
     this.cycleFailures = [];
     if (this.candidates.length === 0) {
       this.stopped = true;
-      this.update({ state: 'failed', error: NO_SECURE_ENDPOINT_ERROR, route: null, endpoint: null, retryInMs: null });
+      this.update({ state: 'failed', error: noSecureEndpointError(), route: null, endpoint: null, retryInMs: null });
       return;
     }
     this.openCandidate();
@@ -538,7 +556,7 @@ export class RemoteClient {
       state: this.hadSession ? 'reconnecting' : 'connecting',
       viaRelay: target.viaRelay,
       route: endpoint.kind,
-      endpoint: describeEndpoint(endpoint),
+      endpoint: endpointLabel(endpoint),
       hostId: profile.hostId,
       deviceId: profile.deviceId,
       retryInMs: null,
@@ -561,7 +579,7 @@ export class RemoteClient {
       if (this.socket !== socket || socket.readyState === OPEN) return;
       this.socket = null;
       abandonSocket(socket);
-      this.candidateFailed('не отвечает');
+      this.candidateFailed(t().store.notResponding);
     }, timeoutMs);
 
     socket.onopen = () => {
@@ -592,11 +610,11 @@ export class RemoteClient {
     this.session = null;
     this.pendingHandshake = null;
     this.stopHeartbeat();
-    this.rejectAllPending(new Error('Соединение разорвано'));
+    this.rejectAllPending(new Error(t().store.connectionLost));
     if (isRevokedClose(ev.code, ev.reason)) {
       this.forgetToken();
       this.stopped = true;
-      this.update({ state: 'failed', error: 'Устройство отключено на ПК. Сопрягите его заново.' });
+      this.update({ state: 'failed', error: t().store.deviceRevoked });
       return;
     }
     if (this.stopped) return;
@@ -606,13 +624,13 @@ export class RemoteClient {
       this.scheduleReconnect();
       return;
     }
-    this.candidateFailed(this.attemptError || 'недоступен');
+    this.candidateFailed(this.attemptError || t().store.unavailable);
   }
 
   /** Адрес не сработал: сразу пробуем следующий, а когда кончились — пауза и новый цикл. */
   private candidateFailed(reason: string): void {
     if (this.stopped) return;
-    if (this.current) this.cycleFailures.push(`${describeEndpoint(this.current)} — ${reason}`);
+    if (this.current) this.cycleFailures.push(`${endpointLabel(this.current)} — ${reason}`);
     this.candidateIdx++;
     if (this.candidateIdx < this.candidates.length) {
       this.openCandidate();
@@ -640,12 +658,12 @@ export class RemoteClient {
       return;
     }
     if (parsed.type === 'host_disconnected') {
-      this.attemptError = 'ПК отключился от релея';
+      this.attemptError = t().store.hostLeftRelay;
       socket.close();
       return;
     }
     if (parsed.type === 'error') {
-      this.handleHostError(socket, String(parsed.error || 'Ошибка хоста'));
+      this.handleHostError(socket, String(parsed.error || t().store.hostError));
       return;
     }
 
@@ -676,7 +694,7 @@ export class RemoteClient {
       // только если наш ключ ему уже не подходит (ключ перевыпустили на ПК), а токен ещё жив.
       if (parsed.type === 'rpc_res' || parsed.type === 'event') {
         this.stopped = true;
-        this.update({ state: 'failed', error: STALE_KEY_ERROR });
+        this.update({ state: 'failed', error: staleKeyError() });
         socket.close();
       }
       return;
@@ -690,7 +708,7 @@ export class RemoteClient {
     if (this.pendingHandshake && /not approved/i.test(message)) {
       this.pendingHandshake = null;
       this.stopped = true;
-      this.update({ state: 'failed', error: HOST_TOO_OLD_ERROR });
+      this.update({ state: 'failed', error: hostTooOldError() });
       socket.close();
       return;
     }
@@ -703,7 +721,7 @@ export class RemoteClient {
     // Через релей хост не смог расшифровать наш handshake — ключ не от этого компьютера.
     if (/decrypt failure/i.test(message) && this.snapshot.state !== 'ready') {
       this.stopped = true;
-      this.update({ state: 'failed', error: WRONG_KEY_ERROR });
+      this.update({ state: 'failed', error: wrongKeyError() });
       socket.close();
       return;
     }
@@ -713,7 +731,7 @@ export class RemoteClient {
     }
     // Например, «Host offline or not found» от релея: сокет закроется, клиент перейдёт к следующему адресу.
     if (this.snapshot.state === 'ready') this.update({ error: message });
-    else this.attemptError = /offline or not found/i.test(message) ? 'ПК не подключён к релею' : message;
+    else this.attemptError = /offline or not found/i.test(message) ? t().store.hostNotOnRelay : message;
   }
 
   private async sendHandshake(socket: SocketLike): Promise<void> {
@@ -978,7 +996,7 @@ export class RemoteClient {
     this.session = null;
     this.pendingHandshake = null;
     this.stopHeartbeat();
-    this.rejectAllPending(new Error('Соединение закрыто'));
+    this.rejectAllPending(new Error(t().store.connectionClosed));
     if (socket) {
       try {
         socket.close();

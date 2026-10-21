@@ -2,6 +2,7 @@
  * Вложения в промпт Agents Studio (TASK-140.6, [[decision-114]] п. 5): чистые помощники без DOM — уменьшение фото,
  * base64 и загрузка частями через RPC `studio_attach`. Файл сохраняется в проект на хосте, агенту уходит его путь.
  */
+import { t } from '../i18n';
 
 /** Часть — 512 КБ: в base64 кадр около 700 КБ, хост принимает до 768 КБ данных. */
 export const ATTACH_CHUNK_BYTES = 512 * 1024;
@@ -46,10 +47,12 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
+/** «2 КБ», «1,5 МБ» (по-английски «2 KB», «1.5 MB»). */
 export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} Б`;
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} КБ`;
-  return `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} МБ`;
+  const tr = t().studio;
+  if (n < 1024) return tr.bytes(String(n));
+  if (n < 1024 * 1024) return tr.kilobytes(String(Math.round(n / 1024)));
+  return tr.megabytes((n / 1024 / 1024).toFixed(1).replace('.', tr.decimal));
 }
 
 export function newUploadId(random: () => number = Math.random): string {
@@ -69,13 +72,13 @@ export async function uploadInChunks(
   uploadId = newUploadId()
 ): Promise<string> {
   const size = file.bytes.length;
-  if (size === 0) throw new Error('Файл пустой');
-  if (size > ATTACH_MAX_BYTES) throw new Error(`Файл больше ${formatBytes(ATTACH_MAX_BYTES)}`);
+  if (size === 0) throw new Error(t().studio.fileEmpty);
+  if (size > ATTACH_MAX_BYTES) throw new Error(t().studio.fileTooBig(formatBytes(ATTACH_MAX_BYTES)));
   for (let offset = 0; offset < size; offset += ATTACH_CHUNK_BYTES) {
     const part = file.bytes.subarray(offset, Math.min(size, offset + ATTACH_CHUNK_BYTES));
     const res = await rpc({ uploadId, name: file.name, size, offset, data: bytesToBase64(part) });
     onProgress?.(offset + part.length, size);
     if (res.done) return res.path;
   }
-  throw new Error('Хост не подтвердил приём файла');
+  throw new Error(t().studio.hostNoConfirm);
 }

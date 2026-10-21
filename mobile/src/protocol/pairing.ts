@@ -9,6 +9,7 @@ import {
   sanitizeEndpoints,
   type RemoteEndpoint
 } from '../../../src/utils/remoteEndpoints';
+import { t } from '../i18n';
 
 /**
  * Профиль сопряжённого хоста (TASK-140.1). Хранится в защищённом хранилище платформы
@@ -273,8 +274,9 @@ export type ProfileProblem = 'no_key' | 'bad_key' | 'no_relay' | 'no_host_id' | 
 /** Чего не хватает профилю для подключения; пустой массив — можно подключаться. */
 export function profileProblems(profile: HostProfile): ProfileProblem[] {
   const problems: ProfileProblem[] = [];
-  // Профиль соседа по федерации идёт без общего ключа: только v2 по закреплённому ключу хоста и токену.
-  const v2Only = !profile.key && isValidHostKey(profile.hostKey) && Boolean(profile.deviceToken);
+  // Профиль соседа по федерации идёт без общего ключа: только v2 по закреплённому ключу хоста и токену. Так же —
+  // приглашение участника общего хоста: ключ хоста и одноразовый код вместо PIN (decision-126).
+  const v2Only = !profile.key && isValidHostKey(profile.hostKey) && (Boolean(profile.deviceToken) || Boolean(profile.pin));
   if (!profile.key) {
     if (!v2Only) problems.push('no_key');
   } else if (!isValidKeyHex(profile.key)) problems.push('bad_key');
@@ -285,6 +287,11 @@ export function profileProblems(profile: HostProfile): ProfileProblem[] {
     problems.push('no_lan_address');
   }
   return problems;
+}
+
+/** Текст проблемы профиля на текущем языке — для экрана сопряжения и ошибки подключения. */
+export function profileProblemText(problem: ProfileProblem): string {
+  return t().pairing.problems[problem];
 }
 
 export interface WsTarget {

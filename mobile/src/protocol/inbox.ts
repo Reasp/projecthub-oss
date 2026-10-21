@@ -8,6 +8,7 @@ import type {
   RemoteReviewItem,
   RemoteScreenshotChunk
 } from '../../../src/types/remote';
+import { t } from '../i18n';
 import { groupAgentTasks, hitlFromPending, type AgentTaskGroup, type HitlItem } from './models';
 
 /**
@@ -76,7 +77,7 @@ export async function fetchScreenshot(rpc: ScreenshotRpc, params: { projectPath:
     offset += Math.floor((chunk.data.length * 3) / 4) - (chunk.data.endsWith('==') ? 2 : chunk.data.endsWith('=') ? 1 : 0);
     if (offset >= chunk.total || chunk.data.length === 0) return `data:${mime};base64,${parts.join('')}`;
   }
-  throw new Error('Скриншот слишком большой');
+  throw new Error(t().inbox.screenshotTooLarge);
 }
 
 // ── одна лента со всех ПК ──
@@ -117,7 +118,7 @@ export function sourceFromSnapshot(
 ): FeedSource {
   return {
     ...base,
-    machineName: base.machineName || snap?.machineName || 'ПК',
+    machineName: base.machineName || snap?.machineName || t().inbox.pcFallback,
     hitl: (snap?.hitl ?? []).map(hitlFromPending),
     agentTasks: snap?.agentTasks ?? [],
     review: snap?.review ?? [],
@@ -159,33 +160,24 @@ export function criteriaDone(item: RemoteReviewItem): { done: number; total: num
   };
 }
 
-/** Итог чеков одной строкой: «3 из 4 проверок прошли». */
+/** Итог чеков одной строкой на текущем языке: «Проверки: 3 из 4 прошли». */
 export function checksSummary(item: RemoteReviewItem): { text: string; failed: number } | null {
   const checks = item.report?.checks ?? [];
   if (checks.length === 0) return null;
   const passed = checks.filter((c) => c.status === 'passed').length;
   const failed = checks.filter((c) => c.status === 'failed' || c.status === 'timeout' || c.status === 'error').length;
-  return { text: `Проверки: ${passed} из ${checks.length} прошли`, failed };
+  return { text: t().inbox.checksSummary(passed, checks.length), failed };
 }
 
-export const CHECK_STATUS_TEXT: Record<string, string> = {
-  passed: 'прошла',
-  failed: 'упала',
-  timeout: 'тайм-аут',
-  skipped: 'пропущена',
-  error: 'не запустилась',
-  running: 'идёт',
-  pending: 'ждёт'
-};
+/** Статус чека словами на текущем языке; незнакомый статус — как есть. */
+export function checkStatusText(status: string): string {
+  return t().inbox.checkStatus[status] ?? status;
+}
 
-export const OUTCOME_TEXT: Record<string, string> = {
-  success: 'цикл завершён успешно',
-  iteration_limit: 'исчерпан лимит итераций',
-  budget: 'исчерпан бюджет',
-  agent_error: 'ошибка агента',
-  task_error: 'ошибка задачи',
-  stopped: 'остановлен'
-};
+/** Итог цикла «до готовности» словами на текущем языке; незнакомый итог — как есть. */
+export function outcomeText(outcome: string): string {
+  return t().inbox.outcome[outcome] ?? outcome;
+}
 
 export function projectName(path: string | undefined): string {
   if (!path) return '';
@@ -194,13 +186,14 @@ export function projectName(path: string | undefined): string {
 
 /** Сколько прошло: «5 мин назад», «вчера в 14:05». */
 export function timeAgo(at: number, now: number = Date.now()): string {
+  const tr = t().inbox;
   const sec = Math.max(0, Math.round((now - at) / 1000));
-  if (sec < 60) return 'только что';
+  if (sec < 60) return tr.justNow;
   const min = Math.round(sec / 60);
-  if (min < 60) return `${min} мин назад`;
+  if (min < 60) return tr.minutesAgo(min);
   const hours = Math.round(min / 60);
-  if (hours < 24) return `${hours} ч назад`;
+  if (hours < 24) return tr.hoursAgo(hours);
   const d = new Date(at);
   const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return hours < 48 ? `вчера в ${hm}` : `${d.getDate()}.${String(d.getMonth() + 1).padStart(2, '0')} в ${hm}`;
+  return hours < 48 ? tr.yesterdayAt(hm) : tr.dateAt(d.getDate(), String(d.getMonth() + 1).padStart(2, '0'), hm);
 }

@@ -6,6 +6,7 @@
  *
  * Оверлей рисуется напрямую в `document.body` (z-[9999], как модальные окна по decision-17).
  */
+import { t } from '../i18n';
 
 interface DetectorLike {
   detect(source: CanvasImageSource): Promise<Array<{ rawValue: string }>>;
@@ -27,6 +28,7 @@ export function isCameraScanAvailable(): boolean {
 
 export function scanQrWithCamera(): Promise<string | null> {
   return new Promise((resolve) => {
+    const tr = t();
     const overlay = document.createElement('div');
     overlay.className = 'fixed inset-0 z-[9999] flex flex-col bg-black';
     overlay.innerHTML = `
@@ -34,13 +36,16 @@ export function scanQrWithCamera(): Promise<string | null> {
       <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
         <div class="h-64 w-64 rounded-2xl border-2 border-white/80"></div>
       </div>
-      <div class="absolute inset-x-0 top-0 px-4 pt-[calc(env(safe-area-inset-top)+16px)] text-center text-[15px] text-white">Наведите камеру на QR-код в ProjectHub</div>
+      <div class="absolute inset-x-0 top-0 px-4 pt-[calc(env(safe-area-inset-top)+16px)] text-center text-[15px] text-white"></div>
       <div class="absolute inset-x-0 bottom-0 flex justify-center pb-[calc(env(safe-area-inset-bottom)+24px)]">
-        <button type="button" class="h-12 rounded-xl bg-white/15 px-6 text-[15px] font-medium text-white">Отмена</button>
+        <button type="button" class="h-12 rounded-xl bg-white/15 px-6 text-[15px] font-medium text-white"></button>
       </div>`;
+    // Текст — через textContent, а не в разметку innerHTML.
+    overlay.querySelector('div.text-center')!.textContent = tr.pairing.scanHint;
     document.body.appendChild(overlay);
     const video = overlay.querySelector('video')!;
     const cancel = overlay.querySelector('button')!;
+    cancel.textContent = tr.common.cancel;
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     let stream: MediaStream | null = null;
@@ -97,7 +102,7 @@ export function scanQrWithCamera(): Promise<string | null> {
         void tick();
       })
       .catch(() => {
-        alert('Нет доступа к камере. Разрешите камеру для ProjectHub в настройках телефона или вставьте ссылку сопряжения.');
+        alert(t().pairing.cameraDenied);
         finish(null);
       });
   });

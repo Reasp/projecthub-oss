@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { buildFeed, sourceFromSnapshot, type FeedSource, type InboxFeed } from '../protocol/inbox';
 import { useAppState, useHostSummaries, useServices } from './context';
+import { useT } from '../i18n/react';
 
 /**
  * Лента «Входящих» со всех ПК телефона (TASK-140.5, decision-117 п. 7): открытый ПК — из стора (живая очередь HITL
@@ -16,6 +17,8 @@ export function useInboxFeed(filter: string | null = null): InboxFeed & { source
   const status = useAppState((s) => s.status);
   const summaries = useHostSummaries();
   const inboxes = useSyncExternalStore(pool.subscribe, pool.getInboxes);
+  // Словарь — зависимость ленты: имена ПК по умолчанию («Этот ПК», «ПК») меняются со сменой языка.
+  const tr = useT();
 
   return useMemo(() => {
     const activeId = profiles.activeId;
@@ -24,7 +27,7 @@ export function useInboxFeed(filter: string | null = null): InboxFeed & { source
     if (activeId) {
       sources.push({
         profileId: activeId,
-        machineName: status?.machineName || activeProfile?.machineName || inbox?.machineName || 'Этот ПК',
+        machineName: status?.machineName || activeProfile?.machineName || inbox?.machineName || tr.inbox.thisPc,
         online: conn.state === 'ready',
         active: true,
         ...(conn.rights ? { rights: conn.rights } : {}),
@@ -48,5 +51,5 @@ export function useInboxFeed(filter: string | null = null): InboxFeed & { source
       );
     }
     return { ...buildFeed(sources, filter), sources, legacyActive: Boolean(inbox?.legacy) };
-  }, [profiles, hitl, agentTasks, inbox, conn.state, conn.rights, conn.readOnly, status, summaries, inboxes, filter]);
+  }, [profiles, hitl, agentTasks, inbox, conn.state, conn.rights, conn.readOnly, status, summaries, inboxes, filter, tr]);
 }

@@ -1,79 +1,36 @@
-import { BellRingingIcon, DesktopIcon, FolderIcon, GitBranchIcon, LockKeyIcon, PlusIcon, SignOutIcon } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { DotsThreeIcon, FolderIcon, GitBranchIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
+import { useState } from 'react';
 import clsx from 'clsx';
-import { useAppState, useHostSummaries, useServices } from '../app/context';
+import { useAppState, useServices } from '../app/context';
+import { useT } from '../i18n/react';
 import { rightsLabel } from '../protocol/models';
 import { activeProfile, catalogEntries } from '../protocol/profiles';
-import { routeLabel, type ConnectionState } from '../protocol/remoteClient';
-import type { EndpointKind } from '../../../src/utils/remoteEndpoints';
+import { ComputerSheet, HostRowContent, useHostRows } from './ComputerSheet';
 import { RouteBadge } from './RouteBadge';
-import { Badge, Button, Confirm, SectionTitle, Sheet } from './ui';
+import { Badge, Button, SectionTitle, Sheet } from './ui';
 
 function platformIcon(platform?: string) {
   return platform === 'darwin' ? '🍏' : platform === 'linux' ? '🐧' : '💻';
 }
 
-function stateDot(state: ConnectionState | undefined): string {
-  return state === 'ready' ? 'bg-emerald-400' : state === 'failed' || state === 'idle' || !state ? 'bg-slate-600' : 'bg-amber-400';
-}
-
-function stateText(state: ConnectionState | undefined): string {
-  if (state === 'ready') return 'в сети';
-  if (state === 'awaiting_approval') return 'ждёт одобрения';
-  if (state === 'connecting' || state === 'pairing' || state === 'reconnecting') return 'подключение…';
-  return 'не в сети';
-}
-
-interface HostRow {
-  id: string;
-  name: string;
-  via?: string;
-  state: ConnectionState | undefined;
-  route: EndpointKind | null;
-  pending: number;
-  active: boolean;
-}
-
 /**
  * Хост, проект и соединение: переключатель компьютеров телефона (TASK-140.2) с путём связи, статусом и числом
- * ожидающих решений каждого, выбор проекта, каталог федерации открытого хоста, права устройства, «забыть».
+ * ожидающих решений каждого, выбор проекта, каталог федерации открытого хоста. «⋯» у компьютера — его карточка с
+ * «Забыть» (TASK-140.16); push и устройство — в настройках.
  */
 export function HostSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { store, forget, platform, profiles, switchHost, addHost, enrollHost } = useServices();
+  const { store, platform, profiles, switchHost, addHost, enrollHost } = useServices();
+  const tr = useT();
   const status = useAppState((s) => s.status);
   const projects = useAppState((s) => s.projects);
   const projectPath = useAppState((s) => s.projectPath);
   const hosts = useAppState((s) => s.hosts);
   const branch = useAppState((s) => s.gitBranch);
   const conn = useAppState((s) => s.conn);
-  const activeHitl = useAppState((s) => s.hitl.length);
-  const summaries = useHostSummaries();
-  const [confirmForget, setConfirmForget] = useState(false);
-  const push = useAppState((s) => s.push);
-  const [distributors, setDistributors] = useState<string[] | null>(null);
-  // Push — своё у каждого ПК (TASK-140.3): состояние спрашиваем у открытого ПК при показе листа.
-  useEffect(() => {
-    if (!open || !platform.push || conn.state !== 'ready') return;
-    void store.refreshPush();
-    void platform.push.distributors().then(setDistributors);
-  }, [open, platform, store, conn.state]);
+  const rows = useHostRows();
   const [enrolling, setEnrolling] = useState<string | null>(null);
+  const [computer, setComputer] = useState<string | null>(null);
   const active = activeProfile(profiles);
-  const nameOf = (hostId: string | undefined) => profiles.profiles.find((p) => p.hostId === hostId)?.machineName || hostId || '';
-
-  const rows: HostRow[] = profiles.profiles.map((p) => {
-    const isActive = p.id === active?.id;
-    const summary = summaries[p.id!];
-    return {
-      id: p.id!,
-      name: (isActive && status?.machineName) || p.machineName || p.hostId || 'Компьютер',
-      via: p.viaHostId ? nameOf(p.viaHostId) : undefined,
-      state: isActive ? conn.state : summary?.state,
-      route: isActive ? conn.route : (summary?.route ?? null),
-      pending: isActive ? activeHitl : (summary?.pending ?? 0),
-      active: isActive
-    };
-  });
   const catalog = catalogEntries(profiles, active, hosts);
 
   const enroll = async (hostId: string) => {
@@ -89,9 +46,9 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
   };
 
   return (
-    <Sheet open={open} onClose={onClose} title={status?.machineName || 'Компьютер'}>
+    <Sheet open={open} onClose={onClose} title={status?.machineName || tr.common.computer}>
       <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
-        <Badge tone={conn.state === 'ready' ? 'success' : 'warning'}>{conn.state === 'ready' ? 'на связи' : 'нет связи'}</Badge>
+        <Badge tone={conn.state === 'ready' ? 'success' : 'warning'}>{conn.state === 'ready' ? tr.shell.linked : tr.shell.notLinked}</Badge>
         <RouteBadge route={conn.route} />
         <Badge tone="accent">{rightsLabel(conn.rights, conn.readOnly)}</Badge>
         {conn.protocol === 2 && (
@@ -108,37 +65,40 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
           </Badge>
         )}
       </div>
-      {conn.endpoint && <div className="mt-1.5 truncate text-[12px] text-slate-500">Адрес: {conn.endpoint}</div>}
+      {conn.endpoint && <div className="mt-1.5 truncate text-[12px] text-slate-500">{tr.shell.address(conn.endpoint)}</div>}
 
-      <SectionTitle>Компьютеры</SectionTitle>
+      <SectionTitle>{tr.shell.computers}</SectionTitle>
       <ul className="space-y-1" data-testid="host-switcher">
         {rows.map((r) => (
-          <li key={r.id}>
+          <li key={r.id} className={clsx('flex items-center rounded-xl', r.active ? 'bg-indigo-950 text-indigo-200' : '')}>
             <button
               type="button"
               data-testid={`host-${r.id}`}
               onClick={() => {
-                if (r.active) return;
                 platform.haptic('selection');
+                // Открытый компьютер переключать некуда — нажатие открывает его карточку.
+                if (r.active) {
+                  setComputer(r.id);
+                  return;
+                }
                 switchHost(r.id);
                 onClose();
               }}
-              className={clsx('flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left', r.active ? 'bg-indigo-950 text-indigo-200' : 'active:bg-ph-hover')}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl py-2.5 pl-3 text-left active:bg-ph-hover"
             >
-              <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', stateDot(r.state))} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[15px]">{r.name}</span>
-                <span className="block truncate text-[12px] text-slate-400">
-                  {stateText(r.state)}
-                  {r.state === 'ready' && r.route ? ` · ${routeLabel(r.route)}` : ''}
-                  {r.via ? ` · через ${r.via}` : ''}
-                </span>
-              </span>
-              {r.pending > 0 && (
-                <span className="min-w-[22px] shrink-0 rounded-full bg-amber-500 px-1.5 text-center text-[12px] font-semibold leading-[22px] text-black" title="Ждут решения">
-                  {r.pending}
-                </span>
-              )}
+              <HostRowContent row={r} />
+            </button>
+            <button
+              type="button"
+              data-testid={`host-more-${r.id}`}
+              aria-label={tr.shell.computerDetails}
+              onClick={() => {
+                platform.haptic('selection');
+                setComputer(r.id);
+              }}
+              className="shrink-0 rounded-xl px-3 py-3 text-slate-400 active:bg-ph-hover"
+            >
+              <DotsThreeIcon size={20} weight="bold" />
             </button>
           </li>
         ))}
@@ -151,14 +111,12 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
           addHost();
         }}
       >
-        <PlusIcon size={18} /> Добавить компьютер
+        <PlusIcon size={18} /> {tr.shell.addComputer}
       </Button>
 
-      <SectionTitle>Проект</SectionTitle>
+      <SectionTitle>{tr.shell.project}</SectionTitle>
       {projects.length === 0 ? (
-        <div className="text-[13px] text-slate-400">
-          {conn.state === 'ready' ? 'В ProjectHub на этом компьютере нет проектов.' : 'Нет связи с компьютером — список проектов появится после подключения.'}
-        </div>
+        <div className="text-[13px] text-slate-400">{conn.state === 'ready' ? tr.shell.noProjects : tr.shell.noProjectsOffline}</div>
       ) : (
         <ul className="space-y-1">
           {projects.map((p) => (
@@ -185,14 +143,14 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
       {catalog.length > 0 && (
         <>
-          <SectionTitle>Федерация этого компьютера</SectionTitle>
+          <SectionTitle>{tr.shell.federation}</SectionTitle>
           <ul className="space-y-1">
             {catalog.map(({ host: h, state, profileId }) => (
               <li key={h.hostId} className="flex items-center gap-2 rounded-xl px-3 py-2">
                 <span>{platformIcon(h.platform)}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px]">{h.machineName || h.hostId}</span>
-                  {state === 'unpaired' && <span className="block text-[12px] text-slate-500">Не сопряжён с этим ПК — отсканируйте его QR</span>}
+                  {state === 'unpaired' && <span className="block text-[12px] text-slate-500">{tr.shell.unpaired}</span>}
                 </span>
                 <span className={clsx('h-2 w-2 shrink-0 rounded-full', h.isOnline ? 'bg-emerald-400' : 'bg-slate-600')} />
                 {state === 'connected' && profileId && (
@@ -203,77 +161,22 @@ export function HostSheet({ open, onClose }: { open: boolean; onClose: () => voi
                       onClose();
                     }}
                   >
-                    Открыть
+                    {tr.common.open}
                   </Button>
                 )}
                 {state === 'enrollable' && (
                   <Button size="sm" variant="primary" disabled={enrolling !== null} onClick={() => void enroll(h.hostId)}>
-                    {enrolling === h.hostId ? '…' : 'Подключить'}
+                    {enrolling === h.hostId ? '…' : tr.shell.enroll}
                   </Button>
                 )}
               </li>
             ))}
           </ul>
-          <div className="mt-1 px-1 text-[12px] text-slate-500">
-            Доступ к соседнему ПК выдаётся отдельным токеном через этот компьютер. Компьютеры других сопряжений сюда не попадают.
-          </div>
+          <div className="mt-1 px-1 text-[12px] text-slate-500">{tr.shell.federationHint}</div>
         </>
       )}
 
-      {platform.push && active?.id && (
-        <>
-          <SectionTitle>Уведомления</SectionTitle>
-          <div className="flex items-center gap-2 px-1">
-            <BellRingingIcon size={18} className="shrink-0 text-slate-400" />
-            <span className="min-w-0 flex-1 text-[14px]">Push с этого компьютера</span>
-            <Button
-              size="sm"
-              variant={push?.enabled ? 'secondary' : 'primary'}
-              disabled={!push || push.busy || conn.state !== 'ready'}
-              onClick={() => {
-                platform.haptic('selection');
-                const label = status?.machineName || active.machineName || 'ProjectHub';
-                void (push?.enabled ? store.disablePush(active.id!) : store.enablePush(active.id!, label));
-              }}
-            >
-              <span data-testid="push-toggle">{push?.busy ? '…' : push?.enabled ? 'Выключить' : 'Включить'}</span>
-            </Button>
-            {push?.enabled && (
-              <Button size="sm" variant="ghost" onClick={() => void store.testPush()}>
-                Проверить
-              </Button>
-            )}
-          </div>
-          <div className="mt-1 px-1 text-[12px] leading-snug text-slate-500">
-            {distributors && distributors.length === 0
-              ? 'Нужно приложение-дистрибьютор UnifiedPush, например ntfy: уведомления идут без сервисов Google.'
-              : 'Содержимое шифруется ключом этого телефона: сервер уведомлений видит только шифртекст. Пока вы за этим ПК или приложение открыто, push не приходят.'}
-          </div>
-        </>
-      )}
-
-      <SectionTitle>Устройство</SectionTitle>
-      <div className="flex items-center gap-2 px-1 text-[13px] text-slate-400">
-        <DesktopIcon size={16} /> {platform.deviceName}
-        {platform.store.kind === 'memory' && <Badge tone="warning">ключ не сохраняется</Badge>}
-      </div>
-      <Button variant="ghost" className="mt-3 w-full text-red-300" onClick={() => setConfirmForget(true)}>
-        <SignOutIcon size={18} /> Забыть этот компьютер
-      </Button>
-
-      <Confirm
-        open={confirmForget}
-        title="Забыть компьютер?"
-        body="Ключ и токен устройства для этого компьютера удалятся с телефона, остальные компьютеры останутся. Чтобы подключиться снова, понадобится QR-код. На ПК устройство остаётся в списке — отзовите его там."
-        confirmText="Забыть"
-        danger
-        onCancel={() => setConfirmForget(false)}
-        onConfirm={() => {
-          setConfirmForget(false);
-          onClose();
-          void forget();
-        }}
-      />
+      <ComputerSheet profileId={computer} onClose={() => setComputer(null)} onDone={onClose} />
     </Sheet>
   );
 }

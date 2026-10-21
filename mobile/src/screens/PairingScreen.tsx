@@ -3,15 +3,8 @@ import { LinkIcon, QrCodeIcon, WarningIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { useServices } from '../app/context';
 import { Button } from '../components/ui';
-import { applyPairingLink, isValidKeyHex, parsePairingText, profileProblems, type HostProfile, type ProfileProblem } from '../protocol/pairing';
-
-const PROBLEM_TEXT: Record<ProfileProblem, string> = {
-  no_key: 'Нужен ключ шифрования из QR-кода ProjectHub.',
-  bad_key: 'Ключ должен быть из 64 шестнадцатеричных символов.',
-  no_relay: 'Для релея нужен адрес сервера.',
-  no_host_id: 'Для релея нужен Host ID.',
-  no_lan_address: 'Нужен адрес ПК в локальной сети, например 192.168.1.5:42050.'
-};
+import { useT } from '../i18n/react';
+import { applyPairingLink, isValidKeyHex, parsePairingText, profileProblems, type HostProfile } from '../protocol/pairing';
 
 const input = 'w-full rounded-xl border border-ph-line bg-ph-raised px-3 py-3 text-[15px] outline-none focus:border-indigo-500';
 
@@ -21,6 +14,7 @@ const input = 'w-full rounded-xl border border-ph-line bg-ph-raised px-3 py-3 te
  */
 export function PairingScreen({ initial, error, canCancel = false }: { initial: HostProfile; error?: string | null; canCancel?: boolean }) {
   const { platform, pair, cancelAdd } = useServices();
+  const tr = useT();
   const [profile, setProfile] = useState<HostProfile>(initial);
   const [linkText, setLinkText] = useState('');
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -32,7 +26,7 @@ export function PairingScreen({ initial, error, canCancel = false }: { initial: 
   const applyText = (text: string) => {
     const link = parsePairingText(text);
     if (!link.key && !link.hostId && !link.pin && !link.hostKey) {
-      setLinkError('Не похоже на ссылку сопряжения ProjectHub.');
+      setLinkError(tr.pairing.notPairingLink);
       return;
     }
     setLinkError(null);
@@ -57,13 +51,11 @@ export function PairingScreen({ initial, error, canCancel = false }: { initial: 
       <div className="pt-8">
         <div className="text-[24px] font-semibold">ProjectHub</div>
         <div className="mt-1 text-[14px] text-slate-400">
-          {canCancel
-            ? 'Ещё один компьютер: откройте Remote Control в ProjectHub на нём и отсканируйте QR-код. Уже сопряжённые компьютеры останутся в списке.'
-            : 'Пульт агентов на вашем компьютере. Откройте Remote Control в ProjectHub и отсканируйте QR-код.'}
+          {canCancel ? tr.pairing.introAdd : tr.pairing.intro}
         </div>
         {canCancel && (
           <button type="button" className="mt-3 text-[14px] text-indigo-400" onClick={() => cancelAdd()}>
-            ← К сопряжённым компьютерам
+            {tr.pairing.backToPaired}
           </button>
         )}
       </div>
@@ -71,11 +63,11 @@ export function PairingScreen({ initial, error, canCancel = false }: { initial: 
       {!crypto && (
         <div className="mt-5 rounded-xl border border-amber-800 bg-amber-950/50 p-3 text-[13px] leading-snug text-amber-100">
           <div className="mb-1 flex items-center gap-2 font-semibold">
-            <WarningIcon size={18} /> Шифрование недоступно на этой странице
+            <WarningIcon size={18} /> {tr.pairing.noCryptoTitle}
           </div>
-          Браузер даёт WebCrypto только по HTTPS. Страница открыта по <span className="font-mono">{window.location.origin}</span>, поэтому
-          зашифрованное соединение невозможно, а открытым текстом клиент не подключается. Включите в ProjectHub HTTPS-туннель
-          Remote Control и откройте ссылку туннеля, Telegram Mini App или мобильное приложение.
+          {tr.pairing.noCryptoLead}
+          <span className="font-mono">{window.location.origin}</span>
+          {tr.pairing.noCryptoTail}
         </div>
       )}
 
@@ -84,19 +76,19 @@ export function PairingScreen({ initial, error, canCancel = false }: { initial: 
       <div className="mt-6 space-y-2">
         {platform.scanQr && (
           <Button variant="primary" size="lg" className="w-full" onClick={scan}>
-            <QrCodeIcon size={22} /> Сканировать QR-код
+            <QrCodeIcon size={22} /> {tr.pairing.scanQr}
           </Button>
         )}
         <div className="flex gap-2">
-          <input value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder="Вставьте ссылку сопряжения" className={input} />
-          <Button className="h-auto shrink-0" disabled={!linkText.trim()} onClick={() => applyText(linkText)} aria-label="Применить ссылку">
+          <input value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder={tr.pairing.pasteLink} className={input} />
+          <Button className="h-auto shrink-0" disabled={!linkText.trim()} onClick={() => applyText(linkText)} aria-label={tr.pairing.applyLink}>
             <LinkIcon size={20} />
           </Button>
         </div>
       </div>
 
       <button type="button" className="mt-5 text-[14px] text-indigo-400" onClick={() => setManual((v) => !v)}>
-        {manual ? 'Скрыть ручной ввод' : 'Ввести вручную'}
+        {manual ? tr.pairing.hideManual : tr.pairing.showManual}
       </button>
 
       {manual && (
@@ -109,23 +101,23 @@ export function PairingScreen({ initial, error, canCancel = false }: { initial: 
                 onClick={() => patch({ mode: m })}
                 className={clsx('rounded-lg py-2 text-[14px]', profile.mode === m ? 'bg-indigo-500 text-white' : 'text-slate-300')}
               >
-                {m === 'lan' ? 'Локальная сеть' : 'Через релей'}
+                {m === 'lan' ? tr.pairing.modeLan : tr.pairing.modeRelay}
               </button>
             ))}
           </div>
           {profile.mode === 'lan' && !hostServed && (
-            <input value={profile.lanAddress ?? ''} onChange={(e) => patch({ lanAddress: e.target.value.trim() })} placeholder="Адрес ПК: 192.168.1.5:42050" className={input} />
+            <input value={profile.lanAddress ?? ''} onChange={(e) => patch({ lanAddress: e.target.value.trim() })} placeholder={tr.pairing.lanAddressPlaceholder} className={input} />
           )}
           {profile.mode === 'relay' && (
             <>
-              <input value={profile.relayUrl ?? ''} onChange={(e) => patch({ relayUrl: e.target.value.trim() })} placeholder="Релей: wss://relay.example.com" className={input} />
-              <input value={profile.hostId} onChange={(e) => patch({ hostId: e.target.value.trim() })} placeholder="Host ID: ph_host_…" className={input} />
+              <input value={profile.relayUrl ?? ''} onChange={(e) => patch({ relayUrl: e.target.value.trim() })} placeholder={tr.pairing.relayPlaceholder} className={input} />
+              <input value={profile.hostId} onChange={(e) => patch({ hostId: e.target.value.trim() })} placeholder={tr.pairing.hostIdPlaceholder} className={input} />
             </>
           )}
           <input
             value={profile.key}
             onChange={(e) => patch({ key: e.target.value.trim() })}
-            placeholder="Ключ шифрования (64 hex)"
+            placeholder={tr.pairing.keyPlaceholder}
             className={clsx(input, 'font-mono text-[13px]', profile.key && !isValidKeyHex(profile.key) && 'border-red-700')}
             autoComplete="off"
             spellCheck={false}
@@ -133,19 +125,19 @@ export function PairingScreen({ initial, error, canCancel = false }: { initial: 
           {problems.length > 0 && (
             <ul className="space-y-1 text-[12px] text-slate-400">
               {problems.map((p) => (
-                <li key={p}>• {PROBLEM_TEXT[p]}</li>
+                <li key={p}>• {tr.pairing.problems[p]}</li>
               ))}
             </ul>
           )}
           <Button variant="primary" size="lg" className="w-full" disabled={problems.length > 0 || !crypto} haptic="medium" onClick={() => pair(profile)}>
-            Подключиться
+            {tr.pairing.connect}
           </Button>
         </div>
       )}
 
       {platform.store.kind === 'memory' && (
         <div className="mt-6 text-[12px] leading-snug text-slate-500">
-          Ключ устройства хранится только до закрытия приложения: защищённое хранилище (Keychain/Keystore) ещё не подключено.
+          {tr.pairing.memoryStoreNote}
         </div>
       )}
     </div>

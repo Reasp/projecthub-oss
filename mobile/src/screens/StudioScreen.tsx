@@ -23,6 +23,7 @@ import {
 import clsx from 'clsx';
 import type { RemoteStudioSessionSummary, StudioMode } from '../../../src/types/remote';
 import { useAppState, useServices } from '../app/context';
+import { useT } from '../i18n/react';
 import {
   formatTokens,
   groupStudioSessions,
@@ -59,6 +60,7 @@ let attachmentSeq = 0;
  */
 export function StudioScreen() {
   const { store, platform } = useServices();
+  const tr = useT();
   const studio = useAppState((s) => s.studio);
   const projectPath = useAppState((s) => s.projectPath);
   const conn = useAppState((s) => s.conn);
@@ -84,10 +86,10 @@ export function StudioScreen() {
     const picked = Array.from(files ?? []).slice(0, Math.max(0, ATTACH_MAX_PER_PROMPT - attachments.length));
     for (const file of picked) {
       const id = ++attachmentSeq;
-      setAttachments((prev) => [...prev, { id, name: file.name || 'файл', size: file.size, progress: 0 }]);
+      setAttachments((prev) => [...prev, { id, name: file.name || tr.studio.fileFallback, size: file.size, progress: 0 }]);
       const prepared = await prepareAttachment(file).catch(() => null);
       if (!prepared) {
-        store.showToast(`Не удалось прочитать «${file.name}»`, 'error');
+        store.showToast(tr.studio.readFailed(file.name), 'error');
         setAttachments((prev) => prev.filter((a) => a.id !== id));
         continue;
       }
@@ -145,7 +147,7 @@ export function StudioScreen() {
     }
   };
 
-  if (!projectPath) return <EmptyState icon={<SparkleIcon size={40} />} title="Проект не выбран" />;
+  if (!projectPath) return <EmptyState icon={<SparkleIcon size={40} />} title={tr.common.noProject} />;
 
   return (
     <div className="flex h-full flex-col">
@@ -159,17 +161,17 @@ export function StudioScreen() {
               void store.refreshStudioSessions();
             }}
             className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 py-1 text-left active:bg-ph-hover"
-            aria-label="Сессии и история"
+            aria-label={tr.studio.sessionsAndHistory}
           >
             <ClockCounterClockwiseIcon size={18} className="shrink-0 text-slate-400" />
-            <span className="truncate text-[15px] font-medium">{studio.sessionId ? studio.title || 'Сессия' : 'Новая сессия'}</span>
+            <span className="truncate text-[15px] font-medium">{studio.sessionId ? studio.title || tr.studio.session : tr.studio.newSession}</span>
             <CaretDownIcon size={14} className="shrink-0 text-slate-500" />
           </button>
           <button
             type="button"
             onClick={() => void runCommand('usage')}
             className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-1 text-[12px] text-slate-300 active:bg-ph-hover"
-            aria-label="Usage"
+            aria-label={tr.studio.usage}
           >
             <ChartBarIcon size={18} />
             {studio.usage?.sessionLimit && (
@@ -179,7 +181,7 @@ export function StudioScreen() {
             )}
           </button>
           {canWrite && studio.sessionId && (
-            <button type="button" aria-label="Новая сессия" onClick={() => store.newStudioSession()} className="shrink-0 rounded-full p-1.5 text-slate-300 active:bg-ph-hover">
+            <button type="button" aria-label={tr.studio.newSession} onClick={() => store.newStudioSession()} className="shrink-0 rounded-full p-1.5 text-slate-300 active:bg-ph-hover">
               <PlusIcon size={20} />
             </button>
           )}
@@ -194,7 +196,7 @@ export function StudioScreen() {
               if (!studio.options) void store.loadStudioOptions();
             }}
             className="mt-1 max-w-full truncate rounded-full border border-ph-line bg-ph-raised px-2.5 py-1 text-[12px] text-slate-300 active:bg-ph-hover"
-            aria-label="Модель и режим"
+            aria-label={tr.studio.modelAndMode}
           >
             {selectionTitle(studio.selection, studio.options)} · {MODE_LABEL[studio.mode]}
           </button>
@@ -209,13 +211,13 @@ export function StudioScreen() {
         ) : studio.messages.length === 0 ? (
           <EmptyState
             icon={<SparkleIcon size={40} />}
-            title="Промпт агенту на ПК"
-            hint="Сессия появится во вкладках Agents Studio на компьютере. Старые сессии и вкладки ПК — по кнопке слева вверху."
+            title={tr.studio.emptyTitle}
+            hint={tr.studio.emptyHint}
           />
         ) : (
           <>
             {studio.olderOmitted > 0 && (
-              <div className="mb-2 text-center text-[12px] text-slate-500">Ещё {studio.olderOmitted} ранних сообщений — на ПК</div>
+              <div className="mb-2 text-center text-[12px] text-slate-500">{tr.studio.olderOmitted(studio.olderOmitted)}</div>
             )}
             {studio.messages.map((m) => (
               <div key={m.id} className={clsx('mb-2 flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
@@ -240,7 +242,7 @@ export function StudioScreen() {
                     </div>
                   )}
                   {m.role === 'assistant' ? <Markdown text={m.text} /> : m.text}
-                  {m.truncated && <span className="text-slate-500"> (сокращено, целиком — на ПК)</span>}
+                  {m.truncated && <span className="text-slate-500">{tr.studio.truncated}</span>}
                   {m.role === 'assistant' && m.text && <CopyMessage text={m.text} />}
                 </div>
               </div>
@@ -249,7 +251,7 @@ export function StudioScreen() {
         )}
         {studio.busy && (
           <div className="mb-3 flex items-center gap-2 px-1 text-[13px] text-slate-400">
-            <Spinner className="h-3 w-3" /> Агент работает…
+            <Spinner className="h-3 w-3" /> {tr.studio.agentWorking}
           </div>
         )}
       </div>
@@ -269,13 +271,13 @@ export function StudioScreen() {
           {attachMenu && (
             <div className="mb-2 flex gap-2">
               <Button variant="secondary" size="sm" className="flex-1" onClick={() => cameraInput.current?.click()}>
-                <CameraIcon size={16} /> Камера
+                <CameraIcon size={16} /> {tr.studio.camera}
               </Button>
               <Button variant="secondary" size="sm" className="flex-1" onClick={() => galleryInput.current?.click()}>
-                <ImageIcon size={16} /> Фото
+                <ImageIcon size={16} /> {tr.studio.photo}
               </Button>
               <Button variant="secondary" size="sm" className="flex-1" onClick={() => fileInput.current?.click()}>
-                <FileIcon size={16} /> Файл
+                <FileIcon size={16} /> {tr.studio.file}
               </Button>
             </div>
           )}
@@ -288,7 +290,7 @@ export function StudioScreen() {
                   <span className="shrink-0 text-slate-500">{a.path ? formatBytes(a.size) : `${Math.round(a.progress * 100)}%`}</span>
                   <button
                     type="button"
-                    aria-label={`Убрать ${a.name}`}
+                    aria-label={tr.studio.removeAttachment(a.name)}
                     onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
                     className="shrink-0 rounded-full p-1 text-slate-400 active:bg-ph-hover"
                   >
@@ -311,7 +313,7 @@ export function StudioScreen() {
         <div className="flex items-end gap-2 border-t border-ph-line bg-ph-chrome px-3 py-2">
           <button
             type="button"
-            aria-label="Быстрые команды"
+            aria-label={tr.studio.quickCommands}
             onClick={() => {
               platform.haptic('selection');
               setCommandsOpen(true);
@@ -323,7 +325,7 @@ export function StudioScreen() {
           </button>
           <button
             type="button"
-            aria-label="Вложить фото или файл"
+            aria-label={tr.studio.attach}
             onClick={() => {
               platform.haptic('selection');
               setAttachMenu((v) => !v);
@@ -337,11 +339,11 @@ export function StudioScreen() {
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={1}
-            placeholder={studio.sessionId ? 'Продолжить сессию…' : 'Что сделать?'}
+            placeholder={studio.sessionId ? tr.studio.continuePlaceholder : tr.studio.newPlaceholder}
             className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-ph-line bg-ph-raised px-3 py-2.5 text-[15px] outline-none focus:border-indigo-500"
           />
           {studio.busy ? (
-            <Button className="h-11 w-11 shrink-0 rounded-full !px-0" haptic="medium" aria-label="Остановить ответ" onClick={() => void store.abortStudio()}>
+            <Button className="h-11 w-11 shrink-0 rounded-full !px-0" haptic="medium" aria-label={tr.studio.stopResponse} onClick={() => void store.abortStudio()}>
               <StopIcon size={20} weight="fill" />
             </Button>
           ) : (
@@ -350,7 +352,7 @@ export function StudioScreen() {
               className="h-11 w-11 shrink-0 rounded-full !px-0"
               disabled={uploading || (!text.trim() && ready.length === 0)}
               haptic="medium"
-              aria-label="Отправить"
+              aria-label={tr.studio.send}
               onClick={send}
             >
               <PaperPlaneRightIcon size={20} weight="fill" />
@@ -358,7 +360,7 @@ export function StudioScreen() {
           )}
         </div>
       ) : (
-        <div className="border-t border-ph-line px-3 py-3 text-center text-[13px] text-slate-400">Отправлять промпты с этого устройства нельзя.</div>
+        <div className="border-t border-ph-line px-3 py-3 text-center text-[13px] text-slate-400">{tr.studio.cannotSend}</div>
       )}
 
       <SessionsSheet open={sessionsOpen} onClose={() => setSessionsOpen(false)} />
@@ -379,6 +381,7 @@ export function StudioScreen() {
 
 /** Копировать весь ответ агента (сырой Markdown). */
 function CopyMessage({ text }: { text: string }) {
+  const tr = useT();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -391,16 +394,17 @@ function CopyMessage({ text }: { text: string }) {
         type="button"
         onClick={async () => setCopied(await copyText(text))}
         className="-mb-1 -mr-1 flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 active:bg-ph-hover"
-        aria-label="Копировать ответ"
+        aria-label={tr.studio.copyResponse}
       >
         {copied ? <CheckIcon size={13} className="text-emerald-400" /> : <CopyIcon size={13} />}
-        {copied ? 'Скопировано' : 'Копировать'}
+        {copied ? tr.common.copied : tr.common.copy}
       </button>
     </div>
   );
 }
 
 function LimitBar({ label, w }: { label: string; w?: { percent: number; resetsAt?: string } }) {
+  const tr = useT();
   if (!w) return null;
   const tone = w.percent >= 85 ? 'bg-red-500' : w.percent >= 60 ? 'bg-amber-500' : 'bg-emerald-500';
   return (
@@ -412,7 +416,7 @@ function LimitBar({ label, w }: { label: string; w?: { percent: number; resetsAt
       <div className="h-2 overflow-hidden rounded-full bg-ph-raised">
         <div className={clsx('h-full rounded-full', tone)} style={{ width: `${w.percent}%` }} />
       </div>
-      {w.resetsAt && <div className="mt-0.5 text-[11px] text-slate-500">Сброс: {w.resetsAt}</div>}
+      {w.resetsAt && <div className="mt-0.5 text-[11px] text-slate-500">{tr.studio.resets(w.resetsAt)}</div>}
     </div>
   );
 }
@@ -420,6 +424,7 @@ function LimitBar({ label, w }: { label: string; w?: { percent: number; resetsAt
 /** Окно Usage: лимиты Claude Code с ПК, запросы, токены по моделям и расход открытой сессии. */
 function UsageSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { store } = useServices();
+  const tr = useT();
   const studio = useAppState((s) => s.studio);
   const u = studio.usage;
   const su = studio.sessionUsage;
@@ -427,53 +432,53 @@ function UsageSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
     <Sheet
       open={open}
       onClose={onClose}
-      title={`Usage${u?.planType ? ` · ${u.planType}` : ''}`}
+      title={`${tr.studio.usage}${u?.planType ? ` · ${u.planType}` : ''}`}
       footer={
         <Button className="w-full" disabled={studio.usageLoading} onClick={() => void store.loadUsage(true)}>
-          {studio.usageLoading ? <Spinner className="h-4 w-4" /> : null} Обновить с ПК
+          {studio.usageLoading ? <Spinner className="h-4 w-4" /> : null} {tr.studio.refreshFromPc}
         </Button>
       }
     >
       {!u ? (
-        <div className="flex justify-center py-6">{studio.usageLoading ? <Spinner /> : <span className="text-[13px] text-slate-400">Нет данных</span>}</div>
+        <div className="flex justify-center py-6">{studio.usageLoading ? <Spinner /> : <span className="text-[13px] text-slate-400">{tr.studio.noData}</span>}</div>
       ) : (
         <>
           {u.error && <div className="mb-3 rounded-xl bg-amber-950/60 p-3 text-[13px] text-amber-100">{u.error.message}</div>}
-          <LimitBar label="Текущая сессия" w={u.sessionLimit} />
-          <LimitBar label="Неделя" w={u.weeklyLimit} />
+          <LimitBar label={tr.studio.currentSession} w={u.sessionLimit} />
+          <LimitBar label={tr.studio.week} w={u.weeklyLimit} />
           <LimitBar label="Fable" w={u.fableLimit} />
-          {!u.sessionLimit && !u.weeklyLimit && !u.error && <div className="mb-3 text-[13px] text-slate-400">Лимиты Claude Code не получены.</div>}
+          {!u.sessionLimit && !u.weeklyLimit && !u.error && <div className="mb-3 text-[13px] text-slate-400">{tr.studio.noLimits}</div>}
           {(u.last24h || u.last7d) && (
             <div className="mb-3 grid grid-cols-2 gap-2 text-[13px]">
               {u.last24h && (
                 <div className="rounded-xl bg-ph-raised p-2.5">
-                  <div className="text-[11px] text-slate-500">24 часа</div>
-                  {u.last24h.requests !== undefined && <div>{u.last24h.requests} запросов</div>}
-                  {u.last24h.sessions !== undefined && <div>{u.last24h.sessions} сессий</div>}
+                  <div className="text-[11px] text-slate-500">{tr.studio.last24h}</div>
+                  {u.last24h.requests !== undefined && <div>{tr.studio.requests(u.last24h.requests)}</div>}
+                  {u.last24h.sessions !== undefined && <div>{tr.studio.sessions(u.last24h.sessions)}</div>}
                 </div>
               )}
               {u.last7d && (
                 <div className="rounded-xl bg-ph-raised p-2.5">
-                  <div className="text-[11px] text-slate-500">7 дней</div>
-                  {u.last7d.requests !== undefined && <div>{u.last7d.requests} запросов</div>}
-                  {u.last7d.sessions !== undefined && <div>{u.last7d.sessions} сессий</div>}
+                  <div className="text-[11px] text-slate-500">{tr.studio.last7d}</div>
+                  {u.last7d.requests !== undefined && <div>{tr.studio.requests(u.last7d.requests)}</div>}
+                  {u.last7d.sessions !== undefined && <div>{tr.studio.sessions(u.last7d.sessions)}</div>}
                 </div>
               )}
             </div>
           )}
           {su && (
             <>
-              <SectionTitle>Эта сессия</SectionTitle>
+              <SectionTitle>{tr.studio.thisSession}</SectionTitle>
               <div className="text-[13px] text-slate-300">
-                Вход {formatTokens(su.inputTokens)} · выход {formatTokens(su.outputTokens)}
+                {tr.studio.sessionTokens(formatTokens(su.inputTokens), formatTokens(su.outputTokens))}
                 {su.costUsd ? ` · $${su.costUsd.toFixed(4)}` : ''}
-                {su.estimated ? ' (оценка)' : ''}
+                {su.estimated ? tr.studio.estimated : ''}
               </div>
             </>
           )}
           {u.models.length > 0 && (
             <>
-              <SectionTitle>Модели</SectionTitle>
+              <SectionTitle>{tr.studio.models}</SectionTitle>
               <div className="space-y-1">
                 {u.models.map((m) => (
                   <div key={m.model} className="flex items-baseline justify-between gap-2 text-[13px]">
@@ -489,9 +494,9 @@ function UsageSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             </>
           )}
           <div className="mt-3 text-[11px] text-slate-500">
-            Обновлено {relativeTime(u.updatedAt)}
-            {u.totalSessions !== undefined ? ` · всего сессий ${u.totalSessions}` : ''}
-            {u.isFallback ? ' · из статистики' : ''}
+            {tr.studio.updated(relativeTime(u.updatedAt))}
+            {u.totalSessions !== undefined ? tr.studio.totalSessions(u.totalSessions) : ''}
+            {u.isFallback ? tr.studio.fromStats : ''}
           </div>
         </>
       )}
@@ -511,10 +516,11 @@ function CommandsSheet({
   onCommand: (id: StudioCommandId) => void;
   onPrompt: (prompt: string) => void;
 }) {
+  const tr = useT();
   const studio = useAppState((s) => s.studio);
   const commands = STUDIO_COMMANDS.filter((c) => (c.id === 'stop' ? studio.busy : true));
   return (
-    <Sheet open={open} onClose={onClose} title="Быстрые команды">
+    <Sheet open={open} onClose={onClose} title={tr.studio.quickCommands}>
       <div className="space-y-0.5">
         {commands.map((c) => (
           <button key={c.id} type="button" onClick={() => onCommand(c.id)} className="flex w-full flex-col rounded-xl px-3 py-2 text-left active:bg-ph-hover">
@@ -528,7 +534,7 @@ function CommandsSheet({
       </div>
       {studio.options?.quickPrompts && studio.options.quickPrompts.length > 0 && (
         <>
-          <SectionTitle>Быстрые промпты</SectionTitle>
+          <SectionTitle>{tr.studio.quickPrompts}</SectionTitle>
           <div className="space-y-0.5">
             {studio.options.quickPrompts.map((p) => (
               <button key={p.id} type="button" onClick={() => onPrompt(p.prompt)} className="flex w-full flex-col rounded-xl px-3 py-2 text-left active:bg-ph-hover">
@@ -537,7 +543,7 @@ function CommandsSheet({
               </button>
             ))}
           </div>
-          <div className="mt-2 text-[12px] text-slate-500">Промпт подставится в поле ввода — его можно поправить перед отправкой.</div>
+          <div className="mt-2 text-[12px] text-slate-500">{tr.studio.quickPromptsHint}</div>
         </>
       )}
     </Sheet>
@@ -546,6 +552,7 @@ function CommandsSheet({
 
 
 function SessionRow({ s, active, onOpen }: { s: RemoteStudioSessionSummary; active: boolean; onOpen: () => void }) {
+  const tr = useT();
   return (
     <button
       type="button"
@@ -556,13 +563,13 @@ function SessionRow({ s, active, onOpen }: { s: RemoteStudioSessionSummary; acti
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
           <span className="truncate text-[14px] font-medium">{s.title}</span>
-          {s.running && <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-400" aria-label="Отвечает" />}
+          {s.running && <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-400" aria-label={tr.studio.responding} />}
         </span>
         {s.preview && <span className="block truncate text-[12px] text-slate-400">{s.preview}</span>}
         <span className="block truncate text-[11px] text-slate-500">
           {relativeTime(s.updatedAt)}
           {s.modelLabel ? ` · ${s.modelLabel}` : ''}
-          {` · ${s.messageCount} сообщ.`}
+          {` · ${tr.studio.messageCount(s.messageCount)}`}
         </span>
       </span>
     </button>
@@ -572,6 +579,7 @@ function SessionRow({ s, active, onOpen }: { s: RemoteStudioSessionSummary; acti
 /** Вкладки ПК и история сессий проекта: прокрутка, поиск, новые сверху. */
 function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { store, platform } = useServices();
+  const tr = useT();
   const studio = useAppState((s) => s.studio);
   const conn = useAppState((s) => s.conn);
   const canWrite = capabilitiesFor(conn.rights, conn.readOnly).write;
@@ -588,7 +596,7 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
     <Sheet
       open={open}
       onClose={onClose}
-      title="Сессии Agents Studio"
+      title={tr.studio.sessionsTitle}
       footer={
         canWrite ? (
           <Button
@@ -599,26 +607,26 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
               onClose();
             }}
           >
-            <PlusIcon size={18} /> Новая сессия
+            <PlusIcon size={18} /> {tr.studio.newSession}
           </Button>
         ) : undefined
       }
     >
       <div className="mb-2 flex items-center gap-2 rounded-xl border border-ph-line bg-ph-raised px-3">
         <MagnifyingGlassIcon size={16} className="text-slate-500" />
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию и промптам" className="w-full bg-transparent py-2.5 text-[14px] outline-none" />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tr.studio.searchPlaceholder} className="w-full bg-transparent py-2.5 text-[14px] outline-none" />
       </div>
       {!studio.sessionsLoaded ? (
         <div className="flex justify-center py-6">
           <Spinner />
         </div>
       ) : groups.open.length + groups.history.length === 0 ? (
-        <div className="py-6 text-center text-[13px] text-slate-400">{query ? 'Ничего не найдено' : 'В этом проекте ещё нет сессий Agents Studio.'}</div>
+        <div className="py-6 text-center text-[13px] text-slate-400">{query ? tr.studio.nothingFound : tr.studio.noSessions}</div>
       ) : (
         <>
           {groups.open.length > 0 && (
             <>
-              <SectionTitle>Открыты на ПК</SectionTitle>
+              <SectionTitle>{tr.studio.openOnPc}</SectionTitle>
               <div className="space-y-0.5">
                 {groups.open.map((s) => (
                   <SessionRow key={s.id} s={s} active={s.id === studio.sessionId} onOpen={() => void openSession(s.id)} />
@@ -628,7 +636,7 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
           )}
           {groups.history.length > 0 && (
             <>
-              <SectionTitle>История</SectionTitle>
+              <SectionTitle>{tr.studio.history}</SectionTitle>
               <div className="space-y-0.5">
                 {groups.history.map((s) => (
                   <SessionRow key={s.id} s={s} active={s.id === studio.sessionId} onOpen={() => void openSession(s.id)} />
@@ -645,6 +653,7 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
 /** Модель (Claude Code и профили LLM с ПК) и режим следующего промпта. */
 function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { store, platform } = useServices();
+  const tr = useT();
   const studio = useAppState((s) => s.studio);
   const options = studio.options;
   const sel = studio.selection;
@@ -670,8 +679,8 @@ function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 
   return (
-    <Sheet open={open} onClose={onClose} title="Модель и режим">
-      <SectionTitle>Режим</SectionTitle>
+    <Sheet open={open} onClose={onClose} title={tr.studio.modelAndMode}>
+      <SectionTitle>{tr.studio.mode}</SectionTitle>
       <div className="grid grid-cols-3 gap-1 rounded-xl bg-ph-raised p-1">
         {(options?.modes ?? (['agent', 'chat', 'architect'] as StudioMode[])).map((m) => (
           <button
@@ -684,7 +693,7 @@ function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
           </button>
         ))}
       </div>
-      <div className="mt-1 text-[12px] text-slate-500">Агент — с инструментами в проекте; чат и архитектор — только ответ.</div>
+      <div className="mt-1 text-[12px] text-slate-500">{tr.studio.modeHint}</div>
 
       {!options ? (
         <div className="flex justify-center py-6">
@@ -698,16 +707,16 @@ function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             <div key={p.id}>
               <SectionTitle>
                 {p.name}
-                {p.local ? ' · локальная' : ''}
+                {p.local ? tr.studio.local : ''}
               </SectionTitle>
               {p.models.length === 0 ? (
-                <div className="px-3 text-[12px] text-slate-500">{p.modelsError || 'Список моделей пуст — выберите модель профиля на ПК.'}</div>
+                <div className="px-3 text-[12px] text-slate-500">{p.modelsError || tr.studio.noModels}</div>
               ) : (
                 <div className="space-y-0.5">{p.models.map((m) => row(`p:${p.id}:${m}`, m, undefined, isSel('openai-compatible', m, p.id), () => pick('openai-compatible', m, p.id)))}</div>
               )}
             </div>
           ))}
-          <div className="mt-3 text-[12px] text-slate-500">Модель действует на эту сессию; выбор Agents Studio на ПК не меняется. Сейчас на ПК: {options.currentLabel}.</div>
+          <div className="mt-3 text-[12px] text-slate-500">{tr.studio.modelScope(options.currentLabel)}</div>
         </>
       )}
     </Sheet>

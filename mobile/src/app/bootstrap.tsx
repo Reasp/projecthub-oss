@@ -1,6 +1,7 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../index.css';
+import { initLanguage, LANGUAGE_PREF, setLanguage, t, type Language } from '../i18n';
 import { migrateLegacyProfile, safeStorage } from '../platform/pageStore';
 import type { Platform } from '../platform/types';
 import { resolveStartup } from '../protocol/bootstrap';
@@ -220,7 +221,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
         const withHost = addFederatedProfile(listRef.current, parent, res);
         const added = withHost.profiles.find((p) => p.pairingId === parent.pairingId && p.hostId === res.hostId);
         commit(added ? setActiveProfile(withHost, added.id!) : withHost);
-        store.showToast(`Доступ к «${res.machineName}» получен`, 'success');
+        store.showToast(t().shell.enrolled(res.machineName), 'success');
         if (added) open(added);
         return true;
       },
@@ -242,6 +243,10 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
         client.disconnect();
         const profile = activeProfile(next);
         open(profile ?? { ...freshDraft(platform), lanAddress: platform.pageHostAddress() });
+      },
+      setLanguage(lang: Language) {
+        setLanguage(lang);
+        createPrefs().set(LANGUAGE_PREF, lang);
       }
     }),
     [platform, client, store, pool, inbox, list, commit, open]
@@ -256,6 +261,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
 
 /** Точка входа всех трёх целей: различается только платформа. */
 export async function startApp(platform: Platform): Promise<void> {
+  initLanguage(createPrefs().get(LANGUAGE_PREF), typeof navigator === 'undefined' ? [] : navigator.languages ?? [navigator.language]);
   platform.applyChrome?.();
   const stored: ProfileList = await platform.store.load().catch(() => emptyProfileList());
   const storage = platform.store.kind === 'page' ? safeStorage() : null;

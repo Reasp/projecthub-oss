@@ -45,7 +45,7 @@ public class PushActionReceiver extends BroadcastReceiver {
         String decision = "allow".equals(intent.getStringExtra("decision")) ? "allow" : "deny";
         PushRegistry.Reg reg = instance == null ? null : PushRegistry.get(ctx, instance);
         if (reg == null) {
-            PushNotifier.showOutcome(ctx, instance, host, notifId, "Push для этого компьютера выключен — откройте приложение", false);
+            PushNotifier.showOutcome(ctx, instance, host, notifId, ctx.getString(R.string.outcome_push_off), false);
             return;
         }
         KeyguardManager keyguard = ctx.getSystemService(KeyguardManager.class);
@@ -66,11 +66,11 @@ public class PushActionReceiver extends BroadcastReceiver {
             o.put("mac", PushRegistry.b64(WebPush.actionMac(reg.actionKey, signed)));
             body = o.toString();
         } catch (Exception e) {
-            PushNotifier.showOutcome(ctx, instance, host, notifId, "Не удалось подписать решение — откройте приложение", false);
+            PushNotifier.showOutcome(ctx, instance, host, notifId, ctx.getString(R.string.outcome_sign_failed), false);
             return;
         }
 
-        String outcome = "Нет связи с компьютером — откройте приложение";
+        String outcome = ctx.getString(R.string.outcome_no_connection);
         boolean done = false;
         try {
             JSONArray endpoints = new JSONArray(intent.getStringExtra("ep") == null ? "[]" : intent.getStringExtra("ep"));
@@ -98,17 +98,17 @@ public class PushActionReceiver extends BroadcastReceiver {
                     continue;
                 }
                 if (status == 200) {
-                    outcome = "allow".equals(decision) ? "Одобрено" : "Отклонено";
+                    outcome = ctx.getString("allow".equals(decision) ? R.string.outcome_approved : R.string.outcome_denied);
                     done = true;
                 } else if (status == 409) {
                     String reason = new JSONObject(reply.isEmpty() ? "{}" : reply).optString("reason");
-                    outcome = "confirmation_required".equals(reason)
-                        ? "Для такого риска нужно подтверждение в приложении"
-                        : "already_decided".equals(reason) ? "Уже решено" : "Запрос не найден — возможно, истёк";
+                    outcome = ctx.getString("confirmation_required".equals(reason)
+                        ? R.string.outcome_confirm_in_app
+                        : "already_decided".equals(reason) ? R.string.outcome_already_decided : R.string.outcome_not_found);
                     done = !"confirmation_required".equals(reason);
                     break;
                 } else if (status == 403) {
-                    outcome = "Компьютер не принял решение — откройте приложение";
+                    outcome = ctx.getString(R.string.outcome_rejected);
                     break;
                 }
             }

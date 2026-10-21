@@ -224,14 +224,14 @@ public class PhSecureStorePlugin extends Plugin {
             return;
         }
         final byte[] data = payload.getBytes(StandardCharsets.UTF_8);
-        final String title = call.getString("title", "Подтвердите решение");
+        final String title = call.getString("title", getContext().getString(R.string.biometric_title));
         final String subtitle = call.getString("subtitle", "");
         final String description = call.getString("description", "");
         getActivity().runOnUiThread(() -> {
             Executor executor = getContext().getMainExecutor();
             BiometricPrompt.Builder builder = new BiometricPrompt.Builder(getContext())
                 .setTitle(title)
-                .setNegativeButton("Отмена", executor, (dialog, which) -> call.reject("cancelled", "cancelled"));
+                .setNegativeButton(getContext().getString(R.string.biometric_cancel), executor, (dialog, which) -> call.reject("cancelled", "cancelled"));
             if (!subtitle.isEmpty()) builder.setSubtitle(subtitle);
             if (!description.isEmpty()) builder.setDescription(description);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

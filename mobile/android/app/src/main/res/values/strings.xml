@@ -1,10 +1,64 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- Строки нативной части (TASK-140.15): values/ — английский по умолчанию, values-ru/ — русский. -->
 <resources>
-    <string name="app_name">ProjectHub</string>
-    <string name="title_activity_main">ProjectHub</string>
-    <string name="package_name">com.projecthub.mobile</string>
-    <string name="custom_url_scheme">com.projecthub.mobile</string>
-    <string name="widget_agents_label">Агенты ProjectHub</string>
-    <string name="widget_agents_description">Ход агентов на ваших компьютерах</string>
-    <string name="widget_agents_empty">Агенты не работают</string>
+    <string name="app_name" translatable="false">ProjectHub</string>
+    <string name="title_activity_main" translatable="false">ProjectHub</string>
+    <string name="package_name" translatable="false">com.projecthub.mobile</string>
+    <string name="custom_url_scheme" translatable="false">com.projecthub.mobile</string>
+
+    <!-- Виджет «Агенты» -->
+    <string name="widget_agents_label">ProjectHub agents</string>
+    <string name="widget_agents_description">Agent progress on your computers</string>
+    <string name="widget_agents_empty">No agents running</string>
+
+    <!-- Каналы уведомлений -->
+    <string name="channel_requests_name">Agent requests</string>
+    <string name="channel_requests_description">An agent on your computer needs a decision</string>
+    <string name="channel_notes_name">Agent messages</string>
+    <string name="channel_notes_description">An agent on your computer is calling you: done, error, needs attention</string>
+    <string name="channel_progress_name">Agent progress</string>
+    <string name="channel_progress_description">What the agent on your computer is doing: iteration, checks, waiting for a decision</string>
+
+    <!-- Кнопки уведомлений -->
+    <string name="action_deny">Deny</string>
+    <string name="action_approve">Approve</string>
+    <string name="action_review">Review</string>
+    <string name="action_decide">Decide</string>
+
+    <!-- Запрос решения -->
+    <string name="hitl_title">%1$s: agent needs a decision</string>
+    <string name="hitl_neutral_text">An agent needs a decision</string>
+    <string name="push_test_text">Notifications from this computer are working</string>
+    <string name="risk_low">low risk</string>
+    <string name="risk_moderate">medium risk</string>
+    <string name="risk_high">high risk</string>
+
+    <!-- Итог нажатия кнопки в уведомлении -->
+    <string name="outcome_push_off">Push is off for this computer — open the app</string>
+    <string name="outcome_sign_failed">Could not sign the decision — open the app</string>
+    <string name="outcome_no_connection">Cannot reach the computer — open the app</string>
+    <string name="outcome_approved">Approved</string>
+    <string name="outcome_denied">Denied</string>
+    <string name="outcome_confirm_in_app">This risk level needs confirmation in the app</string>
+    <string name="outcome_already_decided">Already decided</string>
+    <string name="outcome_not_found">Request not found — it may have expired</string>
+    <string name="outcome_rejected">The computer did not accept the decision — open the app</string>
+
+    <!-- Агент: сообщения и ход -->
+    <string name="agent_default">Agent</string>
+    <string name="note_default_text">The agent sent a message</string>
+    <string name="note_level_error">error</string>
+    <string name="note_level_warning">needs attention</string>
+    <string name="note_level_success">done</string>
+    <string name="note_level_info">message</string>
+    <string name="state_running">running</string>
+    <string name="state_waiting">waiting for a decision</string>
+    <string name="state_done">done</string>
+    <string name="state_failed">error</string>
+    <string name="state_stopped">stopped</string>
+    <string name="chip_waiting">waiting</string>
+
+    <!-- Подтверждение биометрией -->
+    <string name="biometric_title">Confirm the decision</string>
+    <string name="biometric_cancel">Cancel</string>
 </resources>
