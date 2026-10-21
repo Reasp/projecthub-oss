@@ -3,6 +3,7 @@ import { PlayIcon, RobotIcon, StopIcon } from '@phosphor-icons/react';
 import type { RemoteAgentOutput, RemoteLaunchCheck, RemoteSwarmAgentSummary, RemoteSwarmSummary } from '../../../src/types/remote';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, Confirm, EmptyState, SectionTitle, Sheet, Spinner } from '../components/ui';
+import { fieldProps } from '../components/FieldEditor';
 import { Screen } from '../components/Screen';
 import { useT } from '../i18n/react';
 import { capabilitiesFor, isActiveStatus, statusLabel } from '../protocol/models';
@@ -139,10 +140,8 @@ function StartAgentSheet({ open, onClose }: { open: boolean; onClose: () => void
       </select>
       <label className="mt-3 block text-[12px] text-slate-400">{tr.agents.promptLabel}</label>
       <textarea
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
+        {...fieldProps({ value: prompt, onChange: setPrompt, multiline: true, title: tr.agents.promptLabel, placeholder: task ? tr.agents.promptPlaceholder(task.id) : '' })}
         rows={3}
-        placeholder={task ? tr.agents.promptPlaceholder(task.id) : ''}
         className={`${select} mt-1`}
       />
       <div className="mt-2 text-[12px] text-slate-500">{tr.agents.worktreeHint}</div>

@@ -15,7 +15,8 @@ export const en = {
   computer: 'Computer',
   noProject: 'No project selected',
   offline: 'No connection to the computer',
-  readOnly: 'View only'
+  readOnly: 'View only',
+  done: 'Done'
 };
 
 export const ru: typeof en = {
@@ -34,5 +35,6 @@ export const ru: typeof en = {
   computer: 'Компьютер',
   noProject: 'Проект не выбран',
   offline: 'Нет связи с компьютером',
-  readOnly: 'Только просмотр'
+  readOnly: 'Только просмотр',
+  done: 'Готово'
 };

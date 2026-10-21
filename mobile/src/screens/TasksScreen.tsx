@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import type { RemoteTaskSummary } from '../../../src/types/remote';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, EmptyState, Sheet, Spinner } from '../components/ui';
+import { fieldProps } from '../components/FieldEditor';
 import { useT } from '../i18n/react';
 import { capabilitiesFor, criteriaProgress, groupTasksByStatus, KANBAN_STATUSES } from '../protocol/models';
 
@@ -125,17 +126,12 @@ function CreateTaskSheet({ open, onClose }: { open: boolean; onClose: () => void
       }
     >
       <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        maxLength={110}
-        placeholder={tr.tasks.titlePlaceholder}
+        {...fieldProps({ value: title, onChange: setTitle, maxLength: 110, placeholder: tr.tasks.titlePlaceholder })}
         className="w-full rounded-xl border border-ph-line bg-ph-raised px-3 py-3 text-[15px] outline-none focus:border-indigo-500"
       />
       <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
+        {...fieldProps({ value: description, onChange: setDescription, multiline: true, placeholder: tr.tasks.descriptionPlaceholder })}
         rows={6}
-        placeholder={tr.tasks.descriptionPlaceholder}
         className="mt-2 w-full rounded-xl border border-ph-line bg-ph-raised px-3 py-3 text-[15px] outline-none focus:border-indigo-500"
       />
     </Sheet>

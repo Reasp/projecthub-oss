@@ -6,6 +6,7 @@ import { Badge, Button, Sheet, Spinner } from '../components/ui';
 import { Markdown } from '../components/Markdown';
 import { checkStatusText, outcomeText, projectName, type FeedSource } from '../protocol/inbox';
 import { capabilitiesFor } from '../protocol/models';
+import { fieldProps } from '../components/FieldEditor';
 import { useT } from '../i18n/react';
 import type { RemoteReviewItem, RemoteReviewScreenshot } from '../../../src/types/remote';
 
@@ -74,12 +75,10 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
   ) : (
     <div>
       <textarea
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
+        {...fieldProps({ value: comment, onChange: setComment, multiline: true, title: tr.inbox.returnToAgent, placeholder: tr.inbox.returnPlaceholder })}
         rows={3}
         autoFocus
         data-testid="review-comment"
-        placeholder={tr.inbox.returnPlaceholder}
         className="w-full resize-none rounded-lg border border-ph-line bg-ph-base p-2 text-[14px] text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
       />
       {item.roleSlug && caps.write && (

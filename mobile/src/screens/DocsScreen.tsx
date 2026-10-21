@@ -21,6 +21,7 @@ import { DocsController, isUnsupportedHostError, type DocView } from '../app/doc
 import { Markdown } from '../components/Markdown';
 import { Screen } from '../components/Screen';
 import { Badge, Button, EmptyState, Spinner } from '../components/ui';
+import { fieldProps } from '../components/FieldEditor';
 import { getLanguage } from '../i18n';
 import { useT } from '../i18n/react';
 import { DocsCache } from '../protocol/docsCache';
@@ -229,9 +230,7 @@ function DocsList({ controller }: { controller: DocsController }) {
         <MagnifyingGlassIcon size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
         <input
           type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={tr.docs.search}
+          {...fieldProps({ value: query, onChange: setQuery, placeholder: tr.docs.search })}
           className="h-10 w-full rounded-xl border border-ph-line bg-ph-elevated pl-9 pr-9 text-[14px] outline-none focus:border-indigo-500"
         />
         {query && (

@@ -17,6 +17,7 @@ import { PairingScreen } from '../screens/PairingScreen';
 import { ProcessesScreen } from '../screens/ProcessesScreen';
 import { StudioScreen } from '../screens/StudioScreen';
 import { TasksScreen } from '../screens/TasksScreen';
+import { FieldEditorHost } from '../components/FieldEditor';
 import { useAppState, useHostSummaries, useServices } from './context';
 import { useInboxFeed } from './useInbox';
 
@@ -315,6 +316,7 @@ export function App({ profile, seq, adding }: { profile: HostProfile; seq: numbe
       ) : (
         <Shell />
       )}
+      <FieldEditorHost />
       <Toasts />
     </>
   );

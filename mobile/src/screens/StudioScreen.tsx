@@ -42,6 +42,7 @@ import { ATTACH_MAX_PER_PROMPT, formatBytes } from '../protocol/attachments';
 import { prepareAttachment } from '../components/attachmentFile';
 import { appendTranscript } from '../protocol/voice';
 import { VoiceButton } from './VoiceButton';
+import { fieldProps } from '../components/FieldEditor';
 
 /** Вложение в поле ввода: грузится сразу после выбора, в промпт уходит путь в проекте на хосте. */
 interface Attachment {
@@ -129,14 +130,14 @@ export function StudioScreen() {
     list.current?.scrollTo({ top: list.current.scrollHeight });
   }, [studio.messages, studio.sessionId]);
 
-  const send = async () => {
+  /** `value` — текст из редактора поля (TASK-177): `text` к этому моменту ещё не обновился. */
+  const send = async (value = text) => {
     // «/clear» и другие команды, набранные целиком, выполняются, а не уходят агенту текстом.
-    const exact = STUDIO_COMMANDS.find((c) => c.command === text.trim().toLowerCase());
+    const exact = STUDIO_COMMANDS.find((c) => c.command === value.trim().toLowerCase());
     if (exact) {
       await runCommand(exact.id);
       return;
     }
-    const value = text;
     const sent = attachments;
     setText('');
     setAttachments([]);
@@ -336,10 +337,14 @@ export function StudioScreen() {
           </button>
           <VoiceButton disabled={studio.busy} onText={(spoken) => setText((prev) => appendTranscript(prev, spoken))} />
           <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
+            {...fieldProps({
+              value: text,
+              onChange: setText,
+              multiline: true,
+              placeholder: studio.sessionId ? tr.studio.continuePlaceholder : tr.studio.newPlaceholder,
+              ...(!studio.busy && !uploading ? { onSubmit: (value: string) => void send(value), submitLabel: tr.studio.send } : {})
+            })}
             rows={1}
-            placeholder={studio.sessionId ? tr.studio.continuePlaceholder : tr.studio.newPlaceholder}
             className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-ph-line bg-ph-raised px-3 py-2.5 text-[15px] outline-none focus:border-indigo-500"
           />
           {studio.busy ? (
@@ -353,7 +358,7 @@ export function StudioScreen() {
               disabled={uploading || (!text.trim() && ready.length === 0)}
               haptic="medium"
               aria-label={tr.studio.send}
-              onClick={send}
+              onClick={() => void send()}
             >
               <PaperPlaneRightIcon size={20} weight="fill" />
             </Button>
@@ -614,7 +619,7 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
     >
       <div className="mb-2 flex items-center gap-2 rounded-xl border border-ph-line bg-ph-raised px-3">
         <MagnifyingGlassIcon size={16} className="text-slate-500" />
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tr.studio.searchPlaceholder} className="w-full bg-transparent py-2.5 text-[14px] outline-none" />
+        <input {...fieldProps({ value: query, onChange: setQuery, placeholder: tr.studio.searchPlaceholder })} className="w-full bg-transparent py-2.5 text-[14px] outline-none" />
       </div>
       {!studio.sessionsLoaded ? (
         <div className="flex justify-center py-6">
