@@ -1057,6 +1057,16 @@ export interface TranslationDictionary {
     section: string;
     sectionPlaceholder: string;
     sectionHint: string;
+    /** Хранилище Obsidian и граф связей (TASK-178, TASK-175). */
+    openInObsidian: string;
+    openInObsidianHint: string;
+    obsidianOpened: string;
+    obsidianRegistered: string;
+    obsidianNeedsManual: string;
+    obsidianNotInstalled: string;
+    obsidianNoBacklog: string;
+    obsidianFailed: string;
+    showOnGraph: string;
   };
   /** Вкладки «Граф кода» (GitNexus) и «Граф документации» (LightRAG) — TASK-167, decision-118. */
   graph: {
@@ -1099,6 +1109,16 @@ export interface TranslationDictionary {
     reindexFailed: string;
     indexSettings: string;
     buildIndex: string;
+    /** Граф связей документации (TASK-175, decision-133). */
+    modeLinks: string;
+    modeEntities: string;
+    linksTitle: string;
+    linksEmpty: string;
+    linksEmptyHint: string;
+    linksStats: string;
+    openNode: string;
+    hideOrphans: string;
+    kinds: Record<'decision' | 'doc' | 'task' | 'mem' | 'missing' | 'subtask' | 'dependency' | 'link' | 'mention', string>;
   };
   /** Настройка индексации GitNexus (TASK-176, decision-131). */
   codeIndex: {
@@ -2109,6 +2129,12 @@ export interface TranslationDictionary {
     refDiscardConfirm: string;
     refDiscardTaskConfirm: string;
     refAnchorNotFound: string;
+    /** Подсказка встраивания Obsidian `![[id]]` (TASK-178). */
+    refEmbed: string;
+    /** Вики-ссылка Obsidian на заметку без идентификатора Backlog.md. */
+    wikiNotBacklog: string;
+    /** Названия типов callout'ов Obsidian, когда своего заголовка нет. */
+    callouts: Record<import('../components/common/markdownBlocks').CalloutType, string>;
   };
   explorer: {
     title: string;

@@ -5,7 +5,7 @@ import type { NodeHoverDrawingFunction } from 'sigma/rendering';
 import FA2Layout from 'graphology-layout-forceatlas2/worker';
 import { ExternalLink, Maximize2, Pause, Play, RefreshCw, Search, X, ZoomIn, ZoomOut } from '../common/icons';
 import { useTranslation } from '../../i18n/useTranslation';
-import type { ProjectGraph } from '../../types/electron';
+import type { ProjectGraph, ProjectGraphNode } from '../../types/electron';
 import {
   colorForType,
   countTypes,
@@ -47,6 +47,20 @@ export interface GraphExplorerProps {
   onReload: () => void;
   /** Дополнительные кнопки в шапке — переиндексация и настройка индексации графа кода (TASK-176). */
   actions?: React.ReactNode;
+  /** Подписи типов узлов и связей в легенде, поиске и панели (граф связей документации, TASK-175). */
+  typeLabels?: Record<string, string>;
+  /** Связи направленные — в списке связей стрелки «→/←». У графа кода всегда так. */
+  directed?: boolean;
+  /** Открыть объект узла в ProjectHub: кнопка в панели и двойной клик по узлу. */
+  onOpenNode?: (node: ProjectGraphNode) => void;
+  /** Можно ли открыть узел (у неразрешённой ссылки открывать нечего). */
+  canOpenNode?: (node: ProjectGraphNode) => boolean;
+  /** Узел, выделенный при открытии, — «Показать на графе» из документа. */
+  initialFocus?: string | null;
+  /** Переключатель «Скрыть узлы без связей» в легенде, как в графе Obsidian. */
+  orphanToggle?: boolean;
+  /** Заголовок над вкладкой режимов (связи / сущности LightRAG). */
+  modeSwitch?: React.ReactNode;
 }
 
 /** Общая пустая таблица цветов: новый `{}` на каждый рендер пересоздавал бы граф и рендерер. */
@@ -54,7 +68,7 @@ const NO_COLORS: Record<string, string> = {};
 const DIM_NODE = '#334155';
 const FOCUS_EDGE = 'rgba(226, 232, 240, 0.75)';
 /** Сколько длится раскладка после открытия: крупный граф кода сходится дольше. */
-const LAYOUT_MS = { code: 20_000, docs: 5_000 } as const;
+const LAYOUT_MS = { code: 20_000, docs: 5_000, links: 8_000 } as const;
 const MAX_LISTED_NEIGHBORS = 80;
 
 function withAlpha(hex: string, alpha: number): string {
@@ -101,7 +115,14 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
   title,
   icon: Icon,
   onReload,
-  actions
+  actions,
+  typeLabels,
+  directed = kind === 'code',
+  onOpenNode,
+  canOpenNode,
+  initialFocus,
+  orphanToggle = false,
+  modeSwitch
 }) => {
   const { t } = useTranslation();
   const g = t.graph;
@@ -117,22 +138,29 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
 
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(initialHidden);
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(() => new Set());
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => (initialFocus && graph.nodes.some((n) => n.id === initialFocus) ? initialFocus : null));
+  const [hideOrphans, setHideOrphans] = useState(false);
   const [layoutRunning, setLayoutRunning] = useState(false);
+  const typeLabel = useCallback((type: string) => typeLabels?.[type] ?? type, [typeLabels]);
+  const onOpenNodeRef = useRef(onOpenNode);
+  onOpenNodeRef.current = onOpenNode;
+  const canOpenNodeRef = useRef(canOpenNode);
+  canOpenNodeRef.current = canOpenNode;
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
 
   // Редьюсеры sigma читают состояние из ref: перерисовка без пересоздания рендерера.
   const hiddenTypesRef = useRef(hiddenTypes);
   const hiddenEdgeTypesRef = useRef(hiddenEdgeTypes);
+  const hideOrphansRef = useRef(hideOrphans);
   const focusRef = useRef<{ node: string | null; neighbors: Set<string> }>({ node: null, neighbors: new Set() });
   const hoveredRef = useRef<string | null>(null);
   const selectedRef = useRef<string | null>(null);
 
   const nodeColor = useCallback((type: string) => colorForType(type, nodeColors), [nodeColors]);
   const edgeColor = useCallback(
-    (type: string) => (kind === 'code' ? colorForType(type, edgeColors) : '#94a3b8'),
-    [kind, edgeColors]
+    (type: string) => (edgeColors !== NO_COLORS ? colorForType(type, edgeColors) : '#94a3b8'),
+    [edgeColors]
   );
 
   const refreshFocus = useCallback(() => {
@@ -169,7 +197,7 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
-    const gr = new Graph<NodeAttrs, EdgeAttrs>({ type: kind === 'code' ? 'directed' : 'undirected', multi: false, allowSelfLoops: false });
+    const gr = new Graph<NodeAttrs, EdgeAttrs>({ type: directed ? 'directed' : 'undirected', multi: false, allowSelfLoops: false });
     const positions = initialPositions(graph);
     const degree = new Map<string, number>();
     for (const e of graph.edges) {
@@ -191,8 +219,8 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
     for (const e of graph.edges) {
       if (!gr.hasNode(e.source) || !gr.hasNode(e.target) || gr.hasEdge(e.source, e.target)) continue;
       gr.addEdge(e.source, e.target, {
-        size: kind === 'code' ? 0.6 : 1 + 2 * ((e.weight ?? 1) / maxWeight),
-        color: withAlpha(edgeColor(e.type), kind === 'code' ? 0.35 : 0.55),
+        size: kind === 'code' ? 0.6 : kind === 'links' ? 0.5 + 1.5 * ((e.weight ?? 1) / maxWeight) : 1 + 2 * ((e.weight ?? 1) / maxWeight),
+        color: withAlpha(edgeColor(e.type), kind === 'code' ? 0.35 : kind === 'links' ? 0.4 : 0.55),
         edgeType: e.type
       });
     }
@@ -206,13 +234,14 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
       labelColor: { color: '#cbd5e1' },
       labelSize: 11,
       labelFont: 'Inter, "Segoe UI", system-ui, sans-serif',
-      labelRenderedSizeThreshold: kind === 'code' ? 9 : 5,
-      labelDensity: kind === 'code' ? 0.5 : 1,
+      labelRenderedSizeThreshold: kind === 'code' ? 9 : kind === 'links' ? 8 : 5,
+      labelDensity: kind === 'code' ? 0.5 : kind === 'links' ? 0.7 : 1,
       defaultDrawNodeHover: drawDarkHover,
       minCameraRatio: 0.02,
       maxCameraRatio: 20,
       nodeReducer: (node, data) => {
         if (hiddenTypesRef.current.has(data.nodeType)) return { ...data, hidden: true };
+        if (hideOrphansRef.current && gr.degree(node) === 0) return { ...data, hidden: true };
         const { node: focus, neighbors } = focusRef.current;
         if (!focus) return data;
         if (node === focus) return { ...data, highlighted: true, forceLabel: true, zIndex: 2 };
@@ -246,9 +275,16 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
       refreshFocus();
     });
     renderer.on('clickNode', ({ node }) => setSelected(node));
+    renderer.on('doubleClickNode', ({ node, preventSigmaDefault }) => {
+      const open = onOpenNodeRef.current;
+      const target = graph.nodes.find((n) => n.id === node);
+      if (!open || !target || canOpenNodeRef.current?.(target) === false) return;
+      preventSigmaDefault();
+      open(target);
+    });
     renderer.on('clickStage', () => setSelected(null));
 
-    layoutRef.current = new FA2Layout(gr, { settings: fa2Settings(gr.order) });
+    layoutRef.current = new FA2Layout(gr, { settings: fa2Settings(gr.order, kind) });
     startLayout(LAYOUT_MS[kind]);
 
     return () => {
@@ -260,13 +296,14 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
       sigmaRef.current = null;
       graphRef.current = null;
     };
-  }, [graph, kind, nodeColor, edgeColor, refreshFocus, startLayout]);
+  }, [graph, kind, directed, nodeColor, edgeColor, refreshFocus, startLayout]);
 
   useEffect(() => {
     hiddenTypesRef.current = hiddenTypes;
     hiddenEdgeTypesRef.current = hiddenEdgeTypes;
+    hideOrphansRef.current = hideOrphans;
     sigmaRef.current?.refresh({ skipIndexation: true });
-  }, [hiddenTypes, hiddenEdgeTypes]);
+  }, [hiddenTypes, hiddenEdgeTypes, hideOrphans]);
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -296,6 +333,14 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
     []
   );
 
+  // «Показать на графе»: камера едет к узлу, когда раскладка уже разнесла граф, и ещё раз после её
+  // остановки — за это время узел успевает сместиться.
+  useEffect(() => {
+    if (!initialFocus) return;
+    const timers = [1200, LAYOUT_MS[kind] + 300].map((ms) => window.setTimeout(() => focusNode(initialFocus), ms));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [initialFocus, focusNode, kind]);
+
   const results = useMemo(() => (searchOpen ? searchNodes(graph.nodes, query, 20) : []), [graph, query, searchOpen]);
 
   const toggle = (set: Set<string>, value: string) => {
@@ -312,22 +357,25 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
 
   const selectedNode = useMemo(() => (selected ? graph.nodes.find((n) => n.id === selected) ?? null : null), [graph, selected]);
 
+  // Связи считаются по данным, а не по экземпляру graphology: узел, выделенный при открытии
+  // («Показать на графе»), выбран раньше, чем построен граф рендерера.
+  const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph]);
   const connections = useMemo(() => {
-    const gr = graphRef.current;
-    if (!selected || !gr?.hasNode(selected)) return [];
+    if (!selected || !nodeById.has(selected)) return [];
     const list: { id: string; label: string; type: string; edgeType: string; outgoing: boolean }[] = [];
-    gr.forEachEdge(selected, (_edge, attrs, source, target) => {
-      const other = source === selected ? target : source;
-      list.push({
-        id: other,
-        label: gr.getNodeAttribute(other, 'label'),
-        type: gr.getNodeAttribute(other, 'nodeType'),
-        edgeType: attrs.edgeType,
-        outgoing: source === selected
-      });
-    });
+    const seen = new Set<string>();
+    for (const e of graph.edges) {
+      if (e.source !== selected && e.target !== selected) continue;
+      const other: string = e.source === selected ? e.target : e.source;
+      const node = nodeById.get(other);
+      // Дубли пар и петли рендерер отбрасывает — список повторяет то, что нарисовано.
+      const key = directed ? `${e.source}|${e.target}` : [e.source, e.target].sort().join('|');
+      if (!node || other === selected || seen.has(key)) continue;
+      seen.add(key);
+      list.push({ id: other, label: node.label, type: node.type, edgeType: e.type, outgoing: e.source === selected });
+    }
     return list.sort((a, b) => a.edgeType.localeCompare(b.edgeType) || a.label.localeCompare(b.label));
-  }, [selected]);
+  }, [graph, nodeById, selected, directed]);
 
   const selectedEdges = useMemo(
     () => (selected && kind === 'docs' ? graph.edges.filter((e) => e.source === selected || e.target === selected) : []),
@@ -345,6 +393,8 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
           <h2 className="text-sm font-semibold text-white leading-tight">{title}</h2>
           <p className="text-[11px] text-slate-500 truncate">{subtitle}</p>
         </div>
+
+        {modeSwitch}
 
         <div className="relative ml-auto w-72 max-w-[40%]">
           <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -384,7 +434,7 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
                 >
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ background: nodeColor(n.type) }} />
                   <span className="text-xs text-slate-200 truncate">{n.label}</span>
-                  <span className="text-[10px] text-slate-500 shrink-0 ml-auto">{n.type}</span>
+                  <span className="text-[10px] text-slate-500 shrink-0 ml-auto">{typeLabel(n.type)}</span>
                 </button>
               ))}
             </div>
@@ -429,12 +479,23 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
                 <span className="w-2.5 h-2.5 rounded-full shrink-0 mt-1" style={{ background: nodeColor(selectedNode.type) }} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-slate-100 break-words">{selectedNode.label}</div>
-                  <div className="text-[11px] text-slate-500">{selectedNode.type}</div>
+                  <div className="text-[11px] text-slate-500">{typeLabel(selectedNode.type)}</div>
                 </div>
                 <button type="button" className={iconButton} onClick={() => setSelected(null)} title={t.common.close}>
                   <X className="w-4 h-4" />
                 </button>
               </div>
+
+              {onOpenNode && canOpenNode?.(selectedNode) !== false && (
+                <button
+                  type="button"
+                  onClick={() => onOpenNode(selectedNode)}
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-xs text-white"
+                  data-testid="graph-open-node"
+                >
+                  {g.openNode}
+                </button>
+              )}
 
               {typeof filePath === 'string' && (
                 <button
@@ -481,10 +542,10 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
                       onClick={() => focusNode(c.id)}
                       className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-ph-hover text-left"
                     >
-                      <span className="text-[10px] text-slate-500 w-4 shrink-0">{kind === 'code' ? (c.outgoing ? '→' : '←') : '–'}</span>
+                      <span className="text-[10px] text-slate-500 w-4 shrink-0">{directed ? (c.outgoing ? '→' : '←') : '–'}</span>
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: nodeColor(c.type) }} />
                       <span className="text-xs text-slate-300 truncate">{c.label}</span>
-                      <span className="text-[10px] text-slate-600 shrink-0 ml-auto truncate max-w-[40%]">{c.edgeType}</span>
+                      <span className="text-[10px] text-slate-600 shrink-0 ml-auto truncate max-w-[40%]">{typeLabel(c.edgeType)}</span>
                     </button>
                   ))}
                   {connections.length > MAX_LISTED_NEIGHBORS && (
@@ -522,13 +583,26 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
                         className={`w-full flex items-center gap-2 px-1.5 py-1 rounded hover:bg-ph-hover text-left ${off ? 'opacity-40' : ''}`}
                       >
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: nodeColor(type) }} />
-                        <span className="text-xs text-slate-300 truncate">{type}</span>
+                        <span className="text-xs text-slate-300 truncate">{typeLabel(type)}</span>
                         <span className="text-[11px] text-slate-500 ml-auto tabular-nums">{count}</span>
                       </button>
                     );
                   })}
                 </div>
               </section>
+
+              {orphanToggle && (
+                <label className="flex items-center gap-2 px-1.5 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={hideOrphans}
+                    onChange={(e) => setHideOrphans(e.target.checked)}
+                    className="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0"
+                    data-testid="graph-hide-orphans"
+                  />
+                  {g.hideOrphans}
+                </label>
+              )}
 
               {edgeTypes.length > 1 && (
                 <section>
@@ -544,7 +618,7 @@ export const GraphExplorer: React.FC<GraphExplorerProps> = ({
                           className={`w-full flex items-center gap-2 px-1.5 py-1 rounded hover:bg-ph-hover text-left ${off ? 'opacity-40' : ''}`}
                         >
                           <span className="w-3 h-0.5 rounded shrink-0" style={{ background: edgeColor(type) }} />
-                          <span className="text-xs text-slate-300 truncate">{type}</span>
+                          <span className="text-xs text-slate-300 truncate">{typeLabel(type)}</span>
                           <span className="text-[11px] text-slate-500 ml-auto tabular-nums">{count}</span>
                         </button>
                       );

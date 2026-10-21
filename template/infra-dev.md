@@ -234,6 +234,11 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
       документе нет: переименовал заголовок — поправь ссылки на него. Обратные ссылки («На этот
       документ ссылаются») ProjectHub собирает сам из решений, документов, задач и памяти —
       вручную такой список в документ не писать.
+    - **Obsidian**: `backlog/` открывается как хранилище Obsidian кнопкой ProjectHub «Открыть в Obsidian»;
+      `[[id]]` там разрешает плагин `projecthub-links` из `backlog/.obsidian/` (руками не править).
+      Формы, которые вставляет Obsidian (`[[decision-46 - Заголовок]]`, путь, `.md`, `![[id]]`),
+      `lint:docs` понимает, но агент пишет короткую `[[id]]`. Callout'ы Obsidian, `==выделение==` и
+      `%%комментарии%%` допустимы; картинки — `![alt](assets/…)`, не `![[файл.png]]`.
     - После создания/правки документа: убедиться, что он виден в `npx backlog.md doc list`,
       затем `npm run index-docs`. Перед коммитом — `npm run lint:docs` (делает `pre-commit`).
     - **Память проекта (`backlog/memory/`, decision-51 ProjectHub)** — не документы Backlog.md: один

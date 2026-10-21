@@ -175,6 +175,7 @@ export function emptyProjectScopedState() {
     dirtyTaskId: null as string | null,
     taskRefToOpen: null as string | null,
     memoryRefToOpen: null as string | null,
+    docsGraphFocusId: null as string | null,
     milestones: [] as Milestone[],
     processes: [] as ManagedProcess[],
     activeProcessId: null as string | null,
@@ -301,6 +302,8 @@ interface ProjectState {
   taskRefToOpen: string | null;
   /** id факта памяти, который должен показать раздел «Память». */
   memoryRefToOpen: string | null;
+  /** Узел, который вкладка «Граф документации» должна выделить при открытии (TASK-175). */
+  docsGraphFocusId: string | null;
   /** Обратные ссылки и заголовки документов проекта (TASK-122, decision-69); обновляется вместе со списком. */
   docLinkIndex: DocLinkIndex;
   /** Заголовок, к которому просмотр документа должен прокрутиться после перехода по `[[id#Заголовок]]`. */
@@ -315,6 +318,8 @@ interface ProjectState {
   goBackDoc: () => void;
   requestOpenTask: (id: string | null) => void;
   requestOpenMemory: (id: string | null) => void;
+  /** Открыть «Граф документации» с выделенным документом, задачей или фактом памяти. */
+  showOnDocsGraph: (id: string | null) => void;
 
   // Milestones State
   milestones: Milestone[];
@@ -700,6 +705,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   dirtyTaskId: null,
   taskRefToOpen: null,
   memoryRefToOpen: null,
+  docsGraphFocusId: null,
 
   milestones: [],
   isLoadingMilestones: false,
@@ -2350,6 +2356,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   requestOpenMemory: (id: string | null) => {
     set({ memoryRefToOpen: id });
     if (id && get().activeTab !== 'docs') get().setActiveTab('docs');
+  },
+
+  showOnDocsGraph: (id: string | null) => {
+    set({ docsGraphFocusId: id ? id.toLowerCase() : null });
+    if (id && get().activeTab !== 'docs-graph') get().setActiveTab('docs-graph');
   },
 
   saveDocAction: async () => {

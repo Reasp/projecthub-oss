@@ -41,6 +41,13 @@ test('ссылки в коде не считаются, подпись и яко
   assert.deepEqual([...headings], ['context']);
 });
 
+test('ссылки в форме Obsidian: имя файла, путь, встраивание, вложенный заголовок, ссылка на блок', () => {
+  const body = '[[decision-3 - Заголовок|x]] ![[decisions/decision-4.md#Context#Варианты]] [[doc-6#^abc]] [[Идеи]]';
+  const { refs, anchors } = extractDocRefs(body);
+  assert.deepEqual(refs, ['decision-3', 'decision-4', 'doc-6']);
+  assert.deepEqual(anchors, [{ id: 'decision-4', anchor: 'Варианты' }]);
+});
+
 test('проект без разделов проверку раздела не включает', () => {
   const entries = [decision(1, 'текст'), decision(2, 'см. [[decision-1]]')];
   assert.equal(crossCheckDocs(entries).size, 0);

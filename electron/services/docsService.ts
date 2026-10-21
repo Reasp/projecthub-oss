@@ -2,9 +2,10 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import matter from 'gray-matter';
-import type { DocItem, CreateDocParams, DocFileType, DecisionStatus, DocLinkIndex } from '../../src/types/electron';
+import type { DocItem, CreateDocParams, DocFileType, DecisionStatus, DocLinkIndex, ProjectGraph } from '../../src/types/electron';
 import { normalizeSection, sectionFromRelativePath } from '../../src/utils/docTree';
 import { buildDocLinkIndex, type DocLinkSource } from '../../src/utils/docBacklinks';
+import { buildDocLinkGraph, type DocGraphSource } from '../../src/utils/docLinkGraph';
 import { allocateBacklogId } from './backlogIdAllocator';
 
 /**
@@ -236,10 +237,22 @@ export async function listProjectDocs(projectPath: string): Promise<DocItem[]> {
  * Задачи читаются из файлов целиком: ссылка может стоять в плане, заметках или итоге.
  */
 export async function buildProjectDocLinkIndex(projectPath: string): Promise<DocLinkIndex> {
-  const normalizedProject = path.normalize(projectPath);
-  const sources: DocLinkSource[] = [];
+  return buildDocLinkIndex(await collectDocLinkSources(projectPath));
+}
 
-  const readSource = async (filePath: string, kind: DocLinkSource['kind']) => {
+/**
+ * Граф связей документации (TASK-175, decision-134) по тем же источникам, что и индекс обратных ссылок:
+ * решения, документы, задачи из корня `backlog/tasks` и факты памяти.
+ */
+export async function buildProjectDocLinkGraph(projectPath: string): Promise<ProjectGraph> {
+  return buildDocLinkGraph(await collectDocLinkSources(projectPath));
+}
+
+async function collectDocLinkSources(projectPath: string): Promise<DocGraphSource[]> {
+  const normalizedProject = path.normalize(projectPath);
+  const sources: DocGraphSource[] = [];
+
+  const readSource = async (filePath: string, kind: DocLinkSource['kind'], categoryRoot?: string) => {
     try {
       const raw = await fs.readFile(filePath, 'utf-8');
       let data: Record<string, unknown> = {};
@@ -256,13 +269,22 @@ export async function buildProjectDocLinkIndex(projectPath: string): Promise<Doc
           ? toOptionalString(data.id)?.trim() || fileName.match(/^(mem-\d+)/i)?.[1].toLowerCase()
           : resolveDocId(data, fileName, kind);
       if (!id) return;
-      sources.push({
+      const source: DocGraphSource = {
         id,
         kind,
         title: toOptionalString(data.title) || fileName.replace(/\.md$/i, ''),
         status: toOptionalString(data.status),
-        content: raw
-      });
+        content: raw,
+        filePath: path.relative(normalizedProject, filePath).split(path.sep).join('/')
+      };
+      // Раздел дерева: поле `section` frontmatter, иначе вложенная папка (decision-68).
+      const section =
+        normalizeSection(toOptionalString(data.section)) ??
+        (categoryRoot ? sectionFromRelativePath(path.relative(categoryRoot, filePath)) : undefined);
+      if (section) source.section = section;
+      const dependencies = toStringList(data.dependencies);
+      if (dependencies.length > 0) source.dependencies = dependencies;
+      sources.push(source);
     } catch (e) {
       console.error(`Error reading ${kind} for link index:`, filePath, e);
     }
@@ -274,7 +296,7 @@ export async function buildProjectDocLinkIndex(projectPath: string): Promise<Doc
   ];
   for (const { dir, kind } of documentDirs) {
     if (!existsSync(dir)) continue;
-    for (const filePath of await collectMarkdownFiles(dir)) await readSource(filePath, kind);
+    for (const filePath of await collectMarkdownFiles(dir)) await readSource(filePath, kind, dir);
   }
 
   // Доска показывает только задачи из корня backlog/tasks — на остальные перейти нельзя.
@@ -291,7 +313,7 @@ export async function buildProjectDocLinkIndex(projectPath: string): Promise<Doc
     }
   }
 
-  return buildDocLinkIndex(sources);
+  return sources;
 }
 
 export async function readDocFile(filePath: string): Promise<string> {

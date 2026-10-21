@@ -1087,7 +1087,16 @@ export const ru: TranslationDictionary = {
     collapseAll: 'Свернуть всё',
     section: 'Раздел',
     sectionPlaceholder: 'Например: Агенты/HITL',
-    sectionHint: 'Путь в дереве документации через «/»; пишется в поле section во frontmatter'
+    sectionHint: 'Путь в дереве документации через «/»; пишется в поле section во frontmatter',
+    openInObsidian: 'Открыть в Obsidian',
+    openInObsidianHint: 'Открыть backlog/ как хранилище Obsidian: ссылки [[id]], обратные ссылки и граф работают через плагин ProjectHub',
+    obsidianOpened: 'Хранилище открыто в Obsidian',
+    obsidianRegistered: 'Хранилище backlog/ добавлено в Obsidian и открыто. При первом открытии Obsidian спросит, доверяете ли вы автору хранилища, — разрешите плагины, чтобы работали ссылки [[id]]',
+    obsidianNeedsManual: 'Obsidian уже запущен и пока не знает это хранилище. В окне выбора нажмите «Открыть папку как хранилище» и укажите {path} — путь скопирован в буфер обмена',
+    obsidianNotInstalled: 'Obsidian не найден. Конфиг хранилища создан в {path}/.obsidian — установите Obsidian с obsidian.md и откройте эту папку как хранилище',
+    obsidianNoBacklog: 'В проекте нет каталога backlog/ — открывать в Obsidian нечего',
+    obsidianFailed: 'Не удалось открыть в Obsidian: {error}',
+    showOnGraph: 'Показать на графе'
   },
   graph: {
     codeTitle: 'Граф кода',
@@ -1128,6 +1137,25 @@ export const ru: TranslationDictionary = {
     reindexFailed: 'gitnexus analyze завершился с ошибкой — лог на вкладке «Процессы»',
     indexSettings: 'Что индексировать',
     buildIndex: 'Проиндексировать',
+    modeLinks: 'Связи',
+    modeEntities: 'Сущности (LightRAG)',
+    linksTitle: 'Граф документации',
+    linksEmpty: 'В проекте нет решений, документов, задач и фактов памяти',
+    linksEmptyHint: 'Граф строится из ссылок [[id]] между файлами backlog/',
+    linksStats: '{nodes} узлов · {edges} связей · без связей: {orphans}',
+    openNode: 'Открыть',
+    hideOrphans: 'Скрыть узлы без связей',
+    kinds: {
+      decision: 'Решение',
+      doc: 'Документ',
+      task: 'Задача',
+      mem: 'Память',
+      missing: 'Нет в проекте',
+      subtask: 'подзадача',
+      dependency: 'зависимость',
+      link: 'ссылка',
+      mention: 'упоминание'
+    }
   },
   codeIndex: {
     title: 'Индексация кода GitNexus',
@@ -2222,7 +2250,26 @@ export const ru: TranslationDictionary = {
     refNotFound: 'Ссылка ведёт на {id}, но такого документа или задачи в проекте нет',
     refDiscardConfirm: 'Открытый документ изменён и не сохранён. Перейти по ссылке и потерять правки?',
     refDiscardTaskConfirm: 'В карточке задачи есть несохранённые правки. Перейти по ссылке и потерять их?',
-    refAnchorNotFound: 'В документе {id} нет раздела «{anchor}» — он откроется с начала'
+    refAnchorNotFound: 'В документе {id} нет раздела «{anchor}» — он откроется с начала',
+    refEmbed: 'Встраивание Obsidian: текст показывается в Obsidian, здесь — ссылка',
+    wikiNotBacklog: 'Ссылка Obsidian на «{name}» — это не документ, решение, задача или факт памяти Backlog.md',
+    callouts: {
+      note: 'Заметка',
+      abstract: 'Кратко',
+      info: 'Информация',
+      todo: 'Сделать',
+      tip: 'Совет',
+      success: 'Готово',
+      question: 'Вопрос',
+      warning: 'Внимание',
+      failure: 'Не получилось',
+      danger: 'Опасно',
+      bug: 'Ошибка',
+      example: 'Пример',
+      quote: 'Цитата',
+      important: 'Важно',
+      caution: 'Осторожно'
+    }
   },
   explorer: {
     title: 'Файлы проекта',

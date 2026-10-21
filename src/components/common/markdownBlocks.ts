@@ -7,14 +7,73 @@ export interface MarkdownBlock {
   level?: number;
   lang?: string;
   code?: string;
-  alertType?: 'note' | 'tip' | 'important' | 'warning' | 'caution';
+  alertType?: CalloutType;
+  /** Свой заголовок callout'а Obsidian (`> [!tip] Заголовок`); без него показывается название типа. */
   alertTitle?: string;
   alertContent?: string;
+  /** Сворачиваемый callout Obsidian: `[!faq]-` — свёрнут, `[!faq]+` — развёрнут. */
+  alertFold?: 'open' | 'closed';
   rows?: string[][];
   headers?: string[];
   items?: string[];
   ordered?: boolean;
   raw?: string;
+}
+
+/** Типы callout'ов Obsidian (GitHub-alerts — их подмножество: note, tip, important, warning, caution). */
+export type CalloutType =
+  | 'note'
+  | 'abstract'
+  | 'info'
+  | 'todo'
+  | 'tip'
+  | 'success'
+  | 'question'
+  | 'warning'
+  | 'failure'
+  | 'danger'
+  | 'bug'
+  | 'example'
+  | 'quote'
+  | 'important'
+  | 'caution';
+
+/** Синонимы типов, как в Obsidian; неизвестный тип показывается как `note` (так делает и Obsidian). */
+const CALLOUT_ALIASES: Record<string, CalloutType> = {
+  summary: 'abstract',
+  tldr: 'abstract',
+  hint: 'tip',
+  check: 'success',
+  done: 'success',
+  help: 'question',
+  faq: 'question',
+  attention: 'warning',
+  fail: 'failure',
+  missing: 'failure',
+  error: 'danger',
+  cite: 'quote'
+};
+
+const CALLOUT_TYPES = new Set<string>([
+  'note', 'abstract', 'info', 'todo', 'tip', 'success', 'question', 'warning',
+  'failure', 'danger', 'bug', 'example', 'quote', 'important', 'caution'
+]);
+
+export function calloutType(raw: string): CalloutType {
+  const key = raw.toLowerCase();
+  if (CALLOUT_TYPES.has(key)) return key as CalloutType;
+  return CALLOUT_ALIASES[key] ?? 'note';
+}
+
+/**
+ * Комментарии Obsidian `%%…%%` (TASK-178) не показываются. Внутри блоков кода `%%` — текст, его не трогаем.
+ */
+export function stripObsidianComments(text: string): string {
+  if (!text.includes('%%')) return text;
+  return text
+    .split(/(```[\s\S]*?(?:```|$))/g)
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(/%%[\s\S]*?(?:%%|$)/g, '')))
+    .join('');
 }
 
 export function parseMarkdownBlocks(text: string): MarkdownBlock[] {
@@ -26,6 +85,7 @@ export function parseMarkdownBlocks(text: string): MarkdownBlock[] {
       cleanText = cleanText.substring(endMatch + 4).trim();
     }
   }
+  cleanText = stripObsidianComments(cleanText);
 
   const lines = cleanText.split('\n');
   const blocks: MarkdownBlock[] = [];
@@ -94,26 +154,26 @@ export function parseMarkdownBlocks(text: string): MarkdownBlock[] {
       continue;
     }
 
-    // 5. GitHub Style Alerts (> [!NOTE], > [!TIP], etc)
-    const alertMatch = trimmed.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+    // 5. Callout Obsidian и GitHub-alert: `> [!tip]`, `> [!faq]- Свой заголовок` (TASK-178).
+    // Текст после маркера — заголовок, как в Obsidian; GitHub такой alert не рисует вовсе.
+    const alertMatch = trimmed.match(/^>\s*\[!([a-z][\w-]*)\]([+-]?)\s*(.*)$/i);
     if (alertMatch) {
-      const aType = alertMatch[1].toLowerCase() as any;
-      const firstLineText = alertMatch[2];
       const alertLines: string[] = [];
-      if (firstLineText) alertLines.push(firstLineText);
-
       i++;
       while (i < lines.length && lines[i].trim().startsWith('>')) {
         alertLines.push(lines[i].trim().replace(/^>\s?/, ''));
         i++;
       }
 
-      blocks.push({
+      const block: MarkdownBlock = {
         type: 'alert',
-        alertType: aType,
-        alertTitle: alertMatch[1].toUpperCase(),
+        alertType: calloutType(alertMatch[1]),
         alertContent: alertLines.join('\n').trim()
-      });
+      };
+      const title = alertMatch[3].trim();
+      if (title) block.alertTitle = title;
+      if (alertMatch[2]) block.alertFold = alertMatch[2] === '-' ? 'closed' : 'open';
+      blocks.push(block);
       continue;
     }
 

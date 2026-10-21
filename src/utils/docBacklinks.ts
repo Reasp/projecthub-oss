@@ -29,21 +29,31 @@ function proseFragments(markdown: string): string[] {
   return fragments;
 }
 
-/** Идентификаторы (в нижнем регистре, без повторов), на которые ссылается текст. */
-export function collectRefTargets(markdown: string): string[] {
-  const targets = new Set<string>();
+/**
+ * Ссылки текста: id в нижнем регистре → `link` (вики-ссылка или ссылка на файл) либо `mention` (идентификатор
+ * без скобок). Если на объект есть и то и другое, побеждает `link`.
+ */
+export function collectRefs(markdown: string): Map<string, 'link' | 'mention'> {
+  const refs = new Map<string, 'link' | 'mention'>();
   for (const fragment of proseFragments(markdown)) {
     const withoutCode = fragment.replace(/`[^`]+`/g, ' ');
     const withoutLinks = withoutCode.replace(/\[[^\]]+\]\(([^)]+)\)/g, (_match, href: string) => {
       const fileRef = docRefFromHref(href);
-      if (fileRef) targets.add(fileRef.id);
+      if (fileRef) refs.set(fileRef.id, 'link');
       return ' ';
     });
     for (const token of tokenizeDocRefs(withoutLinks)) {
-      if (token.type === 'ref') targets.add(token.id);
+      if (token.type !== 'ref') continue;
+      if (token.wiki) refs.set(token.id, 'link');
+      else if (!refs.has(token.id)) refs.set(token.id, 'mention');
     }
   }
-  return [...targets];
+  return refs;
+}
+
+/** Идентификаторы (в нижнем регистре, без повторов), на которые ссылается текст. */
+export function collectRefTargets(markdown: string): string[] {
+  return [...collectRefs(markdown).keys()];
 }
 
 /** Ключи заголовков документа в порядке появления, без повторов. */

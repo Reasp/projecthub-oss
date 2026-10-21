@@ -1086,7 +1086,16 @@ export const en: TranslationDictionary = {
     collapseAll: 'Collapse all',
     section: 'Section',
     sectionPlaceholder: 'For example: Agents/HITL',
-    sectionHint: 'Path in the documentation tree, separated by “/”; stored in the section frontmatter field'
+    sectionHint: 'Path in the documentation tree, separated by “/”; stored in the section frontmatter field',
+    openInObsidian: 'Open in Obsidian',
+    openInObsidianHint: 'Open backlog/ as an Obsidian vault: [[id]] links, backlinks and graph work via the ProjectHub plugin',
+    obsidianOpened: 'Vault opened in Obsidian',
+    obsidianRegistered: 'The backlog/ vault was added to Obsidian and opened. On first open Obsidian asks whether you trust the vault author — enable plugins so [[id]] links resolve',
+    obsidianNeedsManual: 'Obsidian is already running and does not know this vault yet. In the vault picker choose “Open folder as vault” and select {path} — the path is copied to the clipboard',
+    obsidianNotInstalled: 'Obsidian was not found. The vault config was created in {path}/.obsidian — install Obsidian from obsidian.md and open this folder as a vault',
+    obsidianNoBacklog: 'The project has no backlog/ folder — nothing to open in Obsidian',
+    obsidianFailed: 'Could not open in Obsidian: {error}',
+    showOnGraph: 'Show on graph'
   },
   graph: {
     codeTitle: 'Code graph',
@@ -1127,6 +1136,25 @@ export const en: TranslationDictionary = {
     reindexFailed: 'gitnexus analyze failed — see the log on the Processes tab',
     indexSettings: 'What to index',
     buildIndex: 'Build index',
+    modeLinks: 'Links',
+    modeEntities: 'Entities (LightRAG)',
+    linksTitle: 'Documentation graph',
+    linksEmpty: 'The project has no decisions, documents, tasks or memory facts',
+    linksEmptyHint: 'The graph is built from [[id]] links between backlog/ files',
+    linksStats: '{nodes} nodes · {edges} links · unlinked: {orphans}',
+    openNode: 'Open',
+    hideOrphans: 'Hide unlinked nodes',
+    kinds: {
+      decision: 'Decision',
+      doc: 'Document',
+      task: 'Task',
+      mem: 'Memory',
+      missing: 'Not in project',
+      subtask: 'subtask',
+      dependency: 'dependency',
+      link: 'link',
+      mention: 'mention'
+    }
   },
   codeIndex: {
     title: 'GitNexus code indexing',
@@ -2220,7 +2248,26 @@ export const en: TranslationDictionary = {
     refNotFound: 'The link points to {id}, but the project has no such document or task',
     refDiscardConfirm: 'The open document has unsaved changes. Follow the link and discard them?',
     refDiscardTaskConfirm: 'The task card has unsaved changes. Follow the link and discard them?',
-    refAnchorNotFound: 'Document {id} has no section "{anchor}" — it will open from the top'
+    refAnchorNotFound: 'Document {id} has no section "{anchor}" — it will open from the top',
+    refEmbed: 'Obsidian embed: the text is shown in Obsidian, here it is a link',
+    wikiNotBacklog: 'Obsidian link to "{name}" — not a Backlog.md document, decision, task or memory fact',
+    callouts: {
+      note: 'Note',
+      abstract: 'Abstract',
+      info: 'Info',
+      todo: 'Todo',
+      tip: 'Tip',
+      success: 'Success',
+      question: 'Question',
+      warning: 'Warning',
+      failure: 'Failure',
+      danger: 'Danger',
+      bug: 'Bug',
+      example: 'Example',
+      quote: 'Quote',
+      important: 'Important',
+      caution: 'Caution'
+    }
   },
   explorer: {
     title: 'Project Files',

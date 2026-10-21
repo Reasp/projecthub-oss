@@ -971,6 +971,13 @@ export interface DocLinkIndex {
   headings: Record<string, string[]>;
 }
 
+/** Итог «Открыть в Obsidian» (decision-133): `written` — созданные или обновлённые файлы `.obsidian/`. */
+export type ObsidianOpenResult =
+  | { status: 'opened'; vaultPath: string; written: string[]; registered: boolean }
+  | { status: 'needs-manual'; vaultPath: string; written: string[] }
+  | { status: 'not-installed'; vaultPath: string; written: string[] }
+  | { status: 'no-backlog' };
+
 /** Тип документа во frontmatter Backlog.md (`type:`), правило 13 CLAUDE.md. */
 export type DocFileType = 'guide' | 'readme' | 'specification' | 'other';
 /** Статус ADR во frontmatter Backlog.md (`status:`), правило 13 CLAUDE.md. */
@@ -1006,6 +1013,10 @@ export interface IElectronAPI {
   // Documentation & ADR Decisions
   listDocs: (projectPath: string) => Promise<DocItem[]>;
   getDocLinkIndex: (projectPath: string) => Promise<DocLinkIndex>;
+  /** Граф ссылок решений, документов, задач и памяти (TASK-175, decision-134). */
+  getDocLinkGraph: (projectPath: string) => Promise<ProjectGraph>;
+  /** Готовит `backlog/` как хранилище Obsidian и открывает его (TASK-178, decision-133). */
+  openDocsInObsidian: (projectPath: string) => Promise<ObsidianOpenResult>;
   readDoc: (filePath: string) => Promise<string>;
   saveDoc: (filePath: string, content: string) => Promise<boolean>;
   createDoc: (projectPath: string, params: CreateDocParams) => Promise<DocItem>;

@@ -65,6 +65,8 @@ const api: IElectronAPI = {
   // Documentation & ADR Decisions
   listDocs: (projectPath: string) => ipcRenderer.invoke('docs:list', projectPath),
   getDocLinkIndex: (projectPath: string) => ipcRenderer.invoke('docs:linkIndex', projectPath),
+  getDocLinkGraph: (projectPath: string) => ipcRenderer.invoke('docs:linkGraph', projectPath),
+  openDocsInObsidian: (projectPath: string) => ipcRenderer.invoke('docs:openInObsidian', projectPath),
   readDoc: (filePath: string) => ipcRenderer.invoke('docs:read', filePath),
   saveDoc: (filePath: string, content: string) => ipcRenderer.invoke('docs:save', filePath, content),
   createDoc: (projectPath: string, params: any) => ipcRenderer.invoke('docs:create', projectPath, params),

@@ -122,10 +122,13 @@ export function colorForType(type: string, table: Record<string, string> = {}): 
   return table[type] ?? FALLBACK_PALETTE[hashString(type) % FALLBACK_PALETTE.length];
 }
 
-export type GraphKind = 'code' | 'docs';
+/** `docs` — граф сущностей LightRAG, `links` — граф ссылок документации (TASK-175, decision-134). */
+export type GraphKind = 'code' | 'docs' | 'links';
 
 /** Размер узла: базовый по типу (для кода) плюс логарифм степени — хабы заметнее, но не заслоняют граф. */
 export function nodeSize(kind: GraphKind, type: string, degree: number): number {
+  // Граф ссылок плотный (сотни узлов, тысячи связей): узлы мельче, иначе хабы слипаются в один клубок.
+  if (kind === 'links') return Math.min(14, 3 + Math.log2(1 + Math.max(0, degree)) * 1.1);
   const base = kind === 'code' ? (GITNEXUS_NODE_SIZES[type] ?? 3) : 5;
   const bump = Math.log2(1 + Math.max(0, degree));
   return Math.min(kind === 'code' ? 24 : 28, base + bump * (kind === 'code' ? 0.8 : 2));
@@ -235,7 +238,23 @@ export function initialPositions(graph: ProjectGraph, seed = 1): Map<string, { x
  * Параметры ForceAtlas2 по размеру графа — те же ступени, что у web UI GitNexus 1.6. Чем больше граф, тем слабее
  * гравитация и сильнее отталкивание: иначе десятки тысяч узлов сжимаются в один плотный клубок.
  */
-export function fa2Settings(order: number) {
+export function fa2Settings(order: number, kind: GraphKind = 'code') {
+  if (kind === 'links') {
+    // LinLog разводит группы связанных документов, как граф Obsidian; сильная гравитация не даёт
+    // документам без связей улететь на край.
+    return {
+      gravity: 1,
+      scalingRatio: 30,
+      slowDown: 2,
+      barnesHutOptimize: order > 200,
+      barnesHutTheta: 0.6,
+      strongGravityMode: true,
+      outboundAttractionDistribution: true,
+      linLogMode: true,
+      adjustSizes: false,
+      edgeWeightInfluence: 0.5
+    };
+  }
   const tiny = order < 500;
   const small = order >= 500 && order < 2000;
   const medium = order >= 2000 && order < 10000;

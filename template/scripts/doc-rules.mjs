@@ -40,10 +40,18 @@ export function isInSubfolder(relPath) {
 export function extractDocRefs(body) {
   const withoutFences = body.replace(/```[\s\S]*?```/g, '');
   const prose = withoutFences.replace(/`[^`\n]*`/g, '');
-  const matches = [...prose.matchAll(/\[\[\s*((?:decision|doc)-\d+)\s*(?:#([^\]|\n]*))?(?:\|[^\]\n]*)?\]\]/gi)];
+  // Формы Obsidian тоже ссылки: имя файла [[decision-2 - Заголовок]], путь, .md, встраивание ![[…]],
+  // вложенный заголовок #A#B (берётся последний), ссылка на блок #^id якорем не считается.
+  const matches = [
+    ...prose.matchAll(
+      /!?\[\[\s*(?:[^[\]|#\n]*[\\/])?((?:decision|doc)-\d+)(?:\s+-\s[^[\]|#\n]*?)?(?:\.md)?\s*(?:#([^\]|\n]*))?(?:\|[^\]\n]*)?\]\]/gi
+    ),
+  ];
   return {
     refs: [...new Set(matches.map((m) => m[1].toLowerCase()))],
-    anchors: matches.filter((m) => m[2] && m[2].trim()).map((m) => ({ id: m[1].toLowerCase(), anchor: m[2].trim() })),
+    anchors: matches
+      .map((m) => ({ id: m[1].toLowerCase(), anchor: (m[2] ?? '').split('#').pop().trim() }))
+      .filter((ref) => ref.anchor && !ref.anchor.startsWith('^')),
     headings: new Set([...withoutFences.matchAll(/^#{1,6}\s+(.*)$/gm)].map((m) => headingAnchorKey(m[1]))),
   };
 }

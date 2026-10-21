@@ -18,7 +18,15 @@ import {
 } from '../services/backlogTaskFormat';
 import { createBacklogTaskFile } from '../services/backlogTaskCreate';
 import { readBacklogConfig } from '../services/backlogConfigService';
-import { listProjectDocs, readDocFile, saveDocFile, createProjectDoc, buildProjectDocLinkIndex } from '../services/docsService';
+import {
+  listProjectDocs,
+  readDocFile,
+  saveDocFile,
+  createProjectDoc,
+  buildProjectDocLinkIndex,
+  buildProjectDocLinkGraph
+} from '../services/docsService';
+import { openProjectInObsidian } from '../services/obsidianVault';
 import { listMilestones, createMilestone, saveMilestone, deleteMilestone } from '../services/milestoneService';
 import { assertInsideRegisteredProject, assertRegisteredProject } from '../services/projectPathGuard';
 import { DEFAULT_TASK_STATUS } from '../../src/utils/taskStatus.js';
@@ -248,6 +256,15 @@ export function registerBacklogIpc(ctx: IpcContext) {
 
   ipcMain.handle('docs:linkIndex', async (_event, projectPath: string) => {
     return await buildProjectDocLinkIndex(projectPath);
+  });
+
+  // Граф связей документации (TASK-175, decision-134) и хранилище Obsidian (TASK-178, decision-133).
+  ipcMain.handle('docs:linkGraph', async (_event, projectPath: string) => {
+    return await buildProjectDocLinkGraph(await assertRegisteredProject(projectPath));
+  });
+
+  ipcMain.handle('docs:openInObsidian', async (_event, projectPath: string) => {
+    return await openProjectInObsidian(await assertRegisteredProject(projectPath));
   });
 
   ipcMain.handle('docs:read', async (_event, filePath: string) => {

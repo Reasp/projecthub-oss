@@ -18,7 +18,9 @@ import {
   Code,
   List,
   Quote,
-  Brain
+  Brain,
+  ExternalLink,
+  ShareNetwork
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -29,6 +31,7 @@ import { MemoryView } from './MemoryView';
 import { DocsTree } from './DocsTree';
 import { DocBacklinks } from './DocBacklinks';
 import { headingAnchorKey } from '../../utils/docRefs';
+import { useDialog } from '../../hooks/useDialog';
 
 export const DocsRagView: React.FC = () => {
   const { t } = useTranslation();
@@ -51,8 +54,30 @@ export const DocsRagView: React.FC = () => {
     docLinkIndex,
     docAnchorToOpen,
     docOpenSeq,
-    setDocAnchorToOpen
+    setDocAnchorToOpen,
+    showOnDocsGraph
   } = useProjectStore();
+  const { alert } = useDialog();
+  const [isOpeningObsidian, setIsOpeningObsidian] = useState(false);
+
+  // `backlog/` как хранилище Obsidian (TASK-178, decision-133).
+  const handleOpenInObsidian = async () => {
+    if (!selectedProject || !window.api) return;
+    setIsOpeningObsidian(true);
+    try {
+      const result = await window.api.openDocsInObsidian(selectedProject.path);
+      if (result.status === 'no-backlog') await alert(t.docs.obsidianNoBacklog);
+      else if (result.status === 'not-installed') await alert(t.docs.obsidianNotInstalled.replace('{path}', result.vaultPath));
+      else if (result.status === 'needs-manual') {
+        await navigator.clipboard.writeText(result.vaultPath).catch(() => undefined);
+        await alert(t.docs.obsidianNeedsManual.replace('{path}', result.vaultPath));
+      } else if (result.registered) await alert(t.docs.obsidianRegistered);
+    } catch (err) {
+      await alert(t.docs.obsidianFailed.replace('{error}', err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsOpeningObsidian(false);
+    }
+  };
 
   const [ragStats, setRagStats] = useState<{ hasIndex: boolean; chunksCount: number; lastModified?: string }>({
     hasIndex: false,
@@ -273,6 +298,17 @@ export const DocsRagView: React.FC = () => {
           </button>
 
           <button
+            onClick={() => void handleOpenInObsidian()}
+            disabled={isOpeningObsidian}
+            title={t.docs.openInObsidianHint}
+            data-testid="docs-open-obsidian"
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs text-slate-300 hover:bg-ph-hover hover:text-white transition disabled:opacity-50 shrink-0 whitespace-nowrap"
+          >
+            <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">{t.docs.openInObsidian}</span>
+          </button>
+
+          <button
             onClick={handleReindex}
             disabled={isReindexing}
             title={t.rag.rebuildIndex}
@@ -408,6 +444,14 @@ export const DocsRagView: React.FC = () => {
 
                 {/* View Mode Switcher & Save Button */}
                 <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => showOnDocsGraph(selectedDoc.id)}
+                    title={t.docs.showOnGraph}
+                    data-testid="docs-show-on-graph"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                  >
+                    <ShareNetwork className="w-4 h-4" />
+                  </button>
                   <div className="flex items-center bg-ph-elevated p-1 rounded-xl border border-slate-800 text-xs">
                     <button
                       onClick={() => setViewMode('preview')}

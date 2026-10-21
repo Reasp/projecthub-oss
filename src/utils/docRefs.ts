@@ -2,6 +2,9 @@
  * Перекрёстные ссылки Backlog.md в тексте Markdown (TASK-121, decision-68): `[[decision-46]]`,
  * `[[doc-5|подпись]]`, `[[TASK-103]]`, `[[mem-3]]` и те же идентификаторы без скобок.
  * Ссылка на заголовок документа — `[[decision-46#Decision]]` (TASK-122, decision-69).
+ * Формы Obsidian (TASK-178, decision-133): имя файла `[[decision-46 - Заголовок]]`, путь
+ * `[[decisions/decision-46 - Заголовок.md]]`, встраивание `![[doc-5]]`, вложенный заголовок `#A#B`,
+ * ссылка на блок `#^id` (якорем не считается).
  * Чистый модуль без React/Electron — разбор покрыт unit-тестами.
  */
 export type DocRefKind = 'decision' | 'doc' | 'task' | 'mem';
@@ -16,18 +19,40 @@ export interface DocRef {
   wiki: boolean;
   /** Заголовок внутри документа после `#`, как он написан в ссылке. */
   anchor?: string;
+  /** Встраивание Obsidian `![[…]]`: показывается ссылкой-карточкой, а не текстом документа. */
+  embed?: boolean;
 }
 
 export type DocRefToken = { type: 'text'; value: string } | ({ type: 'ref' } & DocRef);
 
 const ID = '(?:decision|doc|task|mem)-\\d+(?:\\.\\d+)*';
 
+// Цель вики-ссылки: идентификатор, либо имя файла Backlog.md в форме Obsidian — с необязательной папкой,
+// заголовком после « - » и расширением `.md`. Сопоставление по идентификатору, остальное — для чтения.
+const WIKI_TARGET = `((?:[^\\[\\]|#\\n]*[\\\\/])?(${ID})(?:\\s+-\\s[^\\[\\]|#\\n]*?)?(?:\\.md)?)`;
+
+// Группы: 1 — `!` встраивания, 2 — цель как написана, 3 — id, 4 — якорь, 5 — подпись, 6 — упоминание без скобок.
 // Упоминание без скобок не считается ссылкой внутри пути или имени файла
 // (`backlog/docs/doc-7 - Аудит.md`, `task-28-fix`) и внутри более длинного слова.
 const REF_PATTERN = new RegExp(
-  `\\[\\[\\s*(${ID})\\s*(?:#([^\\]|\\n]*))?(?:\\|([^\\]\\n]*))?\\]\\]|(?<![\\p{L}\\p{N}_/\\\\.-])(${ID})(?![\\p{L}\\p{N}_-]|\\s+-\\s)`,
+  `(!?)\\[\\[\\s*${WIKI_TARGET}\\s*(?:#([^\\]|\\n]*))?(?:\\|([^\\]\\n]*))?\\]\\]|(?<![\\p{L}\\p{N}_/\\\\.-])(${ID})(?![\\p{L}\\p{N}_-]|\\s+-\\s)`,
   'giu'
 );
+
+/**
+ * Якорь вики-ссылки: Obsidian пишет вложенный заголовок как `#Раздел#Подраздел` — берём последний уровень;
+ * `#^id` — ссылка на блок, у Backlog.md таких меток нет, поэтому якорем не считается.
+ */
+export function wikiAnchor(raw: string | undefined): string | undefined {
+  const last = raw?.split('#').pop()?.trim();
+  return last && !last.startsWith('^') ? last : undefined;
+}
+
+/** Подпись ссылки без явной подписи: как её показывает Obsidian — цель без папки и `.md`. */
+function wikiLabel(target: string, id: string): string {
+  const name = target.trim().split(/[\\/]/).pop() ?? id;
+  return name.replace(/\.md$/i, '').trim() || id;
+}
 
 export function docRefKind(id: string): DocRefKind | null {
   const match = id.trim().toLowerCase().match(/^(decision|doc|task|mem)-\d+(?:\.\d+)*$/);
@@ -52,15 +77,17 @@ export function tokenizeDocRefs(text: string): DocRefToken[] {
   let last = 0;
   for (const match of text.matchAll(REF_PATTERN)) {
     const index = match.index ?? 0;
-    const wiki = match[1] !== undefined;
-    const rawId = wiki ? match[1] : match[4];
+    const wiki = match[3] !== undefined;
+    const rawId = wiki ? match[3] : match[6];
     const kind = docRefKind(rawId);
     if (!kind) continue;
     if (index > last) tokens.push({ type: 'text', value: text.slice(last, index) });
-    const anchor = wiki ? match[2]?.trim() : undefined;
-    const alias = wiki ? match[3]?.trim() : undefined;
-    const ref: DocRef = { kind, id: rawId.toLowerCase(), label: alias || (anchor ? `${rawId}#${anchor}` : rawId), wiki };
+    const anchor = wiki ? wikiAnchor(match[4]) : undefined;
+    const alias = wiki ? match[5]?.trim() : undefined;
+    const shown = wiki ? wikiLabel(match[2], rawId) : rawId;
+    const ref: DocRef = { kind, id: rawId.toLowerCase(), label: alias || (anchor ? `${shown}#${anchor}` : shown), wiki };
     if (anchor) ref.anchor = anchor;
+    if (match[1]) ref.embed = true;
     tokens.push({ type: 'ref', ...ref });
     last = index + match[0].length;
   }

@@ -1,7 +1,25 @@
 import React, { createContext, useContext } from 'react';
 import { MermaidDiagram } from './MermaidDiagram';
-import { parseMarkdownBlocks, type MarkdownBlock } from './markdownBlocks';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Lightbulb, Flame } from './icons';
+import { parseMarkdownBlocks, type CalloutType, type MarkdownBlock } from './markdownBlocks';
+import {
+  Copy,
+  Check,
+  Info,
+  AlertTriangle,
+  AlertCircle,
+  Lightbulb,
+  Flame,
+  FileText,
+  ListTodo,
+  CheckCircle2,
+  HelpCircle,
+  XCircle,
+  Zap,
+  List,
+  Quote,
+  ChevronRight,
+  Layers
+} from './icons';
 import { useI18n } from '../../i18n';
 import { useTimeoutState } from '../../hooks/useTimeoutState';
 import { useDocRefs, type DocRefNavigation } from '../../hooks/useDocRefs';
@@ -90,7 +108,9 @@ const BlockRenderer: React.FC<{ block: MarkdownBlock }> = ({ block }) => {
       return <CodeBlock lang={block.lang || 'text'} code={block.code || ''} />;
 
     case 'alert':
-      return <AlertBlock type={block.alertType || 'note'} title={block.alertTitle} content={block.alertContent || ''} />;
+      return (
+        <AlertBlock type={block.alertType || 'note'} title={block.alertTitle} fold={block.alertFold} content={block.alertContent || ''} />
+      );
 
     case 'table':
       return <TableBlock headers={block.headers || []} rows={block.rows || []} />;
@@ -174,32 +194,74 @@ const CodeBlock: React.FC<{ lang: string; code: string }> = ({ lang, code }) => 
   );
 };
 
-const AlertBlock: React.FC<{ type: 'note' | 'tip' | 'important' | 'warning' | 'caution'; title?: string; content: string }> = ({
+type CalloutStyle = { icon: React.ComponentType<{ className?: string }>; border: string; bg: string; text: string };
+
+const BLUE: Omit<CalloutStyle, 'icon'> = { border: 'border-blue-500/40', bg: 'bg-blue-950/20', text: 'text-blue-400' };
+const CYAN: Omit<CalloutStyle, 'icon'> = { border: 'border-cyan-500/40', bg: 'bg-cyan-950/20', text: 'text-cyan-400' };
+const GREEN: Omit<CalloutStyle, 'icon'> = { border: 'border-emerald-500/40', bg: 'bg-emerald-950/20', text: 'text-emerald-400' };
+const AMBER: Omit<CalloutStyle, 'icon'> = { border: 'border-amber-500/40', bg: 'bg-amber-950/20', text: 'text-amber-400' };
+const RED: Omit<CalloutStyle, 'icon'> = { border: 'border-red-500/40', bg: 'bg-red-950/20', text: 'text-red-400' };
+
+/** Цвета и значки callout'ов в духе Obsidian (TASK-178): те же группы цветов, палитра приложения. */
+const CALLOUT_STYLES: Record<CalloutType, CalloutStyle> = {
+  note: { icon: Info, ...BLUE },
+  abstract: { icon: FileText, ...CYAN },
+  info: { icon: Info, ...BLUE },
+  todo: { icon: ListTodo, ...BLUE },
+  tip: { icon: Lightbulb, ...CYAN },
+  success: { icon: CheckCircle2, ...GREEN },
+  question: { icon: HelpCircle, ...AMBER },
+  warning: { icon: AlertTriangle, ...AMBER },
+  failure: { icon: XCircle, ...RED },
+  danger: { icon: Zap, ...RED },
+  bug: { icon: AlertCircle, ...RED },
+  example: { icon: List, border: 'border-violet-500/40', bg: 'bg-violet-950/20', text: 'text-violet-400' },
+  quote: { icon: Quote, border: 'border-slate-500/40', bg: 'bg-slate-800/30', text: 'text-slate-400' },
+  important: { icon: Flame, border: 'border-indigo-500/40', bg: 'bg-indigo-950/20', text: 'text-indigo-400' },
+  caution: { icon: AlertCircle, ...RED }
+};
+
+/**
+ * Callout Obsidian и GitHub-alert. Содержимое — обычный Markdown (списки, код, вложенные callout'ы), поэтому
+ * разбирается на блоки заново; сворачиваемый callout (`[!faq]-`) рисуется через `<details>`.
+ */
+const AlertBlock: React.FC<{ type: CalloutType; title?: string; fold?: 'open' | 'closed'; content: string }> = ({
   type,
   title,
+  fold,
   content
 }) => {
-  const config = {
-    note: { icon: Info, border: 'border-blue-500/40', bg: 'bg-blue-950/20', text: 'text-blue-400', label: 'NOTE' },
-    tip: { icon: Lightbulb, border: 'border-emerald-500/40', bg: 'bg-emerald-950/20', text: 'text-emerald-400', label: 'TIP' },
-    important: { icon: Flame, border: 'border-indigo-500/40', bg: 'bg-indigo-950/20', text: 'text-indigo-400', label: 'IMPORTANT' },
-    warning: { icon: AlertTriangle, border: 'border-amber-500/40', bg: 'bg-amber-950/20', text: 'text-amber-400', label: 'WARNING' },
-    caution: { icon: AlertCircle, border: 'border-red-500/40', bg: 'bg-red-950/20', text: 'text-red-400', label: 'CAUTION' }
-  }[type] || { icon: Info, border: 'border-blue-500/40', bg: 'bg-blue-950/20', text: 'text-blue-400', label: 'NOTE' };
-
+  const { t } = useI18n();
+  const config = CALLOUT_STYLES[type] ?? CALLOUT_STYLES.note;
   const IconComp = config.icon;
+  const heading = (
+    <span className={`flex items-center gap-2 text-[11px] font-medium ${config.text}`}>
+      <IconComp className="w-4 h-4 shrink-0" />
+      <InlineMarkdown text={title || t.markdown.callouts[type]} />
+      {fold && <ChevronRight className="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" />}
+    </span>
+  );
+  const body = content ? (
+    <div className="mt-2 pl-6 space-y-2 text-xs text-slate-300 leading-relaxed">
+      {parseMarkdownBlocks(content).map((block, idx) => (
+        <BlockRenderer key={idx} block={block} />
+      ))}
+    </div>
+  ) : null;
+  const frame = `my-4 p-4 rounded-xl border ${config.border} ${config.bg} shadow-md`;
 
+  if (fold) {
+    return (
+      <details className={`${frame} group`} open={fold === 'open'} data-callout={type}>
+        <summary className="list-none cursor-pointer select-none [&::-webkit-details-marker]:hidden">{heading}</summary>
+        {body}
+      </details>
+    );
+  }
   return (
-    <div className={`my-4 p-4 rounded-xl border ${config.border} ${config.bg} flex items-start gap-3 shadow-md`}>
-      <IconComp className={`w-4 h-4 shrink-0 mt-0.5 ${config.text}`} />
-      <div className="flex-1 space-y-1">
-        <div className={`text-[11px] font-medium ${config.text}`}>
-          {title || config.label}
-        </div>
-        <div className="text-xs text-slate-300 leading-relaxed">
-          <InlineMarkdown text={content} />
-        </div>
-      </div>
+    <div className={frame} data-callout={type}>
+      {heading}
+      {body}
     </div>
   );
 };
@@ -344,7 +406,14 @@ const DocRefLink: React.FC<{ docRef: DocRef; nav: DocRefNavigation | null; child
 }) => {
   const { t } = useI18n();
   const resolved = nav?.resolve(docRef) ?? null;
-  const label = children ?? docRef.label;
+  const label = docRef.embed ? (
+    <span className="inline-flex items-center gap-1 align-baseline">
+      <Layers className="w-3 h-3 shrink-0 opacity-70" />
+      {children ?? docRef.label}
+    </span>
+  ) : (
+    children ?? docRef.label
+  );
 
   if (!nav || !resolved) {
     if (!docRef.wiki) return <>{label}</>;
@@ -361,6 +430,7 @@ const DocRefLink: React.FC<{ docRef: DocRef; nav: DocRefNavigation | null; child
   }
 
   const title = [
+    docRef.embed ? `${t.markdown.refEmbed}.` : '',
     resolved.title !== docRef.id ? resolved.title : '',
     resolved.status ? `[${resolved.status}]` : '',
     resolved.anchorMissing
@@ -394,18 +464,36 @@ const DocRefLink: React.FC<{ docRef: DocRef; nav: DocRefNavigation | null; child
   );
 };
 
+/**
+ * Вики-ссылка Obsidian на заметку без идентификатора Backlog.md (`[[Идеи]]`, `![[схема.png]]`): открыть её
+ * в ProjectHub нечем, поэтому показываем подпись без скобок, приглушённо, с объяснением в подсказке.
+ */
+const WikiPlain: React.FC<{ raw: string }> = ({ raw }) => {
+  const { t } = useI18n();
+  const inner = raw.replace(/^!?\[\[|\]\]$/g, '');
+  const [target, alias] = inner.split('|');
+  const name = target.split('#')[0].trim();
+  return (
+    <span title={t.markdown.wikiNotBacklog.replace('{name}', name)} className="text-slate-400 underline decoration-dotted decoration-slate-600 underline-offset-2 cursor-help">
+      {(alias ?? target).trim()}
+    </span>
+  );
+};
+
 function renderTextWithRefs(text: string, keyPrefix: string, nav: DocRefNavigation | null): React.ReactNode {
   const tokens = tokenizeDocRefs(text);
-  if (tokens.length === 1 && tokens[0].type === 'text') return text;
+  if (tokens.length === 1 && tokens[0].type === 'text') {
+    return /^!?\[\[[^\]\n]+\]\]$/.test(text) ? <WikiPlain raw={text} /> : text;
+  }
   return tokens.map((token, idx) =>
     token.type === 'text' ? token.value : <DocRefLink key={`${keyPrefix}-${idx}`} docRef={token} nav={nav} />
   );
 }
 
 function renderFormattedText(str: string, keyPrefix: number, nav: DocRefNavigation | null): React.ReactNode {
-  // Replace bold, italic, inline code, links. `[[id]]` и `[[id|подпись]]` выделяются отдельным токеном,
-  // чтобы подпись ссылки не разбиралась как разметка.
-  const tokens = str.split(/(`[^`]+`|\[\[[^\]\n]+\]\]|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g);
+  // Replace bold, italic, inline code, links. `[[id]]`, `[[id|подпись]]` и встраивание `![[id]]` выделяются
+  // отдельным токеном, чтобы подпись ссылки не разбиралась как разметка; `==текст==` — выделение Obsidian.
+  const tokens = str.split(/(`[^`]+`|!?\[\[[^\]\n]+\]\]|==[^=\s](?:[^=\n]*[^=\s])?==|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g);
 
   return (
     <span key={`ftext-${keyPrefix}`}>
@@ -415,6 +503,13 @@ function renderFormattedText(str: string, keyPrefix: number, nav: DocRefNavigati
             <code key={idx} className="px-1.5 py-0.5 rounded bg-slate-800/80 text-indigo-300 font-mono text-[11px] border border-slate-700/40">
               {token.slice(1, -1)}
             </code>
+          );
+        }
+        if (/^==[^=\s](?:[^=\n]*[^=\s])?==$/.test(token)) {
+          return (
+            <mark key={idx} className="px-0.5 rounded bg-amber-400/25 text-amber-100">
+              {renderTextWithRefs(token.slice(2, -2), `h${idx}`, nav)}
+            </mark>
           );
         }
         if (token.startsWith('**') && token.endsWith('**')) {
