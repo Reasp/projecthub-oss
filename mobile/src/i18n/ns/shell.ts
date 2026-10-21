@@ -18,7 +18,9 @@ export const en = {
     reconnecting: 'Reconnecting…',
     failed: 'Connection error'
   } as Record<string, string>,
-  retryIn: (s: number) => ` in ${s} s`,
+  nextRetry: (s: number) => `Next attempt in ${s} s`,
+  reconnect: 'Reconnect',
+  connDetails: 'Connection details',
   awaiting: {
     title: 'Approve this device on the computer',
     before: 'In ProjectHub on the computer, open ',
@@ -88,7 +90,9 @@ export const ru: typeof en = {
     reconnecting: 'Переподключение…',
     failed: 'Ошибка подключения'
   },
-  retryIn: (s: number) => ` через ${s} с`,
+  nextRetry: (s: number) => `Следующая попытка через ${s} с`,
+  reconnect: 'Переподключить',
+  connDetails: 'Подробнее о подключении',
   awaiting: {
     title: 'Подтвердите устройство на ПК',
     before: 'В ProjectHub на компьютере откройте ',

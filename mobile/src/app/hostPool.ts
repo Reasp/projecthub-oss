@@ -44,6 +44,7 @@ const INBOX_EVENTS = new Set(['ai:hitl', 'ai:hitlDecided', 'backlog:changed', 'i
 export interface PoolClient {
   connect(profile: HostProfile): void;
   disconnect(): void;
+  retryNow(): void;
   rpc<T = unknown>(method: RpcMethod, params?: Record<string, unknown>): Promise<T>;
   onEvent(listener: (event: string, data: unknown) => void): () => void;
   subscribe(listener: (snapshot: ClientSnapshot) => void): () => void;
@@ -239,6 +240,11 @@ export class HostPool {
     }
     if (this.paused) return;
     this.apply();
+  }
+
+  /** Подключиться к фоновому ПК сейчас, не дожидаясь отсчёта (кнопка «Переподключить» на «Обзоре», TASK-191). */
+  retryNow(id: string): void {
+    this.entries.get(id)?.client.retryNow();
   }
 
   pause(): void {

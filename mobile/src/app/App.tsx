@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeftIcon, BookOpenTextIcon, GearSixIcon, HouseSimpleIcon, KanbanIcon, MicrophoneIcon, ShieldCheckIcon, SparkleIcon, TrayIcon } from '@phosphor-icons/react';
+import {
+  ArrowClockwiseIcon,
+  ArrowLeftIcon,
+  BookOpenTextIcon,
+  GearSixIcon,
+  HouseSimpleIcon,
+  KanbanIcon,
+  MicrophoneIcon,
+  ShieldCheckIcon,
+  SparkleIcon,
+  TrayIcon,
+  WifiSlashIcon
+} from '@phosphor-icons/react';
 import clsx from 'clsx';
+import { ComputerSheet, useRetryHost } from '../components/ComputerSheet';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { DesktopAppBanner } from '../components/DesktopAppBanner';
 import { useTabSwipe } from '../components/gestures';
@@ -41,29 +54,45 @@ const TABS: Array<{ id: Tab; label: (tr: Dict) => string; icon: (active: boolean
   { id: 'studio', label: (tr) => tr.shell.tabs.studio, icon: (a) => <SparkleIcon size={24} weight={a ? 'fill' : 'regular'} /> }
 ];
 
-function ConnectionBanner() {
-  const { client } = useServices();
+/**
+ * Нет связи с открытым ПК (TASK-191): в шапке только значок и «Переподключить», без текста. Значок открывает карточку
+ * компьютера — там адрес, отсчёт до повтора и текст ошибки.
+ */
+function ConnectionIndicator({ onDetails }: { onDetails: () => void }) {
+  const { platform, profiles } = useServices();
+  const retry = useRetryHost();
+  const activeId = profiles.activeId;
   const tr = useT();
   const conn = useAppState((s) => s.conn);
   if (conn.state === 'ready') return null;
-  const tone = conn.state === 'failed' ? 'bg-red-950/80 text-red-100' : conn.state === 'awaiting_approval' ? 'bg-amber-950/80 text-amber-100' : 'bg-ph-elevated text-slate-300';
+  // Попытка идёт прямо сейчас — крутилка; ждём следующую или сдались — перечёркнутый Wi-Fi.
+  const trying = conn.state === 'connecting' || conn.state === 'pairing' || (conn.state === 'reconnecting' && !conn.retryInMs);
   return (
-    <div className={clsx('flex items-center gap-2 px-3 py-2 text-[13px]', tone)}>
-      <span className="min-w-0 flex-1">
-        {tr.shell.conn[conn.state] ?? conn.state}
-        {/* Какой адрес пробуем сейчас: при переборе видно, что клиент не завис (TASK-140.9). */}
-        {(conn.state === 'connecting' || conn.state === 'pairing' || (conn.state === 'reconnecting' && !conn.retryInMs)) && conn.endpoint
-          ? ` (${conn.endpoint})`
-          : ''}
-        {conn.retryInMs ? tr.shell.retryIn(Math.round(conn.retryInMs / 1000)) : ''}
-        {conn.error ? ` — ${conn.error}` : ''}
-      </span>
-      {(conn.state === 'reconnecting' || conn.state === 'failed') && (
-        <Button size="sm" onClick={() => client.retryNow()}>
-          {tr.common.retry}
-        </Button>
+    <>
+      <button
+        type="button"
+        data-testid="conn-indicator"
+        aria-label={`${tr.shell.conn[conn.state] ?? conn.state}. ${tr.shell.connDetails}`}
+        onClick={() => {
+          platform.haptic('selection');
+          onDetails();
+        }}
+        className="flex shrink-0 items-center self-stretch px-2 active:bg-ph-hover"
+      >
+        {trying ? <Spinner /> : <WifiSlashIcon size={20} className={conn.state === 'failed' ? 'text-red-400' : 'text-amber-400'} />}
+      </button>
+      {(conn.state === 'reconnecting' || conn.state === 'failed') && activeId && (
+        <button
+          type="button"
+          data-testid="conn-retry"
+          aria-label={tr.shell.reconnect}
+          onClick={() => retry(activeId)}
+          className="shrink-0 self-stretch px-2 text-slate-300 active:bg-ph-hover"
+        >
+          <ArrowClockwiseIcon size={20} />
+        </button>
       )}
-    </div>
+    </>
   );
 }
 
@@ -159,6 +188,7 @@ function Shell() {
   const [processesOpen, setProcessesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [connDetails, setConnDetails] = useState(false);
   const [tasksFocus, setTasksFocus] = useState<string | undefined>();
   const [taskFocus, setTaskFocus] = useState<string | undefined>();
   const clearTaskFocus = useCallback(() => setTaskFocus(undefined), []);
@@ -254,6 +284,7 @@ function Shell() {
               </span>
             )}
           </button>
+          <ConnectionIndicator onDetails={() => setConnDetails(true)} />
           <button
             type="button"
             data-testid="open-voice"
@@ -279,7 +310,6 @@ function Shell() {
             <GearSixIcon size={22} />
           </button>
         </div>
-        <ConnectionBanner />
       </header>
 
       <main className="min-h-0 flex-1" {...swipe}>
@@ -336,6 +366,7 @@ function Shell() {
       </nav>
 
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ComputerSheet profileId={connDetails ? (activeId ?? null) : null} onClose={() => setConnDetails(false)} />
       <VoiceScreen
         open={voiceOpen}
         onClose={() => setVoiceOpen(false)}

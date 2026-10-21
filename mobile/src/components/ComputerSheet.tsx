@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { ArrowRightIcon, SignOutIcon } from '@phosphor-icons/react';
+import { useCallback, useState } from 'react';
+import { ArrowClockwiseIcon, ArrowRightIcon, SignOutIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
-import { useAppState, useHostSummaries, useServices } from '../app/context';
+import { useAppState, useHostSummaries, useLastSeen, useServices } from '../app/context';
 import type { Dict } from '../i18n';
 import { useT } from '../i18n/react';
+import { timeAgo } from '../protocol/inbox';
 import { activeProfile } from '../protocol/profiles';
 import { routeLabel, type ConnectionState } from '../protocol/remoteClient';
 import type { EndpointKind } from '../../../src/utils/remoteEndpoints';
@@ -17,7 +18,8 @@ export function stateDot(state: ConnectionState | undefined): string {
 function stateText(tr: Dict, state: ConnectionState | undefined): string {
   if (state === 'ready') return tr.shell.hostState.online;
   if (state === 'awaiting_approval') return tr.shell.hostState.awaiting;
-  if (state === 'connecting' || state === 'pairing' || state === 'reconnecting') return tr.shell.hostState.connecting;
+  // Переподключение — это ожидание следующей попытки: как на «Обзоре», «не в сети» (TASK-191).
+  if (state === 'connecting' || state === 'pairing') return tr.shell.hostState.connecting;
   return tr.shell.hostState.offline;
 }
 
@@ -29,6 +31,10 @@ export interface HostRow {
   route: EndpointKind | null;
   pending: number;
   active: boolean;
+  /** Почему нет связи — текст клиента; показывается только в карточке компьютера (TASK-191). */
+  error: string | null;
+  /** Через сколько следующая попытка — известно только у открытого ПК. */
+  retryInMs: number | null;
 }
 
 /** Сопряжённые компьютеры телефона со статусом: открытый — по своему соединению, остальные — по фоновым (TASK-140.2). */
@@ -51,9 +57,25 @@ export function useHostRows(): HostRow[] {
       state: isActive ? conn.state : summary?.state,
       route: isActive ? conn.route : (summary?.route ?? null),
       pending: isActive ? activeHitl : (summary?.pending ?? 0),
-      active: isActive
+      active: isActive,
+      error: (isActive ? conn.error : summary?.error) ?? null,
+      retryInMs: isActive ? conn.retryInMs : null
     };
   });
+}
+
+/** Переподключить компьютер сейчас: открытый — его соединением, фоновый — через пул. */
+export function useRetryHost(): (profileId: string) => void {
+  const { client, pool, profiles, platform } = useServices();
+  const activeId = profiles.activeId;
+  return useCallback(
+    (profileId: string) => {
+      platform.haptic('selection');
+      if (profileId === activeId) client.retryNow();
+      else pool.retryNow(profileId);
+    },
+    [client, pool, platform, activeId]
+  );
 }
 
 /** Строка компьютера: точка состояния, имя, состояние и путь связи, счётчик ожидающих решений. */
@@ -88,10 +110,15 @@ export function ComputerSheet({ profileId, onClose, onDone }: { profileId: strin
   const tr = useT();
   const rows = useHostRows();
   const conn = useAppState((s) => s.conn);
+  const lastSeen = useLastSeen();
+  const retry = useRetryHost();
   const [confirm, setConfirm] = useState(false);
   const row = rows.find((r) => r.id === profileId) ?? null;
   const profile = profiles.profiles.find((p) => p.id === profileId);
   const endpoint = row?.active ? conn.endpoint : undefined;
+  const seenAt = row ? lastSeen[row.id] : undefined;
+  // Фоновый ПК сверх лимита пула соединения не имеет — повторять нечем.
+  const canRetry = Boolean(row && row.state !== 'ready' && row.state !== 'awaiting_approval' && (row.active || row.state));
 
   return (
     <Sheet open={Boolean(row)} onClose={onClose} title={row?.name}>
@@ -103,6 +130,18 @@ export function ComputerSheet({ profileId, onClose, onDone }: { profileId: strin
             {row.active && <Badge tone="accent">{tr.shell.openNow}</Badge>}
             {row.pending > 0 && <Badge tone="warning">{tr.shell.pending(row.pending)}</Badge>}
           </div>
+          {row.state !== 'ready' && (
+            <div data-testid="computer-conn-details" className="mt-3 space-y-1 rounded-xl border border-ph-line bg-ph-raised p-3 text-[13px] text-slate-300">
+              {row.retryInMs ? <div className="text-slate-400">{tr.shell.nextRetry(Math.round(row.retryInMs / 1000))}</div> : null}
+              {!row.active && <div className="text-slate-400">{seenAt ? tr.fleet.lastSeen(timeAgo(seenAt)) : tr.fleet.neverSeen}</div>}
+              {row.error && <div className="select-text break-words text-red-300">{row.error}</div>}
+              {canRetry && (
+                <Button size="sm" className="mt-1" data-testid="computer-retry" onClick={() => retry(row.id)}>
+                  <ArrowClockwiseIcon size={16} /> {tr.shell.reconnect}
+                </Button>
+              )}
+            </div>
+          )}
           {row.via && <div className="mt-2 text-[13px] text-slate-400">{tr.shell.via(row.via)}</div>}
           {endpoint && <div className="mt-1 truncate text-[12px] text-slate-500">{tr.shell.address(endpoint)}</div>}
           {profile?.hostId && <div className="mt-1 truncate font-mono text-[11px] text-slate-600">{profile.hostId}</div>}

@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import {
+  ArrowClockwiseIcon,
   CaretDownIcon,
   CaretRightIcon,
   ChatCircleIcon,
@@ -16,11 +17,11 @@ import {
 import clsx from 'clsx';
 import { useAppState, useServices } from '../app/context';
 import { useFleet, useScopeActions } from '../app/useFleet';
-import { ComputerSheet } from '../components/ComputerSheet';
+import { ComputerSheet, useRetryHost } from '../components/ComputerSheet';
 import { IntroduceCard } from '../components/IntroduceCard';
 import { RouteBadge } from '../components/RouteBadge';
 import { Screen } from '../components/Screen';
-import { Badge, Button, SectionTitle } from '../components/ui';
+import { Badge, Button, SectionTitle, Spinner } from '../components/ui';
 import { useT } from '../i18n/react';
 import { timeAgo } from '../protocol/inbox';
 import type { HitlItem } from '../protocol/models';
@@ -117,6 +118,7 @@ export function ComputersScreen({ onOpenInbox, onOpenProcesses }: ComputersScree
   const hosts = useAppState((s) => s.hosts);
   const fleet = useFleet();
   const actions = useScopeActions();
+  const retry = useRetryHost();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [showQuiet, setShowQuiet] = useState<Record<string, boolean>>({});
@@ -276,9 +278,10 @@ export function ComputersScreen({ onOpenInbox, onOpenProcesses }: ComputersScree
   const renderHost = (host: PhoneFleetHost) => {
     const selected = scope.kind === 'host' && scope.profileId === host.profileId;
     const folded = Boolean(collapsed[host.profileId]);
+    // Одна строка без текста ошибки (TASK-191): почему нет связи — в карточке компьютера по значку.
     const offlineLine = host.connecting
       ? tr.fleet.connecting
-      : [tr.fleet.offline, host.lastSeenAt ? tr.fleet.lastSeen(timeAgo(host.lastSeenAt)) : tr.fleet.neverSeen, host.error ?? ''].filter(Boolean).join(' · ');
+      : [tr.fleet.offline, host.lastSeenAt ? tr.fleet.lastSeen(timeAgo(host.lastSeenAt)) : tr.fleet.neverSeen].join(' · ');
     const header = (
       <div className={clsx('flex items-center gap-1 rounded-xl', selected && 'bg-indigo-950/70 ring-1 ring-indigo-500/60')}>
         <button
@@ -289,6 +292,17 @@ export function ComputersScreen({ onOpenInbox, onOpenProcesses }: ComputersScree
         >
           {folded || !host.online ? <CaretRightIcon size={14} /> : <CaretDownIcon size={14} />}
         </button>
+        {!host.online && (
+          <button
+            type="button"
+            aria-label={tr.shell.connDetails}
+            data-testid={`fleet-host-conn-${host.profileId}`}
+            onClick={() => setComputer(host.profileId)}
+            className="flex shrink-0 items-center self-stretch rounded-xl px-1 active:bg-ph-hover"
+          >
+            {host.connecting ? <Spinner className="h-3.5 w-3.5" /> : <WifiSlashIcon size={16} className="text-slate-500" />}
+          </button>
+        )}
         <button
           type="button"
           data-testid={`fleet-host-${host.profileId}`}
@@ -296,14 +310,10 @@ export function ComputersScreen({ onOpenInbox, onOpenProcesses }: ComputersScree
           onClick={() => choose({ kind: 'host', profileId: host.profileId }, host)}
           className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left active:bg-ph-hover"
         >
-          {host.online ? (
-            <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', host.overview ? DOT[host.overview.attention] : 'bg-emerald-400')} />
-          ) : (
-            <WifiSlashIcon size={16} className="shrink-0 text-slate-500" />
-          )}
+          {host.online && <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', host.overview ? DOT[host.overview.attention] : 'bg-emerald-400')} />}
           <span className="min-w-0 flex-1">
             <span className={clsx('block truncate text-[15px] font-semibold', !host.online && 'font-normal text-slate-500', selected && 'text-indigo-100')}>{host.machineName}</span>
-            <span className={clsx('block text-[12px] text-slate-500', host.online ? 'truncate' : 'line-clamp-2')} data-testid={`fleet-host-line-${host.profileId}`}>
+            <span className="block truncate text-[12px] text-slate-500" data-testid={`fleet-host-line-${host.profileId}`}>
               {host.online
                 ? [host.active ? tr.fleet.current : '', host.overview?.actions === 'none' && !host.unsupported ? tr.fleet.viewOnly : '', host.via ? tr.shell.via(host.via) : '']
                     .filter(Boolean)
@@ -315,6 +325,17 @@ export function ComputersScreen({ onOpenInbox, onOpenProcesses }: ComputersScree
           {host.overview && host.overview.counts.waiting > 0 && <Pill tone="amber">{host.overview.counts.waiting}</Pill>}
           {host.overview && host.overview.counts.running > 0 && <Pill tone="emerald">{host.overview.counts.running}</Pill>}
         </button>
+        {!host.online && !host.connecting && (
+          <button
+            type="button"
+            aria-label={tr.shell.reconnect}
+            data-testid={`fleet-host-retry-${host.profileId}`}
+            onClick={() => retry(host.profileId)}
+            className="shrink-0 rounded-xl px-2 py-2 text-slate-400 active:bg-ph-hover"
+          >
+            <ArrowClockwiseIcon size={18} />
+          </button>
+        )}
         <button
           type="button"
           aria-label={tr.shell.computerDetails}
