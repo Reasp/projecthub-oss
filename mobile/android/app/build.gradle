@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
 
+// Единая версия приложений (TASK-193, decision-148): версия — из корневого package.json, versionCode растёт вместе с ней.
+def phVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../../package.json')).version
+def phParts = phVersion.tokenize('.').collect { it as int }
+def phVersionCode = phParts[0] * 1000000 + phParts[1] * 1000 + phParts[2]
+
 android {
     namespace = "com.projecthub.mobile"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +12,8 @@ android {
         applicationId "com.projecthub.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode phVersionCode
+        versionName phVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

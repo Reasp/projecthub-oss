@@ -1,6 +1,6 @@
 {
   "name": "project-hub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "ProjectHub — Единая десктопная панель управления проектами с обвязкой ProjectTemplate (Backlog.md, Git, RAG, MCP, Dev-окружение)",
   "main": "dist-electron/main.js",
@@ -14,7 +14,7 @@
     "test:process": "vitest run --project process",
     "cpu-load": "node scripts/cpu-load.mjs",
     "backlog:merge": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/backlog-merge.mjs",
-    "build": "node scripts/build-info.mjs && node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs --warn && npm run lint && npm run test && tsc && vite build && npm run build:mobile && npm run build:ph-agent && node scripts/check-bundle.mjs",
+    "build": "node scripts/build-info.mjs && node scripts/version.mjs check && node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs --warn && npm run lint && npm run test && tsc && vite build && npm run build:mobile && npm run build:ph-agent && node scripts/check-bundle.mjs",
     "preview": "vite preview",
     "build:mobile": "vite build --config mobile/vite.config.ts",
     "build:mobile:capacitor": "vite build --config mobile/vite.config.ts --mode capacitor",
@@ -50,7 +50,9 @@
     "telegram-bot": "node scripts/telegram-bot.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check-bundle": "node scripts/check-bundle.mjs"
+    "check-bundle": "node scripts/check-bundle.mjs",
+    "version:check": "node scripts/version.mjs check",
+    "version:bump": "node scripts/version.mjs bump"
   },
   "build": {
     "appId": "com.projecthub.desktop",
