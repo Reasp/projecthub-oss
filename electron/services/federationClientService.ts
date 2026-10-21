@@ -100,7 +100,7 @@ function errorText(err: unknown): string {
 }
 
 const RPC_TIMEOUT_MS = 30_000;
-/** Интервал ping: соединение без трафика сеть между ПК рвала примерно через 2 минуты (TASK-181). */
+/** Интервал ping: соединение без трафика сеть между ПК рвала примерно через 2 минуты (TASK-189). */
 const HEARTBEAT_MS = 25_000;
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 const PEERS_SECRET_KEY = 'federation.peers';
@@ -126,7 +126,7 @@ class FederationClientService {
       if (peer.credentials.autoConnect && peer.credentials.deviceToken) {
         this.openConnection(peer).catch(() => {});
       } else if (peer.credentials.autoConnect) {
-        // Без токена автоподключения нет: показываем причину, а не молчаливое «не в сети» (TASK-181).
+        // Без токена автоподключения нет: показываем причину, а не молчаливое «не в сети» (TASK-189).
         peer.status = 'error';
         peer.error = 'Нет токена устройства: нажмите «Подключить» и подтвердите этот ПК на удалённом или добавьте хост заново по PIN';
         logger.warn(`[Federation] No device token for ${peer.credentials.machineName}: pairing is needed again`);
