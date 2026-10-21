@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BookOpenTextIcon, CaretDownIcon, GearSixIcon, KanbanIcon, ShieldCheckIcon, SparkleIcon, TerminalWindowIcon, TrayIcon } from '@phosphor-icons/react';
+import { BookOpenTextIcon, CaretDownIcon, GearSixIcon, KanbanIcon, MicrophoneIcon, ShieldCheckIcon, SparkleIcon, TerminalWindowIcon, TrayIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { useTabSwipe } from '../components/gestures';
@@ -17,6 +17,7 @@ import { PairingScreen } from '../screens/PairingScreen';
 import { ProcessesScreen } from '../screens/ProcessesScreen';
 import { StudioScreen } from '../screens/StudioScreen';
 import { TasksScreen } from '../screens/TasksScreen';
+import { VoiceScreen } from '../screens/VoiceScreen';
 import { FieldEditorHost } from '../components/FieldEditor';
 import { useAppState, useHostSummaries, useServices } from './context';
 import { useInboxFeed } from './useInbox';
@@ -142,6 +143,7 @@ function Shell() {
   const [studioSection, setStudioSection] = useState<StudioSection>('chat');
   const [hostOpen, setHostOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [tasksFocus, setTasksFocus] = useState<string | undefined>();
   const project = projects.find((p) => p.path === projectPath);
 
@@ -197,6 +199,18 @@ function Shell() {
               </span>
             )}
             <CaretDownIcon size={18} className="shrink-0 text-slate-400" />
+          </button>
+          <button
+            type="button"
+            data-testid="open-voice"
+            aria-label={tr.voice.open}
+            onClick={() => {
+              platform.haptic('selection');
+              setVoiceOpen(true);
+            }}
+            className="shrink-0 self-stretch px-3 text-slate-300 active:bg-ph-hover"
+          >
+            <MicrophoneIcon size={22} />
           </button>
           <button
             type="button"
@@ -257,6 +271,7 @@ function Shell() {
 
       <ComputersScreen open={hostOpen} onClose={() => setHostOpen(false)} onOpenInbox={() => go('inbox')} />
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <VoiceScreen open={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </div>
   );
 }

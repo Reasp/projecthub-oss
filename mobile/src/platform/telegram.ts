@@ -3,6 +3,7 @@ import { parsePairingHash, parseTelegramStartParam } from '../protocol/pairing';
 import { isWebCryptoAvailable } from '../protocol/webCodec';
 import { consumeLocationHash, readHostDefaults } from './hostDefaults';
 import { createPageStore } from './pageStore';
+import { createWebTts } from './tts';
 import type { Platform } from './types';
 
 /** Нужное подмножество Telegram WebApp API (`telegram-web-app.js`). */
@@ -68,6 +69,7 @@ export function createTelegramPlatform(): Platform {
           })
       : undefined,
     cryptoAvailable: () => isWebCryptoAvailable(),
+    tts: createWebTts(),
     applyChrome() {
       if (!tg) return;
       tg.ready();

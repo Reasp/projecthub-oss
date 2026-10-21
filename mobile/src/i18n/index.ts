@@ -21,6 +21,7 @@ import * as shell from './ns/shell';
 import * as store from './ns/store';
 import * as studio from './ns/studio';
 import * as tasks from './ns/tasks';
+import * as voice from './ns/voice';
 
 export type Language = 'en' | 'ru';
 export const LANGUAGES: readonly Language[] = ['en', 'ru'];
@@ -29,7 +30,7 @@ export const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', ru: 'Р
 /** Ключ выбора в несекретных настройках страницы (`ph_mobile_pref:<ключ>`). */
 export const LANGUAGE_PREF = 'lang';
 
-const NS = { agents, common, docs, fleet, inbox, models, pairing, processes, shell, store, studio, tasks };
+const NS = { agents, common, docs, fleet, inbox, models, pairing, processes, shell, store, studio, tasks, voice };
 
 export type Dict = { [K in keyof typeof NS]: (typeof NS)[K]['en'] };
 

@@ -82,6 +82,8 @@ export class HostPool {
   private lastSeen: Record<string, number>;
   private seenWrittenAt = 0;
   private listeners = new Set<() => void>();
+  /** События фоновых ПК для тех, кому мало сводок: голосовой режим ждёт ответа агента на любом ПК (TASK-179.3). */
+  private hostEventListeners = new Set<(id: string, event: string, data: unknown) => void>();
   private paused = false;
   private wanted: HostProfile[] = [];
 
@@ -162,6 +164,11 @@ export class HostPool {
   /** Есть ли живое соединение с ПК: действие над его записью уйдёт только так. */
   isReady(id: string): boolean {
     return this.entries.has(id) && this.summaries[id]?.state === 'ready';
+  }
+
+  onHostEvent(listener: (id: string, event: string, data: unknown) => void): () => void {
+    this.hostEventListeners.add(listener);
+    return () => this.hostEventListeners.delete(listener);
   }
 
   /** RPC к фоновому ПК его соединением и токеном его сопряжения — решение не уйдёт другому ПК. */
@@ -289,6 +296,7 @@ export class HostPool {
     if (!entry) return;
     const d = (data || {}) as { requestId?: unknown };
     this.markSeen(id);
+    for (const l of this.hostEventListeners) l(id, event, data);
     if (event === 'overview:changed') {
       this.scheduleOverview(id);
       return;

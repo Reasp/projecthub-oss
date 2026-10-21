@@ -7,6 +7,7 @@ import type { RemoteClient } from '../protocol/remoteClient';
 import type { AppState, AppStore } from './appStore';
 import type { HostPool, HostSummary, OverviewSnapshot } from './hostPool';
 import type { InboxActions } from './inboxActions';
+import type { VoiceController } from './voiceController';
 
 export interface AppServices {
   platform: Platform;
@@ -30,6 +31,8 @@ export interface AppServices {
   enrollHost(hostId: string): Promise<boolean>;
   /** Забыть хост: стереть его ключ и токен на телефоне (по умолчанию — открытый). */
   forget(profileId?: string): Promise<void>;
+  /** Голосовой режим (TASK-179): команды компьютерам флота голосом, ответы голосом. */
+  voice: VoiceController;
   /** Сменить язык интерфейса и запомнить выбор (TASK-140.15). */
   setLanguage(lang: Language): void;
 }

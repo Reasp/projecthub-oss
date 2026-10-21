@@ -3,6 +3,7 @@ import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { isCameraScanAvailable, scanQrWithCamera } from '../components/qrScanner';
 import { isWebCryptoAvailable } from '../protocol/webCodec';
 import { createCapacitorStore, createConfirmPort, createPushPort, type SecureStorePlugin } from './secureStore';
+import { createNativeTts, createWebTts, type TtsPlugin } from './tts';
 import type { HapticKind, Platform } from './types';
 
 /**
@@ -13,6 +14,7 @@ import type { HapticKind, Platform } from './types';
  */
 
 const PhSecureStore = registerPlugin<SecureStorePlugin>('PhSecureStore');
+const PhTts = registerPlugin<TtsPlugin>('PhTts');
 
 export function createCapacitorPlatform(): Platform {
   const native = Capacitor.isNativePlatform();
@@ -44,6 +46,7 @@ export function createCapacitorPlatform(): Platform {
     hostDefaults: () => ({}),
     cryptoAvailable: () => isWebCryptoAvailable(),
     confirm: createConfirmPort(secure) ?? undefined,
-    push: createPushPort(secure) ?? undefined
+    push: createPushPort(secure) ?? undefined,
+    tts: native && Capacitor.isPluginAvailable('PhTts') ? createNativeTts(PhTts) : createWebTts()
   };
 }

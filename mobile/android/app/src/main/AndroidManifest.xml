@@ -90,5 +90,9 @@
         <intent>
             <action android:name="org.unifiedpush.android.distributor.REGISTER" />
         </intent>
+        <!-- Движок синтеза речи для озвучки голосового режима (TASK-179.2). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 </manifest>

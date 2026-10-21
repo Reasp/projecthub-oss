@@ -24,8 +24,14 @@ import { ServicesProvider, type AppServices } from './context';
 import { HostPool } from './hostPool';
 import { InboxActions } from './inboxActions';
 import { watchLaunchScreen } from './launchScreen';
+import { VoiceController } from './voiceController';
+import { capabilitiesFor } from '../protocol/models';
+import type { VoiceHost, VoiceLang } from '../protocol/voiceCommands';
 
 /** Несекретные настройки интерфейса (выбранный проект) — в хранилище страницы. Ключи сюда не пишутся. */
+/** Язык речи голосового режима — отдельно от языка интерфейса. */
+const VOICE_LANG_PREF = 'voice:lang';
+
 function createPrefs(): PrefsPort {
   const storage = safeStorage();
   return {
@@ -138,6 +144,58 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
 
   const [inbox] = useState(() => new InboxActions(store, pool));
 
+  // Голосовой режим (TASK-179): ПК флота — из профилей, снимков открытого ПК и пула; RPC — соединением нужного ПК.
+  const [voice] = useState(() => {
+    const isActive = (id: string) => id === activeIdRef.current;
+    const hosts = (): VoiceHost[] => {
+      const st = store.getState();
+      const out: VoiceHost[] = [];
+      for (const p of listRef.current.profiles) {
+        if (!p.id) continue;
+        if (isActive(p.id)) {
+          const overview = st.overview;
+          out.unshift({
+            id: p.id,
+            name: overview?.machineName || st.status?.machineName || p.machineName || p.hostId,
+            ready: st.conn.state === 'ready',
+            write: capabilitiesFor(st.conn.rights, st.conn.readOnly).write,
+            overview
+          });
+        } else {
+          const overview = pool.getOverviews()[p.id]?.overview ?? null;
+          out.push({
+            id: p.id,
+            name: overview?.machineName || p.machineName || p.hostId,
+            ready: pool.isReady(p.id),
+            write: overview ? overview.actions === 'full' : capabilitiesFor(p.rights, false).write,
+            overview
+          });
+        }
+      }
+      return out;
+    };
+    const saved = prefs.get(VOICE_LANG_PREF);
+    const lang: VoiceLang = saved === 'ru' || saved === 'en' ? saved : (typeof navigator !== 'undefined' ? navigator.language : '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
+    return new VoiceController(
+      {
+        hosts,
+        activeHostId: () => activeIdRef.current,
+        rpc: (id, method, params) => (isActive(id) ? client.rpc(method, params) : pool.rpc(id, method, params)),
+        onHostEvent(listener) {
+          const offActive = client.onEvent((event, data) => activeIdRef.current && listener(activeIdRef.current, event, data));
+          const offPool = pool.onHostEvent(listener);
+          return () => {
+            offActive();
+            offPool();
+          };
+        },
+        tts: platform.tts ?? null
+      },
+      lang
+    );
+  });
+  useEffect(() => voice.subscribe(() => prefs.set(VOICE_LANG_PREF, voice.getState().lang)), [voice, prefs]);
+
   useEffect(() => {
     pool.sync(list.profiles, target.adding ? null : (target.profile.id ?? null));
   }, [pool, list, target]);
@@ -212,6 +270,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       store,
       pool,
       inbox,
+      voice,
       profiles: list,
       pair(next) {
         const updated = upsertPairedProfile(listRef.current, next, platform.deviceIdPrefix);
@@ -267,7 +326,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
         createPrefs().set(LANGUAGE_PREF, lang);
       }
     }),
-    [platform, client, store, pool, inbox, list, commit, open]
+    [platform, client, store, pool, inbox, voice, list, commit, open]
   );
 
   return (

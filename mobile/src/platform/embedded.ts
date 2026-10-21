@@ -2,6 +2,7 @@ import { parsePairingHash } from '../protocol/pairing';
 import { isWebCryptoAvailable } from '../protocol/webCodec';
 import { consumeLocationHash, readHostDefaults } from './hostDefaults';
 import { createPageStore } from './pageStore';
+import { createWebTts } from './tts';
 import type { HapticKind, Platform } from './types';
 
 const VIBRATION: Record<HapticKind, number | number[]> = {
@@ -32,6 +33,7 @@ export function createEmbeddedPlatform(): Platform {
     initialLink: () => parsePairingHash(hash),
     pageHostAddress: () => window.location.origin,
     hostDefaults: () => readHostDefaults(),
-    cryptoAvailable: () => isWebCryptoAvailable()
+    cryptoAvailable: () => isWebCryptoAvailable(),
+    tts: createWebTts()
   };
 }

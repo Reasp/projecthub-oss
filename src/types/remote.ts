@@ -306,6 +306,8 @@ export type RemoteRpcMethod =
   | 'get_review_screenshot'
   // Голосовой промпт: PCM с телефона частями, распознавание на этом ПК (TASK-140.7, decision-121)
   | 'voice_chunk'
+  | 'voice_command'
+  | 'create_project'
   // Ограничения запуска агента до нажатия «Запустить» (бюджеты Team, decision-124)
   | 'check_agent_launch'
   // Документация проекта на телефоне (TASK-140.17): список без текстов и документ со сверкой хэша

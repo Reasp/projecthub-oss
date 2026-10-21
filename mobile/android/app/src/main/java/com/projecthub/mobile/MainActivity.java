@@ -35,6 +35,8 @@ public class MainActivity extends BridgeActivity {
 
         // Локальные плагины регистрируются до старта моста (TASK-140.8).
         registerPlugin(PhSecureStorePlugin.class);
+        // Озвучка голосового режима (TASK-179.2).
+        registerPlugin(PhTtsPlugin.class);
         // Нажатие push при закрытом приложении (TASK-140.3): цель запоминается до старта моста.
         PhSecureStorePlugin.deliverLaunch(getIntent());
         super.onCreate(savedInstanceState);

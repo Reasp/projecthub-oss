@@ -193,7 +193,11 @@ const REMOTE_WRITE_METHODS = new Set([
   'inbox_dismiss',
   'review_task',
   // Голосовой промпт — та же запись в агента, что studio_send (decision-121 п. 4).
-  'voice_chunk'
+  'voice_chunk',
+  // Разбор голосовой команды телефона зовёт модель пользователя, то есть тратит его деньги (decision-137 п. 3).
+  'voice_command',
+  // Новый проект на этом ПК (decision-137 п. 9): пишет на диск и в реестр.
+  'create_project'
 ]);
 
 interface DeviceTokenRecord {
@@ -3105,7 +3109,7 @@ class RemoteControlService {
   private async dispatchRpc(method: string, params: unknown = {}, device: RemoteDevice): Promise<unknown> {
     const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>;
     // Части загрузки (голос, вложение) — по записи на кусок: в журнал идёт только итоговое действие.
-    const audited = (REMOTE_WRITE_METHODS.has(method) && method !== 'voice_chunk' && method !== 'studio_attach') || editionRegistry.remoteMethod(method)?.write === true;
+    const audited = (REMOTE_WRITE_METHODS.has(method) && method !== 'voice_chunk' && method !== 'voice_command' && method !== 'studio_attach') || editionRegistry.remoteMethod(method)?.write === true;
     if (!audited) return this.dispatchRpcUnaudited(method, params, device);
     const base = {
       ts: Date.now(),
@@ -3730,6 +3734,49 @@ class RemoteControlService {
         const res = this.voiceUploads.put(device.id, parseVoiceChunk(params));
         if (!res.done) return { received: res.received };
         return this.transcribePhoneVoice(res.samples, res.language);
+      }
+
+      // Голосовая команда телефона (TASK-179.1, decision-137 п. 3): ПК только разбирает фразу, исполняет телефон.
+      case 'voice_command': {
+        const [{ parsePhoneVoiceRequest, buildPhoneVoicePrompt, parsePhoneVoiceResponse }, { modelCallService }] = await Promise.all([
+          import('./phoneVoiceCommand.js'),
+          import('./modelCallService.js')
+        ]);
+        const req = parsePhoneVoiceRequest(params);
+        const completion = await modelCallService.complete({
+          purpose: 'voice.classify',
+          prompt: buildPhoneVoicePrompt(req),
+          ...(activePath ? { projectPath: activePath } : {}),
+          maxTokens: 400,
+          temperature: 0,
+          timeoutMs: 30_000
+        });
+        return parsePhoneVoiceResponse(completion.text, req);
+      }
+
+      // Новый проект с телефона (TASK-179.4, decision-137 п. 9): основа ProjectHub без стекового шаблона.
+      case 'create_project': {
+        const [{ projectFolderName, projectsRoot }, { applyInit }, os] = await Promise.all([
+          import('./remoteProjectCreate.js'),
+          import('./projectInitService.js'),
+          import('node:os')
+        ]);
+        const name = typeof params.name === 'string' ? params.name.trim().slice(0, 120) : '';
+        if (!name) throw new Error('name is required');
+        const root = projectsRoot((await projectRegistry.getProjects()).map((p) => p.path), os.homedir());
+        const target = path.join(root, projectFolderName(name));
+        if (existsSync(target)) throw new Error(`Папка уже есть: ${target}`);
+        const report = await applyInit({
+          targetDir: target,
+          projectName: name,
+          locale: params.language === 'en' ? 'en' : 'ru',
+          rulesMode: 'append',
+          templateId: null,
+          choices: {}
+        });
+        this.broadcastEvent('projects:changed', {});
+        this.overview.markChanged();
+        return { projectPath: report.projectPath, name };
       }
 
       default: {

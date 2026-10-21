@@ -96,4 +96,13 @@ export interface Platform {
   confirm?: ConfirmPort;
   /** Push с ПК — только в приложении с нативным плагином. */
   push?: PushPort;
+  /** Озвучка ответов голосового режима (TASK-179.2): системный синтез телефона или браузера, если он есть. */
+  tts?: TtsPort;
+}
+
+/** Озвучка: `speak` завершается, когда фраза договорена или прервана `stop`. */
+export interface TtsPort {
+  available(): Promise<boolean>;
+  speak(text: string, lang: 'ru' | 'en'): Promise<void>;
+  stop(): void;
 }
