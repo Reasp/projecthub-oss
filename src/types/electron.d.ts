@@ -2139,6 +2139,18 @@ export type AppBusEvent =
   | { type: 'pr:checksFailed'; projectPath: string; number: number; title: string; url: string; hostId?: string; at: number }
   | { type: 'federation:peerIntroduced'; peerHostId: string; peerName: string; byDevice: string; hostId?: string; at: number }
   | {
+      type: 'federation:hostNotice';
+      hostId: string;
+      machineName: string;
+      id: string;
+      kind: string;
+      title: string;
+      text: string;
+      level: 'info' | 'success' | 'warning' | 'error';
+      projectPath?: string;
+      at: number;
+    }
+  | {
       type: 'remote:deviceConnected';
       deviceId: string;
       deviceName: string;

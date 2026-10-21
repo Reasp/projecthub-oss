@@ -709,6 +709,11 @@ class FederationClientService {
       event,
       at: Date.now()
     });
+    // Уведомление хоста этому ПК (очередь слияния участнику): в матрицу каналов — системное уведомление (decision-138).
+    const notice = event === 'host:notice' ? parseHostNotice(data) : null;
+    if (notice) {
+      appEventBus.publish({ type: 'federation:hostNotice', hostId: peer.credentials.hostId, machineName: peer.credentials.machineName, ...notice, at: Date.now() });
+    }
   }
 
   private scheduleReconnect(peer: PeerConnection): void {
@@ -743,3 +748,17 @@ class FederationClientService {
 }
 
 export const federationClientService = new FederationClientService();
+
+/** Данные `host:notice` удалённого хоста: только строки нужной длины, уровень из известных. */
+export function parseHostNotice(data: unknown): { id: string; kind: string; title: string; text: string; level: 'info' | 'success' | 'warning' | 'error'; projectPath?: string } | null {
+  if (!data || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const id = str(d.id, 200);
+  const kind = str(d.kind, 40);
+  const text = str(d.text, 500);
+  if (!id || !kind || !text) return null;
+  const level = d.level === 'success' || d.level === 'warning' || d.level === 'error' ? d.level : 'info';
+  const projectPath = str(d.projectPath, 1000);
+  return { id, kind, title: str(d.title, 200) || text, text, level, ...(projectPath ? { projectPath } : {}) };
+}

@@ -11,6 +11,7 @@ import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService } from './claudeAccountService.js';
 import { CLAUDE_ACCOUNT_SOURCE_LABEL } from './claudeAccounts.js';
 import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_MCP_TOOL_TIMEOUT_MS } from './claudeBridgeService.js';
+import { studioLiveRuns } from './studioLiveRuns.js';
 import { hitlService } from './hitlService.js';
 import { applyRolePermissions } from './hitlPolicy.js';
 import { appEventBus } from './eventBus.js';
@@ -4305,4 +4306,5 @@ export class AgentFleetService extends EventEmitter {
 }
 
 export const agentFleetService = new AgentFleetService(new SwarmSessionStore(), { checkpoints: checkpointService });
-editionRegistry.setLiveRunsProvider(() => agentFleetService.liveAgentRuns());
+// Идущие ответы Agents Studio — тоже запуски агентов для лимитов участника и бюджетов (decision-135).
+editionRegistry.setLiveRunsProvider(() => [...agentFleetService.liveAgentRuns(), ...studioLiveRuns.list((id) => claudeBridgeService.isSessionActive(id))]);

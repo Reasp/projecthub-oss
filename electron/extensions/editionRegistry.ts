@@ -208,6 +208,12 @@ export interface DeviceNotice {
   text?: string;
   level?: 'info' | 'success' | 'warning' | 'error';
   projectPath?: string;
+  /** Заголовок системного уведомления на ПК в hub-режиме (`host:notice`); нет — `text`. */
+  title?: string;
+  /** Текст под заголовком на ПК в hub-режиме; нет — `text`. */
+  body?: string;
+  /** Вид уведомления на ПК в hub-режиме — его матрица каналов (`mergeQueue`). Нет — только push телефону. */
+  kind?: string;
 }
 
 export type DeviceNotifier = (notice: DeviceNotice, audience: (device: RemoteDeviceRef) => boolean) => void;

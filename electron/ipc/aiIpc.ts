@@ -42,6 +42,7 @@ import { providerErrorInfoOf } from '../services/providerErrors';
 import { usesClaudeCli } from '../services/modelTarget';
 import { hitlService } from '../services/hitlService';
 import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
+import { studioLiveRuns } from '../services/studioLiveRuns';
 import type { IpcContext } from './types';
 
 /** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
@@ -300,6 +301,8 @@ export function registerAiIpc(ctx: IpcContext) {
     // Запросы HITL сессии участника уходят его устройствам (decision-84 п. 5). Сессия принадлежит ему навсегда.
     hitlService.bindSessionOwner(req.sessionId, req.memberId);
     const startedAt = Date.now();
+    // Идущий ответ Studio считается лимитом одновременных агентов участника и бюджетами (decision-135).
+    studioLiveRuns.start(launchCtx, req.sessionId, startedAt);
     try {
       await claudeBridgeService.runAgentTask(
         req,
@@ -308,6 +311,7 @@ export function registerAiIpc(ctx: IpcContext) {
           studioRemoteBridge.streamChunk(req.projectPath, req.sessionId, chunk);
         },
         (fullMsg) => {
+          studioLiveRuns.finish(req.sessionId);
           send(`ai:complete:${req.sessionId}`, fullMsg);
           studioRemoteBridge.streamEnded(req.projectPath, req.sessionId);
           const usage = fullMsg.usage;
@@ -327,6 +331,7 @@ export function registerAiIpc(ctx: IpcContext) {
         },
         // Второй аргумент — снимок ошибки провайдера (decision-43): renderer строит по нему локализованную карточку.
         (err, info) => {
+          studioLiveRuns.finish(req.sessionId);
           send(`ai:error:${req.sessionId}`, err, info);
           studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, info?.message || err);
         }
@@ -334,6 +339,7 @@ export function registerAiIpc(ctx: IpcContext) {
     } catch (err: any) {
       const info = providerErrorInfoOf(err);
       const message = info?.message || err?.message || String(err);
+      studioLiveRuns.finish(req.sessionId);
       console.error(`[Main] ai:streamChat failed for session ${req.sessionId}: ${message}`);
       claudeBridgeService.setProjectStatus(req.projectPath, 'error', message);
       send(`ai:error:${req.sessionId}`, message, info);

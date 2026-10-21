@@ -36,6 +36,12 @@ export function deviceApprovalDedupKey(deviceId: string): string {
  * рутинные завершения — только в трей и звук/ОС, подключение устройства — тихо в трей,
  * а запрос его одобрения — громко: телефон ждёт человека у ПК.
  */
+/**
+ * Виды уведомлений, которые удалённый хост может показать на этом ПК в hub-режиме (`federation:hostNotice`): текст
+ * готовит хост, канал выбирает матрица этого ПК. Остальные виды по сети не принимаются.
+ */
+const HOST_NOTICE_KINDS = new Set<string>(['mergeQueue']);
+
 export function defaultChannelMatrix(): Record<NotificationKind, NotificationChannel[]> {
   return {
     hitl: ['tray', 'os', 'sound', 'telegram', 'remote'],
@@ -436,6 +442,21 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         ...(event.projectPath ? { projectPath: event.projectPath, projectName: projectName(event.projectPath) } : {}),
         action: { type: 'openApp' }
       };
+    // ── Уведомление удалённого хоста этому ПК в hub-режиме (decision-138): вид — матрица каналов этого ПК ──
+    case 'federation:hostNotice': {
+      if (!HOST_NOTICE_KINDS.has(event.kind)) return null;
+      return {
+        id: `peer-${event.hostId}-${event.id}`,
+        kind: event.kind as NotificationKind,
+        severity: event.level === 'warning' || event.level === 'error' ? 'warning' : 'info',
+        title: trim(`${event.machineName}: ${event.title}`, 120),
+        body: [trim(event.text, 200), event.projectPath ? projectName(event.projectPath) : ''].filter(Boolean).join(' · '),
+        at: event.at,
+        dedupKey: `peer:${event.hostId}:${event.id}`,
+        ...(event.projectPath ? { projectName: projectName(event.projectPath) } : {}),
+        action: { type: 'openApp' }
+      };
+    }
     // ── Automations (TASK-74, decision-52 п. 6) ──
     case 'automation:suspended': {
       const why =

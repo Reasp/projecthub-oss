@@ -350,6 +350,19 @@ export type AppBusEvent =
       hostId?: string;
       at: number;
     }
+  /** Уведомление удалённого хоста для этого ПК в hub-режиме (`host:notice`): очередь слияния и др. (decision-138). */
+  | {
+      type: 'federation:hostNotice';
+      hostId: string;
+      machineName: string;
+      id: string;
+      kind: string;
+      title: string;
+      text: string;
+      level: 'info' | 'success' | 'warning' | 'error';
+      projectPath?: string;
+      at: number;
+    }
   /** Событие, пришедшее с удалённого хоста федерации в hub-режиме (TASK-66, decision-11 п.4). */
   | {
       type: 'federation:peerEvent';

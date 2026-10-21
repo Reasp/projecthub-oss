@@ -1383,6 +1383,15 @@ class RemoteControlService {
     });
     this.broadcastEvent(notice.event, notice.payload, { audience: (d) => audience(refOf(d)) });
     if (!notice.text) return;
+    // ПК в hub-режиме показывает системное уведомление по общему `host:notice` (decision-138, ограничение «уведомления
+    // очереди — только обновлением окна»): он не знает событий модулей редакции, а вид уведомления знает.
+    if (notice.kind) {
+      this.broadcastEvent(
+        'host:notice',
+        { id: notice.id, kind: notice.kind, title: notice.title ?? notice.text, text: notice.body ?? notice.text, level: notice.level ?? 'info', ...(notice.projectPath ? { projectPath: notice.projectPath } : {}) },
+        { audience: (d) => audience(refOf(d)) }
+      );
+    }
     void this.pushService
       .onNote({ id: notice.id, text: notice.text, level: notice.level ?? 'info', ...(notice.projectPath ? { projectPath: notice.projectPath } : {}) }, (target) => {
         const record = this.deviceTokens.get(target.deviceId);
