@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BellRingingIcon, CaretRightIcon, DesktopIcon, PlusIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
+import { APP_VERSION } from '../app/appVersion';
 import { useAppState, useServices } from '../app/context';
 import { LANGUAGE_NAMES, LANGUAGES } from '../i18n';
 import { useLanguage, useT } from '../i18n/react';
@@ -10,7 +11,7 @@ import { Badge, Button, SectionTitle, Sheet } from './ui';
 
 /**
  * Настройки телефона (TASK-140.16): язык, сопряжённые компьютеры (карточка с «Открыть» и «Забыть»), push открытого
- * компьютера, устройство.
+ * компьютера, устройство и версия приложения (TASK-199).
  */
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const services = useServices();
@@ -124,6 +125,9 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       <div className="flex items-center gap-2 px-1 text-[13px] text-slate-400">
         <DesktopIcon size={16} /> {platform.deviceName}
         {platform.store.kind === 'memory' && <Badge tone="warning">{tr.shell.keyNotSaved}</Badge>}
+      </div>
+      <div className="mt-1 px-1 text-[12px] text-slate-500" data-testid="app-version">
+        {tr.shell.appVersion(APP_VERSION)}
       </div>
 
       <ComputerSheet profileId={computer} onClose={() => setComputer(null)} onDone={onClose} />

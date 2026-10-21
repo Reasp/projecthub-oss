@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -16,6 +17,8 @@ import tailwindcss from '@tailwindcss/vite';
  * `types/remote.ts` и `utils/remoteCryptoWeb.ts`.
  */
 const here = import.meta.dirname;
+// Единая версия приложений (decision-148): та же, что у Android `versionName` и desktop, — из корневого package.json.
+const version = (JSON.parse(fs.readFileSync(path.resolve(here, '..', 'package.json'), 'utf-8')) as { version: string }).version;
 
 export default defineConfig(({ mode }) => {
   const capacitor = mode === 'capacitor';
@@ -24,6 +27,7 @@ export default defineConfig(({ mode }) => {
     root,
     base: capacitor ? './' : '/m/',
     publicDir: false,
+    define: { __PH_VERSION__: JSON.stringify(version) },
     plugins: [react(), tailwindcss()],
     build: {
       // Веб-цель кладётся в `dist/mobile` рядом со сборкой рендерера: `dist/**` упаковывается в app.asar.
