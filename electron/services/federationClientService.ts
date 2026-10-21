@@ -119,6 +119,11 @@ class FederationClientService {
     for (const peer of this.peers.values()) {
       if (peer.credentials.autoConnect && peer.credentials.deviceToken) {
         this.openConnection(peer).catch(() => {});
+      } else if (peer.credentials.autoConnect) {
+        // Без токена автоподключения нет: показываем причину, а не молчаливое «не в сети» (TASK-181).
+        peer.status = 'error';
+        peer.error = 'Нет токена устройства: нажмите «Подключить» и подтвердите этот ПК на удалённом или добавьте хост заново по PIN';
+        logger.warn(`[Federation] No device token for ${peer.credentials.machineName}: pairing is needed again`);
       }
     }
   }
@@ -599,19 +604,23 @@ class FederationClientService {
       return;
     }
 
-    if (result.approved === false) {
-      peer.status = 'error';
-      peer.error = 'Удалённый хост требует подтверждения устройства — подтвердите его в настройках того ПК';
-      this.rejectHandshakeWaiters(peer, new Error(peer.error));
-      this.notifyPeersChanged();
-      return;
-    }
-
+    // Токен хост выдаёт один раз — в первом ответе, ещё до одобрения; ответ после одобрения его не повторяет.
+    // Сохраняем до проверки `approved`: иначе после разрыва hub переподключался по PIN, получал новый
+    // неодобренный токен и снова ждал подтверждения на том ПК — связь не восстанавливалась.
     if (typeof result.deviceToken === 'string' && result.deviceToken) {
       peer.credentials.deviceToken = result.deviceToken;
       // PIN больше не нужен: дальше подключаемся по токену, который можно отозвать на том хосте.
       peer.pendingPin = undefined;
       void this.persistPeers();
+    }
+
+    if (result.approved === false) {
+      peer.status = 'error';
+      peer.error = 'Удалённый хост требует подтверждения устройства — подтвердите его в настройках того ПК';
+      logger.warn(`[Federation] Waiting for device approval on ${peer.credentials.machineName}`);
+      this.rejectHandshakeWaiters(peer, new Error(peer.error));
+      this.notifyPeersChanged();
+      return;
     }
     if (!peer.session) peer.sessionProtocol = SESSION_PROTOCOL_V1;
 
