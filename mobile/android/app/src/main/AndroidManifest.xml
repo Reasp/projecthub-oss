@@ -44,6 +44,19 @@
             android:name=".PushActionReceiver"
             android:exported="false" />
 
+        <!-- Виджет «Агенты» (TASK-140.7, decision-121 п. 3): ход роёв со всех ПК из последних push. -->
+        <receiver
+            android:name=".AgentsWidget"
+            android:exported="false"
+            android:label="@string/widget_agents_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/agents_widget_info" />
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -66,6 +79,11 @@
     <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
     <!-- Уведомления о запросах агентов (TASK-140.3). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Ход агента на экране блокировки как Live Update Android 16 (TASK-140.7, decision-121 п. 2). -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- Голосовой промпт: запись в WebView, распознавание на ПК (decision-121 п. 4). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Дистрибьюторы UnifiedPush видны приложению только через объявленный запрос (Android 11+). -->
     <queries>

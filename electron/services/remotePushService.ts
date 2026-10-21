@@ -1,4 +1,5 @@
 import type { HitlRequest } from './hitlTypes.js';
+import type { AgentProgress } from './remoteProgress.js';
 import {
   encodePushPayload,
   hitlPushPayload,
@@ -6,6 +7,7 @@ import {
   signGatewayRequest,
   type GatewayPushBody,
   type NotePushPayload,
+  type ProgressPushPayload,
   type PushHostEndpoint,
   type PushPayload,
   type PushRegistration
@@ -47,6 +49,8 @@ function projectName(path: string): string {
 
 /** Не больше 30 push в минуту на устройство: агент в цикле не завалит телефон. */
 const PER_DEVICE_PER_MINUTE = 30;
+/** Ход агентов — не больше 20 push в минуту на устройство из общих 30. */
+const PROGRESS_PER_MINUTE = 20;
 /** Уведомление о запросе живёт час: позже оно бесполезно. */
 const PUSH_TTL_SEC = 3600;
 
@@ -63,10 +67,11 @@ export class RemotePushService {
     private readonly onGone: (deviceId: string) => void = () => undefined
   ) {}
 
-  private allow(deviceId: string): boolean {
+  /** `limit` ниже общего у фоновых push (ход агента): запросам HITL остаётся запас в той же минуте. */
+  private allow(deviceId: string, limit = PER_DEVICE_PER_MINUTE): boolean {
     const now = this.deps.now();
     const recent = (this.sentAt.get(deviceId) ?? []).filter((t) => now - t < 60_000);
-    if (recent.length >= PER_DEVICE_PER_MINUTE) {
+    if (recent.length >= limit) {
       this.sentAt.set(deviceId, recent);
       return false;
     }
@@ -132,6 +137,33 @@ export class RemotePushService {
         ts: this.deps.now()
       };
       const res = await this.deliver(target, payload, note.id, note.level === 'error' || note.level === 'warning' ? 'high' : 'normal');
+      if (res.ok) delivered += 1;
+    }
+    return delivered;
+  }
+
+  /**
+   * Ход агента (decision-121 п. 1): тихое постоянное уведомление и виджет. Не подавляется «человеком у ПК»: оно не зовёт
+   * человека, а показывает состояние. Частоту ограничивает `ProgressThrottle` до вызова.
+   */
+  async onProgress(p: AgentProgress): Promise<number> {
+    let delivered = 0;
+    for (const target of this.deps.targets()) {
+      if (!this.allow(target.deviceId, PROGRESS_PER_MINUTE)) continue;
+      const payload: ProgressPushPayload = {
+        v: 1,
+        t: 'prog',
+        hid: this.deps.hostId(),
+        host: this.deps.machineName(),
+        sid: p.swarmId,
+        title: p.title,
+        st: p.state,
+        step: p.step,
+        ...(typeof p.percent === 'number' ? { pct: p.percent } : {}),
+        ...(p.projectPath ? { proj: projectName(p.projectPath) } : {}),
+        ts: this.deps.now()
+      };
+      const res = await this.deliver(target, payload, `prog-${p.swarmId}`, p.state === 'waiting' ? 'high' : 'normal');
       if (res.ok) delivered += 1;
     }
     return delivered;

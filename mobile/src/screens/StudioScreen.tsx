@@ -39,6 +39,8 @@ import { copyText } from '../platform/clipboard';
 import { capabilitiesFor } from '../protocol/models';
 import { ATTACH_MAX_PER_PROMPT, formatBytes } from '../protocol/attachments';
 import { prepareAttachment } from '../components/attachmentFile';
+import { appendTranscript } from '../protocol/voice';
+import { VoiceButton } from './VoiceButton';
 
 /** Вложение в поле ввода: грузится сразу после выбора, в промпт уходит путь в проекте на хосте. */
 interface Attachment {
@@ -330,6 +332,7 @@ export function StudioScreen() {
           >
             <PaperclipIcon size={22} />
           </button>
+          <VoiceButton disabled={studio.busy} onText={(spoken) => setText((prev) => appendTranscript(prev, spoken))} />
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}

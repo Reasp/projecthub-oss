@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Виджет «Агенты» (TASK-140.7, decision-121 п. 3): до трёх роёв со всех ПК. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/widget_agents_label"
+        android:textColor="#94A3B8"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/widget_agents_empty"
+        android:textColor="#CBD5E1"
+        android:textSize="13sp" />
+
+    <LinearLayout android:id="@+id/widget_row_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="vertical" android:visibility="gone">
+        <TextView android:id="@+id/widget_title_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#F1F5F9" android:textSize="13sp" />
+        <TextView android:id="@+id/widget_step_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#94A3B8" android:textSize="11sp" />
+        <ProgressBar android:id="@+id/widget_bar_1" style="@android:style/Widget.ProgressBar.Horizontal" android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="2dp" android:max="100" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/widget_row_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="vertical" android:visibility="gone">
+        <TextView android:id="@+id/widget_title_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#F1F5F9" android:textSize="13sp" />
+        <TextView android:id="@+id/widget_step_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#94A3B8" android:textSize="11sp" />
+        <ProgressBar android:id="@+id/widget_bar_2" style="@android:style/Widget.ProgressBar.Horizontal" android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="2dp" android:max="100" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/widget_row_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:orientation="vertical" android:visibility="gone">
+        <TextView android:id="@+id/widget_title_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#F1F5F9" android:textSize="13sp" />
+        <TextView android:id="@+id/widget_step_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#94A3B8" android:textSize="11sp" />
+        <ProgressBar android:id="@+id/widget_bar_3" style="@android:style/Widget.ProgressBar.Horizontal" android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="2dp" android:max="100" />
+    </LinearLayout>
+</LinearLayout>

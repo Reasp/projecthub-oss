@@ -115,8 +115,15 @@ export class Notification {
   on = noop;
 }
 
+/** Голосовой стек (GigaAM в utilityProcess) на ph-agent недоступен: голосовой промпт идёт на ПК с окном. */
+export const utilityProcess = {
+  fork: (): never => {
+    throw new Error('utilityProcess недоступен в ph-agent');
+  }
+};
+
 export const ipcMain = { handle: noop, on: noop, removeHandler: noop };
 export const nativeTheme = { shouldUseDarkColors: true, on: noop };
 export const crashReporter = { start: noop };
 
-export default { app, BrowserWindow, powerMonitor, powerSaveBlocker, safeStorage, shell, globalShortcut, screen, Notification, ipcMain, nativeTheme, crashReporter };
+export default { app, BrowserWindow, powerMonitor, powerSaveBlocker, safeStorage, shell, globalShortcut, screen, Notification, utilityProcess, ipcMain, nativeTheme, crashReporter };

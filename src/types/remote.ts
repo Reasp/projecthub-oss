@@ -295,7 +295,9 @@ export type RemoteRpcMethod =
   | 'get_inbox'
   | 'inbox_dismiss'
   | 'review_task'
-  | 'get_review_screenshot';
+  | 'get_review_screenshot'
+  // Голосовой промпт: PCM с телефона частями, распознавание на этом ПК (TASK-140.7, decision-121)
+  | 'voice_chunk';
 
 /** Ответ `federation_enroll` / `enroll_device`: всё, что нужно телефону для отдельного профиля соседнего хоста. */
 export interface RemoteEnrollment {

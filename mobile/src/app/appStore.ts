@@ -38,6 +38,7 @@ import type { ClientSnapshot, RpcMethod } from '../protocol/remoteClient';
 import type { ConfirmPort, PushPort } from '../platform/types';
 import { uploadInChunks, type PreparedAttachment } from '../protocol/attachments';
 import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox';
+import { sendVoice } from '../protocol/voice';
 
 /**
  * Состояние экранов и действия мобильного клиента (TASK-140.1). Без React: экраны читают его
@@ -648,6 +649,21 @@ export class AppStore {
 
   async testPush(): Promise<void> {
     if (await this.call('push_test', {})) this.showToast('Проверочное уведомление отправлено', 'success');
+  }
+
+  /**
+   * Голосовой промпт (TASK-140.7, decision-121 п. 4): запись распознаёт ПК тем же движком, что голос в окне. `null` —
+   * не распознано (тост уже показан), пустая строка — речи не было.
+   */
+  async transcribeVoice(samples: Float32Array, language: 'ru' | 'en' | 'auto'): Promise<string | null> {
+    try {
+      const res = await sendVoice((params) => this.client.rpc('voice_chunk', params), samples, language);
+      if (!res.text) this.showToast('Речь не распознана — скажите ещё раз', 'info');
+      return res.text;
+    } catch (err) {
+      this.showToast(`Голос не распознан: ${errorText(err)}`, 'error');
+      return null;
+    }
   }
 
   /** Вложение в промпт (TASK-140.6): файл сохраняется в проект на хосте, возвращается путь в проекте. */

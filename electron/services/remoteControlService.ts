@@ -67,6 +67,9 @@ import { parsePushAction, parsePushRegistration, verifyPushAction, type PushHost
 import { RemotePushService, type PushTarget } from './remotePushService.js';
 import { RemoteInboxService, type InboxTask, type NoteContext } from './remoteInboxService.js';
 import { KeepAwakeController } from './keepAwake.js';
+import { ProgressThrottle, progressFromSession } from './remoteProgress.js';
+import { VoiceUploads, parseVoiceChunk, recognizeVoice, type VoiceLanguage, type VoiceResult } from './remoteVoice.js';
+import type { SwarmSession } from './swarmTypes.js';
 import { setAgentNotifier } from './agentNotifier.js';
 import { updateTaskFile } from './taskSessionNote.js';
 import { applyImplementationNote, nowBacklogTimestamp } from './backlogTaskFormat.js';
@@ -337,6 +340,11 @@ class RemoteControlService {
   private phoneSwarms = new Set<string>();
   private phoneStudioSessions = new Set<string>();
   private keepAwakeTimer: NodeJS.Timeout | null = null;
+  /** Ход агентов на экран блокировки телефона (TASK-140.7, decision-121): частота и рои, ждущие решения HITL. */
+  private progressThrottle = new ProgressThrottle();
+  private swarmsWaitingHitl = new Set<string>();
+  private progressSubscribed = false;
+  private voiceUploads = new VoiceUploads();
 
   private telegramBotToken = '';
   private telegramChatId = '';
@@ -794,6 +802,9 @@ class RemoteControlService {
     this.busUnsubscribe = appEventBus.subscribe((event) => {
       // Журнал ленты ведётся и при выключенном Remote Control: телефон увидит итоги, когда подключится.
       this.inbox.handleBus(event);
+      if (event.type === 'hitl:requested' || event.type === 'hitl:decided' || event.type === 'hitl:expired' || event.type === 'hitl:cancelled') {
+        this.trackSwarmHitl(event.request.sessionId, event.request.id, event.type === 'hitl:requested');
+      }
       if (event.type.startsWith('hitl:') || event.type.startsWith('agent:') || event.type === 'swarm:finished') this.refreshKeepAwake();
       if (!this.enabled) return;
       if (event.type === 'hitl:requested') {
@@ -863,6 +874,10 @@ class RemoteControlService {
   public async initOnStartup(): Promise<void> {
     await this.inbox.init();
     setAgentNotifier((ctx, args) => this.notifyFromAgent(ctx, args));
+    if (!this.progressSubscribed) {
+      this.progressSubscribed = true;
+      agentFleetService.on('swarmEvent', (event: { session?: SwarmSession }) => this.pushProgress(event.session));
+    }
     this.subscribeToEventBus();
     await this.loadPersistedSecrets();
     // Автозапуск назначенных задач живёт в backlog-вотчере и не зависит от того, включён ли
@@ -1001,6 +1016,48 @@ class RemoteControlService {
       expiresAt: r.expiresAt,
       orphaned: r.orphaned
     }));
+  }
+
+  /** Запрос HITL агента роя: рой «ждёт решения» на экране блокировки телефона, пока запрос не решён. */
+  private trackSwarmHitl(sessionId: string, requestId: string, waiting: boolean): void {
+    if (!sessionId.startsWith('swarm-')) return;
+    const agentId = sessionId.slice('swarm-'.length);
+    const swarm = agentFleetService.listSwarms().find((s) => s.agents.some((a) => a.id === agentId));
+    if (!swarm) return;
+    const sessions = new Set(swarm.agents.map((a) => `swarm-${a.id}`));
+    if (waiting) this.swarmsWaitingHitl.add(swarm.id);
+    else if (!hitlService.listPending({}).some((r) => r.id !== requestId && sessions.has(r.sessionId))) this.swarmsWaitingHitl.delete(swarm.id);
+    this.pushProgress(swarm);
+  }
+
+  /** Push хода роя устройствам с push (decision-121 п. 1): смена состояния — сразу, остальное — не чаще раза в 20 с. */
+  private pushProgress(session: SwarmSession | undefined): void {
+    if (!session || !this.enabled || this.pushTargets().length === 0) return;
+    const progress = progressFromSession(session, this.swarmsWaitingHitl.has(session.id));
+    if (progress.state !== 'waiting' && progress.state !== 'running') this.swarmsWaitingHitl.delete(session.id);
+    if (!this.progressThrottle.shouldSend(progress)) return;
+    void this.pushService.onProgress(progress).catch(() => undefined);
+  }
+
+  /** Движки голоса грузятся при первом голосовом промпте: ph-agent и хост без голоса их не тянут (decision-121 п. 4). */
+  private async transcribePhoneVoice(samples: Float32Array, language: VoiceLanguage): Promise<VoiceResult> {
+    const [{ localWhisperService }, { speechPrepService }, { getInstalledAsrModel }, { isLikelyHallucination }] = await Promise.all([
+      import('./localWhisperService.js'),
+      import('./speechPrepService.js'),
+      import('./asrModelStore.js'),
+      import('../../src/services/whisperHallucination.js')
+    ]);
+    return recognizeVoice(samples, language, {
+      sherpa: async (s) => {
+        const asr = await getInstalledAsrModel('gigaam-v3-ru');
+        if (!asr) return null;
+        const res = await speechPrepService.recognize({ samples: s, gate: true, denoise: 'off', asr });
+        if (!res.ok) return null;
+        return res.speech ? { text: res.text ?? '' } : { noSpeech: true };
+      },
+      whisper: (s, lang) => localWhisperService.transcribe(s, lang, 'ru'),
+      isHallucination: (text) => isLikelyHallucination(text)
+    });
   }
 
   private trackPhoneSwarm(swarmId: string): void {
@@ -2734,7 +2791,9 @@ class RemoteControlService {
       'enroll_device',
       // «Входящие» (decision-117 п. 3, 4): разбор ленты и решение по задаче из Review — решения человека, как HITL.
       'inbox_dismiss',
-      'review_task'
+      'review_task',
+      // Голосовой промпт — та же запись в агента, что studio_send (decision-121 п. 4).
+      'voice_chunk'
     ]);
     const hitlRightsMethods = new Set(['hitl_decision', 'approve_agent_tasks', 'inbox_dismiss', 'review_task']);
 
@@ -3269,6 +3328,13 @@ class RemoteControlService {
 
       case 'get_review_screenshot':
         return this.inbox.screenshotChunk(params);
+
+      // Голосовой промпт с телефона (TASK-140.7, decision-121 п. 4): PCM частями, распознавание движком окна на этом ПК.
+      case 'voice_chunk': {
+        const res = this.voiceUploads.put(device.id, parseVoiceChunk(params));
+        if (!res.done) return { received: res.received };
+        return this.transcribePhoneVoice(res.samples, res.language);
+      }
 
       default:
         throw new Error(`Unknown RPC method: ${method}`);

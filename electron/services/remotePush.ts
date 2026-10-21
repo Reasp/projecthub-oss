@@ -132,7 +132,23 @@ export interface NotePushPayload {
   ts: number;
 }
 
-export type PushPayload = HitlPushPayload | HitlDonePushPayload | TestPushPayload | NotePushPayload;
+/** Ход агента (TASK-140.7, decision-121 п. 1): постоянное уведомление и виджет на телефоне. */
+export interface ProgressPushPayload {
+  v: 1;
+  t: 'prog';
+  hid: string;
+  host: string;
+  /** Рой: по нему телефон обновляет одно и то же уведомление. */
+  sid: string;
+  title: string;
+  st: 'running' | 'waiting' | 'done' | 'failed' | 'stopped';
+  step: string;
+  pct?: number;
+  proj?: string;
+  ts: number;
+}
+
+export type PushPayload = HitlPushPayload | HitlDonePushPayload | TestPushPayload | NotePushPayload | ProgressPushPayload;
 
 function projectName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
@@ -170,6 +186,11 @@ export function encodePushPayload(payload: PushPayload, limit = WEB_PUSH_MAX_PLA
   const fits = (p: PushPayload) => Buffer.byteLength(JSON.stringify(p), 'utf8') <= limit;
   if (fits(payload)) return Buffer.from(JSON.stringify(payload), 'utf8');
   const cut = (s: string | undefined, n: number) => (s && s.length > n ? `${s.slice(0, n)}…` : s);
+  if (payload.t === 'prog') {
+    const p: ProgressPushPayload = { ...payload, title: cut(payload.title, 120)!, step: cut(payload.step, 160)!, proj: cut(payload.proj, 60) };
+    if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');
+    throw new Error('Push слишком большой');
+  }
   if (payload.t === 'note') {
     for (const n of [300, 120]) {
       const p: NotePushPayload = { ...payload, text: cut(payload.text, n)!, proj: cut(payload.proj, 60), agent: cut(payload.agent, 60) };

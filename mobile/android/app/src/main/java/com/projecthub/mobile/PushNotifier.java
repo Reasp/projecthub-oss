@@ -115,6 +115,10 @@ final class PushNotifier {
             showNote(ctx, reg, p, host);
             return;
         }
+        if ("prog".equals(type)) {
+            ProgressNotifier.show(ctx, reg, p);
+            return;
+        }
         if (!"hitl".equals(type)) return;
 
         String hid = p.optString("hid");

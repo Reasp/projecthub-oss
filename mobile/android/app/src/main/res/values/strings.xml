@@ -4,4 +4,7 @@
     <string name="title_activity_main">ProjectHub</string>
     <string name="package_name">com.projecthub.mobile</string>
     <string name="custom_url_scheme">com.projecthub.mobile</string>
+    <string name="widget_agents_label">Агенты ProjectHub</string>
+    <string name="widget_agents_description">Ход агентов на ваших компьютерах</string>
+    <string name="widget_agents_empty">Агенты не работают</string>
 </resources>
