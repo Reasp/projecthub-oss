@@ -54,13 +54,16 @@ function qrAddresses(status: RemoteControlStatus): Array<{ kind: EndpointKind; h
 }
 import { useTranslation } from '../../i18n';
 import { useToast, useTimers } from '../../hooks/useTimeoutState';
+import { useRemoteControlStore } from '../../store/useRemoteControlStore';
 import type { RemoteControlStatus, DeviceRights } from '../../types/electron';
 
 export const RemoteControlBadge: React.FC = () => {
   const { t } = useTranslation();
   const [status, setStatus] = useState<RemoteControlStatus | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'connect' | 'devices' | 'settings' | 'telegram'>('connect');
+  // Открывается и кнопкой в шапке, и кликом по уведомлению о новом устройстве (TASK-173).
+  const isOpen = useRemoteControlStore((s) => s.isOpen);
+  const activeTab = useRemoteControlStore((s) => s.activeTab);
+  const { open: openModal, close: closeModal, setActiveTab } = useRemoteControlStore.getState();
   // Индикатор «скопировано» гаснет сам; таймер снимается при размонтировании (TASK-50)
   const [copiedKey, showCopiedKey] = useToast<string>(2500);
   const { setTimer } = useTimers();
@@ -336,7 +339,7 @@ export const RemoteControlBadge: React.FC = () => {
       {/* Header Pill Button */}
       <button
         type="button"
-        onClick={() => setIsOpen(true)}
+        onClick={() => openModal()}
         className="ph-status-item"
         title={t.remote.badgeTooltip}
       >
@@ -393,7 +396,7 @@ export const RemoteControlBadge: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsOpen(false)}
+                  onClick={closeModal}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
                 >
                   <X className="w-4 h-4" />
@@ -506,10 +509,11 @@ export const RemoteControlBadge: React.FC = () => {
                             </li>
                           ))}
                         </ul>
-                        {qrAddresses(status).every((a) => a.kind === 'lan') && (
+                        {/* Туннель включает только владелец — кнопкой здесь же, а не только на вкладке Telegram.
+                            VPN его не заменяет: через VPN телефон доступен только внутри неё (TASK-173). */}
+                        {status.tunnelStatus !== 'active' && (
                           <div className="mt-1 text-amber-300/90">
-                            {t.remote.qrLanOnlyHint}
-                            {/* Туннель включает только владелец — кнопкой здесь же, а не только на вкладке Telegram. */}
+                            {qrAddresses(status).every((a) => a.kind === 'lan') && t.remote.qrLanOnlyHint}
                             <button
                               type="button"
                               onClick={handleRestartTunnel}

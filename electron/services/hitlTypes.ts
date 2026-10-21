@@ -320,6 +320,23 @@ export type AppBusEvent =
       hostId?: string;
       at: number;
     }
+  /** Устройство прошло проверку PIN/ключа/токена, но ждёт одобрения на ПК (TASK-173). */
+  | {
+      type: 'remote:deviceApprovalRequested';
+      deviceId: string;
+      deviceName: string;
+      mode: string;
+      hostId?: string;
+      at: number;
+    }
+  /** Ожидание одобрения закончилось: одобрено, отклонено или устройство отключилось (TASK-173). */
+  | {
+      type: 'remote:deviceApprovalResolved';
+      deviceId: string;
+      outcome: 'approved' | 'rejected' | 'disconnected';
+      hostId?: string;
+      at: number;
+    }
   /** Событие, пришедшее с удалённого хоста федерации в hub-режиме (TASK-66, decision-11 п.4). */
   | {
       type: 'federation:peerEvent';

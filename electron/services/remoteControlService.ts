@@ -916,6 +916,49 @@ class RemoteControlService {
 
   private busUnsubscribe: (() => void) | null = null;
 
+  /** Что уже объявлено в шину о текущем соединении устройства: доступ или ожидание одобрения (TASK-173). */
+  private readonly announcedDevices = new Map<string, 'pending' | 'approved'>();
+
+  /**
+   * Устройство прошло проверку PIN/ключа/токена (TASK-173): в шину — подключение или запрос одобрения, по разу на
+   * состояние соединения. Открытый сокет без рукопожатия не объявляется: его может открыть кто угодно в сети.
+   */
+  private announceDevice(device: RemoteDevice): void {
+    const state = device.isApproved ? 'approved' : 'pending';
+    const previous = this.announcedDevices.get(device.id);
+    if (previous === state) return;
+    this.announcedDevices.set(device.id, state);
+    if (state === 'pending') {
+      appEventBus.publish({
+        type: 'remote:deviceApprovalRequested',
+        deviceId: device.id,
+        deviceName: device.name,
+        mode: device.mode,
+        hostId: this.hostId,
+        at: Date.now()
+      });
+      return;
+    }
+    if (previous === 'pending') this.publishApprovalResolved(device.id, 'approved');
+    this.publishDeviceConnected(device);
+  }
+
+  /** Соединение устройства закрыто: ожидавший одобрения запрос снимается с уведомлений. */
+  private forgetDevice(deviceId: string, outcome: 'rejected' | 'disconnected'): void {
+    const previous = this.announcedDevices.get(deviceId);
+    this.announcedDevices.delete(deviceId);
+    if (previous === 'pending') this.publishApprovalResolved(deviceId, outcome);
+  }
+
+  /** Все соединения закрыты разом: обработчики `close` этого уже не увидят, клиенты сняты раньше. */
+  private forgetAllDevices(outcome: 'rejected' | 'disconnected'): void {
+    for (const id of [...this.announcedDevices.keys()]) this.forgetDevice(id, outcome);
+  }
+
+  private publishApprovalResolved(deviceId: string, outcome: 'approved' | 'rejected' | 'disconnected'): void {
+    appEventBus.publish({ type: 'remote:deviceApprovalResolved', deviceId, outcome, hostId: this.hostId, at: Date.now() });
+  }
+
   /** Подключение устройства в шину (TASK-63): трей и журнал уведомлений показывают его как событие. */
   private publishDeviceConnected(device: RemoteDevice): void {
     appEventBus.publish({
@@ -1361,6 +1404,7 @@ class RemoteControlService {
     }
     this.localClients.clear();
     this.connectedDevices.clear();
+    this.forgetAllDevices('rejected');
     this.deviceTokens.clear();
     await this.persistDeviceTokens();
 
@@ -1393,7 +1437,9 @@ class RemoteControlService {
       }
       this.relaySessions.delete(id);
       this.connectedDevices.delete(id);
+      this.forgetDevice(id, 'rejected');
     }
+    this.forgetDevice(deviceId, 'rejected');
     this.notifyStatusChanged();
     return this.getStatus();
   }
@@ -1407,6 +1453,7 @@ class RemoteControlService {
     const dev = this.connectedDevices.get(deviceId);
     if (dev) {
       dev.isApproved = true;
+      this.announceDevice(dev);
       this.notifyStatusChanged();
 
       // Оповещаем клиента о разрешении доступа
@@ -1730,6 +1777,7 @@ class RemoteControlService {
     }
     this.localClients.clear();
     this.connectedDevices.clear();
+    this.forgetAllDevices('disconnected');
 
     if (this.wss) {
       try {
@@ -2198,6 +2246,8 @@ class RemoteControlService {
 
       this.connectedDevices.set(deviceId, device);
       this.localClients.set(deviceId, clientConn);
+      // Новое соединение объявляется заново: прежнее могло закрыться без события.
+      this.announcedDevices.delete(deviceId);
       this.notifyStatusChanged();
 
       // Подтверждение клиенту — новый токен выдаётся только при первом сопряжении.
@@ -2219,9 +2269,9 @@ class RemoteControlService {
         })
       );
 
-      // Уведомление в десктоп
+      // Уведомление в десктоп. Путь v1 проверил PIN/ключ/токен ещё до апгрейда сокета.
       this.notifyRenderer('remote:deviceConnected', device);
-      this.publishDeviceConnected(device);
+      this.announceDevice(device);
 
       ws.on('message', async (raw: any) => {
         device.lastSeenAt = Date.now();
@@ -2241,6 +2291,7 @@ class RemoteControlService {
       ws.on('close', () => {
         this.localClients.delete(deviceId);
         this.connectedDevices.delete(deviceId);
+        this.forgetDevice(deviceId, 'disconnected');
         this.notifyStatusChanged();
         this.notifyRenderer('remote:deviceDisconnected', { deviceId });
       });
@@ -2274,9 +2325,10 @@ class RemoteControlService {
     }
     this.connectedDevices.set(deviceId, device);
     this.localClients.set(deviceId, { id: deviceId, ws, device, isEncrypted: true });
+    // В шину — только после `handshake`: до него устройство ничего не доказало (TASK-173).
+    this.announcedDevices.delete(deviceId);
     this.notifyStatusChanged();
     this.notifyRenderer('remote:deviceConnected', device);
-    this.publishDeviceConnected(device);
 
     ws.on('message', async (raw: WebSocket.RawData) => {
       device.lastSeenAt = Date.now();
@@ -2296,6 +2348,7 @@ class RemoteControlService {
       if (this.localClients.get(deviceId)?.ws !== ws) return;
       this.localClients.delete(deviceId);
       this.connectedDevices.delete(deviceId);
+      this.forgetDevice(deviceId, 'disconnected');
       this.notifyStatusChanged();
       this.notifyRenderer('remote:deviceDisconnected', { deviceId });
     });
@@ -2388,15 +2441,17 @@ class RemoteControlService {
             this.connectedDevices.set(msg.clientId, dev);
             // Новый сокет клиента — прежняя сессия v2 ему не принадлежит.
             this.relaySessions.delete(msg.clientId);
+            // В шину — только после `handshake` (TASK-173).
+            this.announcedDevices.delete(msg.clientId);
             this.notifyStatusChanged();
             this.notifyRenderer('remote:deviceConnected', dev);
-            this.publishDeviceConnected(dev);
             return;
           }
 
           if (msg.type === 'client_disconnected') {
             this.relaySessions.delete(msg.clientId);
             this.connectedDevices.delete(msg.clientId);
+            this.forgetDevice(msg.clientId, 'disconnected');
             this.notifyStatusChanged();
             this.notifyRenderer('remote:deviceDisconnected', { deviceId: msg.clientId });
             return;
@@ -2696,6 +2751,7 @@ class RemoteControlService {
             }
           })
         );
+        this.announceDevice(device);
         this.notifyStatusChanged();
         return;
       }
@@ -2750,6 +2806,7 @@ class RemoteControlService {
           }
         })
       );
+      this.announceDevice(device);
       this.notifyStatusChanged();
       return;
     }
