@@ -67,6 +67,62 @@ export interface LiveAgentRun extends Omit<AgentRunRecord, 'at' | 'status'> {
 }
 
 export type LaunchGuard = (ctx: AgentLaunchContext) => AgentLaunchVerdict | Promise<AgentLaunchVerdict>;
+
+// ── Устройства Remote Control (участники общего хоста, decision-126) ──
+
+export type DeviceRightsName = 'readOnly' | 'hitl' | 'full';
+
+/** Устройство, от которого пришёл запрос: права — уже с учётом сужения точками расширения. */
+export interface RemoteDeviceRef {
+  id: string;
+  name?: string;
+  /** Чьё это устройство. Пусто — владельца хоста. */
+  memberId?: string;
+  rights: DeviceRightsName;
+}
+
+/** Сопряжённое устройство из справочника хоста. */
+export interface PairedDeviceRef {
+  deviceId: string;
+  name: string;
+  memberId?: string;
+  rights: DeviceRightsName;
+  connected: boolean;
+  createdAt: number;
+}
+
+export interface DeviceDirectory {
+  list(): PairedDeviceRef[];
+  /** Отозвать токен и закрыть живое соединение. */
+  revoke(deviceId: string): void;
+}
+
+/** Код сопряжения, который не PIN и не ключ хоста (приглашение участника): кому выдать устройство и с какими правами. */
+export interface PairingRedemption {
+  memberId: string;
+  rights: DeviceRightsName;
+}
+
+export interface RemoteCallContext {
+  device: RemoteDeviceRef;
+  /** Активный проект хоста для этого запроса. */
+  projectPath?: string;
+  /** Событие всем подключённым клиентам (например, `backlog:changed`). */
+  broadcast(event: string, payload: unknown): void;
+}
+
+export interface RemoteMethodSpec {
+  /** Метод меняет данные: устройству только для чтения недоступен. */
+  write: boolean;
+  handler: (params: Record<string, unknown>, ctx: RemoteCallContext) => unknown;
+}
+
+const RIGHTS_RANK: Record<DeviceRightsName, number> = { readOnly: 0, hitl: 1, full: 2 };
+
+/** Меньшие из двух прав. */
+export function minRights(a: DeviceRightsName, b: DeviceRightsName): DeviceRightsName {
+  return RIGHTS_RANK[a] <= RIGHTS_RANK[b] ? a : b;
+}
 export type IpcHandler = (...args: unknown[]) => unknown;
 
 export interface EditionMainApi {
@@ -78,6 +134,16 @@ export interface EditionMainApi {
   handleIpc(channel: string, handler: IpcHandler): void;
   /** Сохранить текст через системный диалог окна. Без окна (ph-agent) — { success: false }. */
   saveTextFile(options: SaveTextFileOptions): Promise<SaveTextFileResult>;
+  /** Сузить права устройства (роль участника). Расширить нельзя: берётся меньшее из исходных и возвращённых. */
+  addDeviceRightsLimit(limit: (device: RemoteDeviceRef) => DeviceRightsName): void;
+  /** Запрет метода RPC для устройства: строка — причина отказа. */
+  addRpcGuard(guard: (method: string, device: RemoteDeviceRef) => string | null): void;
+  /** Погасить код сопряжения, не совпавший с PIN и ключом хоста. */
+  setPairingCodeRedeemer(redeem: (input: { code: string; deviceId: string; deviceName: string }) => Promise<PairingRedemption | null>): void;
+  /** Свой метод RPC Remote Control (телефон, hub-клиент другого ПК). Имена открытых методов не перекрываются. */
+  addRemoteMethod(name: string, spec: RemoteMethodSpec): void;
+  /** Сопряжённые устройства хоста. */
+  devices(): DeviceDirectory;
 }
 
 export interface SaveTextFileOptions {
@@ -104,6 +170,12 @@ let liveRunsProvider: () => LiveAgentRun[] = () => [];
 let ipcRegistrar: (channel: string, handler: IpcHandler) => void = () => undefined;
 const noWindowSave = async (): Promise<SaveTextFileResult> => ({ success: false, error: 'Нет окна для диалога сохранения' });
 let textFileSaver: (options: SaveTextFileOptions) => Promise<SaveTextFileResult> = noWindowSave;
+const rightsLimits: Array<(device: RemoteDeviceRef) => DeviceRightsName> = [];
+const rpcGuards: Array<(method: string, device: RemoteDeviceRef) => string | null> = [];
+let pairingRedeemer: ((input: { code: string; deviceId: string; deviceName: string }) => Promise<PairingRedemption | null>) | null = null;
+const remoteMethods = new Map<string, RemoteMethodSpec>();
+const emptyDirectory: DeviceDirectory = { list: () => [], revoke: () => undefined };
+let deviceDirectory: DeviceDirectory = emptyDirectory;
 
 export const editionRegistry = {
   api(): EditionMainApi {
@@ -116,8 +188,66 @@ export const editionRegistry = {
       },
       liveRuns: () => liveRunsProvider(),
       handleIpc: (channel, handler) => ipcRegistrar(channel, handler),
-      saveTextFile: (options) => textFileSaver(options)
+      saveTextFile: (options) => textFileSaver(options),
+      addDeviceRightsLimit: (limit) => {
+        rightsLimits.push(limit);
+      },
+      addRpcGuard: (guard) => {
+        rpcGuards.push(guard);
+      },
+      setPairingCodeRedeemer: (redeem) => {
+        pairingRedeemer = redeem;
+      },
+      addRemoteMethod: (name, spec) => {
+        remoteMethods.set(name, spec);
+      },
+      devices: () => deviceDirectory
     };
+  },
+
+  /** Права устройства после всех сужений. Сбой ограничения — только чтение: права не должны молча расширяться. */
+  deviceRights(device: RemoteDeviceRef): DeviceRightsName {
+    let rights = device.rights;
+    for (const limit of rightsLimits) {
+      try {
+        rights = minRights(rights, limit({ ...device, rights }));
+      } catch (err) {
+        console.warn('[edition] Ограничение прав устройства упало:', err);
+        return 'readOnly';
+      }
+    }
+    return rights;
+  },
+
+  /** Причина запрета метода RPC или `null`. */
+  checkRpc(method: string, device: RemoteDeviceRef): string | null {
+    for (const guard of rpcGuards) {
+      try {
+        const reason = guard(method, device);
+        if (reason) return reason;
+      } catch (err) {
+        return `Проверка прав не удалась: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    return null;
+  },
+
+  async redeemPairingCode(input: { code: string; deviceId: string; deviceName: string }): Promise<PairingRedemption | null> {
+    if (!pairingRedeemer || !input.code) return null;
+    try {
+      return await pairingRedeemer(input);
+    } catch (err) {
+      console.warn('[edition] Код сопряжения не погашен:', err);
+      return null;
+    }
+  },
+
+  remoteMethod(name: string): RemoteMethodSpec | undefined {
+    return remoteMethods.get(name);
+  },
+
+  setDeviceDirectory(directory: DeviceDirectory): void {
+    deviceDirectory = directory;
   },
 
   /** Сводка всех ограничений: блокирует любое, потолок — наименьший, примечания — все по порядку. */
@@ -176,6 +306,11 @@ export const editionRegistry = {
     liveRunsProvider = () => [];
     ipcRegistrar = () => undefined;
     textFileSaver = noWindowSave;
+    rightsLimits.length = 0;
+    rpcGuards.length = 0;
+    pairingRedeemer = null;
+    remoteMethods.clear();
+    deviceDirectory = emptyDirectory;
   }
 };
 

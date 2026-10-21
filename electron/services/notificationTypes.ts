@@ -34,6 +34,8 @@ export type NotificationKind =
   /** PR слит; задачи переведены по настройке проекта (TASK-138.5). */
   | 'prMerged'
   | 'deviceConnected'
+  /** Устройство ждёт одобрения на ПК, без него телефон не получит доступ (TASK-173). */
+  | 'deviceApproval'
   /** Слот переключил модель по fallback-цепочке тира (decision-44). */
   | 'modelFallback'
   /** Automations: правило приостановлено по лимиту, запуск не удался, действие `notify` (decision-52). */
@@ -57,6 +59,7 @@ export const NOTIFICATION_KINDS: NotificationKind[] = [
   'prChecksFailed',
   'prMerged',
   'deviceConnected',
+  'deviceApproval',
   'modelFallback',
   'automation',
   'prReview',
@@ -73,7 +76,8 @@ export type NotificationAction =
   | { type: 'openSwarm'; projectPath?: string; sessionId?: string }
   | { type: 'openProcesses'; projectPath?: string }
   | { type: 'openPrs'; projectPath?: string; url?: string }
-  | { type: 'openRemote' }
+  /** `tab: 'devices'` — сразу вкладка устройств с кнопкой одобрения (TASK-173). */
+  | { type: 'openRemote'; tab?: 'devices' }
   | { type: 'openAutomations'; projectPath?: string }
   | { type: 'openSecurity'; projectPath?: string }
   | { type: 'openTask'; projectPath?: string; taskId?: string }

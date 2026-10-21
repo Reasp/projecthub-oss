@@ -57,7 +57,8 @@ import { guardedCommit } from './commitSecretGuard.js';
 import { summarizeSecretFindings } from './diffSecretScan.js';
 import { claudeBridgeService } from './claudeBridgeService.js';
 import { agentFleetService, isActiveSwarmStatus } from './agentFleetService.js';
-import { editionRegistry } from '../extensions/editionRegistry.js';
+import { editionRegistry, type PairingRedemption } from '../extensions/editionRegistry.js';
+import { appendRemoteAudit, auditTarget } from './remoteActionAudit.js';
 import { aiAgentService } from './aiAgentService.js';
 import { actionConfigService, type ActionDefinition } from './actionConfigService.js';
 import { createBacklogTaskFile } from './backlogTaskCreate.js';
@@ -159,7 +160,39 @@ function parseDeviceRights(value: unknown): DeviceRights | null {
   return value === 'readOnly' || value === 'hitl' || value === 'full' ? value : null;
 }
 
+/** Методы RPC, меняющие данные: недоступны устройствам только для чтения и пишутся в журнал действий (decision-126). */
+const REMOTE_WRITE_METHODS = new Set([
+  'start_process',
+  'stop_process',
+  'restart_process',
+  'update_task_status',
+  'toggle_task_criterion',
+  'create_task',
+  'git_commit',
+  'git_pull',
+  'git_push',
+  'send_ai_prompt',
+  'hitl_decision',
+  'approve_agent_tasks',
+  'run_action',
+  'start_assigned_agent',
+  'stop_swarm',
+  'studio_send',
+  'studio_attach',
+  'studio_abort',
+  'studio_clear',
+  // Выдача токена новому устройству — действие владельца хоста, только с правами full (decision-111).
+  'enroll_device',
+  // «Входящие» (decision-117 п. 3, 4): разбор ленты и решение по задаче из Review — решения человека, как HITL.
+  'inbox_dismiss',
+  'review_task',
+  // Голосовой промпт — та же запись в агента, что studio_send (decision-121 п. 4).
+  'voice_chunk'
+]);
+
 interface DeviceTokenRecord {
+  /** Участник общего хоста, которому выдано устройство (приглашение, decision-126). Пусто — владелец хоста. */
+  memberId?: string;
   token: string;
   rights: DeviceRights;
   deviceName: string;
@@ -607,6 +640,28 @@ class RemoteControlService {
     return record;
   }
 
+  /** Токен устройства, сопряжённого по приглашению участника: права роли, одобрено владельцем (decision-126). */
+  private issueMemberDeviceToken(deviceId: string, deviceName: string, invite: PairingRedemption): DeviceTokenRecord {
+    const record: DeviceTokenRecord = {
+      memberId: invite.memberId,
+      token: crypto.randomBytes(32).toString('hex'),
+      rights: invite.rights,
+      deviceName,
+      createdAt: Date.now(),
+      approved: true,
+      rightsExplicit: true
+    };
+    this.deviceTokens.set(deviceId, record);
+    this.persistDeviceTokens().catch(() => {});
+    logger.info(`[RemoteControl] Device ${deviceId} paired by invite for member ${invite.memberId}`);
+    return record;
+  }
+
+  /** Права устройства после сужения точками расширения (роль участника общего хоста). */
+  private effectiveDeviceRights(device: { id: string; name?: string; memberId?: string; rights?: DeviceRights }): DeviceRights {
+    return editionRegistry.deviceRights({ id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights: device.rights ?? 'full' });
+  }
+
   /** Переподключение по токену одобрено, если владелец одобрял это устройство или одобрение выключено. */
   private isTokenApproved(record: DeviceTokenRecord): boolean {
     return !this.requireApproval || record.approved !== false;
@@ -650,7 +705,7 @@ class RemoteControlService {
 
     const device = this.connectedDevices.get(deviceId);
     if (device) {
-      device.rights = rights;
+      device.rights = this.effectiveDeviceRights({ ...device, rights });
       // Клиент обновляет свой индикатор прав тем же пакетом, что и при сопряжении.
       this.sendToDevice(deviceId, {
         type: 'handshake_ack',
@@ -658,7 +713,7 @@ class RemoteControlService {
           approved: device.isApproved,
           readOnly: this.readOnly,
           hostId: this.hostId,
-          rights,
+          rights: device.rights,
           lastEventId: this.eventLogNextId - 1,
           ...this.ackProtocolFields(this.hasSession(deviceId))
         }
@@ -680,7 +735,8 @@ class RemoteControlService {
       connected: this.connectedDevices.has(deviceId),
       ...(record.delegatedBy ? { delegatedBy: record.delegatedBy } : {}),
       ...(record.confirmKey ? { biometricConfirm: true } : {}),
-      ...(record.push ? { push: record.push.kind } : {})
+      ...(record.push ? { push: record.push.kind } : {}),
+      ...(record.memberId ? { memberId: record.memberId } : {})
     }));
   }
 
@@ -1147,11 +1203,12 @@ class RemoteControlService {
     if (!record?.push || !this.isTokenApproved(record) || !verifyPushAction(record.push.actionKey, this.hostId, action, Date.now())) {
       return { status: 403, result: { ok: false, reason: 'forbidden' } };
     }
-    if (this.readOnly || record.rights === 'readOnly') return { status: 403, result: { ok: false, reason: 'read_only' } };
+    const pushRights = this.effectiveDeviceRights({ id: action.deviceId, name: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), rights: record.rights });
+    if (this.readOnly || pushRights === 'readOnly') return { status: 403, result: { ok: false, reason: 'read_only' } };
     const result = hitlService.decide(
       action.requestId,
       { approved: action.decision === 'allow' },
-      { kind: 'remote', deviceId: action.deviceId, deviceName: record.deviceName, confirm: action.confirm }
+      { kind: 'remote', deviceId: action.deviceId, deviceName: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), confirm: action.confirm }
     );
     if (!result.ok) return { status: 409, result: { ok: false, reason: result.reason, ...(result.risk ? { risk: result.risk } : {}) } };
     this.notifyRenderer('remote:hitlDecisionMade', {
@@ -1723,15 +1780,33 @@ class RemoteControlService {
    * уже получает пейринг-данные через IPC/QR на стороне рендерера).
    */
   private isAuthorizedApiRequest(req: IncomingMessage, url: URL): boolean {
+    return this.apiPrincipal(req, url) !== null;
+  }
+
+  /**
+   * Кто вызвал HTTP API: ключ хоста (бот Telegram, сам хост) или токен устройства — с его правами после сужения ролью
+   * участника (decision-126). `null` — токена нет или он неизвестен.
+   */
+  private apiPrincipal(req: IncomingMessage, url: URL): { kind: 'master' } | { kind: 'device'; deviceId: string; record: DeviceTokenRecord; rights: DeviceRights } | null {
     const header = req.headers.authorization || '';
     const bearer = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
     const presented = bearer || url.searchParams.get('token') || '';
-    if (!presented) return false;
-    if (this.constantTimeEqual(presented, this.secretKey)) return true;
-    for (const record of this.deviceTokens.values()) {
-      if (this.constantTimeEqual(presented, record.token)) return true;
+    if (!presented) return null;
+    if (this.constantTimeEqual(presented, this.secretKey)) return { kind: 'master' };
+    for (const [deviceId, record] of this.deviceTokens.entries()) {
+      if (this.constantTimeEqual(presented, record.token)) {
+        const rights = this.effectiveDeviceRights({ id: deviceId, name: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), rights: record.rights });
+        return { kind: 'device', deviceId, record, rights };
+      }
     }
-    return false;
+    return null;
+  }
+
+  /** Решение человека по HTTP (HITL, задачи агента): ключ хоста или устройство с правами не ниже `hitl`. */
+  private apiCanDecide(principal: ReturnType<RemoteControlService['apiPrincipal']>): boolean {
+    if (!principal) return false;
+    if (principal.kind === 'master') return true;
+    return !this.readOnly && principal.rights !== 'readOnly';
   }
 
   private async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1887,11 +1962,24 @@ class RemoteControlService {
               res.end(JSON.stringify({ ok: false, error: 'requestId required' }));
               return;
             }
+            const principal = this.apiPrincipal(req, url);
+            if (!this.apiCanDecide(principal)) {
+              res.writeHead(403, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: false, reason: 'read_only' }));
+              return;
+            }
+            const byDevice = principal?.kind === 'device' ? principal : null;
             const result = hitlService.decide(
               payload.requestId,
               { approved: Boolean(payload.approved), text: typeof payload.comment === 'string' ? payload.comment : undefined },
               // Кнопка в мессенджере: телефон разблокирован, но присутствие владельца не доказано — до `moderate`.
-              { kind: 'remote', deviceName: typeof payload.deviceName === 'string' ? payload.deviceName : 'Telegram', confirm: 'chat' }
+              {
+                kind: 'remote',
+                deviceName: byDevice ? byDevice.record.deviceName : typeof payload.deviceName === 'string' ? payload.deviceName : 'Telegram',
+                ...(byDevice ? { deviceId: byDevice.deviceId } : {}),
+                ...(byDevice?.record.memberId ? { memberId: byDevice.record.memberId } : {}),
+                confirm: 'chat'
+              }
             );
             res.writeHead(result.ok ? 200 : 409, { 'Content-Type': 'application/json' });
             res.end(
@@ -1915,9 +2003,15 @@ class RemoteControlService {
     // Подтверждение задач агента кнопкой Telegram (TASK-155, decision-89 п. 11): по билету из уведомления,
     // тем же путём, что окно и телефон. Токен обязателен, как и для HITL.
     if (url.pathname === '/api/agent-tasks/approve' && req.method === 'POST') {
-      if (!this.isAuthorizedApiRequest(req, url)) {
+      const principal = this.apiPrincipal(req, url);
+      if (!principal) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+      if (!this.apiCanDecide(principal)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, reason: 'read_only' }));
         return;
       }
       let body = '';
@@ -2089,9 +2183,10 @@ class RemoteControlService {
         lastSeenAt: Date.now(),
         userAgent,
         isApproved,
-        rights,
+        rights: this.effectiveDeviceRights({ id: deviceId, name: deviceName, ...(existingRecord?.memberId ? { memberId: existingRecord.memberId } : {}), rights }),
         // Ключ в URL — прежний путь v1 (старые клиенты и hub-режим).
-        protocol: SESSION_PROTOCOL_V1
+        protocol: SESSION_PROTOCOL_V1,
+        ...(existingRecord?.memberId ? { memberId: existingRecord.memberId } : {})
       };
 
       const clientConn: ClientConnection = {
@@ -2582,7 +2677,8 @@ class RemoteControlService {
         // Переподключение одобренного устройства не ждёт нового одобрения — и через релей тоже: раньше
         // через релей каждое переподключение снова ждало кнопки на ПК.
         device.isApproved = device.isApproved || this.isTokenApproved(existingRecord);
-        device.rights = existingRecord.rights;
+        if (existingRecord.memberId) device.memberId = existingRecord.memberId;
+        device.rights = this.effectiveDeviceRights({ ...device, rights: existingRecord.rights });
         if (existingRecord.delegatedBy) device.name = existingRecord.deviceName;
         reply(
           seal({
@@ -2609,21 +2705,32 @@ class RemoteControlService {
         reply({ type: 'error', error: 'Too many failed attempts, try again later' });
         return;
       }
+      let invited: PairingRedemption | null = null;
       if (!this.isValidPairingCredentials(data.pin, data.key)) {
-        this.recordPinFailure(rateKey);
-        reply({ type: 'error', error: 'Invalid pairing PIN or secret key' });
-        return;
+        // Приглашение участника (decision-126): одноразовый код вместо PIN. Только в сессии v2 — в v1 пакеты шифрует
+        // ключ хоста, а его приглашённый не получает. Чужой deviceId код не погасит: устройство занято другим.
+        const taken = this.deviceTokens.has(deviceId);
+        invited = session && typeof data.pin === 'string' && !taken
+          ? await editionRegistry.redeemPairingCode({ code: data.pin, deviceId, deviceName: device.name })
+          : null;
+        if (!invited) {
+          this.recordPinFailure(rateKey);
+          reply({ type: 'error', error: 'Invalid pairing PIN or secret key' });
+          return;
+        }
       }
       this.recordPinSuccess(rateKey);
 
-      const issued = this.issueDeviceToken(deviceId, device.name);
+      const issued = invited ? this.issueMemberDeviceToken(deviceId, device.name, invited) : this.issueDeviceToken(deviceId, device.name);
+      if (issued.memberId) device.memberId = issued.memberId;
       // Ключ подтверждения биометрией — только при сопряжении по QR: украденный токен его не заменит (decision-112).
       if (parseConfirmKey(data.confirmKey)) {
         issued.confirmKey = data.confirmKey;
         this.persistDeviceTokens().catch(() => {});
       }
-      device.isApproved = !this.requireApproval;
-      device.rights = issued.rights;
+      // Приглашённого устройства уже одобрил владелец, выдав код.
+      device.isApproved = invited ? true : !this.requireApproval;
+      device.rights = this.effectiveDeviceRights({ ...device, rights: issued.rights });
       // Ответ шифруется тем же ключом, что и запрос: через релей `deviceToken` иначе уехал бы
       // открытым текстом через чужой сервер (decision-11 п.3 — релей не видит содержимого).
       reply(
@@ -2634,7 +2741,7 @@ class RemoteControlService {
             readOnly: this.readOnly,
             hostId: this.hostId,
             protocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
-            rights: issued.rights,
+            rights: device.rights,
             deviceToken: issued.token,
             lastEventId: this.eventLogNextId - 1,
             ...(issued.confirmKey ? { biometricConfirm: true } : {}),
@@ -2702,7 +2809,7 @@ class RemoteControlService {
   private async enrollDelegatedDevice(params: Record<string, unknown>, caller: RemoteDevice): Promise<RemoteEnrollment> {
     await this.ensureSessionKey();
     const requested = parseDeviceRights(params.rights) ?? 'full';
-    const rights = minDeviceRights(caller.rights ?? 'full', requested);
+    const rights = minDeviceRights(this.effectiveDeviceRights(caller), requested);
     const baseName = (typeof params.deviceName === 'string' && params.deviceName.trim() ? params.deviceName.trim() : 'Телефон').slice(0, 60);
     const deviceId = `fed_${crypto.randomBytes(8).toString('hex')}`;
     const record: DeviceTokenRecord = {
@@ -2712,7 +2819,8 @@ class RemoteControlService {
       createdAt: Date.now(),
       rightsExplicit: true,
       approved: true,
-      delegatedBy: caller.id
+      delegatedBy: caller.id,
+      ...(caller.memberId ? { memberId: caller.memberId } : {})
     };
     this.deviceTokens.set(deviceId, record);
     await this.persistDeviceTokens();
@@ -2767,36 +2875,40 @@ class RemoteControlService {
   /**
    * Диспетчер RPC методов.
    */
-  private async dispatchRpc(method: string, params: any = {}, device: RemoteDevice): Promise<any> {
+  /**
+   * Вызов RPC с журналом действий: записывающие методы (свои и модулей `ee/`) пишутся с устройством и участником,
+   * успехом или ошибкой (decision-126 п. 6).
+   */
+  private async dispatchRpc(method: string, params: unknown = {}, device: RemoteDevice): Promise<unknown> {
+    const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>;
+    // Части загрузки (голос, вложение) — по записи на кусок: в журнал идёт только итоговое действие.
+    const audited = (REMOTE_WRITE_METHODS.has(method) && method !== 'voice_chunk' && method !== 'studio_attach') || editionRegistry.remoteMethod(method)?.write === true;
+    if (!audited) return this.dispatchRpcUnaudited(method, params, device);
+    const base = {
+      ts: Date.now(),
+      method,
+      deviceId: device.id,
+      ...(device.name ? { deviceName: device.name } : {}),
+      ...(device.memberId ? { memberId: device.memberId } : {}),
+      ...(typeof (p.projectPath ?? this.deviceProject(device.id)) === 'string' ? { projectPath: String(p.projectPath ?? this.deviceProject(device.id)) } : {}),
+      ...(auditTarget(p) ? { target: auditTarget(p) } : {})
+    };
+    try {
+      const result = await this.dispatchRpcUnaudited(method, params, device);
+      void appendRemoteAudit({ ...base, ok: true });
+      return result;
+    } catch (err) {
+      void appendRemoteAudit({ ...base, ok: false, error: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
+      throw err;
+    }
+  }
+
+  /**
+   * Диспетчер RPC методов.
+   */
+  private async dispatchRpcUnaudited(method: string, params: any = {}, device: RemoteDevice): Promise<any> {
     // Проверка прав на модификацию в Read-Only режиме
-    const writeMethods = new Set([
-      'start_process',
-      'stop_process',
-      'restart_process',
-      'update_task_status',
-      'toggle_task_criterion',
-      'create_task',
-      'git_commit',
-      'git_pull',
-      'git_push',
-      'send_ai_prompt',
-      'hitl_decision',
-      'approve_agent_tasks',
-      'run_action',
-      'start_assigned_agent',
-      'stop_swarm',
-      'studio_send',
-      'studio_attach',
-      'studio_abort',
-      'studio_clear',
-      // Выдача токена новому устройству — действие владельца хоста, только с правами full (decision-111).
-      'enroll_device',
-      // «Входящие» (decision-117 п. 3, 4): разбор ленты и решение по задаче из Review — решения человека, как HITL.
-      'inbox_dismiss',
-      'review_task',
-      // Голосовой промпт — та же запись в агента, что studio_send (decision-121 п. 4).
-      'voice_chunk'
-    ]);
+    const writeMethods = REMOTE_WRITE_METHODS;
     const hitlRightsMethods = new Set(['hitl_decision', 'approve_agent_tasks', 'inbox_dismiss', 'review_task']);
 
     if (this.readOnly && writeMethods.has(method)) {
@@ -2808,9 +2920,12 @@ class RemoteControlService {
     }
 
     // Права per-device токена (TASK-65, decision-11 п.1): readOnly — только чтение, hitl — чтение
-    // и решения HITL, full — без ограничений сверх глобального readOnly выше.
-    if (writeMethods.has(method)) {
-      const rights = device.rights ?? 'full';
+    // и решения HITL, full — без ограничений сверх глобального readOnly выше. Роль участника общего хоста
+    // сужает их на каждом вызове (decision-126): владелец мог сменить роль, пока устройство подключено.
+    const rights = this.effectiveDeviceRights(device);
+    const extraMethod = editionRegistry.remoteMethod(method);
+    if (extraMethod?.write && this.readOnly) throw new Error(`Method ${method} is forbidden in Read-Only mode`);
+    if (writeMethods.has(method) || extraMethod?.write) {
       if (rights === 'readOnly') {
         throw new Error(`Method ${method} is forbidden for this device (readOnly rights)`);
       }
@@ -2820,9 +2935,12 @@ class RemoteControlService {
       }
     }
     // Дифф запроса — код проекта: его видит только тот, кто может решать (decision-114 п. 3).
-    if (method === 'get_hitl_detail' && (device.rights ?? 'full') === 'readOnly') {
+    if (method === 'get_hitl_detail' && rights === 'readOnly') {
       throw new Error(`Method ${method} is forbidden for this device (readOnly rights)`);
     }
+    const deviceRef = { id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights };
+    const denied = editionRegistry.checkRpc(method, deviceRef);
+    if (denied) throw new Error(denied);
 
     const activePath = params.projectPath || this.activeProjectPath;
 
@@ -2965,7 +3083,7 @@ class RemoteControlService {
         const res = await guardedCommit(activePath, params.message, {
           stageAll: Boolean(params.stageAll),
           allowOverride: false,
-          source: { kind: 'remote', deviceId: device.id, deviceName: device.name }
+          source: { kind: 'remote', deviceId: device.id, deviceName: device.name, ...(device.memberId ? { memberId: device.memberId } : {}) }
         });
         if (res.ok) return true;
         if (res.reason === 'secrets') {
@@ -2998,7 +3116,7 @@ class RemoteControlService {
         const result = hitlService.decide(
           requestId,
           { approved, text: typeof params.reason === 'string' ? params.reason : undefined },
-          { kind: 'remote', deviceId: device.id, deviceName: device.name, confirm, confirmVerified }
+          { kind: 'remote', deviceId: device.id, deviceName: device.name, ...(device.memberId ? { memberId: device.memberId } : {}), confirm, confirmVerified }
         );
         if (!result.ok) {
           return { ok: false, decision: approved, reason: result.reason, ...(result.risk ? { risk: result.risk } : {}) };
@@ -3033,7 +3151,7 @@ class RemoteControlService {
         const result = await agentTaskApproval.approveInProject(
           projectPath,
           { ...(ids ? { ids } : {}), ...(reporter ? { reporter } : {}) },
-          { kind: 'remote', deviceId: device.id, deviceName: device.name },
+          { kind: 'remote', deviceId: device.id, deviceName: device.name, ...(device.memberId ? { memberId: device.memberId } : {}) },
           'phone'
         );
         if (result.approved.length > 0) this.broadcastEvent('backlog:changed', { projectPath });
@@ -3367,8 +3485,16 @@ class RemoteControlService {
         return this.transcribePhoneVoice(res.samples, res.language);
       }
 
-      default:
+      default: {
+        if (extraMethod) {
+          return extraMethod.handler(params ?? {}, {
+            device: deviceRef,
+            ...(activePath ? { projectPath: activePath } : {}),
+            broadcast: (event, payload) => this.broadcastEvent(event, payload)
+          });
+        }
         throw new Error(`Unknown RPC method: ${method}`);
+      }
     }
   }
 
@@ -3617,3 +3743,10 @@ class RemoteControlService {
 }
 
 export const remoteControlService = new RemoteControlService();
+// Справочник устройств для модулей ee/ (участники общего хоста, decision-126): отзыв закрывает и живую сессию.
+editionRegistry.setDeviceDirectory({
+  list: () => remoteControlService.getPairedDevices(),
+  revoke: (deviceId) => {
+    remoteControlService.disconnectDevice(deviceId);
+  }
+});

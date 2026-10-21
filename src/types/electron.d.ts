@@ -2112,6 +2112,14 @@ export type AppBusEvent =
       hostId?: string;
       at: number;
     }
+  | { type: 'remote:deviceApprovalRequested'; deviceId: string; deviceName: string; mode: string; hostId?: string; at: number }
+  | {
+      type: 'remote:deviceApprovalResolved';
+      deviceId: string;
+      outcome: 'approved' | 'rejected' | 'disconnected';
+      hostId?: string;
+      at: number;
+    }
   // События Automations (TASK-74, decision-52)
   | { type: 'automation:notify'; ruleId: string; ruleName: string; projectPath?: string; title: string; body?: string; at: number }
   | {
@@ -2610,6 +2618,7 @@ export type NotificationKind =
   | 'prChecksFailed'
   | 'prMerged'
   | 'deviceConnected'
+  | 'deviceApproval'
   | 'modelFallback'
   | 'automation'
   | 'prReview'
@@ -2624,7 +2633,7 @@ export type NotificationAction =
   | { type: 'openSwarm'; projectPath?: string; sessionId?: string }
   | { type: 'openProcesses'; projectPath?: string }
   | { type: 'openPrs'; projectPath?: string; url?: string }
-  | { type: 'openRemote' }
+  | { type: 'openRemote'; tab?: 'devices' }
   | { type: 'openAutomations'; projectPath?: string }
   | { type: 'openSecurity'; projectPath?: string }
   | { type: 'openTask'; projectPath?: string; taskId?: string }

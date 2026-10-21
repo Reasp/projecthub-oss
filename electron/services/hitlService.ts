@@ -533,6 +533,7 @@ export class HitlService extends EventEmitter {
       decidedBy: source.kind,
       deviceId: source.deviceId,
       deviceName: source.deviceName,
+      ...(source.memberId ? { memberId: source.memberId } : {}),
       rule: source.rule,
       // Способ подтверждения — только у решений с удалённого устройства; `biometric` без проверенной подписи не пишем.
       ...(source.kind === 'remote' ? { confirm: source.confirm === 'biometric' && !source.confirmVerified ? 'app' : (source.confirm ?? 'app') } : {}),

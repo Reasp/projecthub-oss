@@ -2882,6 +2882,7 @@ export interface TranslationDictionary {
       | 'prCreated'
       | 'prChecksFailed'
       | 'deviceConnected'
+      | 'deviceApproval'
       | 'modelFallback'
       | 'automation'
       | 'prReview'

@@ -3127,6 +3127,7 @@ export const en: TranslationDictionary = {
       prCreated: 'Pull Request created',
       prChecksFailed: 'Pull Request checks failed',
       deviceConnected: 'Device connected',
+      deviceApproval: 'Device awaits approval',
       modelFallback: 'Agent switched model',
       automation: 'Automations: limit pause, failure, rule notification',
       prReview: 'PR review finished',

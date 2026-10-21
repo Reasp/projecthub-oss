@@ -13,6 +13,8 @@ import {
   computeTrayState,
   defaultNotificationSettings,
   describeBusEvent,
+  deviceApprovalDedupKey,
+  deviceApprovalNotificationId,
   normalizeSettings,
   resolveChannels
 } from './notificationRules.js';
@@ -157,6 +159,13 @@ class NotificationService {
       void telegramService.resolveRequest(requestId, outcome);
       void this.teamChats?.resolve(requestId, outcome).catch(() => undefined);
       this.refreshTray();
+      return;
+    }
+
+    // Устройство одобрено, отклонено или ушло — висящее «ждёт подтверждения» больше не нужно (TASK-173).
+    if (event.type === 'remote:deviceApprovalResolved') {
+      this.deduper.forget(deviceApprovalDedupKey(event.deviceId));
+      this.closeOsNotification(deviceApprovalNotificationId(event.deviceId));
       return;
     }
 

@@ -3129,6 +3129,7 @@ export const ru: TranslationDictionary = {
       prCreated: 'Создан Pull Request',
       prChecksFailed: 'Проверки Pull Request упали',
       deviceConnected: 'Подключено устройство',
+      deviceApproval: 'Устройство ждёт подтверждения',
       modelFallback: 'Агент переключил модель',
       automation: 'Автоматизации: пауза по лимиту, сбой, уведомление правила',
       prReview: 'Ревью PR завершено',

@@ -19,6 +19,8 @@ export interface RemoteDevice {
   rights?: DeviceRights;
   /** Версия сессии Remote Control: 2 — рукопожатие X25519 с forward secrecy, 1 — общий ключ (decision-111). */
   protocol?: number;
+  /** Участник общего хоста, чьё это устройство (decision-126). Пусто — владелец хоста. */
+  memberId?: string;
 }
 
 /**
@@ -39,6 +41,8 @@ export interface PairedDevice {
   biometricConfirm?: boolean;
   /** Push на устройство включён с этого ПК (TASK-140.3): вид доставки. */
   push?: 'unifiedpush' | 'fcm' | 'apns';
+  /** Участник общего хоста (decision-126). Пусто — владелец хоста. */
+  memberId?: string;
 }
 
 export interface RemoteControlConfig {
@@ -268,6 +272,10 @@ export type RemoteRpcMethod =
   | 'get_swarms'
   | 'start_assigned_agent'
   | 'stop_swarm'
+  // Участники общего хоста (decision-126): захват задачи, отказ, кто что ведёт
+  | 'take_task'
+  | 'release_task'
+  | 'get_team'
   // Мобильный клиент (TASK-140.1, decision-79 п. 8): хвост вывода агента роя
   | 'get_agent_output'
   // Agents Studio с телефона (TASK-140.10, decision-83): сессии те же, что во вкладках ПК

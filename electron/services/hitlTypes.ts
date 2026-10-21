@@ -120,6 +120,8 @@ export interface HitlDecisionSource {
   kind: HitlDecisionSourceKind;
   deviceId?: string;
   deviceName?: string;
+  /** Участник общего хоста, чьё устройство решило (decision-126). Пусто — владелец. */
+  memberId?: string;
   /** Имя сработавшего правила для `auto`. */
   rule?: string;
   /** Способ подтверждения на удалённом устройстве (`remote`); без него — кнопка в приложении. */
@@ -162,6 +164,8 @@ export interface HitlAuditEntry {
   decidedBy?: HitlDecisionSourceKind;
   deviceId?: string;
   deviceName?: string;
+  /** Участник общего хоста (decision-126). */
+  memberId?: string;
   rule?: string;
   /** Класс риска запроса (decision-112). */
   risk?: HitlRisk;

@@ -28,7 +28,8 @@ import { buildEmbeddedPairingUrl, buildTelegramPairingUrl, type PairingSource } 
 import { relayEndpoint, type EndpointKind } from '../../utils/remoteEndpoints';
 
 /** Данные статуса Remote Control для ссылок сопряжения (QR). */
-function toPairingSource(status: RemoteControlStatus): PairingSource {
+/** Источник ссылки сопряжения из статуса хоста; его же берёт приглашение участника (decision-126). */
+export function toPairingSource(status: RemoteControlStatus): PairingSource {
   return {
     hostId: status.hostId,
     key: status.secretToken ?? '',

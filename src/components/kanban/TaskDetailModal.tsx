@@ -42,6 +42,7 @@ import { TaskPullRequests } from './TaskPullRequests';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { PlanPanel } from './PlanPanel';
 import { LaunchLimitsNotice, useLaunchCheck } from '../agents/LaunchLimitsNotice';
+import { EditionTaskCardItems } from '../../extensions/editionUi';
 import {
   matchStatus,
   resolveDoneStatus,
@@ -906,6 +907,21 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {/* PR задачи со статусом хостинга (TASK-138.2): ссылки из references и номер задачи в ветке */}
           {selectedProject?.hasGit && <TaskPullRequests projectPath={selectedProject.path} taskId={task.id} />}
         </div>
+
+        {/* Модули платной редакции (decision-123 п. 4): например, кто из участников ведёт задачу (decision-126) */}
+        {selectedProject && (
+          <EditionTaskCardItems
+            projectPath={selectedProject.path}
+            taskId={task.id}
+            onTaskChanged={(fields) => {
+              if (fields.status) {
+                setStatus(fields.status);
+                setSavedStatus(fields.status);
+              }
+              if (fields.assignee !== undefined) setAssignee(fields.assignee);
+            }}
+          />
+        )}
 
         {/* Лимиты расходов до запуска назначенного агента (decision-124): отдельной строкой, текст не обрезается */}
         {assignedRoleSlug && launchVerdict && launchVerdict.notices.length > 0 && (

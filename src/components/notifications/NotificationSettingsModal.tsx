@@ -24,6 +24,7 @@ const KINDS: NotificationKind[] = [
   'prChecksFailed',
   'prMerged',
   'deviceConnected',
+  'deviceApproval',
   'modelFallback',
   'automation',
   'prReview',

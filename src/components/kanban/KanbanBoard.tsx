@@ -28,6 +28,7 @@ import {
 import { TaskDetailModal } from './TaskDetailModal';
 import { TaskListView } from './TaskListView';
 import { TrackerSyncModal } from './TrackerSyncModal';
+import { EditionTaskBoardBadges } from '../../extensions/editionUi';
 
 export const KanbanBoard: React.FC = () => {
   const { t } = useTranslation();
@@ -489,6 +490,9 @@ export const KanbanBoard: React.FC = () => {
                             <span>{t.kanban.agentCreatedBadge}</span>
                           </div>
                         )}
+
+                        {/* Модули платной редакции (decision-123 п. 4): например, кто из участников ведёт задачу (decision-126) */}
+                        {selectedProject && <EditionTaskBoardBadges projectPath={selectedProject.path} taskId={task.id} />}
 
                         {/* Статус вне statuses конфига: задача показана в колонке по умолчанию,
                             но её собственный статус не теряется и виден на карточке (TASK-68). */}

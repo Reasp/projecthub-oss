@@ -21,6 +21,7 @@ import { NotificationSettingsModal } from './components/notifications/Notificati
 import { AutomationsModal } from './components/automations/AutomationsModal';
 import { EditionOverlays } from './extensions/editionUi';
 import { useAutomationsStore } from './store/useAutomationsStore';
+import { useRemoteControlStore } from './store/useRemoteControlStore';
 import { RemoteHostsModal } from './components/federation/RemoteHostsModal';
 import { useProjectStore } from './store/useProjectStore';
 import { useAIStudioStore } from './store/useAIStudioStore';
@@ -134,6 +135,8 @@ export const App: React.FC = () => {
           else setActiveTab('kanban');
           break;
         case 'openRemote':
+          useRemoteControlStore.getState().open(action.tab);
+          break;
         case 'openApp':
         default:
           break;

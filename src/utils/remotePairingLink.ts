@@ -92,6 +92,14 @@ export function buildEmbeddedPairingUrl(src: PairingSource): string {
   return `${clientPageOrigin(src)}/remote#${buildPairingHash(src)}`;
 }
 
+/**
+ * Ссылка приглашения по одноразовому коду (участник общего хоста, decision-126): страница клиента, хост, его ключ
+ * сессий и адреса — но без ключа хоста. Код идёт в поле `pin`: клиент сопрягается им, как PIN, только по протоколу v2.
+ */
+export function buildInvitePairingUrl(src: PairingSource, code: string): string {
+  return `${clientPageOrigin(src)}/remote#${buildPairingHash({ ...src, key: '' }, { pin: code })}`.replace('key=&', '');
+}
+
 /** Ссылка на Mini App: через бота (`startapp`), иначе страница Mini App на хосте с hash. */
 export function buildTelegramPairingUrl(src: PairingSource, botUsername?: string): string {
   if (botUsername) return `https://t.me/${botUsername}?startapp=${buildTelegramStartParam(src.key, src.hostKeyFingerprint)}`;
