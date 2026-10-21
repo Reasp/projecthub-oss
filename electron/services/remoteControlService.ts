@@ -3290,8 +3290,9 @@ class RemoteControlService {
   }
 
   /**
-   * Пир hub-режима по знакомству с телефона (decision-143 п. 3): соседа выдал `enroll_device` с `peerHostId`. Уже
-   * сопряжённый пир не перезаписывается — `already`, телефон отзовёт лишний токен.
+   * Пир hub-режима по знакомству с телефона (decision-143 п. 3): соседа выдал `enroll_device` с `peerHostId`. Подключённый
+   * пир не перезаписывается — `already`, телефон отзовёт лишний токен. Сохранённый пир без связи получает адрес, ключ и
+   * токен знакомства (TASK-190).
    */
   private async addIntroducedPeer(params: Record<string, unknown>, caller: RemoteDevice): Promise<{ status: 'added' | 'already'; connected: boolean }> {
     this.assertOwnerFullDevice(caller);
@@ -3300,7 +3301,7 @@ class RemoteControlService {
     if (!isPeerIntroduction(intro, peerHostId)) throw new Error('Знакомство без ключа и токена соседа');
     if (intro.hostId === this.hostId) throw new Error('Это тот же компьютер');
     const peers = await federationClientService.listPeers();
-    if (peers.some((p) => p.hostId === intro.hostId && p.paired)) return { status: 'already', connected: true };
+    if (peers.some((p) => p.hostId === intro.hostId && p.paired && p.status === 'connected')) return { status: 'already', connected: true };
     const address = pickPeerAddress(intro, getLocalIpAddresses());
     if (!address) throw new Error(`У компьютера «${intro.machineName}» нет адреса, доступного этому ПК`);
     const state = await federationClientService.addPeer({
@@ -3514,9 +3515,12 @@ class RemoteControlService {
 
       case 'get_federation_hosts': {
         // `enrollable` — этот ПК сопряжён с соседом и может попросить у него токен для телефона (`federation_enroll`).
+        // `peerConnected` — связь с ним сейчас есть: сломанную пару телефон предложит познакомить заново (TASK-190).
         const peers = await federationClientService.listPeers().catch(() => []);
-        const paired = new Set(peers.filter((p) => p.paired).map((p) => p.hostId));
-        const hosts = this.getFederationHostsList().map((h) => (paired.has(h.hostId) ? { ...h, enrollable: true } : h));
+        const paired = new Map(peers.filter((p) => p.paired).map((p) => [p.hostId, p.status === 'connected']));
+        const hosts = this.getFederationHostsList().map((h) =>
+          paired.has(h.hostId) ? { ...h, enrollable: true, peerConnected: paired.get(h.hostId) === true } : h
+        );
         // ПК, сопряжённый вручную в hub-режиме без общего секрета федерации, в каталоге релея и LAN нет — но телефону
         // доступ к нему выдать можно, поэтому он тоже в списке (decision-111 п. 7).
         for (const peer of peers) {
@@ -3531,7 +3535,8 @@ class RemoteControlService {
             activeProcessesCount: 0,
             lastSeen: peer.connectedAt ?? 0,
             source: 'manual',
-            enrollable: true
+            enrollable: true,
+            peerConnected: peer.status === 'connected'
           });
         }
         return { hosts };

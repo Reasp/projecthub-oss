@@ -132,6 +132,11 @@ export interface FederationHost {
    * (`federation_enroll`, decision-111).
    */
   enrollable?: boolean;
+  /**
+   * Только вместе с `enrollable`: hub-соединение этого ПК с хостом сейчас открыто. Сохранённый пир без связи (старый
+   * адрес, отозванный токен) знакомство через телефон чинит заново (TASK-190).
+   */
+  peerConnected?: boolean;
 }
 
 /** Транспорт подключения к удалённому ProjectHub в hub-режиме (TASK-66). */

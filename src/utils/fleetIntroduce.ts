@@ -56,7 +56,11 @@ export function planIntroductions(hosts: IntroduceHost[], paired: Record<string,
   return pairs;
 }
 
-/** С кем каждый ПК уже сопряжён: `enrollable` в `get_federation_hosts`. ПК, не ответивший, — в `errors`. */
+/**
+ * С кем каждый ПК уже сопряжён: `enrollable` в `get_federation_hosts`. Пир, с которым связи нет (`peerConnected: false`),
+ * сопряжённым не считается: знакомство починит пару (TASK-190). Хост старой сборки поля не шлёт — верим `enrollable`.
+ * ПК, не ответивший, — в `errors`.
+ */
 export async function loadPairedPeers(
   hosts: IntroduceHost[],
   rpc: IntroduceRpc
@@ -66,8 +70,12 @@ export async function loadPairedPeers(
   await Promise.all(
     hosts.map(async (h) => {
       try {
-        const res = (await rpc(h.id, 'get_federation_hosts')) as { hosts?: Array<{ hostId?: unknown; enrollable?: unknown }> } | null;
-        paired[h.hostId] = (res?.hosts ?? []).filter((x) => x.enrollable === true && typeof x.hostId === 'string').map((x) => String(x.hostId));
+        const res = (await rpc(h.id, 'get_federation_hosts')) as {
+          hosts?: Array<{ hostId?: unknown; enrollable?: unknown; peerConnected?: unknown }>;
+        } | null;
+        paired[h.hostId] = (res?.hosts ?? [])
+          .filter((x) => x.enrollable === true && x.peerConnected !== false && typeof x.hostId === 'string')
+          .map((x) => String(x.hostId));
       } catch (err) {
         errors[h.hostId] = errorText(err);
       }
