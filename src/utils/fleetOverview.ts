@@ -8,6 +8,7 @@
  */
 
 import type { DeviceRights, RemoteHitlRisk } from '../types/remote';
+import { accessActions, owningProject, type ProjectAccess } from './projectAccess';
 
 export type OverviewSessionKind = 'studio' | 'swarm' | 'terminal';
 
@@ -66,6 +67,8 @@ export interface OverviewProject {
   moreSessions: number;
   processes: { running: number; failed: number; failedNames?: string[] };
   tasks: { inProgress: number; review: number };
+  /** Действия в этом проекте, если права устройства по проектам уже прав на хост (TASK-180). */
+  actions?: OverviewActions;
 }
 
 /** Ответ `get_overview`: все проекты хоста одним снимком, без `select_project`. */
@@ -403,11 +406,16 @@ export function buildProjectOverview(p: OverviewProjectInput, pending: OverviewP
 }
 
 export function buildOverview(input: OverviewInput): RemoteOverview {
+  // Запрос агента из worktree проекта (`.worktrees/…`) — запрос этого проекта (TASK-187); вложенный проект — свой.
+  const roots = input.projects.map((p) => p.path);
   const projects = input.projects
     .map((p) =>
       buildProjectOverview(
         p,
-        input.pending.filter((r) => samePath(r.projectPath, p.path)),
+        input.pending.filter((r) => {
+          const owner = owningProject(r.projectPath, roots);
+          return owner !== null && samePath(owner, p.path);
+        }),
         input.now
       )
     )
@@ -421,6 +429,28 @@ export function buildOverview(input: OverviewInput): RemoteOverview {
     actions: input.actions,
     attention: maxAttention(projects.map((p) => p.attention)),
     counts,
+    projects
+  };
+}
+
+/**
+ * Сводка глазами устройства с правами по проектам (TASK-180): проектов без доступа нет вовсе — ни имени, ни пути, ни
+ * счётчиков; счётчики и внимание хоста пересчитаны по оставшимся; у проекта с правами уже, чем у устройства, —
+ * свои `actions`.
+ */
+export function scopeOverview(overview: RemoteOverview, accessOf: (projectPath: string) => ProjectAccess, hostReadOnly: boolean): RemoteOverview {
+  const projects: OverviewProject[] = [];
+  for (const p of overview.projects) {
+    const access = accessOf(p.path);
+    if (access === 'none') continue;
+    const actions = accessActions(access, hostReadOnly);
+    projects.push(actions === overview.actions ? p : { ...p, actions });
+  }
+  if (projects.length === overview.projects.length && projects.every((p, i) => p === overview.projects[i])) return overview;
+  return {
+    ...overview,
+    attention: maxAttention(projects.map((p) => p.attention)),
+    counts: projects.reduce((acc, p) => addCounts(acc, p.counts), emptyCounts()),
     projects
   };
 }

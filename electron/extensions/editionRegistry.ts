@@ -103,6 +103,15 @@ export type LaunchGuard = (ctx: AgentLaunchContext) => AgentLaunchVerdict | Prom
 
 export type DeviceRightsName = 'readOnly' | 'hitl' | 'full';
 
+/** Доступ устройства к проекту хоста (TASK-180): `none` — проекта для устройства нет. */
+export type ProjectAccessName = 'none' | DeviceRightsName;
+
+const ACCESS_RANK: Record<ProjectAccessName, number> = { none: 0, readOnly: 1, hitl: 2, full: 3 };
+
+function minAccess(a: ProjectAccessName, b: ProjectAccessName): ProjectAccessName {
+  return ACCESS_RANK[a] <= ACCESS_RANK[b] ? a : b;
+}
+
 /** Устройство, от которого пришёл запрос: права — уже с учётом сужения точками расширения. */
 export interface RemoteDeviceRef {
   id: string;
@@ -146,6 +155,11 @@ export interface RemoteMethodSpec {
   /** Метод меняет данные: устройству только для чтения недоступен. */
   write: boolean;
   handler: (params: Record<string, unknown>, ctx: RemoteCallContext) => unknown;
+  /**
+   * Проект вызова, если он не в `params.projectPath` и не выбранный устройством (элемент очереди по `itemId`):
+   * хост проверяет по нему права устройства на проект (TASK-180). `undefined` — проект по умолчанию.
+   */
+  projectOf?: (params: Record<string, unknown>) => Promise<string | undefined> | string | undefined;
 }
 
 // ── Работа участника общего хоста (TASK-142.3, decision-135) ──
@@ -226,6 +240,11 @@ export interface EditionMainApi {
   addDeviceRightsLimit(limit: (device: RemoteDeviceRef) => DeviceRightsName): void;
   /** Запрет метода RPC для устройства: строка — причина отказа. */
   addRpcGuard(guard: (method: string, device: RemoteDeviceRef) => string | null): void;
+  /**
+   * Сузить доступ устройства к проекту (TASK-180): проекты участника общего хоста. Расширить нельзя — берётся меньшее
+   * из прав устройства на проект и возвращённого.
+   */
+  addProjectAccessLimit(limit: (device: RemoteDeviceRef, projectPath: string) => ProjectAccessName): void;
   /** Погасить код сопряжения, не совпавший с PIN и ключом хоста. */
   setPairingCodeRedeemer(redeem: (input: { code: string; deviceId: string; deviceName: string }) => Promise<PairingRedemption | null>): void;
   /** Свой метод RPC Remote Control (телефон, hub-клиент другого ПК). Имена открытых методов не перекрываются. */
@@ -276,6 +295,7 @@ let textFileSaver: (options: SaveTextFileOptions) => Promise<SaveTextFileResult>
 let pdfSaver: (options: SaveHtmlAsPdfOptions) => Promise<SaveTextFileResult> = noWindowSave;
 const rightsLimits: Array<(device: RemoteDeviceRef) => DeviceRightsName> = [];
 const rpcGuards: Array<(method: string, device: RemoteDeviceRef) => string | null> = [];
+const projectAccessLimits: Array<(device: RemoteDeviceRef, projectPath: string) => ProjectAccessName> = [];
 let pairingRedeemer: ((input: { code: string; deviceId: string; deviceName: string }) => Promise<PairingRedemption | null>) | null = null;
 const remoteMethods = new Map<string, RemoteMethodSpec>();
 const emptyDirectory: DeviceDirectory = { list: () => [], revoke: () => undefined };
@@ -306,6 +326,9 @@ export const editionRegistry = {
       },
       addRpcGuard: (guard) => {
         rpcGuards.push(guard);
+      },
+      addProjectAccessLimit: (limit) => {
+        projectAccessLimits.push(limit);
       },
       setPairingCodeRedeemer: (redeem) => {
         pairingRedeemer = redeem;
@@ -402,6 +425,23 @@ export const editionRegistry = {
       }
     }
     return rights;
+  },
+
+  /**
+   * Потолок доступа устройства к проекту от модулей редакции (TASK-180). Без модулей — `full`: доступ задают права
+   * устройства. Сбой ограничения — нет доступа: права не должны молча расширяться.
+   */
+  projectAccessLimit(device: RemoteDeviceRef, projectPath: string): ProjectAccessName {
+    let access: ProjectAccessName = 'full';
+    for (const limit of projectAccessLimits) {
+      try {
+        access = minAccess(access, limit(device, projectPath));
+      } catch (err) {
+        console.warn('[edition] Ограничение доступа к проекту упало:', err);
+        return 'none';
+      }
+    }
+    return access;
   },
 
   /** Причина запрета метода RPC или `null`. */
@@ -509,6 +549,7 @@ export const editionRegistry = {
     pdfSaver = noWindowSave;
     rightsLimits.length = 0;
     rpcGuards.length = 0;
+    projectAccessLimits.length = 0;
     pairingRedeemer = null;
     remoteMethods.clear();
     deviceDirectory = emptyDirectory;

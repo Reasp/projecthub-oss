@@ -33,7 +33,8 @@ export const RemoteSessionView: React.FC = () => {
   const session: OverviewSession | undefined = open
     ? (remote?.overview?.projects.find((p) => p.path === open.projectPath)?.sessions.find((s) => s.kind === open.session.kind && s.id === open.session.id) ?? open.session)
     : undefined;
-  const actions = remote?.overview?.actions ?? 'none';
+  // Действия в проекте могут быть уже, чем на хосте (права устройства по проектам, TASK-180).
+  const actions = remote?.overview?.projects.find((p) => p.path === open?.projectPath)?.actions ?? remote?.overview?.actions ?? 'none';
   const hostId = open?.hostId;
   const projectPath = open?.projectPath;
   const kind = open?.session.kind;

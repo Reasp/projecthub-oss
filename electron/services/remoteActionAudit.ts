@@ -25,6 +25,10 @@ export interface RemoteAuditEntry {
   projectPath?: string;
   /** Цель действия: задача, файл задачи, процесс, сессия роя, роль. */
   target?: Record<string, string>;
+  /** Отказ по праву устройства на проект (TASK-180) — пишется и для методов чтения. */
+  denied?: 'project';
+  /** Действие сделал владелец в окне ПК, а не устройство (`deviceId` — чьи права меняли). */
+  actor?: 'window';
 }
 
 const TARGET_FIELDS = ['taskId', 'filePath', 'processId', 'name', 'processName', 'swarmId', 'roleSlug', 'requestId', 'ruleId', 'actionId', 'newStatus'] as const;

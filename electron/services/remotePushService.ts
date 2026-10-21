@@ -43,6 +43,8 @@ export interface RemotePushDeps {
   gatewayUrl(): string;
   hostSigningKey(): Promise<{ hostKeyRaw: Buffer; privateKeyPem: string } | null>;
   log(message: string): void;
+  /** Устройство видит проект (права по проектам, TASK-180). Нет — все устройства видят все проекты. */
+  seesProject?(deviceId: string, projectPath: string): boolean;
 }
 
 function projectName(path: string): string {
@@ -91,6 +93,7 @@ export class RemotePushService {
     const activity = this.deps.pcActivity();
     for (const target of this.deps.targets()) {
       if (only && !only(target)) continue;
+      if (!this.sees(target, request.projectPath)) continue;
       if (!target.memberId && shouldSuppressPush({ ...activity, deviceOnline: this.deps.deviceOnline(target.deviceId) })) continue;
       if (!this.allow(target.deviceId)) continue;
       const payload = hitlPushPayload(request, {
@@ -108,6 +111,11 @@ export class RemotePushService {
         this.notified.set(request.id, set);
       }
     }
+  }
+
+  /** Push по проекту — только устройствам с доступом к нему (TASK-180); без проекта — всем. */
+  private sees(target: PushTarget, projectPath: string | undefined): boolean {
+    return !projectPath || !this.deps.seesProject || this.deps.seesProject(target.deviceId, projectPath);
   }
 
   /** Запрос решён, истёк или отменён: убрать уведомление с телефонов, куда оно ушло. */
@@ -130,6 +138,7 @@ export class RemotePushService {
     let delivered = 0;
     for (const target of this.deps.targets()) {
       if (only && !only(target)) continue;
+      if (!this.sees(target, note.projectPath)) continue;
       if (!target.memberId && shouldSuppressPush({ ...activity, deviceOnline: this.deps.deviceOnline(target.deviceId) })) continue;
       if (!this.allow(target.deviceId)) continue;
       const payload: NotePushPayload = {
@@ -157,6 +166,7 @@ export class RemotePushService {
   async onProgress(p: AgentProgress): Promise<number> {
     let delivered = 0;
     for (const target of this.deps.targets()) {
+      if (!this.sees(target, p.projectPath)) continue;
       if (!this.allow(target.deviceId, PROGRESS_PER_MINUTE)) continue;
       const payload: ProgressPushPayload = {
         v: 1,

@@ -170,6 +170,10 @@ export function registerMcpIpc() {
     return remoteControlService.setDeviceRights(deviceId, rights);
   });
 
+  ipcMain.handle('remote:setDeviceProjectRights', async (_event, deviceId: string, rights: unknown) => {
+    return remoteControlService.setDeviceProjectRights(String(deviceId ?? ''), rights);
+  });
+
   ipcMain.handle('remote:revokeDevice', async (_event, deviceId: string) => {
     remoteControlService.revokeDeviceToken(deviceId);
     return remoteControlService.getStatus();

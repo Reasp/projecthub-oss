@@ -2725,6 +2725,16 @@ export interface TranslationDictionary {
     rightsReadOnly: string;
     rightsHitl: string;
     rightsFull: string;
+    deviceProjectsButton: string;
+    deviceProjectsTitle: string;
+    deviceProjectsHint: string;
+    deviceProjectsAll: string;
+    deviceProjectsOther: string;
+    deviceProjectsUseDevice: string;
+    projectAccessNone: string;
+    deviceProjectsSave: string;
+    deviceProjectsCancel: string;
+    deviceProjectsCeiling: string;
     pairedDevicesTitle: string;
     deviceOffline: string;
     revokeDeviceToken: string;

@@ -1582,6 +1582,8 @@ export interface IElectronAPI {
   disconnectRemoteDevice: (deviceId: string) => Promise<boolean>;
   approveRemoteDevice: (deviceId: string) => Promise<boolean>;
   setRemoteDeviceRights: (deviceId: string, rights: DeviceRights) => Promise<RemoteControlStatus>;
+  /** Права устройства по проектам (TASK-180); `null` — снова права устройства на все проекты. */
+  setRemoteDeviceProjectRights: (deviceId: string, rights: import('../utils/projectAccess').DeviceProjectRights | null) => Promise<RemoteControlStatus>;
   revokeRemoteDevice: (deviceId: string) => Promise<RemoteControlStatus>;
   testTelegramNotification: (text?: string) => Promise<boolean>;
   startRemoteTunnel: () => Promise<string>;

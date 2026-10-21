@@ -80,6 +80,7 @@ import {
   FloppyDiskIcon,
   FlowArrowIcon,
   FolderIcon,
+  FolderLockIcon,
   FolderOpenIcon,
   FolderPlusIcon,
   FolderSimpleIcon,
@@ -287,6 +288,7 @@ export const FileText = wrap(FileTextIcon, 'FileText');
 export const Flame = wrap(FireIcon, 'Flame');
 export const FlaskConical = wrap(FlaskIcon, 'FlaskConical');
 export const Folder = wrap(FolderIcon, 'Folder');
+export const FolderLock = wrap(FolderLockIcon, 'FolderLock');
 export const FolderGit2 = wrap(FolderSimpleIcon, 'FolderGit2');
 export const FolderKanban = wrap(FoldersIcon, 'FolderKanban');
 export const FolderOpen = wrap(FolderOpenIcon, 'FolderOpen');

@@ -54,7 +54,7 @@ import {
 } from '../../src/utils/studioRemote.js';
 import { studioQuickPromptList } from '../../src/utils/studioQuickPrompts.js';
 import { claudeUsageService } from './claudeUsageService.js';
-import { processManager } from './processManager.js';
+import { parseProcessId, processManager } from './processManager.js';
 import { gitService } from './gitService.js';
 import { guardedCommit } from './commitSecretGuard.js';
 import { summarizeSecretFindings } from './diffSecretScan.js';
@@ -74,7 +74,16 @@ import { RemotePushService, type PushTarget } from './remotePushService.js';
 import { RemoteInboxService, type InboxTask, type NoteContext } from './remoteInboxService.js';
 import { FleetOverviewService } from './fleetOverviewService.js';
 import { terminalSessionTracker } from './terminalSessionTracker.js';
-import { overviewActions, type RemoteOverview } from '../../src/utils/fleetOverview.js';
+import { overviewActions, scopeOverview, type RemoteOverview } from '../../src/utils/fleetOverview.js';
+import {
+  minAccess,
+  owningProject,
+  projectAccessDenied,
+  projectAccessFor,
+  sanitizeProjectRights,
+  type DeviceProjectRights,
+  type ProjectAccess
+} from '../../src/utils/projectAccess.js';
 import { KeepAwakeController } from './keepAwake.js';
 import { ProgressThrottle, progressFromSession } from './remoteProgress.js';
 import { VoiceUploads, parseVoiceChunk, recognizeVoice, type VoiceLanguage, type VoiceResult } from './remoteVoice.js';
@@ -214,6 +223,11 @@ interface DeviceTokenRecord {
   /** Права назначены вручную из UI: пересопряжение по PIN их не сбрасывает (TASK-65). */
   rightsExplicit?: boolean;
   /**
+   * Права на отдельные проекты хоста (TASK-180, decision-144): переопределения и право для остальных и новых
+   * проектов. Нет поля — права устройства на все проекты, как у сопряжений до TASK-180. Пересопряжение не сбрасывает.
+   */
+  projectRights?: DeviceProjectRights;
+  /**
    * Владелец одобрил устройство на ПК (TASK-140.9). `false` — токен выдан, но одобрения ещё не было:
    * переподключение с таким токеном снова ждёт одобрения. Записи без поля (до TASK-140.9) считаются
    * одобренными — так работали прежние переподключения в LAN.
@@ -282,6 +296,51 @@ export function hashProjectPath(projectPath: string): string {
   return crypto.createHash('sha256').update(path.resolve(projectPath).toLowerCase(), 'utf8').digest('hex').slice(0, 16);
 }
 
+/**
+ * Методы хоста без проекта (TASK-180): права по проектам к ним не применяются, а списки внутри сужаются до проектов,
+ * открытых устройству.
+ */
+const HOST_WIDE_METHODS = new Set([
+  'get_status',
+  'get_federation_hosts',
+  'federation_enroll',
+  'enroll_device',
+  'federation_add_peer',
+  'revoke_introduced_device',
+  'get_projects',
+  'get_overview',
+  'studio_get_options',
+  'get_events_since',
+  'push_register',
+  'push_unregister',
+  'push_status',
+  'push_test',
+  'get_inbox',
+  'inbox_dismiss',
+  'voice_chunk',
+  'voice_command',
+  'create_project',
+  'get_pending_approvals'
+]);
+
+/** Проект у этих методов необязателен: без него — сводка по всем проектам, суженная правами устройства. */
+const OPTIONAL_PROJECT_METHODS = new Set(['get_pending_agent_tasks', 'studio_get_usage', 'get_swarms']);
+
+/** Отказ по праву устройства на проект: журнал действий пишет его и для методов чтения (TASK-180). */
+class ProjectAccessError extends Error {
+  constructor(message: string, readonly projectPath: string) {
+    super(message);
+    this.name = 'ProjectAccessError';
+  }
+}
+
+/** Права по проектам в журнал: имена проектов без каталогов. */
+function projectRightsSummary(rights: DeviceProjectRights | undefined): Record<string, string> {
+  if (!rights) return { projects: 'all' };
+  const list = Object.entries(rights.projects ?? {}).map(([p, a]) => `${path.basename(p)}=${a}`).join(', ');
+  return { ...(list ? { projects: list.slice(0, 300) } : {}), ...(rights.defaultAccess ? { defaultAccess: rights.defaultAccess } : {}) };
+}
+
 class RemoteControlService {
   private server: http.Server | null = null;
   private wss: WebSocketServer | null = null;
@@ -314,6 +373,7 @@ class RemoteControlService {
       machineName: () => this.machineName || os.hostname(),
       endpoints: () => this.pushHostEndpoints(),
       deviceOnline: (deviceId) => Boolean(this.connectedDevices.get(deviceId)?.isApproved),
+      seesProject: (deviceId, projectPath) => this.recordSeesProject(deviceId, projectPath),
       pcActivity: () => ({
         windowFocused: Boolean(BrowserWindow.getFocusedWindow()),
         idleSeconds: (() => {
@@ -680,7 +740,9 @@ class RemoteControlService {
       // Новый токен не наследует одобрение: `deviceId` выбирает клиент, и знающий ключ мог бы назваться
       // уже одобренным устройством.
       approved: !this.requireApproval,
-      ...(previous?.rightsExplicit ? { rightsExplicit: true } : {})
+      ...(previous?.rightsExplicit ? { rightsExplicit: true } : {}),
+      // Права по проектам — тоже решение владельца: пересопряжение по PIN не открывает закрытые проекты.
+      ...(previous?.projectRights ? { projectRights: previous.projectRights } : {})
     };
     this.deviceTokens.set(deviceId, record);
     this.persistDeviceTokens().catch(() => {});
@@ -707,6 +769,47 @@ class RemoteControlService {
   /** Права устройства после сужения точками расширения (роль участника общего хоста). */
   private effectiveDeviceRights(device: { id: string; name?: string; memberId?: string; rights?: DeviceRights }): DeviceRights {
     return editionRegistry.deviceRights({ id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights: device.rights ?? 'full' });
+  }
+
+  /** Корни проектов реестра — для доступа по путям worktree, файлов задач и процессов (TASK-180). */
+  private projectRoots: string[] = [];
+  private projectRootsAt = 0;
+
+  private async refreshProjectRoots(): Promise<string[]> {
+    try {
+      this.projectRoots = (await projectRegistry.getProjects()).map((p) => p.path);
+      this.projectRootsAt = Date.now();
+    } catch {
+      // реестр недоступен — остаётся прежний список
+    }
+    return this.projectRoots;
+  }
+
+  /**
+   * Доступ устройства к проекту (TASK-180, decision-144): меньшее из прав устройства после сужения ролью, его права
+   * на этот проект и потолка модулей редакции. Путь внутри проекта (worktree агента, файл задачи) — доступ проекта.
+   */
+  private projectAccessOf(device: { id: string; name?: string; memberId?: string; rights?: DeviceRights }, targetPath: string): ProjectAccess {
+    const root = owningProject(targetPath, this.projectRoots) ?? targetPath;
+    const rights = this.effectiveDeviceRights(device);
+    const ref = { id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights };
+    return minAccess(projectAccessFor(rights, this.deviceTokens.get(device.id)?.projectRights, root), editionRegistry.projectAccessLimit(ref, root));
+  }
+
+  /** Видит ли устройство из реестра токенов проект (push, HTTP API). */
+  private recordSeesProject(deviceId: string, targetPath: string): boolean {
+    const record = this.deviceTokens.get(deviceId);
+    if (!record) return false;
+    return this.projectAccessOf({ id: deviceId, name: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), rights: record.rights }, targetPath) !== 'none';
+  }
+
+  /** Проект, которого касается событие: `projectPath` в данных или каталог процесса в `processId`. */
+  private eventProject(data: unknown): string | undefined {
+    if (!data || typeof data !== 'object') return undefined;
+    const d = data as { projectPath?: unknown; processId?: unknown };
+    if (typeof d.projectPath === 'string' && d.projectPath) return d.projectPath;
+    if (typeof d.processId === 'string') return parseProcessId(d.processId)?.projectPath;
+    return undefined;
   }
 
   /** Переподключение по токену одобрено, если владелец одобрял это устройство или одобрение выключено. */
@@ -771,6 +874,36 @@ class RemoteControlService {
     return this.getStatus();
   }
 
+  /**
+   * Права устройства на отдельные проекты (TASK-180): переопределения по проектам и право для остальных и новых.
+   * Пусто — снова права устройства на все проекты. Применяется сразу: подключённое устройство получает
+   * `overview:changed` и перечитывает сводку. Смена пишется в журнал действий.
+   */
+  public setDeviceProjectRights(deviceId: string, raw: unknown): RemoteControlStatus {
+    const record = this.deviceTokens.get(deviceId);
+    if (!record) throw new Error('Устройство не найдено');
+    const rights = sanitizeProjectRights(raw);
+    if (rights) record.projectRights = rights;
+    else delete record.projectRights;
+    this.persistDeviceTokens().catch(() => {});
+    void appendRemoteAudit({
+      ts: Date.now(),
+      method: 'set_device_project_rights',
+      ok: true,
+      deviceId,
+      deviceName: record.deviceName,
+      ...(record.memberId ? { memberId: record.memberId } : {}),
+      actor: 'window',
+      target: projectRightsSummary(rights)
+    });
+    if (this.connectedDevices.has(deviceId)) {
+      this.sendToDevice(deviceId, { type: 'event', event: 'overview:changed', data: { at: Date.now() } });
+      this.sendToDevice(deviceId, { type: 'event', event: 'projects:changed', data: {} });
+    }
+    this.notifyStatusChanged();
+    return this.getStatus();
+  }
+
   /** Спаренные устройства (по выданным токенам), включая офлайн — для UI управления правами. */
   public getPairedDevices(): PairedDevice[] {
     return Array.from(this.deviceTokens.entries()).map(([deviceId, record]) => ({
@@ -784,7 +917,8 @@ class RemoteControlService {
       ...(record.introducedBy ? { introducedBy: record.introducedBy } : {}),
       ...(record.confirmKey ? { biometricConfirm: true } : {}),
       ...(record.push ? { push: record.push.kind } : {}),
-      ...(record.memberId ? { memberId: record.memberId } : {})
+      ...(record.memberId ? { memberId: record.memberId } : {}),
+      ...(record.projectRights ? { projectRights: record.projectRights } : {})
     }));
   }
 
@@ -1180,6 +1314,8 @@ class RemoteControlService {
   private hitlVisibleTo(request: HitlRequest | undefined, device: { id: string; name?: string; memberId?: string; rights?: DeviceRights }, now = Date.now()): boolean {
     if (!request) return false;
     const ref = { id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights: this.effectiveDeviceRights(device) };
+    // Запрос проекта, закрытого устройству, ему не виден (TASK-180).
+    if (request.projectPath && this.projectAccessOf(device, request.projectPath) === 'none') return false;
     return editionRegistry.hitlVisible({ ...(request.memberId ? { memberId: request.memberId } : {}), createdAt: request.createdAt }, ref, now);
   }
 
@@ -1425,6 +1561,8 @@ class RemoteControlService {
     }
     const pushRights = this.effectiveDeviceRights({ id: action.deviceId, name: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), rights: record.rights });
     if (this.readOnly || pushRights === 'readOnly') return { status: 403, result: { ok: false, reason: 'read_only' } };
+    const pending = hitlService.getPending(action.requestId);
+    if (pending && !this.hitlVisibleToRecord(pending, action.deviceId)) return { status: 404, result: { ok: false, reason: 'not_found' } };
     const result = hitlService.decide(
       action.requestId,
       { approved: action.decision === 'allow' },
@@ -1909,6 +2047,7 @@ class RemoteControlService {
       // Ключ сессий нужен QR и рукопожатию v2 с первого подключения (decision-111).
       await this.ensureSessionKey().catch((err) => logger.warn(`[RemoteControl] Session key unavailable: ${err instanceof Error ? err.message : String(err)}`));
       await this.refreshLocalProjects();
+      await this.refreshProjectRoots();
       await this.startLocalHttpAndWsServer();
       this.enabled = true;
 
@@ -2199,6 +2338,13 @@ class RemoteControlService {
               return;
             }
             const byDevice = principal?.kind === 'device' ? principal : null;
+            // Устройство решает только видимый ему запрос: свой участник и открытый ему проект (TASK-180).
+            const target = hitlService.getPending(payload.requestId);
+            if (byDevice && target && !this.hitlVisibleToRecord(target, byDevice.deviceId)) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: false, reason: 'not_found' }));
+              return;
+            }
             const result = hitlService.decide(
               payload.requestId,
               { approved: Boolean(payload.approved), text: typeof payload.comment === 'string' ? payload.comment : undefined },
@@ -3211,11 +3357,62 @@ class RemoteControlService {
    * Вызов RPC с журналом действий: записывающие методы (свои и модулей `ee/`) пишутся с устройством и участником,
    * успехом или ошибкой (decision-126 п. 6).
    */
+  /**
+   * Проект, которого касается вызов (TASK-180): процесс — по `processId`, файл задачи — по пути, запрос HITL и рой —
+   * по своему проекту, метод модуля редакции — по `projectOf`, остальное — `projectPath` или выбранный устройством.
+   * `null` — метод хоста без проекта (`HOST_WIDE_METHODS`) или списочный метод без проекта.
+   */
+  private async rpcTargetProject(method: string, params: Record<string, unknown>, device: RemoteDevice): Promise<string | null> {
+    if (HOST_WIDE_METHODS.has(method)) return null;
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : '');
+    switch (method) {
+      case 'stop_process':
+      case 'restart_process':
+        return parseProcessId(str(params.processId))?.projectPath || str(params.projectPath) || this.deviceProject(device.id) || null;
+      case 'update_task_status':
+      case 'toggle_task_criterion':
+        return str(params.filePath) || null;
+      case 'hitl_decision':
+      case 'get_hitl_detail':
+        return hitlService.getPending(str(params.requestId))?.projectPath || null;
+      case 'stop_swarm':
+      case 'get_agent_output':
+        return agentFleetService.getSwarm(str(params.swarmId))?.projectPath || null;
+    }
+    const extra = editionRegistry.remoteMethod(method);
+    if (extra?.projectOf) {
+      const own = await extra.projectOf(params);
+      if (own) return own;
+    }
+    if (OPTIONAL_PROJECT_METHODS.has(method) && !str(params.projectPath)) return null;
+    return str(params.projectPath) || this.deviceProject(device.id) || null;
+  }
+
   private async dispatchRpc(method: string, params: unknown = {}, device: RemoteDevice): Promise<unknown> {
     const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>;
     // Части загрузки (голос, вложение) — по записи на кусок: в журнал идёт только итоговое действие.
     const audited = (REMOTE_WRITE_METHODS.has(method) && method !== 'voice_chunk' && method !== 'voice_command' && method !== 'studio_attach') || editionRegistry.remoteMethod(method)?.write === true;
-    if (!audited) return this.dispatchRpcUnaudited(method, params, device);
+    if (!audited) {
+      try {
+        return await this.dispatchRpcUnaudited(method, params, device);
+      } catch (err) {
+        // Отказ по праву на проект пишется и для чтения: попытка заглянуть в закрытый проект — событие (TASK-180).
+        if (err instanceof ProjectAccessError) {
+          void appendRemoteAudit({
+            ts: Date.now(),
+            method,
+            ok: false,
+            error: err.message.slice(0, 300),
+            deviceId: device.id,
+            ...(device.name ? { deviceName: device.name } : {}),
+            ...(device.memberId ? { memberId: device.memberId } : {}),
+            projectPath: err.projectPath,
+            denied: 'project'
+          });
+        }
+        throw err;
+      }
+    }
     const base = {
       ts: Date.now(),
       method,
@@ -3230,7 +3427,12 @@ class RemoteControlService {
       void appendRemoteAudit({ ...base, ok: true });
       return result;
     } catch (err) {
-      void appendRemoteAudit({ ...base, ok: false, error: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
+      void appendRemoteAudit({
+        ...base,
+        ok: false,
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+        ...(err instanceof ProjectAccessError ? { projectPath: err.projectPath, denied: 'project' as const } : {})
+      });
       throw err;
     }
   }
@@ -3274,6 +3476,16 @@ class RemoteControlService {
     const denied = editionRegistry.checkRpc(method, deviceRef);
     if (denied) throw new Error(denied);
 
+    // Права устройства на проект вызова (TASK-180, decision-144): `none` — проекта для устройства нет, `readOnly` и
+    // `hitl` сужают запись так же, как права устройства на хост.
+    await this.refreshProjectRoots();
+    const target = await this.rpcTargetProject(method, params, device);
+    if (target) {
+      const reason = projectAccessDenied(this.projectAccessOf(device, target), writeMethods.has(method) || extraMethod?.write === true, hitlRightsMethods.has(method));
+      if (reason) throw new ProjectAccessError(`Метод ${method}: ${reason} «${path.basename(owningProject(target, this.projectRoots) ?? target)}»`, owningProject(target, this.projectRoots) ?? target);
+    }
+    const sees = (projectPath: string | undefined) => !projectPath || this.projectAccessOf(device, projectPath) !== 'none';
+
     const activePath = params.projectPath || this.deviceProject(device.id);
 
     switch (method) {
@@ -3284,8 +3496,8 @@ class RemoteControlService {
           machineName: this.machineName || os.hostname(),
           platform: process.platform,
           tunnelUrl: this.tunnelUrl,
-          activeProjectPath: this.deviceProject(device.id),
-          projectsCount: projects.length,
+          activeProjectPath: sees(this.deviceProject(device.id) ?? undefined) ? this.deviceProject(device.id) : null,
+          projectsCount: projects.filter((p) => sees(p.path)).length,
           runningProcesses: processManager.getActiveProcessCount(),
           readOnly: this.readOnly
         };
@@ -3340,7 +3552,8 @@ class RemoteControlService {
           path: p.path
         }));
         // В реестре имени проекта нет — без него клиенты показывали пустые строки (TASK-140.1).
-        return projects.map((p) => ({ ...p, name: path.basename(p.path) }));
+        // Проекты, закрытые устройству, в список не попадают (TASK-180).
+        return projects.filter((p) => sees(p.path)).map((p) => ({ ...p, name: path.basename(p.path) }));
       }
 
       case 'select_project': {
@@ -3354,7 +3567,8 @@ class RemoteControlService {
 
       // Дерево флота (TASK-174, decision-129): все проекты одним снимком, действия — по правам устройства.
       case 'get_overview':
-        return this.overview.getOverview(overviewActions(rights, this.readOnly));
+        // Проекты без доступа — ни имени, ни пути, ни счётчиков (TASK-180).
+        return scopeOverview(await this.overview.getOverview(overviewActions(rights, this.readOnly)), (p) => this.projectAccessOf(device, p), this.readOnly);
 
       case 'get_processes': {
         if (!activePath) return [];
@@ -3479,7 +3693,7 @@ class RemoteControlService {
       // Задачи агентов, ждущие подтверждения (TASK-155): все проекты хоста — «Входящие» телефона не привязаны к проекту.
       case 'get_pending_agent_tasks': {
         const projectPath = typeof params.projectPath === 'string' && params.projectPath ? await assertRegisteredProject(params.projectPath) : undefined;
-        return (await agentTaskApproval.listPending(projectPath)).map(({ projectPath: p, id, title, reporter, created }) => ({
+        return (await agentTaskApproval.listPending(projectPath)).filter((t) => sees(t.projectPath)).map(({ projectPath: p, id, title, reporter, created }) => ({
           projectPath: p,
           id,
           title,
@@ -3674,7 +3888,7 @@ class RemoteControlService {
 
       case 'get_swarms': {
         // Только сводка: полные логи агентов наружу не отдаём (они могут содержать код и секреты).
-        return agentFleetService.listSwarms(activePath || undefined).map((s) => ({
+        return agentFleetService.listSwarms(activePath || undefined).filter((s) => sees(s.projectPath)).map((s) => ({
           id: s.id,
           mode: s.mode,
           status: s.status,
@@ -3827,7 +4041,14 @@ class RemoteControlService {
       // «Входящие» (TASK-140.5, decision-117): всё, что ждёт человека, по всем проектам этого ПК.
       case 'get_inbox': {
         const inbox = await this.inbox.getInbox({ hostId: this.hostId, machineName: this.machineName || os.hostname() });
-        return { ...inbox, hitl: inbox.hitl.filter((h) => this.hitlVisibleTo(hitlService.getPending(h.requestId), device)) };
+        // Лента — только проекты, открытые устройству (TASK-180); HITL — ещё и по адресату запроса (TASK-142.3).
+        return {
+          ...inbox,
+          hitl: inbox.hitl.filter((h) => this.hitlVisibleTo(hitlService.getPending(h.requestId), device)),
+          agentTasks: inbox.agentTasks.filter((t) => sees(t.projectPath)),
+          review: inbox.review.filter((r) => sees(r.projectPath)),
+          events: inbox.events.filter((e) => sees(e.projectPath))
+        };
       }
 
       case 'inbox_dismiss':
@@ -4039,7 +4260,13 @@ class RemoteControlService {
    * Отправка push-события всем подключенным клиентам.
    */
   public broadcastEvent(event: string, data: any, opts: { transient?: boolean; audience?: (device: RemoteDevice) => boolean } = {}) {
-    const reaches = (device: RemoteDevice) => !opts.audience || opts.audience(device);
+    // Событие проекта — только устройствам с доступом к нему (TASK-180), поверх адресатов вызывающего.
+    if (event === 'projects:changed' || Date.now() - this.projectRootsAt > 30_000) void this.refreshProjectRoots();
+    const project = this.eventProject(data);
+    const audience = project
+      ? (device: RemoteDevice) => (!opts.audience || opts.audience(device)) && this.projectAccessOf(device, project) !== 'none'
+      : opts.audience;
+    const reaches = (device: RemoteDevice) => !audience || audience(device);
     // Задачи поменяли с устройства: счётчики In Progress и Review в сводке флота устарели.
     if (event === 'backlog:changed') this.overview.markChanged();
     if (!this.enabled) return;
@@ -4072,7 +4299,7 @@ class RemoteControlService {
       eventId
     };
 
-    this.eventLog.push({ id: eventId, event, data, ...(opts.audience ? { audience: opts.audience } : {}) });
+    this.eventLog.push({ id: eventId, event, data, ...(audience ? { audience } : {}) });
     if (this.eventLog.length > EVENT_LOG_MAX) this.eventLog.shift();
 
     // Отправка локальным клиентам

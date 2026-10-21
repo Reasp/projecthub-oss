@@ -339,8 +339,9 @@ export function ComputersScreen({ onOpenInbox, onOpenProcesses }: ComputersScree
           {host.unsupported && <div className="py-1.5 pl-2 text-[12px] text-amber-300/80">{tr.fleet.unsupported}</div>}
           {host.overview && projects.length === 0 && <div className="py-2 pl-2 text-[13px] text-slate-500">{tr.fleet.noProjects}</div>}
           <ul className="mt-0.5 space-y-0.5">
-            {visible.map((p) => renderProject(host, p, canDecide))}
-            {quietOpen && quiet.map((p) => renderProject(host, p, canDecide))}
+            {/* Права устройства на проект бывают уже, чем на хост (TASK-180): кнопки решений — по проекту. */}
+            {visible.map((p) => renderProject(host, p, canDecide && (p.actions ?? 'full') !== 'none'))}
+            {quietOpen && quiet.map((p) => renderProject(host, p, canDecide && (p.actions ?? 'full') !== 'none'))}
           </ul>
           {quiet.length > 0 && (
             <button

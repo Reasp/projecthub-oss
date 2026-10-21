@@ -20,8 +20,10 @@ import {
   Globe,
   Laptop,
   Lightbulb,
-  CheckCircle2
+  CheckCircle2,
+  FolderLock
 } from '../common/icons';
+import { DeviceProjectsModal } from './DeviceProjectsModal';
 import { BrandLogo } from '../common/BrandLogo';
 import QRCode from 'qrcode';
 import { buildDesktopPairingLink, buildEmbeddedPairingUrl, buildTelegramPairingUrl, type PairingSource } from '../../utils/remotePairingLink';
@@ -294,6 +296,26 @@ export const RemoteControlBadge: React.FC = () => {
     } catch (e) {
       console.error('Failed to set device rights:', e);
     }
+  };
+
+  // Права устройства по проектам (TASK-180): кнопка у устройства открывает матрицу «проект → права».
+  const [projectsDeviceId, setProjectsDeviceId] = useState<string | null>(null);
+  const projectsDevice = (status?.pairedDevices || []).find((p) => p.deviceId === projectsDeviceId);
+  const projectsButton = (deviceId: string) => {
+    const paired = (status?.pairedDevices || []).find((p) => p.deviceId === deviceId);
+    if (!paired) return null;
+    return (
+      <button
+        type="button"
+        onClick={() => setProjectsDeviceId(deviceId)}
+        title={t.remote.deviceProjectsHint}
+        className={`flex items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${paired.projectRights ? 'border-indigo-500/50 text-indigo-300' : 'border-slate-800 text-slate-300'} hover:bg-slate-800`}
+        data-testid="device-projects-button"
+      >
+        <FolderLock className="h-3 w-3" />
+        {t.remote.deviceProjectsButton}
+      </button>
+    );
   };
 
   const handleRevokeDevice = async (deviceId: string) => {
@@ -911,6 +933,7 @@ export const RemoteControlBadge: React.FC = () => {
                               <option value="hitl">{t.remote.rightsHitl}</option>
                               <option value="full">{t.remote.rightsFull}</option>
                             </select>
+                            {projectsButton(dev.id)}
                             {!dev.isApproved ? (
                               <button
                                 type="button"
@@ -970,6 +993,7 @@ export const RemoteControlBadge: React.FC = () => {
                               <option value="hitl">{t.remote.rightsHitl}</option>
                               <option value="full">{t.remote.rightsFull}</option>
                             </select>
+                            {projectsButton(paired.deviceId)}
                             <button
                               type="button"
                               onClick={() => handleRevokeDevice(paired.deviceId)}
@@ -1132,6 +1156,7 @@ export const RemoteControlBadge: React.FC = () => {
         </div>,
         document.body
       )}
+      {projectsDevice && <DeviceProjectsModal device={projectsDevice} onClose={() => setProjectsDeviceId(null)} onSaved={setStatus} />}
     </>
   );
 };

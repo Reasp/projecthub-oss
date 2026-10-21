@@ -1,4 +1,5 @@
 import type { RemoteEndpoint } from '../utils/remoteEndpoints';
+import type { DeviceProjectRights } from '../utils/projectAccess';
 
 /** LAN Direct и Relay (decision-11 п.2) — WebRTC выведен из scope, `RTCPeerConnection` в коде не было. */
 export type RemoteConnectionMode = 'lan' | 'relay';
@@ -45,6 +46,8 @@ export interface PairedDevice {
   push?: 'unifiedpush' | 'fcm' | 'apns';
   /** Участник общего хоста (decision-126). Пусто — владелец хоста. */
   memberId?: string;
+  /** Права на отдельные проекты (TASK-180). Нет — права устройства на все проекты. */
+  projectRights?: DeviceProjectRights;
 }
 
 export interface RemoteControlConfig {
