@@ -31,6 +31,7 @@ import type { VoiceHost, VoiceLang } from '../protocol/voiceCommands';
 /** Несекретные настройки интерфейса (выбранный проект) — в хранилище страницы. Ключи сюда не пишутся. */
 /** Язык речи голосового режима — отдельно от языка интерфейса. */
 const VOICE_LANG_PREF = 'voice:lang';
+const VOICE_WAKE_PREF = 'voice:wake';
 
 function createPrefs(): PrefsPort {
   const storage = safeStorage();
@@ -174,6 +175,7 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       }
       return out;
     };
+    const wake = prefs.get(VOICE_WAKE_PREF) === '1';
     const saved = prefs.get(VOICE_LANG_PREF);
     const lang: VoiceLang = saved === 'ru' || saved === 'en' ? saved : (typeof navigator !== 'undefined' ? navigator.language : '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
     return new VoiceController(
@@ -191,10 +193,19 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
         },
         tts: platform.tts ?? null
       },
-      lang
+      lang,
+      wake
     );
   });
-  useEffect(() => voice.subscribe(() => prefs.set(VOICE_LANG_PREF, voice.getState().lang)), [voice, prefs]);
+  useEffect(
+    () =>
+      voice.subscribe(() => {
+        const { lang, wake } = voice.getState();
+        prefs.set(VOICE_LANG_PREF, lang);
+        prefs.set(VOICE_WAKE_PREF, wake ? '1' : '0');
+      }),
+    [voice, prefs]
+  );
 
   useEffect(() => {
     pool.sync(list.profiles, target.adding ? null : (target.profile.id ?? null));

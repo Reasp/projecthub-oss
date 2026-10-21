@@ -8,13 +8,14 @@ import { Button, Spinner } from '../components/ui';
 import { useT } from '../i18n/react';
 import { startVoiceListener, type VoiceListener } from '../platform/voiceListener';
 import { startVoiceRecording, voiceAvailable, type VoiceRecording } from '../platform/voiceRecorder';
+import type { PhoneVoiceScreen } from '../../../src/utils/phoneVoice';
 
 /**
  * Голосовой режим (TASK-179.2, [[decision-137]] п. 1): лента реплик, большая кнопка микрофона, «нажми и говори» или
  * «слушать постоянно». Логика команд — в `VoiceController`, экран только пишет звук и показывает состояние.
  */
-export function VoiceScreen({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { voice, platform } = useServices();
+export function VoiceScreen({ open, onClose, onOpenScreen }: { open: boolean; onClose: () => void; onOpenScreen: (screen: PhoneVoiceScreen) => void }) {
+  const { voice, platform, store, switchHost, profiles } = useServices();
   const tr = useT();
   const state = useSyncExternalStore(voice.subscribe, voice.getState, voice.getState);
   const [handsFree, setHandsFree] = useState(false);
@@ -41,7 +42,7 @@ export function VoiceScreen({ open, onClose }: { open: boolean; onClose: () => v
     if (!open || !handsFree || !available) return;
     let cancelled = false;
     void startVoiceListener({
-      onPhrase: (samples) => void voice.handleAudio(samples),
+      onPhrase: (samples) => void voice.handleAudio(samples, { handsFree: true }),
       onLevel: (l, speaking) => {
         setLevel(l);
         setHearing(speaking);
@@ -68,9 +69,39 @@ export function VoiceScreen({ open, onClose }: { open: boolean; onClose: () => v
     listener.current?.setPaused(state.phase !== 'idle');
   }, [state.phase]);
 
+  // Пока открыт голосовой режим, экран не гаснет: при выключенном экране WebView не слушает микрофон.
+  useEffect(() => {
+    if (!open || typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    const acquire = () => {
+      if (document.visibilityState !== 'visible') return;
+      navigator.wakeLock
+        .request('screen')
+        .then((l) => (lock = l))
+        .catch(() => undefined);
+    };
+    acquire();
+    document.addEventListener('visibilitychange', acquire);
+    return () => {
+      document.removeEventListener('visibilitychange', acquire);
+      void lock?.release().catch(() => undefined);
+    };
+  }, [open]);
+
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: 'end' });
   }, [state.log.length, state.confirm]);
+
+  // «Открой задачи на макбуке»: другой ПК — переключиться на него, проект — выбрать, затем вкладка.
+  const handledNav = useRef(0);
+  useEffect(() => {
+    const nav = state.nav;
+    if (!open || !nav || nav.seq === handledNav.current) return;
+    handledNav.current = nav.seq;
+    if (nav.profileId && nav.profileId !== profiles.activeId) switchHost(nav.profileId);
+    if (nav.hostId && nav.projectPath) void store.requestNav({ hostId: nav.hostId, projectPath: nav.projectPath, kind: 'project', sessionId: '' });
+    onOpenScreen(nav.screen);
+  }, [open, state.nav, profiles.activeId, switchHost, store, onOpenScreen]);
 
   if (!open) return null;
 
@@ -154,8 +185,15 @@ export function VoiceScreen({ open, onClose }: { open: boolean; onClose: () => v
             {!platform.tts && <p className="mb-4">{tr.voice.noTtsHint}</p>}
             <ul className="space-y-2">
               {tr.voice.examples.map((e) => (
-                <li key={e} className="rounded-xl border border-ph-line px-3 py-2 italic">
-                  «{e}»
+                <li key={e}>
+                  <button
+                    type="button"
+                    data-testid="voice-example"
+                    onClick={() => sendTyped(e)}
+                    className="w-full rounded-xl border border-ph-line px-3 py-2 italic active:bg-ph-hover"
+                  >
+                    «{e}»
+                  </button>
                 </li>
               ))}
             </ul>
@@ -254,6 +292,12 @@ export function VoiceScreen({ open, onClose }: { open: boolean; onClose: () => v
             </button>
           ))}
         </div>
+        {handsFree && (
+          <label className="mt-2 flex items-center gap-2 text-[13px] text-slate-300" title={tr.voice.wakeHint}>
+            <input type="checkbox" data-testid="voice-wake" checked={state.wake} onChange={(e) => voice.setWake(e.target.checked)} />
+            {tr.voice.wakeWord}
+          </label>
+        )}
       </div>
     </div>,
     document.body

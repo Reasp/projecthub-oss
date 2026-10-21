@@ -55,6 +55,17 @@ export function localIntent(text: string): LocalIntent | null {
   return null;
 }
 
+const WAKE = /^(?:эй[,\s]+)?(?:хаб|хап|хоп|hub|проджект ?хаб|project ?hub)(?=[\s,.!?:—-]|$)[\s,.!?:—-]*/i;
+
+/**
+ * Обращение в постоянном слушании: фраза без «Хаб» в начале — не команда (разговор рядом), `null`. С обращением —
+ * фраза без него. Whisper пишет «хаб» и как «хап», «хоп».
+ */
+export function stripWakeWord(text: string): string | null {
+  const m = WAKE.exec(text.trim());
+  return m ? text.trim().slice(m[0].length).trim() : null;
+}
+
 export type VoiceTarget =
   | { kind: 'ok'; host: VoiceHost; project?: OverviewProject }
   | { kind: 'reply'; text: string; ask?: 'computer' | 'project' };

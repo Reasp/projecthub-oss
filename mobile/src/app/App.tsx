@@ -335,7 +335,17 @@ function Shell() {
       </nav>
 
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <VoiceScreen open={voiceOpen} onClose={() => setVoiceOpen(false)} />
+      <VoiceScreen
+        open={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        onOpenScreen={(screen) => {
+          // Голосом открыли экран (TASK-179): ПК и проект VoiceScreen уже выбрал, здесь — только вкладка.
+          setVoiceOpen(false);
+          if (screen === 'computers') setTab('home');
+          else if (screen === 'processes') setProcessesOpen(true);
+          else if (TABS.some((t) => t.id === screen)) setTab(screen as Tab);
+        }}
+      />
     </div>
   );
 }

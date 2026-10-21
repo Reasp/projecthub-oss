@@ -1,4 +1,4 @@
-import type { RemoteRoleSummary, RemoteStudioSession, RemoteStudioSessionSummary } from '../../../src/types/remote';
+import type { RemoteStudioSession, RemoteStudioSessionSummary } from '../../../src/types/remote';
 import type { PhoneVoiceCommand } from '../../../src/utils/phoneVoice';
 import type { OverviewProject } from '../../../src/utils/fleetOverview';
 import { summarizeForSpeech } from '../../../src/services/ttsSummary';
@@ -6,18 +6,17 @@ import { dictFor } from '../i18n';
 import type { RpcMethod } from '../protocol/remoteClient';
 import { sendVoice } from '../protocol/voice';
 import {
-  describePending,
-  describeStatus,
   fleetForVoice,
   localIntent,
-  pendingRequests,
   resolveTarget,
+  stripWakeWord,
   spokenHostName,
   type VoiceContext,
   type VoiceHost,
   type VoiceLang
 } from '../protocol/voiceCommands';
 import type { TtsPort } from '../platform/types';
+import { VOICE_ACTIONS, type VoiceActionContext, type VoiceNav, type VoiceWatch } from './voiceActions';
 
 /**
  * Голосовой режим телефона (TASK-179, [[decision-137]]): фраза → распознавание и разбор на ПК → исполнение на нужном
@@ -40,6 +39,10 @@ export interface VoiceState {
   confirm: string | null;
   /** «Проект · компьютер» прошлой команды. */
   context: string | null;
+  /** В постоянном слушании команда — только после обращения «Хаб». */
+  wake: boolean;
+  /** Голосом попросили открыть экран: приложение переходит и закрывает голосовой режим. */
+  nav: (VoiceNav & { seq: number }) | null;
 }
 
 export interface VoiceDeps {
@@ -54,12 +57,6 @@ export interface VoiceDeps {
 interface Pending {
   prompt: string;
   run: () => Promise<string>;
-}
-
-interface Watch {
-  hostId: string;
-  projectPath: string;
-  project: string;
 }
 
 const LOG_MAX = 40;
@@ -78,7 +75,11 @@ export class VoiceController {
   private resume: { cmd: PhoneVoiceCommand; ask: 'computer' | 'project' } | null = null;
   private lastReply = '';
   /** Сессии Studio, начатые голосом: ответ агента озвучивается, ключ — `hostId|sessionId`. */
-  private watches = new Map<string, Watch>();
+  private watches = new Map<string, VoiceWatch>();
+  /** Агенты на задачах, запущенные голосом, по `hostId|projectPath`: конец работы озвучивается один раз. */
+  private agentWatches = new Map<string, VoiceWatch>();
+  /** Сессия Studio, начатая голосом, по `hostId|projectPath`: следующий промпт в проект продолжает её. */
+  private voiceSessions = new Map<string, string>();
   /** Конец ответа, пришедший раньше id сессии от `studio_send`. */
   private finishedEarly = new Map<string, { event: string; data: Record<string, unknown> }>();
   private offEvents: () => void;
@@ -89,9 +90,10 @@ export class VoiceController {
 
   constructor(
     private readonly deps: VoiceDeps,
-    lang: VoiceLang
+    lang: VoiceLang,
+    wake = false
   ) {
-    this.state = { phase: 'idle', lang, log: [], confirm: null, context: null };
+    this.state = { phase: 'idle', lang, wake, log: [], confirm: null, context: null, nav: null };
     this.offEvents = deps.onHostEvent((hostId, event, data) => this.onHostEvent(hostId, event, data));
   }
 
@@ -110,6 +112,10 @@ export class VoiceController {
   setActive(active: boolean): void {
     this.active = active;
     if (!active) this.stopSpeaking();
+  }
+
+  setWake(wake: boolean): void {
+    this.set({ wake });
   }
 
   setLang(lang: VoiceLang): void {
@@ -180,8 +186,8 @@ export class VoiceController {
     if (this.state.phase === 'speaking') this.set({ phase: 'idle' });
   }
 
-  /** Записанная фраза: распознать на ПК и выполнить. */
-  async handleAudio(samples: Float32Array): Promise<void> {
+  /** Записанная фраза: распознать на ПК и выполнить. `handsFree` — фразу выделил VAD, а не нажатие. */
+  async handleAudio(samples: Float32Array, opts: { handsFree?: boolean } = {}): Promise<void> {
     const brain = this.brain();
     if (!brain) return this.say(this.v.noHost);
     this.set({ phase: 'recognizing' });
@@ -194,7 +200,15 @@ export class VoiceController {
       return this.say(this.v.failed(errorText(err)));
     }
     this.set({ phase: 'idle' });
-    if (text) await this.handleText(text);
+    if (!text) return;
+    // Обращение нужно только постоянному слушанию и не нужно ответу «да/нет» на переспрос.
+    if (opts.handsFree && this.state.wake && !this.pending) {
+      const command = stripWakeWord(text);
+      if (command === null) return;
+      if (!command) return this.say(this.v.listening);
+      return this.handleText(command);
+    }
+    await this.handleText(text);
   }
 
   /** Распознанная фраза. */
@@ -289,141 +303,30 @@ export class VoiceController {
   }
 
   private async execute(cmd: PhoneVoiceCommand): Promise<void> {
-    const v = this.v;
-    const hosts = this.deps.hosts();
-    const target = (needs: 'project' | 'computer' | 'write-computer') => {
-      const t = resolveTarget(cmd, hosts, this.ctx, needs, v);
-      if (t.kind === 'reply' && t.ask) this.resume = { cmd, ask: t.ask };
-      return t;
+    const ctx: VoiceActionContext = {
+      cmd,
+      hosts: this.deps.hosts(),
+      v: this.v,
+      lang: this.state.lang,
+      say: (text) => this.say(text),
+      ask: (prompt, run) => this.ask(prompt, run),
+      target: (needs) => {
+        const t = resolveTarget(cmd, ctx.hosts, this.ctx, needs, this.v);
+        if (t.kind === 'reply' && t.ask) this.resume = { cmd, ask: t.ask };
+        return t;
+      },
+      remember: (host, project) => this.remember(host, project),
+      rpc: (hostId, method, params) => this.deps.rpc(hostId, method, params),
+      lastAnswer: (hostId, projectPath, sessionId) => this.lastAnswer(hostId, projectPath, sessionId),
+      watch: (hostId, sessionId, w) => this.watch(hostId, sessionId, w),
+      watchAgent: (w) => void this.agentWatches.set(`${w.hostId}|${w.projectPath}`, w),
+      voiceSession: (hostId, projectPath) => this.voiceSessions.get(`${hostId}|${projectPath}`),
+      setVoiceSession: (hostId, projectPath, sessionId) => void this.voiceSessions.set(`${hostId}|${projectPath}`, sessionId),
+      navigate: (nav) => this.set({ nav: { ...nav, seq: ++this.seq } }),
+      lastReply: () => this.lastReply,
+      stopSpeaking: () => this.stopSpeaking()
     };
-
-    switch (cmd.intent) {
-      case 'unknown':
-        return this.say(v.notUnderstood);
-      case 'repeat':
-        return this.say(this.lastReply);
-      case 'help':
-        return this.say(v.help);
-      case 'stop':
-        this.stopSpeaking();
-        return;
-
-      case 'status':
-      case 'pending': {
-        const named = cmd.computer || cmd.project || cmd.unknownComputer || cmd.unknownProject;
-        let scope: { host?: VoiceHost; project?: OverviewProject } = {};
-        if (named) {
-          const t = target(cmd.project || cmd.unknownProject ? 'project' : 'computer');
-          if (t.kind === 'reply') return this.say(t.text);
-          scope = { host: t.host, project: t.project };
-          this.remember(t.host, t.project);
-        }
-        return this.say(cmd.intent === 'status' ? describeStatus(hosts, scope, v) : describePending(pendingRequests(hosts, scope), v));
-      }
-
-      case 'select': {
-        const t = target(cmd.project || cmd.unknownProject ? 'project' : 'computer');
-        if (t.kind === 'reply') return this.say(t.text);
-        this.remember(t.host, t.project);
-        return this.say(v.selected(t.project?.name ?? null, spokenHostName(t.host.name)));
-      }
-
-      case 'prompt_agent': {
-        const t = target('project');
-        if (t.kind === 'reply') return this.say(t.text);
-        const { host, project } = t;
-        const text = cmd.text ?? '';
-        this.remember(host, project);
-        return this.ask(v.confirmPrompt(text, project!.name, spokenHostName(host.name)), async () => {
-          const res = await this.deps.rpc<{ sessionId: string }>(host.id, 'studio_send', { projectPath: project!.path, prompt: text });
-          this.watch(host.id, res.sessionId, { hostId: host.id, projectPath: project!.path, project: project!.name });
-          return v.sent(project!.name);
-        });
-      }
-
-      case 'create_task': {
-        const t = target('project');
-        if (t.kind === 'reply') return this.say(t.text);
-        this.remember(t.host, t.project);
-        try {
-          await this.deps.rpc(t.host.id, 'create_task', { projectPath: t.project!.path, title: cmd.title, description: cmd.description ?? '' });
-          return this.say(v.taskCreated(cmd.title ?? '', t.project!.name));
-        } catch (err) {
-          return this.say(v.failed(errorText(err)));
-        }
-      }
-
-      case 'start_agent': {
-        const t = target('project');
-        if (t.kind === 'reply') return this.say(t.text);
-        const { host, project } = t;
-        this.remember(host, project);
-        let roles: RemoteRoleSummary[];
-        try {
-          roles = await this.deps.rpc<RemoteRoleSummary[]>(host.id, 'get_roles', { projectPath: project!.path });
-        } catch (err) {
-          return this.say(v.failed(errorText(err)));
-        }
-        const said = cmd.role?.toLowerCase();
-        const role = (said && roles.find((r) => r.slug.toLowerCase().includes(said) || r.name.toLowerCase().includes(said))) || roles[0];
-        if (!role) return this.say(v.noRoles(project!.name));
-        const taskId = cmd.taskId ?? '';
-        return this.ask(v.confirmStart(taskId, role.name, project!.name), async () => {
-          await this.deps.rpc(host.id, 'start_assigned_agent', { projectPath: project!.path, taskId, taskTitle: taskId, roleSlug: role.slug });
-          return v.agentStarted(taskId, project!.name);
-        });
-      }
-
-      case 'approve':
-      case 'reject': {
-        const named = cmd.computer || cmd.project;
-        let scope: { host?: VoiceHost; project?: OverviewProject } = {};
-        if (named) {
-          const t = target(cmd.project ? 'project' : 'computer');
-          if (t.kind === 'reply') return this.say(t.text);
-          scope = { host: t.host, project: t.project };
-        }
-        const first = pendingRequests(hosts, scope)[0];
-        if (!first) return this.say(v.nothingPending);
-        // Опасное одобряется только на экране с биометрией (decision-112); отклонить можно и голосом.
-        if (cmd.intent === 'approve' && first.request.risk === 'high') return this.say(v.needScreen);
-        const approve = cmd.intent === 'approve';
-        const pc = spokenHostName(first.host.name);
-        return this.ask(approve ? v.confirmApprove(first.request.title, pc) : v.confirmReject(first.request.title, pc), async () => {
-          const res = await this.deps.rpc<{ ok: boolean; reason?: string }>(first.host.id, 'hitl_decision', {
-            requestId: first.request.requestId,
-            decision: approve ? 'allow' : 'deny',
-            confirm: 'app'
-          });
-          if (res && res.ok === false) return res.reason === 'confirmation_required' ? v.needScreen : v.failed(res.reason ?? '');
-          return approve ? v.approved : v.rejected;
-        });
-      }
-
-      case 'read_answer': {
-        const t = target('project');
-        if (t.kind === 'reply') return this.say(t.text);
-        this.remember(t.host, t.project);
-        try {
-          const text = await this.lastAnswer(t.host.id, t.project!.path);
-          return this.say(text ? v.lastAnswer(t.project!.name, summarizeForSpeech(text, { maxChars: 400 })) : v.noAnswer(t.project!.name));
-        } catch (err) {
-          return this.say(v.failed(errorText(err)));
-        }
-      }
-
-      case 'create_project': {
-        const t = target('write-computer');
-        if (t.kind === 'reply') return this.say(t.text);
-        const name = cmd.name ?? '';
-        const pc = spokenHostName(t.host.name);
-        return this.ask(v.confirmProject(name, pc), async () => {
-          await this.deps.rpc(t.host.id, 'create_project', { name, language: this.state.lang });
-          this.remember(t.host);
-          return v.projectCreated(name, pc);
-        });
-      }
-    }
+    await VOICE_ACTIONS[cmd.intent](ctx);
   }
 
   private async lastAnswer(hostId: string, projectPath: string, sessionId?: string): Promise<string> {
@@ -437,7 +340,7 @@ export class VoiceController {
     return [...(s?.messages ?? [])].reverse().find((m) => m.role === 'assistant' && m.text.trim())?.text ?? '';
   }
 
-  private watch(hostId: string, sessionId: string, w: Watch): void {
+  private watch(hostId: string, sessionId: string, w: VoiceWatch): void {
     const key = `${hostId}|${sessionId}`;
     const early = this.finishedEarly.get(key);
     this.finishedEarly.delete(key);
@@ -460,6 +363,16 @@ export class VoiceController {
       void this.finishWatch(w, d.sessionId, event, d);
       return;
     }
+    if ((event === 'agent:finished' || event === 'agent:failed') && typeof d.projectPath === 'string') {
+      const key = `${hostId}|${d.projectPath}`;
+      const w = this.agentWatches.get(key);
+      if (!w) return;
+      this.agentWatches.delete(key);
+      const who = typeof d.agentName === 'string' && d.agentName ? d.agentName : w.project;
+      const text = event === 'agent:failed' ? this.v.agentFailed(w.project, String(d.error ?? '')) : this.v.agentDone(who, w.project);
+      void this.say(text);
+      return;
+    }
     if (event === 'ai:hitl' && this.active && !this.pending) {
       const host = this.deps.hosts().find((h) => h.id === hostId);
       const what = typeof d.description === 'string' && d.description ? d.description : typeof d.tool === 'string' ? d.tool : '';
@@ -467,7 +380,7 @@ export class VoiceController {
     }
   }
 
-  private async finishWatch(w: Watch, sessionId: string, event: string, d: Record<string, unknown>): Promise<void> {
+  private async finishWatch(w: VoiceWatch, sessionId: string, event: string, d: Record<string, unknown>): Promise<void> {
     if (event === 'studio:error') return this.say(this.v.agentFailed(w.project, String(d.error ?? '')));
     // Окно записывает сессию на диск после события — даём ему мгновение.
     await new Promise((r) => setTimeout(r, 800));

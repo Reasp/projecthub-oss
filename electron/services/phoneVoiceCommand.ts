@@ -10,6 +10,8 @@ import {
   PHONE_VOICE_MAX_COMPUTERS,
   PHONE_VOICE_MAX_PROJECTS,
   PHONE_VOICE_MAX_TEXT,
+  PHONE_VOICE_SCREENS,
+  PHONE_VOICE_TASK_STATUSES,
   isPhoneVoiceIntent,
   phoneVoiceSpec,
   type PhoneVoiceCommand,
@@ -132,6 +134,20 @@ export function normalizeTaskId(value: string): string | undefined {
   return m ? `TASK-${m[1]}` : undefined;
 }
 
+const STATUS_ALIASES: ReadonlyArray<[RegExp, (typeof PHONE_VOICE_TASK_STATUSES)[number]]> = [
+  [/^(to ?do|todo|сделать|к выполнению|в план|бэклог|backlog|новая)/i, 'To Do'],
+  [/^(in ?progress|в работ|работа|делается|в процесс)/i, 'In Progress'],
+  [/^(review|ревью|на ревью|на проверк|проверк)/i, 'Review'],
+  [/^(done|готов|сделано|закрыт|выполнен|заверш)/i, 'Done']
+];
+
+/** Статус задачи словами пользователя или модели → статус Backlog.md. Не узнали — `undefined`. */
+export function normalizeTaskStatus(value: string): string | undefined {
+  const exact = PHONE_VOICE_TASK_STATUSES.find((s) => s.toLowerCase() === value.trim().toLowerCase());
+  if (exact) return exact;
+  return STATUS_ALIASES.find(([re]) => re.test(value.trim()))?.[1];
+}
+
 function toConfidence(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 0.5;
   const scaled = value > 1 ? value / (value > 10 ? 100 : 10) : value;
@@ -192,6 +208,10 @@ export function parsePhoneVoiceResponse(raw: string, req: PhoneVoiceCommandReque
     let value = text(obj[field.name], field.name === 'title' || field.name === 'name' || field.name === 'role' ? NAME_MAX : PHONE_VOICE_MAX_TEXT);
     if (value && field.name === 'taskId') value = normalizeTaskId(value);
     if (value && field.name === 'name' && /[\\/]|\.\./.test(value)) value = undefined;
+    if (value && field.name === 'status') value = normalizeTaskStatus(value);
+    if (value && field.name === 'screen') value = (PHONE_VOICE_SCREENS as readonly string[]).includes(value.toLowerCase()) ? value.toLowerCase() : undefined;
+    if (value && field.name === 'session') value = value.toLowerCase() === 'new' ? 'new' : undefined;
+    if (value && field.name === 'action') value = value.toLowerCase();
     if (value) cmd[field.name] = value;
     else if (field.required) return { ...UNKNOWN, error: `Интент ${intent} без поля ${field.name}` };
   }
