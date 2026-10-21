@@ -344,6 +344,8 @@ export interface RemoteTaskSummary {
   priority: string;
   filePath: string;
   criteria: RemoteTaskCriterion[];
+  /** Исполнители задачи, например `agent:implementer@ph_host_…` (TASK-130). */
+  assignee?: string[];
 }
 
 export interface RemoteProcessSummary {

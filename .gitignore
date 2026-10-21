@@ -32,6 +32,7 @@ npm-debug.log*
 # Build outputs
 dist/
 dist-electron/
+dist-ph-agent/
 release/
 # pack-win.mjs при EBUSY собирает во временный каталог release_tmp_<timestamp>/ — тоже не коммитим
 release_tmp*/

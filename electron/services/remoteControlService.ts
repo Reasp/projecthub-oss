@@ -3315,6 +3315,8 @@ class RemoteControlService {
           }
         }
 
+        const rawAssignee: unknown[] = Array.isArray(data.assignee) ? data.assignee : data.assignee ? [data.assignee] : [];
+        const assignee = rawAssignee.map((a) => String(a ?? '').trim()).filter(Boolean);
         tasks.push({
           id: data.id || file.replace(/\.md$/, ''),
           title: data.title || file,
@@ -3322,7 +3324,9 @@ class RemoteControlService {
           priority: data.priority || 'medium',
           filePath,
           criteria,
-          ...(data.updated_date ? { updated: String(data.updated_date) } : {})
+          ...(data.updated_date ? { updated: String(data.updated_date) } : {}),
+          // Назначение `agent:<роль>[@hostId]`: по нему «Удалённые хосты» показывают кнопку запуска агента (TASK-130).
+          ...(assignee.length > 0 ? { assignee } : {})
         });
       } catch (err) {
         // ignore single corrupt file
