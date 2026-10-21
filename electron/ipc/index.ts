@@ -26,6 +26,7 @@ import { registerTrackerSyncIpc } from './trackerSyncIpc';
 import { registerCiIpc } from './ciIpc';
 import { registerChatIpc } from './chatIpc';
 import { registerGraphIpc } from './graphIpc';
+import { registerEditionIpc } from './editionIpc';
 
 export type { IpcContext } from './types';
 
@@ -57,4 +58,6 @@ export function registerAllIpc(ctx: IpcContext) {
   registerCiIpc();
   registerChatIpc();
   registerGraphIpc();
+  // Последним: модули ee/ регистрируют свои каналы поверх открытых (decision-123 п. 4).
+  registerEditionIpc(ctx);
 }

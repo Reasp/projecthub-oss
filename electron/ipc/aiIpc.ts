@@ -39,7 +39,21 @@ import { modelCallService } from '../services/modelCallService';
 import { ModelRouteError } from '../services/modelRouter';
 import { buildTaskDraftPrompt, parseTaskDraft } from '../services/taskDraftPrompt';
 import { providerErrorInfoOf } from '../services/providerErrors';
+import { usesClaudeCli } from '../services/modelTarget';
+import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
 import type { IpcContext } from './types';
+
+/** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
+function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
+  return {
+    projectPath: req.projectPath,
+    ...(req.taskId ? { taskId: req.taskId } : {}),
+    engine: usesClaudeCli(req.config) ? 'claude-cli' : 'api',
+    ...(req.config.model ? { model: req.config.model } : {}),
+    origin: 'studio',
+    slots: 1
+  };
+}
 
 /** Черновик задачи: Claude Code по подписке отвечает за 6–20 с, на загруженной машине дольше. */
 const TASK_DRAFT_TIMEOUT_MS = 90_000;
@@ -248,6 +262,16 @@ export function registerAiIpc(ctx: IpcContext) {
 
     // Поток любой сессии Studio дублируется сопряжённым телефонам в сокращённом виде (TASK-140.10, decision-83).
     studioRemoteBridge.streamStarted(req.projectPath, req.sessionId);
+    // Ограничения запуска (бюджеты Team, decision-124): исчерпанный бюджет не пускает новый промпт.
+    const launchCtx = studioLaunchContext(req);
+    const launch = await editionRegistry.checkAgentLaunch(launchCtx);
+    if (!launch.allowed) {
+      const message = launch.reason || 'Запуск агента запрещён ограничениями';
+      send(`ai:error:${req.sessionId}`, message);
+      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message);
+      return;
+    }
+    const startedAt = Date.now();
     try {
       await claudeBridgeService.runAgentTask(
         req,
@@ -258,6 +282,20 @@ export function registerAiIpc(ctx: IpcContext) {
         (fullMsg) => {
           send(`ai:complete:${req.sessionId}`, fullMsg);
           studioRemoteBridge.streamEnded(req.projectPath, req.sessionId);
+          const usage = fullMsg.usage;
+          editionRegistry.emitAgentRun({
+            ...launchCtx,
+            at: Date.now(),
+            startedAt,
+            ...(usage?.model ? { model: usage.model } : {}),
+            sessionId: req.sessionId,
+            agentId: req.sessionId,
+            status: 'completed',
+            ...(typeof usage?.costUsd === 'number' ? { costUsd: usage.costUsd } : {}),
+            ...(usage?.costSource ? { costSource: usage.costSource } : {}),
+            ...(usage?.estimated ? { estimated: true } : {}),
+            ...(usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : {})
+          });
         },
         // Второй аргумент — снимок ошибки провайдера (decision-43): renderer строит по нему локализованную карточку.
         (err, info) => {

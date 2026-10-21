@@ -2887,7 +2887,8 @@ export interface TranslationDictionary {
       | 'prReview'
       | 'prMerged'
       | 'securityFinding'
-      | 'agentTask',
+      | 'agentTask'
+      | 'spendLimit',
       string
     >;
     osActionsUnsupported: string;

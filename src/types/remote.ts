@@ -297,7 +297,17 @@ export type RemoteRpcMethod =
   | 'review_task'
   | 'get_review_screenshot'
   // Голосовой промпт: PCM с телефона частями, распознавание на этом ПК (TASK-140.7, decision-121)
-  | 'voice_chunk';
+  | 'voice_chunk'
+  // Ограничения запуска агента до нажатия «Запустить» (бюджеты Team, decision-124)
+  | 'check_agent_launch';
+
+/** Ответ `check_agent_launch`: в открытой редакции хоста — `allowed` без примечаний. */
+export interface RemoteLaunchCheck {
+  allowed: boolean;
+  reason?: string;
+  capUsd?: number;
+  notices: Array<{ level: 'info' | 'warn' | 'block'; text: string }>;
+}
 
 /** Ответ `federation_enroll` / `enroll_device`: всё, что нужно телефону для отдельного профиля соседнего хоста. */
 export interface RemoteEnrollment {

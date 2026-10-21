@@ -19,6 +19,7 @@
     "build:mobile": "vite build --config mobile/vite.config.ts",
     "build:mobile:capacitor": "vite build --config mobile/vite.config.ts --mode capacitor",
     "build:ph-agent": "vite build --config vite.ph-agent.config.ts",
+    "build:open": "node scripts/build-open-edition.mjs",
     "dev:mobile": "vite --config mobile/vite.config.ts",
     "mobile:android:apk": "node scripts/mobile/android.mjs build",
     "mobile:android:install": "node scripts/mobile/android.mjs install",

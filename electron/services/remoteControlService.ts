@@ -57,6 +57,7 @@ import { guardedCommit } from './commitSecretGuard.js';
 import { summarizeSecretFindings } from './diffSecretScan.js';
 import { claudeBridgeService } from './claudeBridgeService.js';
 import { agentFleetService, isActiveSwarmStatus } from './agentFleetService.js';
+import { editionRegistry } from '../extensions/editionRegistry.js';
 import { aiAgentService } from './aiAgentService.js';
 import { actionConfigService, type ActionDefinition } from './actionConfigService.js';
 import { createBacklogTaskFile } from './backlogTaskCreate.js';
@@ -3211,6 +3212,24 @@ class RemoteControlService {
             error: a.error
           }))
         }));
+      }
+
+      // Ограничения запуска до нажатия «Запустить» (бюджеты Team, decision-124): в открытой редакции — пусто.
+      case 'check_agent_launch': {
+        if (!activePath) return { allowed: true, notices: [] };
+        const roleSlug = typeof params.roleSlug === 'string' ? params.roleSlug.trim() : '';
+        const taskId = typeof params.taskId === 'string' ? params.taskId.trim() : '';
+        const role = roleSlug ? (await loadRoles(activePath)).roles.find((r) => r.slug === roleSlug) : undefined;
+        return editionRegistry.checkAgentLaunch({
+          projectPath: activePath,
+          ...(taskId ? { taskId } : {}),
+          ...(roleSlug ? { roleSlug } : {}),
+          ...(role?.name ? { roleName: role.name } : {}),
+          engine: role?.engine || 'claude-cli',
+          ...(role?.model ? { model: role.model } : {}),
+          origin: 'swarm',
+          slots: 1
+        });
       }
 
       case 'start_assigned_agent': {

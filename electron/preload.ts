@@ -957,6 +957,14 @@ const api: IElectronAPI = {
     return () => {
       ipcRenderer.removeListener('updater:statusChanged', handler);
     };
+  },
+
+  // Редакция сборки и платные модули (TASK-151, decision-123 п. 4): ограничения запуска агента и каналы `ee:*`
+  getEditionInfo: () => ipcRenderer.invoke('edition:info'),
+  checkAgentLaunch: (ctx: unknown) => ipcRenderer.invoke('agents:launchCheck', ctx),
+  editionInvoke: (channel: string, ...args: unknown[]) => {
+    if (typeof channel !== 'string' || !channel.startsWith('ee:')) return Promise.reject(new Error('Канал платного модуля должен начинаться с ee:'));
+    return ipcRenderer.invoke(channel, ...args);
   }
 };
 

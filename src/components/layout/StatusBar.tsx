@@ -11,6 +11,7 @@ import { McpServerStatusBadge } from '../mcp/McpServerStatusBadge';
 import { DiagnosticsBadge } from '../diagnostics/DiagnosticsBadge';
 import { VoiceControlHeader } from '../voice/VoiceControlHeader';
 import { ClaudeUsageButton } from '../ai/ClaudeUsageButton';
+import { EditionStatusItems } from '../../extensions/editionUi';
 
 /**
  * Строка состояния (decision-73), по правилам VS Code:
@@ -89,6 +90,8 @@ export const StatusBar: React.FC = () => {
         <HitlBadge />
         <NotificationsBadge />
         <AutomationsBadge />
+        {/* Модули платной редакции (decision-123 п. 4): например, бюджеты Team */}
+        <EditionStatusItems />
 
         {/* Подключения: Remote Control, встроенный MCP-сервер (TASK-51) */}
         <span className="w-px my-1.5 bg-ph-line" aria-hidden />

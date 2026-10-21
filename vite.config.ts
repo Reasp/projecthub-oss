@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
 import tailwindcss from '@tailwindcss/vite';
 import { createRequire } from 'node:module';
+import { projecthubEdition } from './scripts/vite-edition.mjs';
 
 // Все runtime-зависимости main-процесса остаются внешними (electron-builder кладёт node_modules в
 // app.asar): нативные и тяжёлые пакеты (node-pty, @lancedb/lancedb, @huggingface/transformers,
@@ -21,6 +22,7 @@ export default defineConfig({
     'process.env': {}
   },
   plugins: [
+    projecthubEdition({ root: import.meta.dirname }),
     react(),
     tailwindcss(),
     electron([
@@ -28,6 +30,7 @@ export default defineConfig({
         // Main-Process entry file of the Electron App.
         entry: 'electron/main.ts',
         vite: {
+          plugins: [projecthubEdition({ root: import.meta.dirname })],
           build: {
             outDir: 'dist-electron',
             rollupOptions: {

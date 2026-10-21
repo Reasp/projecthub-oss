@@ -118,6 +118,7 @@ import { AGENT_TRACE_FORMAT, AGENT_TRACE_VERSION, type AgentCheckpoint, type Age
 import { redactSecrets } from './hitlAudit.js';
 import type { HitlRequest, RolePermissions } from './hitlTypes.js';
 import { superviseChildExit, type ChildExitSupervisor } from './processSweep.js';
+import { capSessionBudget, editionRegistry, type AgentLaunchContext, type AgentLaunchVerdict, type LiveAgentRun } from '../extensions/editionRegistry.js';
 import type { ComposeResult, ComposeSelection, JudgeState } from './arenaTypes.js';
 import type { BacklogRenumberSummary } from '../../src/types/electron';
 import type {
@@ -375,6 +376,8 @@ export class AgentFleetService extends EventEmitter {
   private apiHistories = new Map<string, AIMessage[]>();
   /** Usage предыдущих ходов цикла: итог хода (`replace`) складывается с ним, а не затирает его. */
   private usageBaselines = new Map<string, AgentUsage>();
+  /** Идущие запуски агентов для точек расширения (decision-123 п. 4): расход с начала запуска. */
+  private liveRuns = new Map<string, { session: SwarmSession; agent: AgentSlotState; startedAt: number; costBefore: number }>();
   /** Таблица цен, подменённая через `setPriceTable` (тесты); иначе общая таблица `pricingService`. */
   private priceTableOverride: PriceTable | null = null;
   /** Таблица тиров, подменённая через `setModelTierSettings` (тесты); иначе `modelTierService`. */
@@ -1437,11 +1440,82 @@ export class AgentFleetService extends EventEmitter {
     };
   }
 
+  /** Контекст проверки перед запуском слота: проект, задача, роль, движок (decision-123 п. 4). */
+  private launchContext(
+    projectPath: string,
+    taskId: string | undefined,
+    origin: SwarmOrigin | undefined,
+    cfg: AgentSlotConfig,
+    slots: number
+  ): AgentLaunchContext {
+    return {
+      projectPath,
+      ...(taskId ? { taskId } : {}),
+      ...(cfg.roleSlug ? { roleSlug: cfg.roleSlug } : {}),
+      ...(cfg.role ? { roleName: cfg.role } : {}),
+      engine: cfg.engine,
+      ...(cfg.providerConfig?.model ? { model: cfg.providerConfig.model } : {}),
+      origin: origin ?? 'swarm',
+      slots
+    };
+  }
+
+  /**
+   * Ограничения запуска из точек расширения (бюджеты Team, decision-124): проверка каждого слота. Запрет —
+   * исключение с причиной, разрешение может принести потолок расхода, который станет бюджетом сессии.
+   */
+  private async checkLaunch(
+    projectPath: string,
+    taskId: string | undefined,
+    origin: SwarmOrigin | undefined,
+    agents: AgentSlotConfig[]
+  ): Promise<AgentLaunchVerdict> {
+    const verdicts: AgentLaunchVerdict[] = [];
+    for (const cfg of agents) {
+      verdicts.push(await editionRegistry.checkAgentLaunch(this.launchContext(projectPath, taskId, origin, cfg, agents.length)));
+    }
+    const blocked = verdicts.find((v) => !v.allowed);
+    if (blocked) throw new Error(blocked.reason || 'Запуск агента запрещён ограничениями');
+    const caps = verdicts.map((v) => v.capUsd).filter((c): c is number => typeof c === 'number');
+    return {
+      allowed: true,
+      ...(caps.length > 0 ? { capUsd: Math.min(...caps) } : {}),
+      notices: verdicts.flatMap((v) => v.notices)
+    };
+  }
+
+  /** Идущие запуски агентов с расходом с начала запуска — для учёта бюджетов до итога (decision-124). */
+  public liveAgentRuns(): LiveAgentRun[] {
+    const out: LiveAgentRun[] = [];
+    for (const { session, agent, startedAt, costBefore } of this.liveRuns.values()) {
+      const cost = agent.metrics.usage?.costUsd;
+      out.push({
+        startedAt,
+        projectPath: session.projectPath,
+        ...(session.taskId ? { taskId: session.taskId } : {}),
+        ...(agent.config.roleSlug ? { roleSlug: agent.config.roleSlug } : {}),
+        ...(agent.config.role ? { roleName: agent.config.role } : {}),
+        engine: agent.config.engine,
+        ...(agent.metrics.usage?.model || this.effectiveModel(agent) ? { model: agent.metrics.usage?.model || this.effectiveModel(agent) } : {}),
+        origin: session.origin ?? 'swarm',
+        sessionId: session.id,
+        agentId: agent.id,
+        status: 'running',
+        ...(typeof cost === 'number' ? { costUsd: Math.max(0, cost - costBefore) } : {}),
+        ...(agent.metrics.usage?.costSource ? { costSource: agent.metrics.usage.costSource } : {}),
+        ...(agent.metrics.usage?.estimated ? { estimated: true } : {})
+      });
+    }
+    return out;
+  }
+
   /**
    * Запуск режима Fan-Out (соревнование / параллельная генерация).
    */
   public async startFanOut(options: StartFanOutOptions): Promise<SwarmSession> {
     const { projectPath, prompt, taskId, taskTitle, agents } = options;
+    const launch = await this.checkLaunch(projectPath, taskId, options.origin, agents);
+    const budgetUsd = capSessionBudget(options.budgetUsd, launch.capUsd);
     const useWorktrees = options.useWorktrees !== false;
     const autoCommitAgentResults = options.autoCommitAgentResults !== false;
     const swarmId = `swarm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1465,7 +1539,8 @@ export class AgentFleetService extends EventEmitter {
       baseBranch,
       useWorktrees,
       autoCommitAgentResults,
-      ...(typeof options.budgetUsd === 'number' && options.budgetUsd > 0 ? { budgetUsd: options.budgetUsd } : {}),
+      ...(budgetUsd ? { budgetUsd } : {}),
+      ...(launch.notices.length > 0 ? { launchNotices: launch.notices } : {}),
       status: 'preparing',
       createdAt: Date.now(),
       agents: agentStates
@@ -1549,17 +1624,22 @@ export class AgentFleetService extends EventEmitter {
       }
     }
 
-    return this.startFanOut({
-      projectPath: options.projectPath,
-      prompt: options.prompt,
-      taskId: options.taskId,
-      taskTitle: options.taskTitle,
-      useWorktrees: options.useWorktrees,
-      ...(options.origin ? { origin: options.origin } : {}),
-      ...(options.automation ? { automation: options.automation } : {}),
-      ...(budgetUsd ? { budgetUsd } : {}),
-      agents: [slot]
-    });
+    try {
+      return await this.startFanOut({
+        projectPath: options.projectPath,
+        prompt: options.prompt,
+        taskId: options.taskId,
+        taskTitle: options.taskTitle,
+        useWorktrees: options.useWorktrees,
+        ...(options.origin ? { origin: options.origin } : {}),
+        ...(options.automation ? { automation: options.automation } : {}),
+        ...(budgetUsd ? { budgetUsd } : {}),
+        agents: [slot]
+      });
+    } catch (err) {
+      // Запрет ограничений запуска (бюджеты, decision-124) — такой же отказ, как ненайденная роль.
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**
@@ -1670,6 +1750,7 @@ export class AgentFleetService extends EventEmitter {
     if (!options.agent) throw new Error('Не задан агент-исполнитель');
     const task = await findTaskFile(projectPath, taskId);
     if (!task) throw new Error(`Задача ${taskId} не найдена в backlog/tasks`);
+    const launch = await this.checkLaunch(projectPath, taskId, options.origin, [options.agent]);
 
     const settings = await loadDoneLoopSettings(projectPath, {
       maxIterations: options.maxIterations,
@@ -1677,6 +1758,7 @@ export class AgentFleetService extends EventEmitter {
       checkIds: options.checkIds,
       autoReview: options.autoReview
     });
+    const sessionBudgetUsd = capSessionBudget(settings.budgetUsd, launch.capUsd);
     const swarmId = `swarm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const baseBranch = await this.detectBaseBranch(projectPath, options.baseBranch);
     await this.getPriceTable();
@@ -1694,8 +1776,10 @@ export class AgentFleetService extends EventEmitter {
       baseBranch,
       useWorktrees: options.useWorktrees !== false,
       autoCommitAgentResults: options.autoCommitAgentResults !== false,
-      // Бюджет цикла заодно становится бюджетом сессии: `enforceBudget` остановит ход на лету.
-      ...(settings.budgetUsd ? { budgetUsd: settings.budgetUsd } : {}),
+      // Бюджет цикла заодно становится бюджетом сессии: `enforceBudget` остановит ход на лету. Потолок
+      // ограничений запуска (decision-124) снижает его, но не поднимает.
+      ...(sessionBudgetUsd ? { budgetUsd: sessionBudgetUsd } : {}),
+      ...(launch.notices.length > 0 ? { launchNotices: launch.notices } : {}),
       status: 'preparing',
       createdAt: Date.now(),
       agents: [agentState],
@@ -2085,6 +2169,7 @@ export class AgentFleetService extends EventEmitter {
 
     // Новый usage за этот ход: recordUsage всегда записывает новый объект.
     const usageBeforeRun = agentState.metrics.usage;
+    this.liveRuns.set(agentState.id, { session, agent: agentState, startedAt: startTime, costBefore: usageBeforeRun?.costUsd ?? 0 });
     try {
       // Тир модели и fallback-цепочка (decision-44): без тира — один проход, как раньше.
       const routing = await this.prepareModelRouting(session, agentState);
@@ -2177,6 +2262,26 @@ export class AgentFleetService extends EventEmitter {
       hitlTraceSinks.delete(busBase.sessionId);
       const runUsage = usageDelta(agentState.metrics.usage, usageBeforeRun);
       if (runUsage) this.trace(session, agentState, { type: 'usage', scope: 'run', usage: runUsage });
+      this.liveRuns.delete(agentState.id);
+      // Итог запуска с расходом — точкам расширения (журнал расходов и бюджеты Team, decision-124).
+      editionRegistry.emitAgentRun({
+        at: Date.now(),
+        startedAt: startTime,
+        projectPath: session.projectPath,
+        ...(session.taskId ? { taskId: session.taskId } : {}),
+        ...(agentState.config.roleSlug ? { roleSlug: agentState.config.roleSlug } : {}),
+        ...(agentState.config.role ? { roleName: agentState.config.role } : {}),
+        engine: agentState.config.engine,
+        ...(runUsage?.model || startModel ? { model: runUsage?.model || startModel } : {}),
+        origin: session.origin ?? 'swarm',
+        sessionId: session.id,
+        agentId: agentState.id,
+        status: agentState.status,
+        ...(typeof runUsage?.costUsd === 'number' ? { costUsd: runUsage.costUsd } : {}),
+        ...(runUsage?.costSource ? { costSource: runUsage.costSource } : {}),
+        ...(runUsage?.estimated ? { estimated: true } : {}),
+        ...(runUsage ? { inputTokens: runUsage.inputTokens, outputTokens: runUsage.outputTokens } : {})
+      });
       this.trace(session, agentState, {
         type: 'run_end',
         status: agentState.status,
@@ -3225,6 +3330,8 @@ export class AgentFleetService extends EventEmitter {
    */
   public async startHandoff(options: StartHandoffOptions): Promise<SwarmSession> {
     const { projectPath, prompt, taskId, taskTitle, stages } = options;
+    const launch = await this.checkLaunch(projectPath, taskId, undefined, stages.map((stg) => ({ ...stg.agent, role: stg.role })));
+    const budgetUsd = capSessionBudget(options.budgetUsd, launch.capUsd);
     const useWorktrees = options.useWorktrees !== false;
     const autoCommitAgentResults = options.autoCommitAgentResults !== false;
     const swarmId = `swarm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -3254,7 +3361,8 @@ export class AgentFleetService extends EventEmitter {
       baseBranch,
       useWorktrees,
       autoCommitAgentResults,
-      ...(typeof options.budgetUsd === 'number' && options.budgetUsd > 0 ? { budgetUsd: options.budgetUsd } : {}),
+      ...(budgetUsd ? { budgetUsd } : {}),
+      ...(launch.notices.length > 0 ? { launchNotices: launch.notices } : {}),
       status: 'preparing',
       createdAt: Date.now(),
       agents: agentStates,
@@ -4075,3 +4183,4 @@ export class AgentFleetService extends EventEmitter {
 }
 
 export const agentFleetService = new AgentFleetService(new SwarmSessionStore(), { checkpoints: checkpointService });
+editionRegistry.setLiveRunsProvider(() => agentFleetService.liveAgentRuns());

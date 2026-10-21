@@ -1,6 +1,7 @@
 import type {
   FederationHost,
   RemoteAgentOutput,
+  RemoteLaunchCheck,
   RemoteAgentTaskApproval,
   RemoteEnrollment,
   RemoteHitlDetail,
@@ -501,6 +502,11 @@ export class AppStore {
       await this.refreshSwarms();
     }
     return Boolean(res);
+  }
+
+  /** Ограничения запуска до нажатия «Запустить» (бюджеты Team, decision-124). Старый хост без метода — `null`. */
+  checkAgentLaunch(taskId: string, roleSlug: string): Promise<RemoteLaunchCheck | null> {
+    return this.call<RemoteLaunchCheck>('check_agent_launch', this.withProject({ taskId, roleSlug }), true);
   }
 
   getAgentOutput(swarmId: string, agentId: string): Promise<RemoteAgentOutput | null> {

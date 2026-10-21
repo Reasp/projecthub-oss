@@ -183,6 +183,7 @@ import {
   UsersIcon,
   WarningCircleIcon,
   WarningIcon,
+  WalletIcon,
   WifiHighIcon,
   WifiSlashIcon,
   WrenchIcon,
@@ -399,6 +400,7 @@ export const VolumeX = wrap(SpeakerSlashIcon, 'VolumeX');
 export const Wand2 = wrap(MagicWandIcon, 'Wand2');
 export const Wifi = wrap(WifiHighIcon, 'Wifi');
 export const WifiOff = wrap(WifiSlashIcon, 'WifiOff');
+export const Wallet = wrap(WalletIcon, 'Wallet');
 export const Workflow = wrap(FlowArrowIcon, 'Workflow');
 export const Wrench = wrap(WrenchIcon, 'Wrench');
 export const X = wrap(XIcon, 'X');

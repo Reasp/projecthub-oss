@@ -3132,7 +3132,8 @@ export const en: TranslationDictionary = {
       prReview: 'PR review finished',
       prMerged: 'PR merged, tasks moved',
       securityFinding: 'Security: vulnerabilities, secrets, risky packages',
-      agentTask: 'An agent created tasks awaiting approval'
+      agentTask: 'An agent created tasks awaiting approval',
+      spendLimit: 'Spend limits: most of a budget used, agent launches stopped'
     },
     osActionsUnsupported: 'Decision buttons inside the system notification are macOS-only. On Windows and Linux clicking the notification opens the decision center.',
     unsupportedOs: 'System notifications are unavailable on this OS',

@@ -1613,6 +1613,30 @@ export interface IElectronAPI {
   checkForUpdates: () => Promise<UpdaterStatus>;
   installUpdateNow: () => Promise<boolean>;
   onUpdaterStatusChanged: (callback: (status: UpdaterStatus) => void) => () => void;
+
+  // Редакция сборки и платные модули (TASK-151, decision-123 п. 4)
+  getEditionInfo: () => Promise<{ edition: 'open' | 'team' }>;
+  /** Ограничения запуска агента (бюджеты Team): показать до запуска; в открытой редакции — пусто. */
+  checkAgentLaunch: (ctx: AgentLaunchCheckInput) => Promise<AgentLaunchVerdictView>;
+  /** Канал модуля `ee/` (только `ee:*`). */
+  editionInvoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+}
+
+export interface AgentLaunchCheckInput {
+  projectPath: string;
+  taskId?: string;
+  roleSlug?: string;
+  engine?: string;
+  model?: string;
+  origin?: 'swarm' | 'assigned' | 'automation' | 'studio';
+  slots?: number;
+}
+
+export interface AgentLaunchVerdictView {
+  allowed: boolean;
+  reason?: string;
+  capUsd?: number;
+  notices: Array<{ level: 'info' | 'warn' | 'block'; text: string }>;
 }
 
 export interface FileTreeNode {
@@ -2590,7 +2614,8 @@ export type NotificationKind =
   | 'automation'
   | 'prReview'
   | 'securityFinding'
-  | 'agentTask';
+  | 'agentTask'
+  | 'spendLimit';
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'critical';
 
@@ -3705,6 +3730,8 @@ export interface SwarmSession {
   error?: string;
   budgetUsd?: number;
   totalCostUsd?: number;
+  /** Примечания ограничений при запуске (бюджеты Team, decision-124). */
+  launchNotices?: Array<{ level: 'info' | 'warn' | 'block'; text: string }>;
   restored?: boolean;
   /** Состояние автосудьи арены (TASK-61). */
   judge?: JudgeState;

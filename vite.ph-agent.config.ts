@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { projecthubEdition } from './scripts/vite-edition.mjs';
 
 /**
  * Сборка ph-agent (TASK-130, decision-119 п. 1): сервисы main-процесса на Node без Electron. Модуль `electron`
@@ -12,6 +13,8 @@ const LAZY_EXTERNAL = ['@lancedb/lancedb', '@huggingface/transformers', 'node-pt
 const isExternal = (id: string) => id.startsWith('node:') || LAZY_EXTERNAL.some((dep) => id === dep || id.startsWith(`${dep}/`));
 
 export default defineConfig({
+  // Платные модули main-процесса (ee/electron, decision-123) входят и в ph-agent: это хост команды.
+  plugins: [projecthubEdition({ root: import.meta.dirname })],
   define: {
     'process.env.PH_AGENT_VERSION': JSON.stringify(pkg.version)
   },

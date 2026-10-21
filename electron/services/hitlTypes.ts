@@ -374,6 +374,21 @@ export type AppBusEvent =
       limitUsd?: number;
       at: number;
     }
+  /**
+   * Ограничение расходов (точки расширения, decision-123 п. 4; бюджеты Team, decision-124): `warn` — израсходована
+   * заметная доля лимита, `block` — лимит исчерпан и новые запуски остановлены. Текст готовит модуль-источник.
+   */
+  | {
+      type: 'limits:notice';
+      limitId: string;
+      level: 'warn' | 'block';
+      title: string;
+      body: string;
+      /** Ключ дедупликации: один порог одного лимита за один период — одно уведомление. */
+      dedupKey: string;
+      projectPath?: string;
+      at: number;
+    }
   /** Запуск правила завершился (успех или ошибка действия). */
   | {
       type: 'automation:runFinished';

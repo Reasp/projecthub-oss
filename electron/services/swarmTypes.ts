@@ -261,6 +261,8 @@ export interface SwarmSession {
   budgetUsd?: number;
   /** Суммарная стоимость по всем агентам (пересчитывается при каждом обновлении usage). */
   totalCostUsd?: number;
+  /** Примечания ограничений при запуске (бюджеты Team, decision-124): например, «израсходовано 85 %». */
+  launchNotices?: Array<{ level: 'info' | 'warn' | 'block'; text: string }>;
   /** Сессия загружена с диска после перезапуска приложения. */
   restored?: boolean;
   /** Состояние автосудьи арены (TASK-61, decision-12). */

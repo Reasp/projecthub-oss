@@ -87,6 +87,9 @@ async function start(args: PhAgentArgs): Promise<void> {
   hitlService.configure({ hostId: remoteControlService.getHostId() });
   await hitlService.init({ dir: path.join(agentDataDir(), 'hitl'), auditDir: path.join(agentDataDir(), 'audit') });
   await agentFleetService.init();
+  // Платные модули хоста (decision-123): окна нет, каналы IPC не регистрируются — только ограничения и учёт.
+  const { loadEditionModules } = await import('../extensions/loadEditionModules.js');
+  await loadEditionModules();
   claudeBridgeService.setCliPermissionBroker({ ensureEndpoint: () => mcpServerService.ensurePermissionEndpoint() });
   await mcpServerService.init();
   if (!(await mcpServerService.start())) logger.warn('[ph-agent] MCP-сервер не запустился: HITL агентов Claude CLI недоступен');

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PlayIcon, RobotIcon, StopIcon } from '@phosphor-icons/react';
-import type { RemoteAgentOutput, RemoteSwarmAgentSummary, RemoteSwarmSummary } from '../../../src/types/remote';
+import type { RemoteAgentOutput, RemoteLaunchCheck, RemoteSwarmAgentSummary, RemoteSwarmSummary } from '../../../src/types/remote';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, Confirm, EmptyState, SectionTitle, Sheet, Spinner } from '../components/ui';
 import { Screen } from '../components/Screen';
@@ -77,8 +77,23 @@ function StartAgentSheet({ open, onClose }: { open: boolean; onClose: () => void
   }, [open, store]);
 
   const task = candidates.find((t) => t.id === taskId);
+  // Лимиты расходов хоста до запуска (decision-124): исчерпанный бюджет запрещает запуск, у порога — предупреждение.
+  const [launch, setLaunch] = useState<RemoteLaunchCheck | null>(null);
+  useEffect(() => {
+    setLaunch(null);
+    if (!open || !taskId || !roleSlug) return;
+    let cancelled = false;
+    void store.checkAgentLaunch(taskId, roleSlug).then((res) => {
+      if (!cancelled) setLaunch(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, taskId, roleSlug, store]);
+  const blocked = launch?.allowed === false;
+
   const submit = async () => {
-    if (!task || !roleSlug) return;
+    if (!task || !roleSlug || blocked) return;
     setBusy(true);
     const ok = await store.startAssignedAgent(task.id, task.title, roleSlug, prompt.trim());
     setBusy(false);
@@ -95,7 +110,7 @@ function StartAgentSheet({ open, onClose }: { open: boolean; onClose: () => void
       onClose={onClose}
       title="Запустить агента"
       footer={
-        <Button variant="primary" className="w-full" disabled={!task || !roleSlug || busy} haptic="medium" onClick={submit}>
+        <Button variant="primary" className="w-full" disabled={!task || !roleSlug || busy || blocked} haptic="medium" onClick={submit}>
           {busy ? <Spinner /> : 'Запустить на ПК'}
         </Button>
       }
@@ -122,6 +137,20 @@ function StartAgentSheet({ open, onClose }: { open: boolean; onClose: () => void
       <label className="mt-3 block text-[12px] text-slate-400">Промпт (необязательно)</label>
       <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder={task ? `Выполни задачу ${task.id}.` : ''} className={`${select} mt-1`} />
       <div className="mt-2 text-[12px] text-slate-500">Агент работает в отдельном worktree на ПК, движок и модель — из роли.</div>
+      {launch && launch.notices.length > 0 && (
+        <div className="mt-3 space-y-1.5" data-testid="launch-limits">
+          {launch.notices.map((n, i) => (
+            <div
+              key={i}
+              className={`rounded-lg p-2 text-[13px] ${
+                n.level === 'block' ? 'bg-red-950/60 text-red-200' : n.level === 'warn' ? 'bg-amber-950/60 text-amber-200' : 'bg-ph-raised text-slate-300'
+              }`}
+            >
+              {n.text}
+            </div>
+          ))}
+        </div>
+      )}
     </Sheet>
   );
 }

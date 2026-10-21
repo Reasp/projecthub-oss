@@ -19,6 +19,7 @@ import { SecretIssuesNotice } from './components/security/SecretIssuesNotice';
 import { SecretRestoreModal } from './components/security/SecretRestoreModal';
 import { NotificationSettingsModal } from './components/notifications/NotificationSettingsModal';
 import { AutomationsModal } from './components/automations/AutomationsModal';
+import { EditionOverlays } from './extensions/editionUi';
 import { useAutomationsStore } from './store/useAutomationsStore';
 import { RemoteHostsModal } from './components/federation/RemoteHostsModal';
 import { useProjectStore } from './store/useProjectStore';
@@ -402,6 +403,9 @@ export const App: React.FC = () => {
       <ClaudeAccountsModal />
       <ConnectionsModal />
       <ClaudeLoginModal />
+
+      {/* Модалки модулей платной редакции (decision-123 п. 4) */}
+      <EditionOverlays />
 
       {/* Global Promise-based Modals (ConfirmDialog, PromptDialog, AlertDialog) */}
       <DialogHost />

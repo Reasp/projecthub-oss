@@ -41,6 +41,7 @@ import { requestOpenAiSettings } from '../../lib/modelRouteText';
 import { TaskPullRequests } from './TaskPullRequests';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { PlanPanel } from './PlanPanel';
+import { LaunchLimitsNotice, useLaunchCheck } from '../agents/LaunchLimitsNotice';
 import {
   matchStatus,
   resolveDoneStatus,
@@ -183,6 +184,12 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     (s) => s.taskId === task?.id && ACTIVE_AGENT_STATUSES.has(s.status as string)
   );
   const lastAssignedSwarm = projectSwarms.find((s) => s.taskId === task?.id);
+  // Лимиты расходов до запуска (decision-124): только для своего хоста — у чужого свои бюджеты.
+  const launchVerdict = useLaunchCheck(
+    task && selectedProject && assignedRoleSlug && !assignedPeer
+      ? { projectPath: selectedProject.path, taskId: task.id, roleSlug: assignedRoleSlug, ...(assignedRole?.engine ? { engine: assignedRole.engine } : {}) }
+      : null
+  );
 
   const handleRunAssignedAgent = async () => {
     if (!task || !selectedProject || !assignedRoleSlug) return;
@@ -900,6 +907,13 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {selectedProject?.hasGit && <TaskPullRequests projectPath={selectedProject.path} taskId={task.id} />}
         </div>
 
+        {/* Лимиты расходов до запуска назначенного агента (decision-124): отдельной строкой, текст не обрезается */}
+        {assignedRoleSlug && launchVerdict && launchVerdict.notices.length > 0 && (
+          <div className="px-6 pt-2 border-t border-slate-800">
+            <LaunchLimitsNotice verdict={launchVerdict} />
+          </div>
+        )}
+
         {/* Modal Footer Actions */}
         <div className="px-6 py-3.5 border-t border-slate-800 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1005,7 +1019,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               <button
                 type="button"
                 onClick={handleRunAssignedAgent}
-                disabled={isRunningAssignedAgent || Boolean(activeAssignedSwarm) || !assignedRole}
+                disabled={isRunningAssignedAgent || Boolean(activeAssignedSwarm) || !assignedRole || launchVerdict?.allowed === false}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/50 text-xs font-semibold shadow-sm transition disabled:opacity-50"
                 title={assignedRole ? t.taskDetail.runAssignedAgentTooltip.replace('{role}', assignedRole.name) : t.taskDetail.assigneeRoleNotFound}
               >

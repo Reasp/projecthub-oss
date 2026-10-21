@@ -28,7 +28,8 @@ const KINDS: NotificationKind[] = [
   'automation',
   'prReview',
   'securityFinding',
-  'agentTask'
+  'agentTask',
+  'spendLimit'
 ];
 
 const CHANNELS: NotificationChannel[] = ['tray', 'os', 'sound', 'telegram', 'remote'];

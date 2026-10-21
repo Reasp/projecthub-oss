@@ -43,7 +43,9 @@ export type NotificationKind =
   /** Security Health: уязвимости, секреты, рискованные пакеты (TASK-73, decision-56 п. 10). */
   | 'securityFinding'
   /** Агент завёл задачи, они ждут подтверждения человека (TASK-153, decision-89). */
-  | 'agentTask';
+  | 'agentTask'
+  /** Ограничение расходов: израсходована заметная доля или весь лимит, запуски остановлены (decision-124). */
+  | 'spendLimit';
 
 export const NOTIFICATION_KINDS: NotificationKind[] = [
   'hitl',
@@ -59,7 +61,8 @@ export const NOTIFICATION_KINDS: NotificationKind[] = [
   'automation',
   'prReview',
   'securityFinding',
-  'agentTask'
+  'agentTask',
+  'spendLimit'
 ];
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'critical';
