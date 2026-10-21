@@ -23,10 +23,46 @@ export interface PhoneFleetHost extends FleetHostEntry {
 export interface PhoneFleetInput {
   profiles: HostProfile[];
   activeId: string | null;
-  active: { overview: RemoteOverview | null; unsupported: boolean; connection: ConnectionState; route: EndpointKind | null; machineName?: string };
+  active: {
+    overview: RemoteOverview | null;
+    unsupported: boolean;
+    connection: ConnectionState;
+    route: EndpointKind | null;
+    machineName?: string;
+    /** Список проектов открытого ПК (`get_projects`): дерево старого хоста строится из него. */
+    projects?: ReadonlyArray<{ path: string; name: string }>;
+  };
   summaries: Record<string, { state: ConnectionState; route: EndpointKind | null; error: string | null }>;
-  overviews: Record<string, { overview: RemoteOverview | null; unsupported?: boolean }>;
+  overviews: Record<string, { overview: RemoteOverview | null; unsupported?: boolean; projects?: ReadonlyArray<{ path: string; name: string }> }>;
   lastSeen: Record<string, number>;
+}
+
+/**
+ * Хост старше `get_overview` (TASK-181): проекты без сессий и счётчиков, чтобы дерево и область работали и с ним.
+ * Признак `unsupported` остаётся — экран подсказывает обновить ProjectHub ради сессий.
+ */
+export function legacyOverview(hostId: string, machineName: string, projects: ReadonlyArray<{ path: string; name: string }>): RemoteOverview {
+  const zero = { waiting: 0, failed: 0, running: 0 };
+  return {
+    hostId,
+    machineName,
+    platform: '',
+    generatedAt: 0,
+    actions: 'none',
+    attention: 'quiet',
+    counts: zero,
+    projects: projects.map((p) => ({
+      path: p.path,
+      name: p.name || p.path.split(/[\\/]/).filter(Boolean).pop() || p.path,
+      attention: 'quiet',
+      counts: zero,
+      lastActivityAt: 0,
+      sessions: [],
+      moreSessions: 0,
+      processes: { running: 0, failed: 0 },
+      tasks: { inProgress: 0, review: 0 }
+    }))
+  };
 }
 
 /**
@@ -44,14 +80,16 @@ export function phoneFleetHosts(input: PhoneFleetInput): PhoneFleetHost[] {
       const isActive = id === input.activeId;
       const connection = isActive ? input.active.connection : input.summaries[id]?.state;
       const online = connection === 'ready';
-      const snap = isActive ? { overview: input.active.overview, unsupported: input.active.unsupported } : input.overviews[id];
-      const overview = online ? snap?.overview ?? undefined : undefined;
+      const snap = isActive ? { overview: input.active.overview, unsupported: input.active.unsupported, projects: input.active.projects } : input.overviews[id];
+      const machineName = (isActive && input.active.machineName) || snap?.overview?.machineName || p.machineName || p.hostId;
+      const legacy = snap?.unsupported && snap.projects ? legacyOverview(p.hostId, machineName, snap.projects) : undefined;
+      const overview = online ? (snap?.overview ?? legacy) : undefined;
       const lastSeenAt = input.lastSeen[id];
       const error = isActive ? undefined : input.summaries[id]?.error ?? undefined;
       return {
         hostId: p.hostId,
         profileId: id,
-        machineName: (isActive && input.active.machineName) || overview?.machineName || p.machineName || p.hostId,
+        machineName,
         self: isActive,
         active: isActive,
         online,

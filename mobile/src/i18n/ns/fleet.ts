@@ -1,4 +1,4 @@
-/** Раздел словаря «fleet»: экран «Компьютеры» — компьютеры, проекты и сессии всех ПК телефона (TASK-174). */
+/** Раздел словаря «fleet»: «Обзор» — компьютеры, проекты и сессии всех ПК телефона (TASK-174, TASK-181). */
 export const en = {
   title: 'Computers',
   summaryWaiting: (n: number) => `${n} waiting`,
@@ -30,7 +30,19 @@ export const en = {
     'waiting' | 'failed' | 'running' | 'idle' | 'done',
     string
   >,
-  terminalHint: 'Terminal output stays on the computer; requests waiting for a decision are in Inbox.'
+  terminalHint: 'Terminal output stays on the computer; requests waiting for a decision are in Inbox.',
+  // Главный экран и область нижнего меню (TASK-181).
+  all: 'All computers',
+  processes: 'Processes',
+  processesCount: (running: number, failed: number) => (failed > 0 ? `${running} running · ${failed} crashed` : running > 0 ? `${running} running` : 'none running'),
+  docsPick: 'Docs live in a project. Pick one:',
+  studioNew: 'Pick a project to start a new chat',
+  scopeOffline: 'The computer is offline',
+  scopeEmpty: 'No projects here yet',
+  tasksFailed: (names: string) => `No answer from: ${names}`,
+  sessions: 'Sessions',
+  expand: 'Expand',
+  collapse: 'Collapse'
 };
 
 export const ru: typeof en = {
@@ -61,5 +73,16 @@ export const ru: typeof en = {
   viewOnly: 'только просмотр',
   kinds: { studio: 'Studio', swarm: 'Агент', terminal: 'Терминал' },
   states: { waiting: 'ждёт', failed: 'ошибка', running: 'работает', idle: 'простаивает', done: 'завершена' },
-  terminalHint: 'Вывод терминала остаётся на компьютере; запросы на решение — во «Входящих».'
+  terminalHint: 'Вывод терминала остаётся на компьютере; запросы на решение — во «Входящих».',
+  all: 'Все компьютеры',
+  processes: 'Процессы',
+  processesCount: (running, failed) => (failed > 0 ? `работает ${running} · упало ${failed}` : running > 0 ? `работает ${running}` : 'не запущены'),
+  docsPick: 'Документы живут в проекте. Выберите проект:',
+  studioNew: 'Чтобы начать новый чат, выберите проект',
+  scopeOffline: 'Компьютер не в сети',
+  scopeEmpty: 'Здесь пока нет проектов',
+  tasksFailed: (names) => `Не ответили: ${names}`,
+  sessions: 'Сессии',
+  expand: 'Развернуть',
+  collapse: 'Свернуть'
 };

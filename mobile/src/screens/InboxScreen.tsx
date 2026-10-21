@@ -21,6 +21,7 @@ import { useInboxFeed } from '../app/useInbox';
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../components/ui';
 import { Screen } from '../components/Screen';
 import { checksSummary, criteriaDone, projectName, timeAgo, type FeedSource } from '../protocol/inbox';
+import { inScope } from '../protocol/scope';
 import { canApproveInApp, capabilitiesFor, type AgentTaskGroup, type HitlItem } from '../protocol/models';
 import { useT } from '../i18n/react';
 import type { Dict } from '../i18n';
@@ -263,11 +264,13 @@ function EventRow({ source, event, multi }: { source: FeedSource; event: RemoteI
 export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
   const { store, pool, inbox } = useServices();
   const tr = useT();
-  const [filter, setFilter] = useState<string | null>(null);
-  const feed = useInboxFeed(filter);
+  // Область нижнего меню (TASK-181) вместо фишек компьютеров: «Все», компьютер или проект.
+  const scope = useAppState((s) => s.scope);
+  const feed = useInboxFeed(scope);
   const tasks = useAppState((s) => s.tasks);
-  const multi = feed.hosts.length > 1;
-  const legacyReview = feed.legacyActive && (!filter || feed.sources.find((s) => s.active)?.profileId === filter) ? tasks.filter((t) => t.status === 'Review') : [];
+  const multi = scope.kind === 'all' && feed.hosts.length > 1;
+  const activeId = feed.sources.find((s) => s.active)?.profileId;
+  const legacyReview = feed.legacyActive && activeId && inScope(scope, activeId, scope.kind === 'project' ? scope.projectPath : undefined) ? tasks.filter((t) => t.status === 'Review') : [];
   const empty = feed.hitl.length === 0 && feed.agentGroups.length === 0 && feed.review.length === 0 && feed.events.length === 0 && legacyReview.length === 0;
   const dismissAll = async () => {
     for (const source of feed.sources) {
@@ -282,28 +285,6 @@ export function InboxScreen({ onOpenReview }: { onOpenReview: () => void }) {
         Promise.all([store.refreshHitl(), store.refreshAgentTasks(), store.refreshInbox(), store.refreshTasks(), pool.refreshAllInboxes()]).then(() => undefined)
       }
     >
-      {multi && (
-        <div className="-mx-3 mb-2 flex gap-1.5 overflow-x-auto px-3 pb-1" role="tablist" data-testid="inbox-hosts">
-          {[{ profileId: null as string | null, machineName: tr.inbox.allHosts, online: true, count: feed.hosts.reduce((n, h) => n + h.count, 0) }, ...feed.hosts].map((h) => (
-            <button
-              key={h.profileId ?? 'all'}
-              type="button"
-              role="tab"
-              aria-selected={filter === h.profileId}
-              onClick={() => setFilter(h.profileId)}
-              className={clsx(
-                'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[13px]',
-                filter === h.profileId ? 'border-indigo-500 bg-indigo-950 text-indigo-200' : 'border-ph-line bg-ph-elevated text-slate-300'
-              )}
-            >
-              {!h.online && <WifiSlashIcon size={12} className="text-amber-300" />}
-              {h.machineName}
-              {h.count > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-black">{h.count}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-
       {empty && <EmptyState icon={<TrayIcon size={40} />} title={tr.inbox.emptyTitle} hint={tr.inbox.emptyHint} />}
 
       {feed.hitl.length > 0 && (

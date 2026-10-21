@@ -10,6 +10,7 @@ import type {
 } from '../../../src/types/remote';
 import { t } from '../i18n';
 import { groupAgentTasks, hitlFromPending, type AgentTaskGroup, type HitlItem } from './models';
+import { samePath } from './scope';
 
 /**
  * «Входящие» со всех ПК телефона (TASK-140.5, [[decision-117]] п. 7): загрузка снимка ленты с откатом на хосты
@@ -130,9 +131,13 @@ export function sourceFromSnapshot(
  * Лента по фильтру ПК (`null` — все). Внутри раздела: открытый ПК первым, затем по имени; события — новые сверху.
  * Ключ записи включает `profileId`: одинаковые id задач на двух ПК не сливаются.
  */
-export function buildFeed(sources: readonly FeedSource[], filter: string | null = null): InboxFeed {
+export function buildFeed(sources: readonly FeedSource[], filter: string | null = null, projectPath: string | null = null): InboxFeed {
   const order = [...sources].sort((a, b) => Number(b.active) - Number(a.active) || a.machineName.localeCompare(b.machineName));
-  const shown = filter ? order.filter((s) => s.profileId === filter) : order;
+  // Область проекта (TASK-181): только записи этого проекта; события хоста без проекта в неё не входят.
+  const ofProject = <T extends { projectPath?: string }>(list: readonly T[]) => (projectPath ? list.filter((x) => Boolean(x.projectPath) && samePath(x.projectPath!, projectPath)) : [...list]);
+  const shown = (filter ? order.filter((s) => s.profileId === filter) : order).map((s) =>
+    projectPath ? { ...s, hitl: ofProject(s.hitl), agentTasks: ofProject(s.agentTasks), review: ofProject(s.review), events: ofProject(s.events) } : s
+  );
   const hitl = shown.flatMap((source) => source.hitl.map((item) => ({ source, item })));
   const agentGroups = shown.flatMap((source) => groupAgentTasks(source.agentTasks).map((item) => ({ source, item })));
   const review = shown.flatMap((source) => source.review.map((item) => ({ source, item })));

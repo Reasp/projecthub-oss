@@ -45,6 +45,7 @@ import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox'
 import { sendVoice } from '../protocol/voice';
 import type { OverviewSessionKind, RemoteOverview } from '../../../src/utils/fleetOverview';
 import { t } from '../i18n';
+import { parseScope, SCOPE_PREF, serializeScope, type Scope } from '../protocol/scope';
 
 /**
  * Состояние экранов и действия мобильного клиента (TASK-140.1). Без React: экраны читают его
@@ -74,8 +75,8 @@ export interface Toast {
 export interface NavIntent {
   hostId: string;
   projectPath: string;
-  /** `project` — только выбрать проект на другом ПК. */
-  kind: OverviewSessionKind | 'project';
+  /** `project` — только выбрать проект на другом ПК; `task` — открыть задачу `sessionId` (путь файла) во «Задачах». */
+  kind: OverviewSessionKind | 'project' | 'task';
   sessionId: string;
   agentId?: string;
 }
@@ -111,6 +112,8 @@ export interface AppState {
   overviewUnsupported: boolean;
   /** Переход к сессии, готовый к показу: экраны открывают её и сбрасывают `consumeNav`. */
   nav: (NavIntent & { seq: number }) | null;
+  /** Область нижнего меню (TASK-181): узел дерева «Обзора»; переживает переключение ПК. */
+  scope: Scope;
   toast: Toast | null;
 }
 
@@ -150,7 +153,7 @@ export class AppStore {
     /** Push с ПК (TASK-140.3); только в приложении с нативным плагином. */
     private readonly push: PushPort | null = null
   ) {
-    this.state = AppStore.initialState(client.getSnapshot());
+    this.state = { ...AppStore.initialState(client.getSnapshot()), scope: parseScope(prefs.get(SCOPE_PREF)) };
     this.unsubscribers.push(
       client.subscribe((conn) => this.set({ conn })),
       client.onEvent((event, data) => this.handleEvent(event, data))
@@ -181,6 +184,7 @@ export class AppStore {
       overview: null,
       overviewUnsupported: false,
       nav: null,
+      scope: { kind: 'all' },
       toast: null
     };
   }
@@ -191,7 +195,7 @@ export class AppStore {
     this.refreshTimers.clear();
     this.studioBuffer.clear();
     this.awaitingNewSession = false;
-    this.state = { ...AppStore.initialState(this.client.getSnapshot()), toast: this.state.toast };
+    this.state = { ...AppStore.initialState(this.client.getSnapshot()), toast: this.state.toast, scope: this.state.scope };
     for (const l of this.listeners) l();
   }
 
@@ -310,6 +314,12 @@ export class AppStore {
     this.pendingNav = intent;
     // Проект нового ПК выбирается при загрузке по запомненному — запоминаем нужный заранее.
     this.prefs.set(`project:${intent.hostId}`, intent.projectPath);
+  }
+
+  /** Выбрать узел дерева «Обзора» (TASK-181): область запоминается между запусками. */
+  setScope(scope: Scope): void {
+    this.prefs.set(SCOPE_PREF, serializeScope(scope));
+    this.set({ scope });
   }
 
   /** Переход показан: экран не откроет сессию повторно. */

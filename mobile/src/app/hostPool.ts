@@ -1,4 +1,4 @@
-import type { RemotePendingApproval, RemoteHostStatus } from '../../../src/types/remote';
+import type { RemotePendingApproval, RemoteHostStatus, RemoteProjectSummary } from '../../../src/types/remote';
 import type { EndpointKind } from '../../../src/utils/remoteEndpoints';
 import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox';
 import { profileProblems, type HostProfile } from '../protocol/pairing';
@@ -32,6 +32,8 @@ const SEEN_PREF = 'fleet:lastSeen';
 export interface OverviewSnapshot {
   overview: RemoteOverview | null;
   unsupported?: boolean;
+  /** Проекты старого хоста без `get_overview` (`get_projects`). */
+  projects?: Array<{ path: string; name: string }>;
   at: number;
 }
 
@@ -145,7 +147,16 @@ export class HostPool {
       this.emit();
     } catch (err) {
       if (/Unknown RPC method/i.test(err instanceof Error ? err.message : String(err))) {
-        this.overviews = { ...this.overviews, [id]: { overview: null, unsupported: true, at: this.now() } };
+        // Старый хост (TASK-181): дерево и область строятся по списку проектов, сессий у него не будет.
+        let projects: OverviewSnapshot['projects'];
+        try {
+          const list = await entry.client.rpc<RemoteProjectSummary[]>('get_projects');
+          if (Array.isArray(list)) projects = list.map((p) => ({ path: p.path, name: p.name }));
+        } catch {
+          // нет прав или связи — компьютер без проектов
+        }
+        if (this.entries.get(id) !== entry) return;
+        this.overviews = { ...this.overviews, [id]: { overview: null, unsupported: true, at: this.now(), ...(projects ? { projects } : {}) } };
         this.emit();
       }
     }

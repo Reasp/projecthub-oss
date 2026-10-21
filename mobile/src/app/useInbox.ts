@@ -2,13 +2,15 @@ import { useMemo, useSyncExternalStore } from 'react';
 import { buildFeed, sourceFromSnapshot, type FeedSource, type InboxFeed } from '../protocol/inbox';
 import { useAppState, useHostSummaries, useServices } from './context';
 import { useT } from '../i18n/react';
+import { ALL_SCOPE, type Scope } from '../protocol/scope';
 
 /**
  * Лента «Входящих» со всех ПК телефона (TASK-140.5, decision-117 п. 7): открытый ПК — из стора (живая очередь HITL
  * и задачи агентов), остальные — последние снимки пула. `legacyActive` — открытый ПК старше ленты: у него нет
- * Review с отчётами и журнала, экран показывает прежнюю карточку задач в Review.
+ * Review с отчётами и журнала, экран показывает прежнюю карточку задач в Review. `scope` — область нижнего меню
+ * (TASK-181): компьютер или проект.
  */
-export function useInboxFeed(filter: string | null = null): InboxFeed & { sources: FeedSource[]; legacyActive: boolean } {
+export function useInboxFeed(scope: Scope = ALL_SCOPE): InboxFeed & { sources: FeedSource[]; legacyActive: boolean } {
   const { pool, profiles } = useServices();
   const hitl = useAppState((s) => s.hitl);
   const agentTasks = useAppState((s) => s.agentTasks);
@@ -50,6 +52,8 @@ export function useInboxFeed(filter: string | null = null): InboxFeed & { source
         )
       );
     }
-    return { ...buildFeed(sources, filter), sources, legacyActive: Boolean(inbox?.legacy) };
-  }, [profiles, hitl, agentTasks, inbox, conn.state, conn.rights, conn.readOnly, status, summaries, inboxes, filter, tr]);
+    const filter = scope.kind === 'all' ? null : scope.profileId;
+    const projectPath = scope.kind === 'project' ? scope.projectPath : null;
+    return { ...buildFeed(sources, filter, projectPath), sources, legacyActive: Boolean(inbox?.legacy) };
+  }, [profiles, hitl, agentTasks, inbox, conn.state, conn.rights, conn.readOnly, status, summaries, inboxes, scope, tr]);
 }

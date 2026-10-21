@@ -1,6 +1,7 @@
 /** Оболочка приложения: шапка, нижнее меню, переключатель компьютеров, настройки, карточка компьютера. */
 export const en = {
   tabs: {
+    home: 'Overview',
     inbox: 'Inbox',
     docs: 'Docs',
     tasks: 'Tasks',
@@ -70,6 +71,7 @@ export const en = {
 
 export const ru: typeof en = {
   tabs: {
+    home: 'Обзор',
     inbox: 'Входящие',
     docs: 'Документы',
     tasks: 'Задачи',

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BookOpenTextIcon, CaretDownIcon, GearSixIcon, KanbanIcon, MicrophoneIcon, ShieldCheckIcon, SparkleIcon, TerminalWindowIcon, TrayIcon } from '@phosphor-icons/react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowLeftIcon, BookOpenTextIcon, GearSixIcon, HouseSimpleIcon, KanbanIcon, MicrophoneIcon, ShieldCheckIcon, SparkleIcon, TrayIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { useTabSwipe } from '../components/gestures';
@@ -16,21 +16,27 @@ import { InboxScreen } from '../screens/InboxScreen';
 import { PairingScreen } from '../screens/PairingScreen';
 import { ProcessesScreen } from '../screens/ProcessesScreen';
 import { StudioScreen } from '../screens/StudioScreen';
+import { ScopeDocs, ScopeSessions, ScopeTasks } from '../screens/ScopeViews';
 import { TasksScreen } from '../screens/TasksScreen';
 import { VoiceScreen } from '../screens/VoiceScreen';
 import { FieldEditorHost } from '../components/FieldEditor';
-import { useAppState, useHostSummaries, useServices } from './context';
+import { useAppState, useServices } from './context';
 import { useInboxFeed } from './useInbox';
+import { useFleet } from './useFleet';
+import { samePath, validScope } from '../protocol/scope';
 
-/** Нижнее меню (TASK-140.16): «Агенты» — раздел Studio, на их месте документация проекта (TASK-140.17). */
-type Tab = 'inbox' | 'docs' | 'tasks' | 'processes' | 'studio';
+/**
+ * Нижнее меню (TASK-140.16, TASK-181): «Обзор» — главная страница с деревом «Все → компьютеры → проекты», остальные
+ * вкладки работают в выбранной на нём области. «Процессы» — страница проекта, открывается из его узла.
+ */
+type Tab = 'home' | 'inbox' | 'docs' | 'tasks' | 'studio';
 type StudioSection = 'chat' | 'agents';
 
 const TABS: Array<{ id: Tab; label: (tr: Dict) => string; icon: (active: boolean) => ReactNode }> = [
+  { id: 'home', label: (tr) => tr.shell.tabs.home, icon: (a) => <HouseSimpleIcon size={24} weight={a ? 'fill' : 'regular'} /> },
   { id: 'inbox', label: (tr) => tr.shell.tabs.inbox, icon: (a) => <TrayIcon size={24} weight={a ? 'fill' : 'regular'} /> },
   { id: 'docs', label: (tr) => tr.shell.tabs.docs, icon: (a) => <BookOpenTextIcon size={24} weight={a ? 'fill' : 'regular'} /> },
   { id: 'tasks', label: (tr) => tr.shell.tabs.tasks, icon: (a) => <KanbanIcon size={24} weight={a ? 'fill' : 'regular'} /> },
-  { id: 'processes', label: (tr) => tr.shell.tabs.processes, icon: (a) => <TerminalWindowIcon size={24} weight={a ? 'fill' : 'regular'} /> },
   { id: 'studio', label: (tr) => tr.shell.tabs.studio, icon: (a) => <SparkleIcon size={24} weight={a ? 'fill' : 'regular'} /> }
 ];
 
@@ -127,25 +133,55 @@ function StudioHub({ section, onSection }: { section: StudioSection; onSection: 
   );
 }
 
+/** Проект области ещё грузится на открытом ПК (переключение компьютера, смена проекта). */
+function Loading() {
+  return (
+    <div className="flex justify-center py-16">
+      <Spinner />
+    </div>
+  );
+}
+
 function Shell() {
-  const { platform, store } = useServices();
+  const { platform, store, profiles } = useServices();
   const tr = useT();
   const status = useAppState((s) => s.status);
-  const projects = useAppState((s) => s.projects);
   const projectPath = useAppState((s) => s.projectPath);
-  // Счётчик вкладки «Входящие»: что ждёт решения на всех ПК — HITL, задачи агентов, задачи в Review (TASK-140.5).
-  const hitlCount = useInboxFeed().actionable;
+  const scope = useAppState((s) => s.scope);
   const conn = useAppState((s) => s.conn);
-  // Решения, которые ждут на других компьютерах телефона (TASK-140.2): видно, не открывая переключатель.
-  const summaries = useHostSummaries();
-  const othersPending = Object.values(summaries).reduce((n, s) => n + s.pending, 0);
-  const [tab, setTab] = useState<Tab>('inbox');
+  const fleet = useFleet();
+  // Счётчик вкладки «Входящие» — в области (TASK-181); в шапке — сколько ждёт решения за её пределами.
+  const hitlCount = useInboxFeed(scope).actionable;
+  const othersPending = useInboxFeed().actionable - hitlCount;
+  const [tab, setTab] = useState<Tab>('home');
   const [studioSection, setStudioSection] = useState<StudioSection>('chat');
-  const [hostOpen, setHostOpen] = useState(false);
+  const [processesOpen, setProcessesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [tasksFocus, setTasksFocus] = useState<string | undefined>();
-  const project = projects.find((p) => p.path === projectPath);
+  const [taskFocus, setTaskFocus] = useState<string | undefined>();
+  const clearTaskFocus = useCallback(() => setTaskFocus(undefined), []);
+  const activeId = profiles.activeId;
+  const activeHostId = profiles.profiles.find((p) => p.id === activeId)?.hostId;
+  const scopeHost = scope.kind === 'all' ? undefined : fleet.find((h) => h.profileId === scope.profileId);
+  const scopeProject = scope.kind === 'project' ? scopeHost?.overview?.projects.find((p) => samePath(p.path, scope.projectPath)) : undefined;
+  // Экраны проекта работают через соединение открытого ПК: показываем их, когда он загрузил проект области.
+  const projectReady = scope.kind === 'project' && scope.profileId === activeId && Boolean(projectPath) && samePath(projectPath, scope.projectPath);
+
+  // Забытый компьютер — область «Все».
+  useEffect(() => {
+    const next = validScope(scope, profiles.profiles.map((p) => p.id ?? ''));
+    if (next !== scope) store.setScope(next);
+  }, [scope, profiles.profiles, store]);
+
+  // Проект открытого ПК сменился не из «Обзора» (переход из «Входящих», голос): область проекта идёт за ним.
+  useEffect(() => {
+    if (scope.kind !== 'project' || !activeId || !projectPath || conn.state !== 'ready' || status?.hostId !== activeHostId) return;
+    if (scope.profileId === activeId && samePath(scope.projectPath, projectPath)) return;
+    store.setScope({ kind: 'project', profileId: activeId, projectPath });
+    // область меняем только по смене открытого ПК или его проекта
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scope читается как текущее значение, не как причина
+  }, [activeId, projectPath, status?.hostId]);
 
   // Переход с экрана «Компьютеры» (TASK-174): сессия Studio — чат, агент роя — раздел «Агенты» (вывод откроет он сам),
   // терминал — «Входящие», где его запросы.
@@ -160,6 +196,10 @@ function Shell() {
     } else if (nav.kind === 'swarm') {
       setTab('studio');
       setStudioSection('agents');
+    } else if (nav.kind === 'task') {
+      setTab('tasks');
+      setTaskFocus(nav.sessionId);
+      store.consumeNav(nav.seq);
     } else {
       if (nav.kind === 'terminal') setTab('inbox');
       store.consumeNav(nav.seq);
@@ -167,6 +207,7 @@ function Shell() {
   }, [nav, store]);
 
   const go = (next: Tab) => {
+    setProcessesOpen(false);
     if (next === tab) return;
     platform.haptic('selection');
     setTab(next);
@@ -184,13 +225,26 @@ function Shell() {
     <div className="flex h-full flex-col bg-ph-chrome">
       <header className="shrink-0 border-b border-ph-line bg-ph-chrome pt-safe">
         <div className="flex items-center">
-          <button type="button" onClick={() => setHostOpen(true)} className="flex min-w-0 flex-1 items-center gap-2 py-2.5 pl-4 pr-2 text-left active:bg-ph-hover">
-            <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', conn.state === 'ready' ? 'bg-emerald-400' : conn.state === 'failed' ? 'bg-red-400' : 'bg-amber-400')} />
+          <button type="button" data-testid="scope-header" onClick={() => go('home')} className="flex min-w-0 flex-1 items-center gap-2 py-2.5 pl-4 pr-2 text-left active:bg-ph-hover">
+            <span
+              className={clsx(
+                'h-2.5 w-2.5 shrink-0 rounded-full',
+                (scope.kind === 'all' ? fleet.some((h) => h.online) : scopeHost?.online) ? 'bg-emerald-400' : scopeHost?.connecting || conn.state === 'connecting' ? 'bg-amber-400' : 'bg-red-400'
+              )}
+            />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[15px] font-semibold">{project?.name || tr.common.noProject}</span>
+              <span className="block truncate text-[15px] font-semibold">
+                {scope.kind === 'all' ? tr.fleet.all : scope.kind === 'host' ? scopeHost?.machineName : scopeProject?.name || scope.projectPath.split(/[\\/]/).filter(Boolean).pop()}
+              </span>
               <span className="block truncate text-[12px] text-slate-400">
-                {status?.machineName || 'ProjectHub'}
-                {conn.state === 'ready' && conn.route ? ` · ${routeLabel(conn.route)}` : ''}
+                {scope.kind === 'all'
+                  ? tr.fleet.summaryOnline(fleet.filter((h) => h.online).length, fleet.length)
+                  : [
+                      scope.kind === 'project' ? scopeHost?.machineName : '',
+                      !scopeHost?.online ? tr.fleet.offline : scopeHost.active && conn.route ? routeLabel(conn.route) : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
               </span>
             </span>
             {othersPending > 0 && (
@@ -198,7 +252,6 @@ function Shell() {
                 +{othersPending}
               </span>
             )}
-            <CaretDownIcon size={18} className="shrink-0 text-slate-400" />
           </button>
           <button
             type="button"
@@ -229,6 +282,16 @@ function Shell() {
       </header>
 
       <main className="min-h-0 flex-1" {...swipe}>
+        {processesOpen ? (
+          <div className="flex h-full flex-col" data-testid="processes-page">
+            <button type="button" onClick={() => setProcessesOpen(false)} className="flex shrink-0 items-center gap-2 px-3 py-2 text-left text-[14px] text-slate-300 active:bg-ph-hover">
+              <ArrowLeftIcon size={18} /> {tr.fleet.processes}
+            </button>
+            <div className="min-h-0 flex-1">{projectReady ? <ProcessesScreen /> : <Loading />}</div>
+          </div>
+        ) : (
+          <>
+        {tab === 'home' && <ComputersScreen onOpenInbox={() => go('inbox')} onOpenProcesses={() => setProcessesOpen(true)} />}
         {tab === 'inbox' && (
           <InboxScreen
             onOpenReview={() => {
@@ -237,10 +300,12 @@ function Shell() {
             }}
           />
         )}
-        {tab === 'docs' && <DocsScreen />}
-        {tab === 'tasks' && <TasksScreen focusStatus={tasksFocus} />}
-        {tab === 'processes' && <ProcessesScreen />}
-        {tab === 'studio' && <StudioHub section={studioSection} onSection={setStudioSection} />}
+        {tab === 'docs' && (scope.kind !== 'project' ? <ScopeDocs /> : projectReady ? <DocsScreen /> : <Loading />)}
+        {tab === 'tasks' &&
+          (scope.kind !== 'project' ? <ScopeTasks /> : projectReady ? <TasksScreen focusStatus={tasksFocus} focusTask={taskFocus} onFocusTaskShown={clearTaskFocus} /> : <Loading />)}
+        {tab === 'studio' && (scope.kind !== 'project' ? <ScopeSessions /> : projectReady ? <StudioHub section={studioSection} onSection={setStudioSection} /> : <Loading />)}
+          </>
+        )}
       </main>
 
       <nav className="shrink-0 border-t border-ph-line bg-ph-chrome pb-safe" role="tablist">
@@ -269,7 +334,6 @@ function Shell() {
         </div>
       </nav>
 
-      <ComputersScreen open={hostOpen} onClose={() => setHostOpen(false)} onOpenInbox={() => go('inbox')} />
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <VoiceScreen open={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </div>
