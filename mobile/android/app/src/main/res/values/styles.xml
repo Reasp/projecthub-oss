@@ -23,8 +23,14 @@
     </style>
 
 
+    <!-- Launch Screen: логотип без подложки на фоне его же цвета, полосы того же цвета. Логотип стоит там же,
+         где его подхватит анимированный экран в WebView (mobile/targets/capacitor/index.html), и подмена не видна.
+         На Android 7–11 то же самое рисует core-splashscreen (installSplashScreen в MainActivity). -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
-        <item name="windowSplashScreenBackground">@color/ph_chrome</item>
+        <item name="windowSplashScreenBackground">@color/ph_splash</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+        <item name="android:statusBarColor">@color/ph_splash</item>
+        <item name="android:navigationBarColor">@color/ph_splash</item>
     </style>
 </resources>

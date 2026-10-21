@@ -2,4 +2,6 @@
 <resources>
     <!-- Токен ph-chrome из src/styles/tokens.css (TASK-127). -->
     <color name="ph_chrome">#18181B</color>
+    <!-- Фон логотипа (build/icon.png): на нём логотип без подложки сливается с экраном запуска. -->
+    <color name="ph_splash">#0C1C31</color>
 </resources>

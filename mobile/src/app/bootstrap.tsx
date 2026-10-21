@@ -22,6 +22,7 @@ import { AppStore, type PrefsPort } from './appStore';
 import { ServicesProvider, type AppServices } from './context';
 import { HostPool } from './hostPool';
 import { InboxActions } from './inboxActions';
+import { watchLaunchScreen } from './launchScreen';
 
 /** Несекретные настройки интерфейса (выбранный проект) — в хранилище страницы. Ключи сюда не пишутся. */
 function createPrefs(): PrefsPort {
@@ -132,6 +133,10 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       pool.pause();
     };
   }, [pool]);
+
+  // Launch Screen приложения уходит, когда ПК ответил (без сохранённого ПК — сразу после заставки).
+  const waitHost = initial.profiles.length > 0;
+  useEffect(() => watchLaunchScreen(waitHost, () => store.getState().conn.state), [store, waitHost]);
 
   // Имя компьютера в профиль — переключателю оно нужно и без связи.
   useEffect(
