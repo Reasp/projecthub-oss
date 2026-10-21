@@ -10,7 +10,10 @@ import type {
   RemotePendingApproval,
   RemoteProcessSummary,
   RemoteProjectSummary,
+  RemoteQueueItem,
+  RemoteQueueView,
   RemoteRoleSummary,
+  RemoteTeam,
   RemoteStudioOptions,
   RemoteStudioSession,
   RemoteStudioSessionSummary,
@@ -99,6 +102,10 @@ export interface AppState {
   push: { enabled: boolean; busy: boolean } | null;
   /** Лента «Входящих» открытого ПК (TASK-140.5): Review с отчётами и журнал; HITL и задачи агентов — в полях выше. */
   inbox: InboxSnapshot | null;
+  /** Общий хост команды (TASK-142.5): кто я и кто что ведёт; `null` — хост без модуля Team или нет проекта. */
+  team: RemoteTeam | null;
+  /** Очередь слияния проекта (TASK-142.4); `null` — хост без очереди. */
+  queue: RemoteQueueView | null;
   /** Дерево открытого ПК (`get_overview`); `null` — ещё не загружено или хост старый. */
   overview: RemoteOverview | null;
   overviewUnsupported: boolean;
@@ -169,6 +176,8 @@ export class AppStore {
       studio: emptyStudio(),
       push: null,
       inbox: null,
+      team: null,
+      queue: null,
       overview: null,
       overviewUnsupported: false,
       nav: null,
@@ -270,7 +279,9 @@ export class AppStore {
       this.refreshProcesses(),
       this.refreshSwarms(),
       this.refreshGit(),
-      this.refreshStudio()
+      this.refreshStudio(),
+      this.refreshTeam(),
+      this.refreshQueue()
     ]);
     this.applyPendingNav();
   }
@@ -324,10 +335,20 @@ export class AppStore {
       swarms: [],
       roles: [],
       gitBranch: null,
+      team: null,
+      queue: null,
       studio: { ...emptyStudio(this.state.studio), sessions: [], sessionsLoaded: false }
     });
     if (this.state.status) this.prefs.set(`project:${this.state.status.hostId}`, projectPath);
-    await Promise.all([this.refreshTasks(), this.refreshProcesses(), this.refreshSwarms(), this.refreshGit(), this.refreshStudio()]);
+    await Promise.all([
+      this.refreshTasks(),
+      this.refreshProcesses(),
+      this.refreshSwarms(),
+      this.refreshGit(),
+      this.refreshStudio(),
+      this.refreshTeam(),
+      this.refreshQueue()
+    ]);
   }
 
   async refreshHosts(): Promise<void> {
@@ -479,6 +500,60 @@ export class AppStore {
     const tasks = await this.call<RemoteTaskSummary[]>('get_tasks', { projectPath: path }, true);
     if (this.state.projectPath !== path) return;
     this.set({ tasks: Array.isArray(tasks) ? tasks : this.state.tasks, tasksLoaded: true });
+  }
+
+  // ── общий хост команды: свои задачи и очередь слияния (TASK-142.5) ──
+
+  /** Кто я и кто что ведёт. Хост без модуля Team отвечает «Unknown RPC method» — тогда `null`, кнопок команды нет. */
+  async refreshTeam(): Promise<void> {
+    const path = this.state.projectPath;
+    if (!path) return this.set({ team: null });
+    const team = await this.call<RemoteTeam>('get_team', { projectPath: path }, true);
+    if (this.state.projectPath === path) this.set({ team });
+  }
+
+  async refreshQueue(): Promise<void> {
+    const path = this.state.projectPath;
+    if (!path) return this.set({ queue: null });
+    const queue = await this.call<RemoteQueueView>('queue_list', { projectPath: path }, true);
+    if (this.state.projectPath === path) this.set({ queue });
+  }
+
+  /** Взять задачу себе: исполнитель — я, статус «в работе», на хосте — моя ветка и worktree (decision-126 п. 7). */
+  async takeTask(task: RemoteTaskSummary): Promise<boolean> {
+    const res = await this.call('take_task', this.withProject({ taskId: task.id }));
+    if (res) this.showToast(t().tasks.taken, 'success');
+    await Promise.all([this.refreshTasks(), this.refreshTeam()]);
+    return Boolean(res);
+  }
+
+  async releaseTask(task: RemoteTaskSummary): Promise<boolean> {
+    const res = await this.call('release_task', this.withProject({ taskId: task.id }));
+    if (res) this.showToast(t().tasks.released, 'info');
+    await Promise.all([this.refreshTasks(), this.refreshTeam()]);
+    return Boolean(res);
+  }
+
+  /** Поставить свою задачу в очередь слияния: работа фиксируется на хосте, задача — в Review. */
+  async enqueueTask(task: RemoteTaskSummary): Promise<boolean> {
+    const item = await this.call<RemoteQueueItem>('queue_enqueue', this.withProject({ taskId: task.id }));
+    if (item) this.showToast(t().tasks.enqueued(item.n), 'success');
+    await Promise.all([this.refreshQueue(), this.refreshTasks()]);
+    return Boolean(item);
+  }
+
+  /** Ревью элемента очереди: одобрить или вернуть автору с комментарием (хост не даст одобрить своё). */
+  async reviewQueueItem(itemId: string, approved: boolean, comment = ''): Promise<boolean> {
+    const res = await this.call('queue_review', this.withProject({ itemId, approved, ...(comment.trim() ? { comment: comment.trim() } : {}) }));
+    if (res) this.showToast(approved ? t().tasks.approved : t().tasks.returned, approved ? 'success' : 'info');
+    await Promise.all([this.refreshQueue(), this.refreshTasks()]);
+    return Boolean(res);
+  }
+
+  async cancelQueueItem(itemId: string): Promise<boolean> {
+    const res = await this.call('queue_cancel', this.withProject({ itemId }));
+    await Promise.all([this.refreshQueue(), this.refreshTasks()]);
+    return Boolean(res);
   }
 
   async setTaskStatus(task: RemoteTaskSummary, newStatus: string): Promise<boolean> {
@@ -865,13 +940,25 @@ export class AppStore {
         this.debounced('processes', () => void this.refreshProcesses());
         return;
       case 'backlog:changed':
-        if (!d.projectPath || d.projectPath === this.state.projectPath) this.debounced('tasks', () => void this.refreshTasks());
+        if (!d.projectPath || d.projectPath === this.state.projectPath) {
+          this.debounced('tasks', () => void this.refreshTasks());
+          this.debounced('team', () => void this.refreshTeam());
+        }
         // Задачи агентов и Review во «Входящих» — по всем проектам хоста (TASK-155, TASK-140.5).
         this.debounced('agentTasks', () => void this.refreshAgentTasks());
         this.debounced('inbox', () => void this.refreshInbox());
         return;
       case 'notification':
         if (d.kind === 'agentTask') this.debounced('agentTasks', () => void this.refreshAgentTasks());
+        return;
+      // Очередь слияния (TASK-142.5): итог автору и просьба о ревью приходят только адресатам.
+      case 'queue:notice':
+        if (typeof d.title === 'string') this.showToast(`${d.title}${typeof d.body === 'string' && d.body ? ` — ${d.body}` : ''}`, d.kind === 'returned' || d.kind === 'paused' ? 'error' : 'info');
+        this.debounced('queue', () => void this.refreshQueue());
+        this.debounced('tasks', () => void this.refreshTasks());
+        return;
+      case 'queue:changed':
+        if (!d.projectPath || d.projectPath === this.state.projectPath) this.debounced('queue', () => void this.refreshQueue());
         return;
       case 'projects:changed':
         this.debounced('all', () => void this.refreshAll());

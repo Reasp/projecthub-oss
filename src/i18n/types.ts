@@ -3114,6 +3114,24 @@ export interface TranslationDictionary {
     tabProcesses: string;
     tabAgents: string;
     tabHitl: string;
+    /** Общий хост команды (TASK-142.5): очередь слияния, свои задачи, ревью. */
+    tabQueue: string;
+    teamHeldBy: string;
+    teamTake: string;
+    teamRelease: string;
+    teamEnqueue: string;
+    teamMine: string;
+    queueEmpty: string;
+    queuePlace: string;
+    queuePaused: string;
+    queueApprove: string;
+    queueReturn: string;
+    queueCommentPlaceholder: string;
+    queueReturnedWhy: string;
+    queueChecks: string;
+    queueCriteria: string;
+    queueDependencies: string;
+    queueStatus: Record<'queued' | 'building' | 'checking' | 'review' | 'merging' | 'merged' | 'returned' | 'cancelled' | 'pr', string>;
     overviewProjects: string;
     overviewProcesses: string;
     overviewAgents: string;

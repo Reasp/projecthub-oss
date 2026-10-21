@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowClockwiseIcon, CheckSquareIcon, KanbanIcon, PlusIcon, SquareIcon } from '@phosphor-icons/react';
+import { ArrowClockwiseIcon, CheckSquareIcon, GitMergeIcon, KanbanIcon, PlusIcon, SquareIcon, UserIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import type { RemoteTaskSummary } from '../../../src/types/remote';
+import { isMyTask, returnReasons, reviewableByMe, taskHolder, taskQueueState } from '../../../src/utils/teamQueue';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, EmptyState, Sheet, Spinner } from '../components/ui';
 import { fieldProps } from '../components/FieldEditor';
 import { useT } from '../i18n/react';
 import { capabilitiesFor, criteriaProgress, groupTasksByStatus, KANBAN_STATUSES } from '../protocol/models';
+import { QueueSheet } from './QueueSheet';
 
 const STATUS_TONE: Record<string, 'neutral' | 'accent' | 'review' | 'success'> = {
   'To Do': 'neutral',
@@ -17,11 +19,22 @@ const STATUS_TONE: Record<string, 'neutral' | 'accent' | 'review' | 'success'> =
 
 function TaskCard({ task, onOpen }: { task: RemoteTaskSummary; onOpen: () => void }) {
   const { done, total } = criteriaProgress(task);
+  const team = useAppState((s) => s.team);
+  const queue = useAppState((s) => s.queue);
+  // Общий хост (TASK-142.5): кто ведёт задачу и где она в очереди слияния.
+  const holder = team ? taskHolder(task) : undefined;
+  const inQueue = taskQueueState(queue, task.id).active;
   return (
     <Card className="mb-2" onClick={onOpen}>
       <div className="flex items-center gap-2 text-[11px] text-slate-400">
         <span className="font-mono">{task.id}</span>
         {String(task.priority).toLowerCase() === 'high' && <Badge tone="warning">high</Badge>}
+        {holder && (
+          <span className={clsx('ml-auto flex items-center gap-1', holder === team?.me && 'text-indigo-300')}>
+            <UserIcon size={12} /> {holder}
+          </span>
+        )}
+        {inQueue && <Badge tone="review">#{inQueue.n}</Badge>}
       </div>
       <div className="mt-1 line-clamp-3 text-[14px] leading-snug">{task.title}</div>
       {total > 0 && (
@@ -44,14 +57,68 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
   const conn = useAppState((s) => s.conn);
   const tasks = useAppState((s) => s.tasks);
   const canWrite = capabilitiesFor(conn.rights, conn.readOnly).write;
+  const team = useAppState((s) => s.team);
+  const queue = useAppState((s) => s.queue);
+  const [busy, setBusy] = useState(false);
   // Карточка читает свежую версию задачи из стора: после переключения критерия она обновляется.
   const current = task ? (tasks.find((t) => t.filePath === task.filePath) ?? task) : null;
+  const holder = current && team ? taskHolder(current) : undefined;
+  const mine = Boolean(current && team && isMyTask(current, team.me));
+  const qs = current ? taskQueueState(queue, current.id) : {};
+  const reasons = qs.last?.status === 'returned' && !qs.active ? returnReasons(qs.last) : [];
+  const run = async (op: () => Promise<boolean>) => {
+    setBusy(true);
+    await op();
+    setBusy(false);
+  };
 
   return (
     <Sheet open={Boolean(current)} onClose={onClose} title={current?.id}>
       {current && (
         <>
           <div className="text-[16px] font-medium leading-snug">{current.title}</div>
+          {team && (
+            <div className="mt-3 space-y-2" data-testid="task-team">
+              {holder && <div className="text-[13px] text-slate-300">{tr.tasks.heldBy(holder)}</div>}
+              {qs.active && (
+                <div className="text-[13px] text-indigo-300" data-testid="task-queue-state">
+                  {tr.tasks.queueState(qs.active.n, tr.tasks.queueStatus[qs.active.status] ?? qs.active.status, qs.active.position)}
+                </div>
+              )}
+              {!qs.active && qs.last && (
+                <div className="text-[13px] text-slate-400">{tr.tasks.lastResult(qs.last.n, tr.tasks.queueStatus[qs.last.status] ?? qs.last.status)}</div>
+              )}
+              {reasons.length > 0 && (
+                <div className="rounded-lg bg-rose-500/10 p-2 text-[12px] text-rose-200" data-testid="task-return-reasons">
+                  <div className="font-semibold">{tr.tasks.returnedWhy}</div>
+                  <ul className="mt-1 list-disc pl-4">
+                    {reasons.map((r) => (
+                      <li key={r}>{r}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {canWrite && (
+                <div className="flex flex-wrap gap-2">
+                  {!holder && (
+                    <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => store.takeTask(current))}>
+                      <span data-testid="task-take">{tr.tasks.take}</span>
+                    </Button>
+                  )}
+                  {mine && !qs.active && (
+                    <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => store.enqueueTask(current))}>
+                      <GitMergeIcon size={16} /> <span data-testid="task-enqueue">{tr.tasks.enqueue}</span>
+                    </Button>
+                  )}
+                  {mine && !qs.active && (
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => store.releaseTask(current))}>
+                      {tr.tasks.release}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <div className="mt-3 text-[12px] font-semibold uppercase tracking-wide text-slate-400">{tr.tasks.status}</div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {KANBAN_STATUSES.map((s) => (
@@ -139,7 +206,7 @@ function CreateTaskSheet({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 /** Kanban задач Backlog.md: колонки прокручиваются вбок со снапом, задача открывается листом. */
-export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
+export function TasksScreen({ focusStatus, focusTask, onFocusTaskShown }: { focusStatus?: string; focusTask?: string; onFocusTaskShown?: () => void }) {
   const { store } = useServices();
   const tr = useT();
   const tasks = useAppState((s) => s.tasks);
@@ -147,10 +214,16 @@ export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
   const projectPath = useAppState((s) => s.projectPath);
   const conn = useAppState((s) => s.conn);
   const canWrite = capabilitiesFor(conn.rights, conn.readOnly).write;
-  const columns = useMemo(() => groupTasksByStatus(tasks), [tasks]);
+  const team = useAppState((s) => s.team);
+  const queue = useAppState((s) => s.queue);
+  const [onlyMine, setOnlyMine] = useState(false);
+  const shown = useMemo(() => (onlyMine && team ? tasks.filter((t) => isMyTask(t, team.me)) : tasks), [onlyMine, team, tasks]);
+  const columns = useMemo(() => groupTasksByStatus(shown), [shown]);
   const [active, setActive] = useState(0);
   const [openTask, setOpenTask] = useState<RemoteTaskSummary | null>(null);
   const [creating, setCreating] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const waitingReview = reviewableByMe(queue, team?.me).length;
   const board = useRef<HTMLDivElement>(null);
 
   const scrollTo = (index: number) => {
@@ -165,6 +238,14 @@ export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
     // переходим только при смене запрошенной колонки
     // eslint-disable-next-line react-hooks/exhaustive-deps -- columns меняются при каждом обновлении задач
   }, [focusStatus]);
+
+  // Задача с общей доски области (TASK-181): открыть её карточку, когда задачи проекта загрузятся.
+  useEffect(() => {
+    if (!focusTask || !loaded) return;
+    const task = tasks.find((t) => t.filePath === focusTask);
+    if (task) setOpenTask(task);
+    onFocusTaskShown?.();
+  }, [focusTask, loaded, tasks, onFocusTaskShown]);
 
   if (!projectPath) return <EmptyState icon={<KanbanIcon size={40} />} title={tr.common.noProject} hint={tr.tasks.noProjectHint} />;
   if (!loaded)
@@ -190,10 +271,32 @@ export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
             {c.status} <span className="opacity-70">{c.tasks.length}</span>
           </button>
         ))}
+        {team && (
+          <button
+            type="button"
+            data-testid="tasks-mine"
+            onClick={() => setOnlyMine(!onlyMine)}
+            className={clsx('shrink-0 rounded-full px-3 py-1.5 text-[13px]', onlyMine ? 'bg-indigo-500 text-white' : 'bg-ph-raised text-slate-300')}
+          >
+            {tr.tasks.mine}
+          </button>
+        )}
+        {queue && (
+          <button
+            type="button"
+            data-testid="tasks-queue"
+            aria-label={tr.tasks.queue}
+            onClick={() => setQueueOpen(true)}
+            className="flex shrink-0 items-center gap-1 rounded-full bg-ph-raised px-3 py-1.5 text-[13px] text-slate-300"
+          >
+            <GitMergeIcon size={14} /> {queue.active.length}
+            {waitingReview > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-[11px] text-black">{waitingReview}</span>}
+          </button>
+        )}
         <button
           type="button"
           aria-label={tr.tasks.refresh}
-          onClick={() => void store.refreshTasks()}
+          onClick={() => void Promise.all([store.refreshTasks(), store.refreshTeam(), store.refreshQueue()])}
           className="ml-auto shrink-0 rounded-full p-1.5 text-slate-400 active:bg-ph-hover"
         >
           <ArrowClockwiseIcon size={18} />
@@ -234,6 +337,7 @@ export function TasksScreen({ focusStatus }: { focusStatus?: string }) {
       )}
       <TaskSheet task={openTask} onClose={() => setOpenTask(null)} />
       <CreateTaskSheet open={creating} onClose={() => setCreating(false)} />
+      <QueueSheet open={queueOpen} onClose={() => setQueueOpen(false)} />
     </div>
   );
 }

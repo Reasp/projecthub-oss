@@ -25,7 +25,8 @@ import { useFederationStore, type RemoteHostTab } from '../../store/useFederatio
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { parseAssignee } from '../../utils/assignee';
-import type { FederationPeerState, FederationTransport } from '../../types/remote';
+import type { FederationPeerState, FederationTransport, RemoteQueueItem } from '../../types/remote';
+import { isMyTask, myQueueItems, returnReasons, reviewableByMe, taskHolder, taskQueueState } from '../../utils/teamQueue';
 
 /**
  * Hub-режим федерации (TASK-66, decision-11 п.4): проекты, задачи, процессы, агенты и очередь
@@ -86,8 +87,13 @@ export const RemoteHostsModal: React.FC = () => {
     selectRemoteProject,
     decideRemoteApproval,
     runRemoteAssignedAgent,
-    remoteProcessAction
+    remoteProcessAction,
+    remoteTeamAction,
+    remoteQueueReview
   } = useFederationStore();
+  const [onlyMine, setOnlyMine] = useState(false);
+  const [returning, setReturning] = useState<{ itemId: string; comment: string } | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
 
   const [isAdding, setIsAdding] = useState(false);
   const [form, setForm] = useState<AddPeerForm>(emptyForm);
@@ -229,12 +235,29 @@ export const RemoteHostsModal: React.FC = () => {
     }
 
     if (activeTab === 'tasks') {
+      const team = hostData?.team ?? null;
+      // Общий хост команды (TASK-142.5): свои задачи, «Взять себе», постановка в очередь слияния.
+      const teamDo = async (action: 'take_task' | 'release_task' | 'queue_enqueue', taskId: string) => {
+        const res = await remoteTeamAction(selectedPeer.hostId, action, taskId);
+        setTeamError(res.ok ? null : res.error || null);
+      };
+      const tasks = (hostData?.tasks ?? []).filter((task) => !onlyMine || isMyTask(task, team?.me));
       return (
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {hostData?.tasks.length ? (
-            hostData.tasks.map((task) => {
+          {team && (
+            <label className="flex items-center gap-2 text-[11px] text-slate-400" data-testid="remote-tasks-mine">
+              <input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} />
+              {t.federation.teamMine}
+            </label>
+          )}
+          {teamError && <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">{teamError}</div>}
+          {tasks.length ? (
+            tasks.map((task) => {
               const assigned = parseAssignee(task.assignee?.[0]);
               const roleSlug = assigned?.kind === 'agent' ? assigned.roleSlug : null;
+              const holder = team ? taskHolder(task) : undefined;
+              const mine = Boolean(team && isMyTask(task, team.me));
+              const qs = taskQueueState(hostData?.queue, task.id);
               return (
                 <div key={task.id} className="rounded-lg border border-slate-700/60 bg-slate-900/60 p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -245,15 +268,41 @@ export const RemoteHostsModal: React.FC = () => {
                       <div className="text-[11px] text-slate-500 mt-0.5">
                         {task.status}
                         {assigned ? ` · ${assigned.raw}` : ''}
+                        {holder ? ` · ${t.federation.teamHeldBy.replace('{name}', holder)}` : ''}
+                        {qs.active ? ` · #${qs.active.n} ${t.federation.queueStatus[qs.active.status]}, ${t.federation.queuePlace.replace('{position}', String(qs.active.position))}` : ''}
                       </div>
+                      {!qs.active && qs.last?.status === 'returned' && mine && (
+                        <div className="mt-1 text-[11px] text-rose-300" data-testid="remote-task-returned">
+                          {t.federation.queueReturnedWhy}: {returnReasons(qs.last).join(' · ')}
+                        </div>
+                      )}
                     </div>
-                    {roleSlug && hostData.activeProjectPath && (
+                    {team && (
+                      <div className="flex shrink-0 gap-1">
+                        {!holder && (
+                          <button type="button" data-testid="remote-task-take" onClick={() => void teamDo('take_task', task.id)} className="rounded-md border border-indigo-500/60 px-2 py-1 text-[11px] text-indigo-200 hover:bg-indigo-500/10">
+                            {t.federation.teamTake}
+                          </button>
+                        )}
+                        {mine && !qs.active && (
+                          <button type="button" data-testid="remote-task-enqueue" onClick={() => void teamDo('queue_enqueue', task.id)} className="rounded-md border border-emerald-500/60 px-2 py-1 text-[11px] text-emerald-200 hover:bg-emerald-500/10">
+                            {t.federation.teamEnqueue}
+                          </button>
+                        )}
+                        {mine && !qs.active && (
+                          <button type="button" onClick={() => void teamDo('release_task', task.id)} className="rounded-md px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-800">
+                            {t.federation.teamRelease}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {roleSlug && hostData?.activeProjectPath && (
                       <button
                         type="button"
                         title={t.federation.runAssigned}
                         onClick={() =>
                           void runRemoteAssignedAgent(selectedPeer.hostId, {
-                            projectPath: hostData.activeProjectPath as string,
+                            projectPath: hostData?.activeProjectPath as string,
                             taskId: task.id,
                             taskTitle: task.title,
                             roleSlug
@@ -271,6 +320,107 @@ export const RemoteHostsModal: React.FC = () => {
             })
           ) : (
             <p className="text-xs text-slate-500">{t.federation.noTasks}</p>
+          )}
+        </div>
+      );
+    }
+
+    if (activeTab === 'queue') {
+      const queue = hostData?.queue ?? null;
+      const me = hostData?.team?.me;
+      const canReview = new Set(reviewableByMe(queue, me).map((i) => i.id));
+      const mineIds = new Set(myQueueItems(queue, me).map((i) => i.id));
+      const card = (item: RemoteQueueItem, position?: number) => (
+        <div key={item.id} className="rounded-lg border border-slate-700/60 bg-slate-900/60 p-3 text-xs" data-testid="remote-queue-item">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-slate-500">#{item.n}</span>
+            <span className="font-semibold text-slate-200">{item.taskId}</span>
+            <span className="min-w-0 flex-1 truncate text-slate-300">{item.taskTitle}</span>
+            <span className="text-indigo-300">{t.federation.queueStatus[item.status]}</span>
+          </div>
+          <div className="mt-0.5 text-[11px] text-slate-500">
+            {item.authorId} · {item.branch} → {item.base}
+            {position ? ` · ${t.federation.queuePlace.replace('{position}', String(position))}` : ''}
+            {mineIds.has(item.id) ? ' · ★' : ''}
+          </div>
+          {item.checks && item.checks.length > 0 && (
+            <div className="mt-1 text-[11px] text-slate-400">
+              {t.federation.queueChecks}: {item.checks.map((c) => `${c.name} — ${c.status}`).join(', ')}
+            </div>
+          )}
+          {item.criteria && (
+            <div className="mt-0.5 text-[11px] text-slate-400">
+              {t.federation.queueCriteria}: {item.criteria.done}/{item.criteria.total}
+            </div>
+          )}
+          {item.dependencies && item.dependencies.length > 0 && (
+            <div className="mt-0.5 text-[11px] text-amber-300">
+              {t.federation.queueDependencies}: {item.dependencies.join(', ')}
+            </div>
+          )}
+          {item.status === 'returned' && (
+            <div className="mt-1 text-[11px] text-rose-300">
+              {t.federation.queueReturnedWhy}: {returnReasons(item).join(' · ')}
+            </div>
+          )}
+          {canReview.has(item.id) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {returning?.itemId === item.id ? (
+                <>
+                  <input
+                    value={returning.comment}
+                    onChange={(e) => setReturning({ itemId: item.id, comment: e.target.value })}
+                    placeholder={t.federation.queueCommentPlaceholder}
+                    data-testid="remote-queue-comment"
+                    className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    disabled={!returning.comment.trim()}
+                    data-testid="remote-queue-return-send"
+                    onClick={async () => {
+                      const res = await remoteQueueReview(selectedPeer.hostId, item.id, false, returning.comment);
+                      setTeamError(res.ok ? null : res.error || null);
+                      if (res.ok) setReturning(null);
+                    }}
+                    className="rounded-md border border-rose-500/60 px-2 py-1 text-[11px] text-rose-200 disabled:opacity-40"
+                  >
+                    {t.federation.queueReturn}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    data-testid="remote-queue-approve"
+                    onClick={async () => {
+                      const res = await remoteQueueReview(selectedPeer.hostId, item.id, true);
+                      setTeamError(res.ok ? null : res.error || null);
+                    }}
+                    className="rounded-md bg-emerald-600/80 px-2 py-1 text-[11px] font-medium text-white hover:bg-emerald-500"
+                  >
+                    {t.federation.queueApprove}
+                  </button>
+                  <button type="button" data-testid="remote-queue-return" onClick={() => setReturning({ itemId: item.id, comment: '' })} className="rounded-md border border-slate-600 px-2 py-1 text-[11px] text-slate-300">
+                    {t.federation.queueReturn}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      );
+      return (
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {teamError && <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">{teamError}</div>}
+          {queue?.settings.paused && <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">{t.federation.queuePaused.replace('{reason}', queue.settings.paused.reason)}</div>}
+          {!queue || (queue.active.length === 0 && queue.finished.length === 0) ? (
+            <p className="text-xs text-slate-500">{t.federation.queueEmpty}</p>
+          ) : (
+            <>
+              {queue.active.map((item, idx) => card(item, idx + 1))}
+              {queue.finished.slice(0, 10).map((item) => card(item))}
+            </>
           )}
         </div>
       );
@@ -393,7 +543,9 @@ export const RemoteHostsModal: React.FC = () => {
     { id: 'tasks', label: t.federation.tabTasks },
     { id: 'processes', label: t.federation.tabProcesses },
     { id: 'agents', label: t.federation.tabAgents },
-    { id: 'hitl', label: t.federation.tabHitl }
+    { id: 'hitl', label: t.federation.tabHitl },
+    // Вкладка очереди — только у хоста с очередью слияния (модуль Team).
+    ...(selectedHostId && data[selectedHostId]?.queue ? [{ id: 'queue' as const, label: t.federation.tabQueue }] : [])
   ];
 
   const modal = (

@@ -276,6 +276,12 @@ export type RemoteRpcMethod =
   | 'take_task'
   | 'release_task'
   | 'get_team'
+  // Очередь слияния общего хоста (TASK-142.4, decision-136): позиция, ревью не автором, возврат автору
+  | 'queue_list'
+  | 'queue_enqueue'
+  | 'queue_review'
+  | 'queue_cancel'
+  | 'queue_resume'
   // Мобильный клиент (TASK-140.1, decision-79 п. 8): хвост вывода агента роя
   | 'get_agent_output'
   // Agents Studio с телефона (TASK-140.10, decision-83): сессии те же, что во вкладках ПК
@@ -393,6 +399,59 @@ export interface RemoteProjectSummary {
 export interface RemoteTaskCriterion {
   text: string;
   completed: boolean;
+}
+
+/** Задача, которую ведёт участник общего хоста (`get_team`, TASK-142.2): его ветка, worktree и агенты. */
+export interface RemoteTeamTask {
+  taskId: string;
+  title: string;
+  status: string;
+  memberId: string;
+  memberName: string;
+  online: boolean;
+  branch: string;
+  worktreePath?: string;
+  agents: Array<{ swarmId: string; status: string; names: string[] }>;
+}
+
+/** Ответ `get_team`: кто я на этом хосте, кто онлайн, кто что ведёт в проекте. */
+export interface RemoteTeam {
+  /** Участник этого устройства; владелец хоста — `owner`. */
+  me: string;
+  online: Array<{ id: string; name: string }>;
+  tasks: RemoteTeamTask[];
+}
+
+export type RemoteQueueStatus = 'queued' | 'building' | 'checking' | 'review' | 'merging' | 'merged' | 'returned' | 'cancelled' | 'pr';
+
+/** Элемент очереди слияния (TASK-142.4) глазами клиента — без диффов и содержимого файлов. */
+export interface RemoteQueueItem {
+  id: string;
+  n: number;
+  taskId: string;
+  taskTitle?: string;
+  authorId: string;
+  branch: string;
+  base: string;
+  status: RemoteQueueStatus;
+  attempt: number;
+  enqueuedAt: number;
+  finishedAt?: number;
+  checks?: Array<{ id: string; name: string; status: string; blocking: boolean; summary?: string }>;
+  criteria?: { total: number; done: number; missing: string[] };
+  secrets?: string;
+  dependencies?: string[];
+  conflicts?: string[];
+  review?: { by: string; approved: boolean; comment?: string; at: number };
+  report?: string;
+  prUrl?: string;
+}
+
+/** Ответ `queue_list`: настройки очереди проекта, активные элементы по порядку и недавние завершённые. */
+export interface RemoteQueueView {
+  settings: { mode: 'local' | 'pr'; allowSelfReview: boolean; paused?: { reason: string; at: number } };
+  active: RemoteQueueItem[];
+  finished: RemoteQueueItem[];
 }
 
 export interface RemoteTaskSummary {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { FederationHost, FederationPeerState, FederationTransport } from '../types/remote';
+import type { FederationHost, FederationPeerState, FederationTransport, RemoteQueueView, RemoteTeam } from '../types/remote';
 
 /**
  * Стор федерации компьютеров (TASK-66, decision-11 п.4): каталог хостов, сопряжённые пиры и
@@ -66,11 +66,18 @@ export interface RemoteHostData {
   approvals: RemoteApprovalInfo[];
   swarms: RemoteSwarmInfo[];
   roles: Array<{ slug: string; name: string }>;
+  /** Общий хост команды (TASK-142.5): кто я на нём и кто что ведёт; `null` — хост без модуля Team. */
+  team: RemoteTeam | null;
+  /** Очередь слияния выбранного проекта хоста; `null` — хост без очереди. */
+  queue: RemoteQueueView | null;
   isLoading: boolean;
   error: string | null;
 }
 
-export type RemoteHostTab = 'overview' | 'tasks' | 'processes' | 'agents' | 'hitl';
+export type RemoteHostTab = 'overview' | 'tasks' | 'processes' | 'agents' | 'hitl' | 'queue';
+
+/** Действие участника с задачей на общем хосте: взять, отказаться, поставить в очередь слияния. */
+export type RemoteTeamAction = 'take_task' | 'release_task' | 'queue_enqueue';
 
 interface FederationState {
   isOpen: boolean;
@@ -109,6 +116,9 @@ interface FederationState {
   ) => Promise<{ ok: boolean; error?: string }>;
   updateRemoteTaskStatus: (hostId: string, filePath: string, newStatus: string) => Promise<{ ok: boolean; error?: string }>;
   remoteProcessAction: (hostId: string, action: 'stop' | 'restart', processId: string) => Promise<{ ok: boolean; error?: string }>;
+  remoteTeamAction: (hostId: string, action: RemoteTeamAction, taskId: string) => Promise<{ ok: boolean; error?: string }>;
+  remoteQueueReview: (hostId: string, itemId: string, approved: boolean, comment?: string) => Promise<{ ok: boolean; error?: string }>;
+  remoteQueueCancel: (hostId: string, itemId: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const emptyData: RemoteHostData = {
@@ -119,6 +129,8 @@ const emptyData: RemoteHostData = {
   approvals: [],
   swarms: [],
   roles: [],
+  team: null,
+  queue: null,
   isLoading: false,
   error: null
 };
@@ -153,7 +165,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
         // должен жать «обновить», чтобы увидеть запрос, который ждёт его решения.
         const { selectedHostId } = get();
         if (payload.hostId !== selectedHostId) return;
-        if (payload.event.startsWith('ai:hitl') || payload.event.startsWith('agent:') || payload.event === 'backlog:changed') {
+        if (payload.event.startsWith('ai:hitl') || payload.event.startsWith('agent:') || payload.event === 'backlog:changed' || payload.event.startsWith('queue:')) {
           void get().loadHostData(payload.hostId);
         }
       }) || null;
@@ -254,14 +266,17 @@ export const useFederationStore = create<FederationState>((set, get) => ({
 
     try {
       const call = window.api.federationCall;
-      const [status, projects, tasks, processes, approvals, swarms, roles] = await Promise.all([
+      const [status, projects, tasks, processes, approvals, swarms, roles, team, queue] = await Promise.all([
         call<{ activeProjectPath?: string }>(hostId, 'get_status').catch(() => ({}) as { activeProjectPath?: string }),
         call<RemoteProjectInfo[]>(hostId, 'get_projects').catch(() => []),
         call<RemoteTaskInfo[]>(hostId, 'get_tasks').catch(() => []),
         call<RemoteProcessInfo[]>(hostId, 'get_processes').catch(() => []),
         call<RemoteApprovalInfo[]>(hostId, 'get_pending_approvals').catch(() => []),
         call<RemoteSwarmInfo[]>(hostId, 'get_swarms').catch(() => []),
-        call<Array<{ slug: string; name: string }>>(hostId, 'get_roles').catch(() => [])
+        call<Array<{ slug: string; name: string }>>(hostId, 'get_roles').catch(() => []),
+        // Хост без модуля Team отвечает «Unknown RPC method» — команды и очереди у него нет.
+        call<RemoteTeam>(hostId, 'get_team').catch(() => null),
+        call<RemoteQueueView>(hostId, 'queue_list').catch(() => null)
       ]);
 
       set((s) => ({
@@ -275,6 +290,8 @@ export const useFederationStore = create<FederationState>((set, get) => ({
             approvals: Array.isArray(approvals) ? approvals : [],
             swarms: Array.isArray(swarms) ? swarms : [],
             roles: Array.isArray(roles) ? roles : [],
+            team: team && typeof team === 'object' && 'me' in team ? team : null,
+            queue: queue && typeof queue === 'object' && Array.isArray((queue as RemoteQueueView).active) ? queue : null,
             isLoading: false,
             error: null
           }
@@ -334,6 +351,40 @@ export const useFederationStore = create<FederationState>((set, get) => ({
     if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
     try {
       await window.api.federationCall(hostId, 'update_task_status', { filePath, newStatus });
+      await get().loadHostData(hostId);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: errorText(err) };
+    }
+  },
+
+  remoteTeamAction: async (hostId, action, taskId) => {
+    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    try {
+      // Участник — по устройству этого ПК на хосте: роль и права проверяет хост (decision-126 п. 3).
+      await window.api.federationCall(hostId, action, { taskId });
+      await get().loadHostData(hostId);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: errorText(err) };
+    }
+  },
+
+  remoteQueueReview: async (hostId, itemId, approved, comment) => {
+    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    try {
+      await window.api.federationCall(hostId, 'queue_review', { itemId, approved, ...(comment?.trim() ? { comment: comment.trim() } : {}) });
+      await get().loadHostData(hostId);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: errorText(err) };
+    }
+  },
+
+  remoteQueueCancel: async (hostId, itemId) => {
+    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    try {
+      await window.api.federationCall(hostId, 'queue_cancel', { itemId });
       await get().loadHostData(hostId);
       return { ok: true };
     } catch (err) {
