@@ -24,6 +24,7 @@ import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { upsertToolCall } from '../lib/aiToolCalls';
 import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
+import { canWriteStudioSession } from '../utils/studioRemote';
 
 export type { AISession };
 
@@ -131,6 +132,8 @@ export interface CreateSessionOptions {
   activate?: boolean;
   origin?: 'desktop' | 'phone';
   originDevice?: string;
+  /** Сессия участника общего хоста (TASK-142.3): писать в неё может только он. */
+  memberId?: string;
 }
 
 export interface SendMessageOptions {
@@ -139,6 +142,8 @@ export interface SendMessageOptions {
   /** Конфиг этого запроса (модель с телефона); глобальный выбор Agents Studio не меняется. */
   config?: AIProviderConfig;
   mode?: 'chat' | 'agent' | 'architect';
+  /** Кто пишет: участник общего хоста с устройства (TASK-142.3); окно хоста — без поля. */
+  memberId?: string;
 }
 
 function releaseSessionInMain(sessionId: string): void {
@@ -400,7 +405,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           messages: [],
           agent: effectiveSessionAgent(get().config, active?.agent),
           ...(opts.origin ? { origin: opts.origin } : {}),
-          ...(opts.originDevice ? { originDevice: opts.originDevice } : {})
+          ...(opts.originDevice ? { originDevice: opts.originDevice } : {}),
+          ...(opts.memberId ? { memberId: opts.memberId } : {})
         };
         const activate = opts.activate !== false || !get().activeSessionId[projectPath];
 
@@ -624,6 +630,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           projectSessions = get().sessions[projectPath] || [];
         }
         const currentSession = projectSessions.find((s) => s.id === activeSessionId)!;
+        // Пишет в сессию только её владелец (decision-84 п. 5): чужая сессия участника — только для чтения.
+        if (!canWriteStudioSession(currentSession, opts.memberId)) return;
         // Модель с телефона — на этот запрос; иначе агент вкладки поверх общего конфига (TASK-170).
         const requestConfig = opts.config ?? sessionRequestConfig(get().config, currentSession.agent);
         const requestMode = opts.mode ?? get().mode;
@@ -876,7 +884,9 @@ export const useAIStudioStore = create<AIStudioState>()(
           contextParts: currentSession.contextParts,
           // Агент работает в активном рабочем дереве проекта (TASK-62, decision-15).
           workspaceRoot: useProjectStore.getState().workspaceRoot || undefined,
-          ...(claudeAccountId ? { claudeAccountId } : {})
+          ...(claudeAccountId ? { claudeAccountId } : {}),
+          // Сессия участника: хост сам выберет его worktree и права (TASK-142.3).
+          ...(currentSession.memberId ? { memberId: currentSession.memberId } : {})
         };
 
         try {

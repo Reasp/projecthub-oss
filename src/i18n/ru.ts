@@ -1664,6 +1664,7 @@ export const ru: TranslationDictionary = {
     historyDeleteMessage: 'Удалить «{title}» из истории? Восстановить её будет нельзя.',
     historyPrompts: 'промпт.',
     fromPhone: 'Начата с телефона',
+    memberSession: (member) => `Сессия участника ${member}: здесь её можно только читать, пишет в неё он со своих устройств`,
     newChat: 'Новый чат',
     newSession: 'Новая сессия',
     closeSession: 'Закрыть сессию',

@@ -137,7 +137,9 @@ export function compactSessionForStorage(session: AISession): AISession {
       : {}),
     ...(session.lastMode === 'agent' || session.lastMode === 'chat' || session.lastMode === 'architect' ? { lastMode: session.lastMode } : {}),
     // Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code переживают перезапуск.
-    ...withAgent(sanitizeSessionAgent(session.agent))
+    ...withAgent(sanitizeSessionAgent(session.agent)),
+    // Владелец сессии на общем хосте (TASK-142.3): без него сессия участника после перезапуска стала бы общей.
+    ...(typeof session.memberId === 'string' && /^[a-z0-9][a-z0-9-]{0,31}$/.test(session.memberId) ? { memberId: session.memberId } : {})
   };
 }
 

@@ -5,6 +5,7 @@ import os from 'node:os';
 import { appEventBus } from './eventBus.js';
 import { HitlAuditLog, commandPreview, hashCommand, truncateComment } from './hitlAudit.js';
 import { isConfirmationSufficient, riskOfRequest } from './hitlRisk.js';
+import { editionRegistry } from '../extensions/editionRegistry.js';
 import type {
   ApprovalResponse,
   HitlAuditEntry,
@@ -213,6 +214,18 @@ export class HitlService extends EventEmitter {
 
   // ─────────────────────────────── Очередь ───────────────────────────────
 
+  /** Чей агент работает в сессии HITL: запросы этой сессии получают `memberId` без протаскивания через каждый движок. */
+  private readonly sessionOwners = new Map<string, string>();
+
+  /** Привязать сессию HITL к участнику общего хоста (TASK-142.3). Возвращает отвязку; пустой участник — владелец. */
+  public bindSessionOwner(sessionId: string, memberId: string | undefined): () => void {
+    if (!memberId) return () => undefined;
+    this.sessionOwners.set(sessionId, memberId);
+    return () => {
+      if (this.sessionOwners.get(sessionId) === memberId) this.sessionOwners.delete(sessionId);
+    };
+  }
+
   /** Ставит запрос в очередь и ждёт решения. Отмена сессии → reject {@link ApprovalCancelledError}. */
   public request(input: HitlRequest, options: HitlRequestOptions = {}): Promise<ApprovalResponse> {
     const createdAt = typeof input.createdAt === 'number' ? input.createdAt : this.now();
@@ -225,6 +238,7 @@ export class HitlService extends EventEmitter {
       createdAt,
       hostId: input.hostId || this.hostId,
       expiresAt: input.expiresAt ?? createdAt + timeoutMs,
+      ...(input.memberId || this.sessionOwners.has(input.sessionId) ? { memberId: input.memberId || this.sessionOwners.get(input.sessionId) } : {}),
       orphaned: false,
       risk: assessed.risk,
       riskReason: assessed.reason
@@ -255,6 +269,11 @@ export class HitlService extends EventEmitter {
       return { ok: false, reason: this.decided.has(requestId) ? 'already_decided' : 'not_found' };
     }
     const approved = Boolean(response.approved);
+    // Запрос агента участника решает он сам или старшая роль (decision-84 п. 5); окно хоста — владелец.
+    if (source.kind === 'remote') {
+      const denied = editionRegistry.checkOwnership(entry.request.memberId, source.memberId, 'hitl');
+      if (denied) return { ok: false, reason: 'not_owner', message: denied };
+    }
     // Одобрение с удалённого устройства перепроверяется по классу, посчитанному здесь, а не присланному клиентом
     // (decision-112 п. 3). Запрос остаётся в очереди: его можно одобрить на ПК или отклонить.
     if (approved && source.kind === 'remote') {

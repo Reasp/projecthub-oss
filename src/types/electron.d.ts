@@ -2880,6 +2880,11 @@ export interface AISession {
   lastMode?: 'chat' | 'agent' | 'architect';
   /** Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code; без поля — общий выбор Studio. */
   agent?: StudioSessionAgent;
+  /**
+   * Участник общего хоста, чья это сессия (TASK-142.3): пишет в неё только он со своих устройств, окно хоста и другие
+   * участники видят её только для чтения. Без поля — сессия владельца хоста.
+   */
+  memberId?: string;
 }
 
 /** Агент вкладки Agents Studio (TASK-170). `claudeAccountId` действует только для Claude Code CLI. */
@@ -2901,6 +2906,8 @@ export type StudioRemoteRequestPayload =
       selection?: { provider: string; profileId?: string; model: string };
       mode?: 'chat' | 'agent' | 'architect';
       deviceName: string;
+      /** Участник общего хоста, чьё устройство прислало промпт (TASK-142.3). */
+      memberId?: string;
     }
   | { requestId: string; kind: 'abort' | 'clear'; projectPath: string; sessionId: string };
 
@@ -2919,6 +2926,8 @@ export interface AIStreamRequest {
   workspaceRoot?: string;
   /** Аккаунт Claude Code вкладки (TASK-170); без поля — аккаунт проекта. */
   claudeAccountId?: string;
+  /** Участник общего хоста, чья сессия (TASK-142.3): хост сам выбирает его worktree и права HITL. */
+  memberId?: string;
 }
 
 export interface GitWorktreeInfo {
@@ -3725,6 +3734,10 @@ export interface SwarmSession {
   taskTitle?: string;
   /** Источник запуска для HITL/аудита (TASK-60): по умолчанию выводится из `mode`. */
   origin?: 'swarm' | 'assigned' | 'automation';
+  /** Участник общего хоста, запустивший сессию (TASK-142.3). */
+  memberId?: string;
+  /** Агент участника работает в его worktree; в основную ветку — только через очередь слияния. */
+  memberWorktree?: { path: string; branch: string };
   mode: SwarmMode;
   prompt: string;
   baseBranch: string;

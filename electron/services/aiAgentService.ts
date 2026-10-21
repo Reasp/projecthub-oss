@@ -169,6 +169,8 @@ export interface AIStreamRequest {
   workspaceRoot?: string;
   /** Аккаунт Claude Code вкладки Agents Studio (TASK-170); без поля — аккаунт проекта. */
   claudeAccountId?: string;
+  /** Участник общего хоста, чья сессия (TASK-142.3): его worktree, HITL ему, стоимость на него. */
+  memberId?: string;
 }
 
 /** Инструмент прокси управления компьютером в формате, который отдаёт `computerUseService.listProxyTools()`. */

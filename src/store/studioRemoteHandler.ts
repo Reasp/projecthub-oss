@@ -1,5 +1,5 @@
 import type { AIProviderConfig, AISession, StudioRemoteRequestPayload } from '../types/electron';
-import { applyStudioSelection, parseStudioMode, parseStudioSelection } from '../utils/studioRemote';
+import { STUDIO_READ_ONLY_ERROR, applyStudioSelection, canWriteStudioSession, parseStudioMode, parseStudioSelection } from '../utils/studioRemote';
 import type { CreateSessionOptions, SendMessageOptions } from './useAIStudioStore';
 
 /**
@@ -71,17 +71,21 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
   let sessionId = req.sessionId;
   if (sessionId) {
     const open = (deps.getState().sessions[projectPath] || []).some((s) => s.id === sessionId);
-    if (!open) {
+    const known = (deps.getState().sessions[projectPath] || []).find((s) => s.id === sessionId);
+    const fromDisk = known ? undefined : (await deps.listFromDisk(projectPath)).find((s) => s.id === sessionId);
+    if (!known && !fromDisk) return { ok: false, error: 'Сессия не найдена на ПК — возможно, её удалили' };
+    // Чужая сессия участника общего хоста — только для чтения (TASK-142.3); хост проверяет это и до окна.
+    if (!canWriteStudioSession((known ?? fromDisk)!, req.memberId)) return { ok: false, error: STUDIO_READ_ONLY_ERROR };
+    if (!open && fromDisk) {
       // Сессия из истории: возвращаем её во вкладки, не переключая вкладку на ПК.
-      const fromDisk = (await deps.listFromDisk(projectPath)).find((s) => s.id === sessionId);
-      if (!fromDisk) return { ok: false, error: 'Сессия не найдена на ПК — возможно, её удалили' };
       deps.getState().reopenSession(projectPath, fromDisk, false);
     }
   } else {
     sessionId = deps.getState().createSession(projectPath, undefined, {
       activate: false,
       origin: 'phone',
-      originDevice: typeof req.deviceName === 'string' ? req.deviceName.slice(0, 80) : undefined
+      originDevice: typeof req.deviceName === 'string' ? req.deviceName.slice(0, 80) : undefined,
+      ...(req.memberId ? { memberId: req.memberId } : {})
     });
   }
 
@@ -89,7 +93,7 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
   const config = applyStudioSelection(state.config, parseStudioSelection(req.selection));
   const mode = parseStudioMode(req.mode);
   // sendMessage ставит isStreaming синхронно, до первого await, — ждать весь ответ не нужно.
-  void state.sendMessage(projectPath, text, { sessionId, config, ...(mode ? { mode } : {}) });
+  void state.sendMessage(projectPath, text, { sessionId, config, ...(mode ? { mode } : {}), ...(req.memberId ? { memberId: req.memberId } : {}) });
   if (!deps.getState().isStreaming) return { ok: false, error: 'Agents Studio не начала ответ' };
   return { ok: true, sessionId };
 }

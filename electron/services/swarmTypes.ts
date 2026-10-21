@@ -240,6 +240,13 @@ export interface SwarmSession {
   automation?: SwarmAutomationMeta;
   /** Сессия ревью PR (TASK-81): автосудья Arena для неё не запускается. */
   review?: SwarmReviewMeta;
+  /** Участник общего хоста, запустивший сессию (TASK-142.3): HITL, стоимость, git-автор. Пусто — владелец хоста. */
+  memberId?: string;
+  /**
+   * Агент участника работает в его личном worktree, а не во временном `swarm/…` (decision-84 п. 4). Такой worktree
+   * сессия не удаляет, а в основную ветку результат попадает только через очередь слияния (TASK-142.4).
+   */
+  memberWorktree?: { path: string; branch: string };
   mode: SwarmMode;
   prompt: string;
   baseBranch: string;
@@ -292,6 +299,8 @@ export interface StartFanOutOptions {
   origin?: SwarmOrigin;
   automation?: SwarmAutomationMeta;
   review?: SwarmReviewMeta;
+  /** Участник общего хоста, от чьего имени запуск (TASK-142.3). */
+  memberId?: string;
 }
 
 export interface StartHandoffOptions {
@@ -328,6 +337,8 @@ export interface StartDoneLoopOptions {
   autoReview?: boolean;
   origin?: SwarmOrigin;
   automation?: SwarmAutomationMeta;
+  /** Участник общего хоста, от чьего имени запуск (TASK-142.3). */
+  memberId?: string;
 }
 
 export interface SwarmEventPayload {

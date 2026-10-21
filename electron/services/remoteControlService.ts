@@ -21,6 +21,7 @@ import type {
   FederationProject,
   RemoteEnrollment
 } from '../../src/types/remote.js';
+import type { HitlRequest } from './hitlTypes.js';
 import { generateSecretKey, generatePairingPin, encryptPayload, decryptPayload } from '../../src/utils/remoteCryptoNode.js';
 import {
   HOST_SESSION_PROTOCOLS,
@@ -40,8 +41,10 @@ import { aiSessionStore } from './aiSessionStore.js';
 import { llmProfileService } from './llmProfileService.js';
 import { llmModelCatalogService } from './llmModelCatalogService.js';
 import {
+  canWriteStudioSession,
   parseStudioMode,
   parseStudioSelection,
+  STUDIO_READ_ONLY_ERROR,
   selectionLabel,
   selectionOf,
   studioSessionForPhone,
@@ -345,7 +348,8 @@ class RemoteControlService {
         roleSlug: o.roleSlug,
         prompt: o.prompt,
         origin: 'assigned',
-        ...(o.doneLoop ? { mode: 'doneLoop' as const } : {})
+        ...(o.doneLoop ? { mode: 'doneLoop' as const } : {}),
+        ...(o.memberId ? { memberId: o.memberId } : {})
       });
       // У сессии роя тоже есть необязательное поле `error`: отказ запуска отличаем по отсутствию `agents`.
       if (!('agents' in res)) return { error: res.error };
@@ -443,7 +447,9 @@ class RemoteControlService {
   /** Rate-limit подбора PIN/ключа по IP (decision-5 п.5). */
   private pinAttempts = new Map<string, { count: number; lockedUntil: number }>();
   /** Кольцевой буфер последних событий для догона по `lastEventId` (decision-11 п.6). */
-  private eventLog: Array<{ id: number; event: string; data: any }> = [];
+  private eventLog: Array<{ id: number; event: string; data: any; audience?: (device: RemoteDevice) => boolean }> = [];
+  /** Таймеры эскалации HITL участника на старшие роли (TASK-142.3): по `requestId`. */
+  private hitlEscalations = new Map<string, ReturnType<typeof setTimeout>>();
   private eventLogNextId = 1;
   /** Идемпотентность RPC по `requestId` (decision-11 п.6): повтор в течение TTL возвращает
    *  закэшированный ответ вместо повторного выполнения. */
@@ -896,25 +902,12 @@ class RemoteControlService {
       if (!this.enabled) return;
       if (event.type === 'hitl:requested') {
         const r = event.request;
-        this.broadcastEvent('ai:hitl', {
-          requestId: r.id,
-          sessionId: r.sessionId,
-          projectPath: r.projectPath,
-          origin: r.origin,
-          agentName: r.agentName,
-          role: r.role,
-          tool: r.tool || r.type,
-          type: r.type,
-          risk: r.risk,
-          riskReason: r.riskReason,
-          description: r.title,
-          details: r.details,
-          command: r.command,
-          filePath: r.filePath,
-          expiresAt: r.expiresAt
-        });
-        void this.pushService.onHitlRequested(r).catch(() => undefined);
+        // Запрос агента участника — его устройствам (TASK-142.3); старшим ролям — после таймаута эскалации.
+        this.broadcastEvent('ai:hitl', this.hitlEventPayload(r), { audience: (d) => this.hitlVisibleTo(r, d, r.createdAt) });
+        void this.pushService.onHitlRequested(r, (target) => this.hitlVisibleToRecord(r, target.deviceId, r.createdAt)).catch(() => undefined);
+        this.armHitlEscalation(r);
       } else if (event.type === 'hitl:decided' || event.type === 'hitl:expired' || event.type === 'hitl:cancelled') {
+        this.clearHitlEscalation(event.request.id);
         void this.pushService.onHitlFinished(event.request.id).catch(() => undefined);
         this.broadcastEvent('ai:hitlDecided', {
           requestId: event.request.id,
@@ -1164,8 +1157,91 @@ class RemoteControlService {
     return this.inbox.notify({ ...ctx, ...(projectPath ? { projectPath } : {}) }, args);
   }
 
-  private pendingApprovals(filter: { projectPath?: string } = {}) {
-    return hitlService.listPending(filter).map((r) => ({
+  /**
+   * Видит ли устройство запрос HITL (TASK-142.3, decision-84 п. 5): запрос агента участника — его устройствам, а после
+   * таймаута — старшим ролям. Без модуля Team — все одобренные устройства, как раньше.
+   */
+  private hitlVisibleTo(request: HitlRequest | undefined, device: { id: string; name?: string; memberId?: string; rights?: DeviceRights }, now = Date.now()): boolean {
+    if (!request) return false;
+    const ref = { id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights: this.effectiveDeviceRights(device) };
+    return editionRegistry.hitlVisible({ ...(request.memberId ? { memberId: request.memberId } : {}), createdAt: request.createdAt }, ref, now);
+  }
+
+  /** Видит ли запрос устройство из реестра токенов (push, HTTP API). */
+  private hitlVisibleToRecord(request: HitlRequest, deviceId: string, now = Date.now()): boolean {
+    const record = this.deviceTokens.get(deviceId);
+    if (!record) return false;
+    return this.hitlVisibleTo(request, { id: deviceId, name: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), rights: record.rights }, now);
+  }
+
+  /** Карточка запроса HITL для телефона и hub-клиента — без диффов и содержимого файлов. */
+  private hitlEventPayload(r: HitlRequest) {
+    return {
+      requestId: r.id,
+      sessionId: r.sessionId,
+      projectPath: r.projectPath,
+      origin: r.origin,
+      agentName: r.agentName,
+      role: r.role,
+      tool: r.tool || r.type,
+      type: r.type,
+      risk: r.risk,
+      riskReason: r.riskReason,
+      description: r.title,
+      details: r.details,
+      command: r.command,
+      filePath: r.filePath,
+      expiresAt: r.expiresAt,
+      ...(r.memberId ? { memberId: r.memberId } : {})
+    };
+  }
+
+  /**
+   * Эскалация запроса участника (decision-84 п. 5): не ответил за таймаут — запрос получают старшие роли. Уходит только
+   * тем устройствам, которые не видели его раньше.
+   */
+  private armHitlEscalation(r: HitlRequest): void {
+    const at = editionRegistry.hitlEscalateAt({ ...(r.memberId ? { memberId: r.memberId } : {}), createdAt: r.createdAt });
+    if (at === undefined || (r.expiresAt !== undefined && at >= r.expiresAt)) return;
+    const timer = setTimeout(() => {
+      this.hitlEscalations.delete(r.id);
+      const pending = hitlService.getPending(r.id);
+      if (!pending || !this.enabled) return;
+      const now = Date.now();
+      const isNew = (visibleNow: boolean, visibleBefore: boolean) => visibleNow && !visibleBefore;
+      this.broadcastEvent('ai:hitl', { ...this.hitlEventPayload(pending), escalated: true }, {
+        audience: (d) => isNew(this.hitlVisibleTo(pending, d, now), this.hitlVisibleTo(pending, d, pending.createdAt))
+      });
+      void this.pushService
+        .onHitlRequested(pending, (target) => isNew(this.hitlVisibleToRecord(pending, target.deviceId, now), this.hitlVisibleToRecord(pending, target.deviceId, pending.createdAt)))
+        .catch(() => undefined);
+      logger.info(`[RemoteControl] HITL ${r.id} участника ${r.memberId ?? 'owner'} передан старшим ролям по таймауту`);
+    }, Math.max(0, at - Date.now()));
+    timer.unref?.();
+    this.hitlEscalations.set(r.id, timer);
+  }
+
+  private clearHitlEscalation(requestId: string): void {
+    const timer = this.hitlEscalations.get(requestId);
+    if (timer) clearTimeout(timer);
+    this.hitlEscalations.delete(requestId);
+  }
+
+  /**
+   * Писать в сессию Studio может только её владелец (decision-84 п. 5). Остановить чужой ответ может и старшая роль.
+   * Сессии ещё нет на диске — проверяет окно.
+   */
+  private async assertStudioWriter(projectPath: string, sessionIdRaw: unknown, device: RemoteDevice, action: 'write' | 'abort' = 'write'): Promise<void> {
+    const sessionId = typeof sessionIdRaw === 'string' ? sessionIdRaw : '';
+    if (!sessionId) return;
+    const session = await aiSessionStore.get(projectPath, sessionId).catch(() => null);
+    if (!session || canWriteStudioSession(session, device.memberId)) return;
+    if (action === 'abort' && !editionRegistry.checkOwnership(session.memberId, device.memberId, 'session')) return;
+    throw new Error(STUDIO_READ_ONLY_ERROR);
+  }
+
+  private pendingApprovals(filter: { projectPath?: string } = {}, device?: RemoteDevice) {
+    return hitlService.listPending(filter).filter((r) => !device || this.hitlVisibleTo(r, device)).map((r) => ({
       requestId: r.id,
       sessionId: r.sessionId,
       projectPath: r.projectPath,
@@ -1282,7 +1358,7 @@ class RemoteControlService {
     const out: PushTarget[] = [];
     for (const [deviceId, record] of this.deviceTokens.entries()) {
       if (!record.push || !this.isTokenApproved(record)) continue;
-      out.push({ deviceId, registration: record.push, canDecide: !this.readOnly && record.rights !== 'readOnly' });
+      out.push({ deviceId, registration: record.push, canDecide: !this.readOnly && record.rights !== 'readOnly', ...(record.memberId ? { memberId: record.memberId } : {}) });
     }
     return out;
   }
@@ -1320,7 +1396,7 @@ class RemoteControlService {
       { approved: action.decision === 'allow' },
       { kind: 'remote', deviceId: action.deviceId, deviceName: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), confirm: action.confirm }
     );
-    if (!result.ok) return { status: 409, result: { ok: false, reason: result.reason, ...(result.risk ? { risk: result.risk } : {}) } };
+    if (!result.ok) return { status: 409, result: { ok: false, reason: result.reason === 'not_owner' ? result.message : result.reason, ...(result.risk ? { risk: result.risk } : {}) } };
     this.notifyRenderer('remote:hitlDecisionMade', {
       requestId: action.requestId,
       sessionId: result.request.sessionId,
@@ -2037,8 +2113,13 @@ class RemoteControlService {
       }
 
       if (url.pathname === '/api/hitl/pending' && req.method === 'GET') {
-        // Без диффов и содержимого файлов — наружу уходит только то, что нужно для решения.
-        const pending = hitlService.listPending().map((r) => ({
+        // Без диффов и содержимого файлов — наружу уходит только то, что нужно для решения. Устройству участника —
+        // только адресованные ему запросы (TASK-142.3).
+        const listPrincipal = this.apiPrincipal(req, url);
+        const pending = hitlService
+          .listPending()
+          .filter((r) => listPrincipal?.kind !== 'device' || this.hitlVisibleToRecord(r, listPrincipal.deviceId))
+          .map((r) => ({
           id: r.id,
           sessionId: r.sessionId,
           projectPath: r.projectPath,
@@ -2099,7 +2180,7 @@ class RemoteControlService {
             res.writeHead(result.ok ? 200 : 409, { 'Content-Type': 'application/json' });
             res.end(
               JSON.stringify(
-                result.ok ? { ok: true, requestId: payload.requestId } : { ok: false, reason: result.reason, ...(result.risk ? { risk: result.risk } : {}) }
+                result.ok ? { ok: true, requestId: payload.requestId } : { ok: false, reason: result.reason === 'not_owner' ? result.message : result.reason, ...(result.risk ? { risk: result.risk } : {}) }
               )
             );
           } catch {
@@ -3249,7 +3330,7 @@ class RemoteControlService {
           { kind: 'remote', deviceId: device.id, deviceName: device.name, ...(device.memberId ? { memberId: device.memberId } : {}), confirm, confirmVerified }
         );
         if (!result.ok) {
-          return { ok: false, decision: approved, reason: result.reason, ...(result.risk ? { risk: result.risk } : {}) };
+          return { ok: false, decision: approved, reason: result.reason === 'not_owner' ? result.message : result.reason, ...(result.risk ? { risk: result.risk } : {}) };
         }
         this.notifyRenderer('remote:hitlDecisionMade', {
           requestId,
@@ -3375,6 +3456,7 @@ class RemoteControlService {
       case 'studio_clear': {
         const projectPath = String(params.projectPath || '');
         await assertRegisteredProject(projectPath);
+        await this.assertStudioWriter(projectPath, params.sessionId, device);
         const reply = await studioRemoteBridge.request({ kind: 'clear', projectPath, sessionId: String(params.sessionId || '') });
         if (!reply.ok) throw new Error(reply.error || 'Не удалось очистить сессию');
         return { ok: true };
@@ -3409,6 +3491,7 @@ class RemoteControlService {
         if (!text) throw new Error('prompt is required');
         if (text.length > 100_000) throw new Error('Промпт слишком длинный');
         const sessionId = typeof params.sessionId === 'string' && params.sessionId ? params.sessionId : undefined;
+        if (sessionId) await this.assertStudioWriter(projectPath, sessionId, device);
         const reply = await studioRemoteBridge.request({
           kind: 'send',
           projectPath,
@@ -3416,7 +3499,9 @@ class RemoteControlService {
           text,
           ...(parseStudioSelection(params.selection) ? { selection: parseStudioSelection(params.selection) } : {}),
           ...(parseStudioMode(params.mode) ? { mode: parseStudioMode(params.mode) } : {}),
-          deviceName: device.name
+          deviceName: device.name,
+          // Новая сессия участника общего хоста — его (TASK-142.3): worktree, HITL и стоимость по нему.
+          ...(device.memberId ? { memberId: device.memberId } : {})
         });
         if (!reply.ok || !reply.sessionId) throw new Error(reply.error || 'Agents Studio не приняла промпт');
         this.phoneStudioSessions.add(reply.sessionId);
@@ -3433,6 +3518,7 @@ class RemoteControlService {
       case 'studio_abort': {
         const projectPath = String(params.projectPath || '');
         await assertRegisteredProject(projectPath);
+        await this.assertStudioWriter(projectPath, params.sessionId, device, 'abort');
         const reply = await studioRemoteBridge.request({ kind: 'abort', projectPath, sessionId: String(params.sessionId || '') });
         if (!reply.ok) throw new Error(reply.error || 'Не удалось остановить');
         return { ok: true };
@@ -3488,6 +3574,7 @@ class RemoteControlService {
           engine: role?.engine || 'claude-cli',
           ...(role?.model ? { model: role.model } : {}),
           origin: 'swarm',
+          ...(device.memberId ? { memberId: device.memberId } : {}),
           slots: 1
         });
       }
@@ -3511,7 +3598,9 @@ class RemoteControlService {
           taskTitle: typeof params.taskTitle === 'string' ? params.taskTitle : undefined,
           prompt: typeof params.prompt === 'string' && params.prompt.trim() ? params.prompt : `Выполни задачу ${taskId}.`,
           roleSlug,
-          useWorktrees: params.useWorktrees !== false
+          useWorktrees: params.useWorktrees !== false,
+          // Агент участника — в его worktree, с HITL ему и стоимостью на него (TASK-142.3).
+          ...(device.memberId ? { memberId: device.memberId } : {})
         });
         if ('error' in result) throw new Error(result.error);
         this.trackPhoneSwarm(result.id);
@@ -3521,6 +3610,10 @@ class RemoteControlService {
       case 'stop_swarm': {
         const swarmId = typeof params.swarmId === 'string' ? params.swarmId : '';
         if (!swarmId) throw new Error('swarmId is required');
+        // Чужой рой участника останавливает только он сам или старшая роль (TASK-142.3).
+        const swarm = agentFleetService.getSwarm(swarmId);
+        const denied = swarm ? editionRegistry.checkOwnership(swarm.memberId, device.memberId, 'session') : null;
+        if (denied) throw new Error(denied);
         return { stopped: agentFleetService.stopSwarm(swarmId) };
       }
 
@@ -3545,7 +3638,11 @@ class RemoteControlService {
 
       case 'get_events_since': {
         const sinceId = Number(params.sinceId) || 0;
-        return { events: this.eventLog.filter((e) => e.id > sinceId), lastEventId: this.eventLogNextId - 1 };
+        // Адресные события (HITL участника) догоняет только тот, кому они адресованы.
+        const events = this.eventLog
+          .filter((e) => e.id > sinceId && (!e.audience || e.audience(device)))
+          .map(({ id, event, data }) => ({ id, event, data }));
+        return { events, lastEventId: this.eventLogNextId - 1 };
       }
 
       // Push на это устройство с этого ПК (TASK-140.3, decision-115): включается явно и отдельно для каждого ПК.
@@ -3584,23 +3681,25 @@ class RemoteControlService {
         const requestId = typeof params.requestId === 'string' ? params.requestId : '';
         if (!requestId) throw new Error('requestId is required');
         const pendingRequest = hitlService.getPending(requestId);
-        if (!pendingRequest) throw new Error('Запрос не найден — возможно, уже решён');
+        if (!pendingRequest || !this.hitlVisibleTo(pendingRequest, device)) throw new Error('Запрос не найден — возможно, уже решён');
         return hitlDetailForPhone(pendingRequest);
       }
 
       case 'get_pending_approvals': {
-        return this.pendingApprovals(params.projectPath ? { projectPath: String(params.projectPath) } : {});
+        return this.pendingApprovals(params.projectPath ? { projectPath: String(params.projectPath) } : {}, device);
       }
 
       // «Входящие» (TASK-140.5, decision-117): всё, что ждёт человека, по всем проектам этого ПК.
-      case 'get_inbox':
-        return this.inbox.getInbox({ hostId: this.hostId, machineName: this.machineName || os.hostname() });
+      case 'get_inbox': {
+        const inbox = await this.inbox.getInbox({ hostId: this.hostId, machineName: this.machineName || os.hostname() });
+        return { ...inbox, hitl: inbox.hitl.filter((h) => this.hitlVisibleTo(hitlService.getPending(h.requestId), device)) };
+      }
 
       case 'inbox_dismiss':
         return this.inbox.dismiss(params.ids);
 
       case 'review_task': {
-        const res = await this.inbox.reviewTask(params, { name: device.name, rights: device.rights ?? 'full' });
+        const res = await this.inbox.reviewTask(params, { name: device.name, rights: device.rights ?? 'full', ...(device.memberId ? { memberId: device.memberId } : {}) });
         this.broadcastEvent('backlog:changed', { projectPath: String(params.projectPath || '') });
         return res;
       }
@@ -3761,7 +3860,8 @@ class RemoteControlService {
   /**
    * Отправка push-события всем подключенным клиентам.
    */
-  public broadcastEvent(event: string, data: any, opts: { transient?: boolean } = {}) {
+  public broadcastEvent(event: string, data: any, opts: { transient?: boolean; audience?: (device: RemoteDevice) => boolean } = {}) {
+    const reaches = (device: RemoteDevice) => !opts.audience || opts.audience(device);
     // Задачи поменяли с устройства: счётчики In Progress и Review в сводке флота устарели.
     if (event === 'backlog:changed') this.overview.markChanged();
     if (!this.enabled) return;
@@ -3771,7 +3871,7 @@ class RemoteControlService {
     if (opts.transient) {
       const packet: PlainPacket = { type: 'event', event, data };
       for (const client of this.localClients.values()) {
-        if (client.ws.readyState === WebSocket.OPEN && client.device.isApproved && client.isEncrypted) {
+        if (client.ws.readyState === WebSocket.OPEN && client.device.isApproved && client.isEncrypted && reaches(client.device)) {
           try {
             client.ws.send(JSON.stringify(this.sealForClient(client.session, true, packet)));
           } catch {
@@ -3779,7 +3879,7 @@ class RemoteControlService {
           }
         }
       }
-      this.sendToRelayClients(packet);
+      this.sendToRelayClients(packet, reaches);
       return;
     }
 
@@ -3794,12 +3894,12 @@ class RemoteControlService {
       eventId
     };
 
-    this.eventLog.push({ id: eventId, event, data });
+    this.eventLog.push({ id: eventId, event, data, ...(opts.audience ? { audience: opts.audience } : {}) });
     if (this.eventLog.length > EVENT_LOG_MAX) this.eventLog.shift();
 
     // Отправка локальным клиентам
     for (const client of this.localClients.values()) {
-      if (client.ws.readyState === WebSocket.OPEN && client.device.isApproved) {
+      if (client.ws.readyState === WebSocket.OPEN && client.device.isApproved && reaches(client.device)) {
         try {
           client.ws.send(JSON.stringify(this.sealForClient(client.session, client.isEncrypted, payload)));
         } catch {
@@ -3808,17 +3908,17 @@ class RemoteControlService {
       }
     }
 
-    this.sendToRelayClients(payload);
+    this.sendToRelayClients(payload, reaches);
   }
 
   /**
    * События клиентам релея — адресно, каждому в его протоколе (decision-111). Раньше один пакет общим ключом
    * уходил всем клиентам хоста на релее, включая ещё не прошедших `handshake`; у сессий v2 ключи свои.
    */
-  private sendToRelayClients(payload: PlainPacket): void {
+  private sendToRelayClients(payload: PlainPacket, reaches: (device: RemoteDevice) => boolean = () => true): void {
     if (!this.relayWs || this.relayWs.readyState !== WebSocket.OPEN) return;
     for (const device of this.connectedDevices.values()) {
-      if (device.mode !== 'relay' || !device.isApproved) continue;
+      if (device.mode !== 'relay' || !device.isApproved || !reaches(device)) continue;
       try {
         const frame = this.sealForClient(this.relaySessions.get(device.id), true, payload);
         this.relayWs.send(JSON.stringify({ ...frame, targetClientId: device.id }));

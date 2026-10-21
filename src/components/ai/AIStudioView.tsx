@@ -737,8 +737,15 @@ export const AIStudioView: React.FC = () => {
         </div>
       )}
 
+      {/* Сессия участника общего хоста (TASK-142.3): окно хоста её только читает — пишет участник со своих устройств */}
+      {currentSession?.memberId && (
+        <div className="mx-3 mb-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200" data-testid="studio-member-readonly">
+          {t.aiStudio.memberSession(currentSession.memberId)}
+        </div>
+      )}
+
       {/* 3. Isolated Memoized Prompt Input Area (0ms typing lag) */}
-      <PromptInputArea
+      {!currentSession?.memberId && <PromptInputArea
         mode={mode}
         isStreaming={isStreaming}
         tasks={tasks}
@@ -791,7 +798,7 @@ export const AIStudioView: React.FC = () => {
             {config.autoApprove && <span>{t.aiStudio.autoApprove}</span>}
           </button>
         }
-      />
+      />}
 
       {/* Settings Modal */}
       <AISettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />

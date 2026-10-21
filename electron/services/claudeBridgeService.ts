@@ -29,6 +29,7 @@ import { getApiToolExecutor } from './apiToolExecutorDeps.js';
 import { createStudioToolCallbacks } from './studioToolAdapter.js';
 import { claudeCliEffortArgs, normalizeReasoningEffort } from './reasoningEffort.js';
 import { usesClaudeCli } from './modelTarget.js';
+import { editionRegistry, launcherGitEnv } from '../extensions/editionRegistry.js';
 import {
   applyRolePermissions,
   evaluateToolRequest,
@@ -1259,6 +1260,8 @@ class ClaudeBridgeService extends EventEmitter {
       systemPromptAddon?: string;
       /** Аккаунт Claude Code вкладки Agents Studio (TASK-170): перекрывает привязку проекта, как аккаунт слота. */
       claudeAccountId?: string;
+      /** Участник общего хоста, чья сессия (TASK-142.3): git-автор коммитов, которые делает CLI. */
+      memberId?: string;
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1353,6 +1356,7 @@ class ClaudeBridgeService extends EventEmitter {
       builtinTools?: string[];
       systemPromptAddon?: string;
       claudeAccountId?: string;
+      memberId?: string;
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1498,6 +1502,8 @@ class ClaudeBridgeService extends EventEmitter {
             ...process.env,
             FORCE_COLOR: '0',
             CLAUDE_CONFIG_DIR: account.configDir,
+            // Сессия участника общего хоста: коммиты CLI подписаны им, коммиттер — ProjectHub Agent (TASK-142.3).
+            ...launcherGitEnv(editionRegistry.launcherProfile(req.memberId)),
             // Инструмент разрешений ждёт человека — стандартный таймаут MCP-инструмента слишком мал.
             ...hitlEnv
           }

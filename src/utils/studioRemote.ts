@@ -91,6 +91,17 @@ export interface SummaryContext {
   profileNames?: ReadonlyMap<string, string>;
 }
 
+/** Отказ при записи в чужую сессию участника общего хоста (TASK-142.3). */
+export const STUDIO_READ_ONLY_ERROR = 'Это сессия другого участника: её можно читать, но писать в неё может только он';
+
+/**
+ * Можно ли писать в сессию Agents Studio (decision-84 п. 5): только её владелец. Сессия владельца хоста (без
+ * `memberId`) — для окна хоста и устройств владельца; сессия участника — только для его устройств.
+ */
+export function canWriteStudioSession(session: Pick<AISession, 'memberId'>, writerMemberId: string | undefined): boolean {
+  return (session.memberId || undefined) === (writerMemberId || undefined);
+}
+
 export function summarizeStudioSession(s: AISession, ctx: SummaryContext): RemoteStudioSessionSummary {
   const lastUser = [...s.messages].reverse().find((m) => m.role === 'user');
   const modelLabel = selectionLabel(s.lastSelection, ctx.profileNames);
@@ -103,6 +114,7 @@ export function summarizeStudioSession(s: AISession, ctx: SummaryContext): Remot
     archived: typeof s.archivedAt === 'number',
     ...(s.origin ? { origin: s.origin } : {}),
     ...(s.originDevice ? { originDevice: s.originDevice } : {}),
+    ...(s.memberId ? { memberId: s.memberId } : {}),
     ...(modelLabel ? { modelLabel } : {}),
     running: ctx.running,
     preview: lastUser ? clip(oneLine(lastUser.content || ''), STUDIO_PHONE_LIMITS.preview).text : ''

@@ -40,6 +40,7 @@ import { ModelRouteError } from '../services/modelRouter';
 import { buildTaskDraftPrompt, parseTaskDraft } from '../services/taskDraftPrompt';
 import { providerErrorInfoOf } from '../services/providerErrors';
 import { usesClaudeCli } from '../services/modelTarget';
+import { hitlService } from '../services/hitlService';
 import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
 import type { IpcContext } from './types';
 
@@ -51,7 +52,23 @@ function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
     engine: usesClaudeCli(req.config) ? 'claude-cli' : 'api',
     ...(req.config.model ? { model: req.config.model } : {}),
     origin: 'studio',
+    ...(req.memberId ? { memberId: req.memberId } : {}),
     slots: 1
+  };
+}
+
+/**
+ * Сессия Studio участника общего хоста (TASK-142.3, decision-84 п. 4, 8): рабочий каталог — его worktree, а не
+ * активное дерево окна; без доверия (роль ниже maintainer) — только с HITL. Ошибка — запуск не идёт.
+ */
+async function applyStudioMember(req: AIStreamRequest): Promise<AIStreamRequest> {
+  if (!req.memberId) return req;
+  const trusted = editionRegistry.launcherProfile(req.memberId)?.trusted === true;
+  const workspace = await editionRegistry.memberWorkspace({ projectPath: req.projectPath, memberId: req.memberId, ...(req.taskId ? { taskId: req.taskId } : {}) });
+  return {
+    ...req,
+    ...(workspace ? { workspaceRoot: workspace.worktreePath } : {}),
+    ...(trusted ? {} : { config: { ...req.config, autoApprove: false } })
   };
 }
 
@@ -250,7 +267,8 @@ export function registerAiIpc(ctx: IpcContext) {
   studioRemoteBridge.setWindowGetter(() => ctx.getMainWindow());
 
   // AI Stream Chat
-  ipcMain.handle('ai:streamChat', async (_event, req: AIStreamRequest) => {
+  ipcMain.handle('ai:streamChat', async (_event, rawReq: AIStreamRequest) => {
+    let req = rawReq;
     const targetWin = ctx.getMainWindow();
     if (!targetWin) return;
     const send = (channel: string, payload: unknown, extra?: unknown) => {
@@ -271,6 +289,16 @@ export function registerAiIpc(ctx: IpcContext) {
       studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message);
       return;
     }
+    try {
+      req = await applyStudioMember(req);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      send(`ai:error:${req.sessionId}`, message);
+      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message);
+      return;
+    }
+    // Запросы HITL сессии участника уходят его устройствам (decision-84 п. 5). Сессия принадлежит ему навсегда.
+    hitlService.bindSessionOwner(req.sessionId, req.memberId);
     const startedAt = Date.now();
     try {
       await claudeBridgeService.runAgentTask(

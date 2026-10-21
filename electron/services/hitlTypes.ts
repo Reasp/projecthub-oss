@@ -83,6 +83,8 @@ export interface HitlRequest {
   claudeAccount?: string;
   /** Хост, на котором работает агент (federation, decision-11). */
   hostId?: string;
+  /** Участник общего хоста, чей агент спрашивает (TASK-142.3): ему запрос и уходит. Пусто — владелец хоста. */
+  memberId?: string;
   /** Имя инструмента движка (Bash, Write, run_command …). */
   tool?: string;
   /** Класс риска; считает `hitlService.request` (`classifyRisk`), вызывающий сервис может только ужесточить. */
@@ -132,7 +134,9 @@ export interface HitlDecisionSource {
 
 export type HitlDecideResult =
   | { ok: true; request: HitlRequest }
-  | { ok: false; reason: 'not_found' | 'already_decided' | 'invalid_source' | 'confirmation_required'; risk?: HitlRisk };
+  | { ok: false; reason: 'not_found' | 'already_decided' | 'invalid_source' | 'confirmation_required'; risk?: HitlRisk }
+  /** Запрос чужого агента: решает запустивший участник или maintainer (TASK-142.3). */
+  | { ok: false; reason: 'not_owner'; message: string; risk?: undefined };
 
 export type HitlOutcome = 'executed' | 'failed' | 'not_executed' | 'session_gone';
 

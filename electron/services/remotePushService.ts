@@ -25,6 +25,8 @@ export interface PushTarget {
   deviceId: string;
   registration: PushRegistration;
   canDecide: boolean;
+  /** Устройство участника общего хоста (TASK-142.3). Без поля — устройство владельца. */
+  memberId?: string;
 }
 
 export interface RemotePushDeps {
@@ -80,11 +82,16 @@ export class RemotePushService {
     return true;
   }
 
-  /** Новый запрос HITL: подробный push каждому устройству с включённым push, если человек не видит запрос сам. */
-  async onHitlRequested(request: HitlRequest): Promise<void> {
+  /**
+   * Новый запрос HITL: подробный push каждому устройству с включённым push, если человек не видит запрос сам. `only`
+   * сужает адресатов (запрос агента участника — его устройствам, TASK-142.3). За ПК хоста сидит владелец: его
+   * активность глушит push только устройствам владельца, участник запрос на экране хоста не видит.
+   */
+  async onHitlRequested(request: HitlRequest, only?: (target: PushTarget) => boolean): Promise<void> {
     const activity = this.deps.pcActivity();
     for (const target of this.deps.targets()) {
-      if (shouldSuppressPush({ ...activity, deviceOnline: this.deps.deviceOnline(target.deviceId) })) continue;
+      if (only && !only(target)) continue;
+      if (!target.memberId && shouldSuppressPush({ ...activity, deviceOnline: this.deps.deviceOnline(target.deviceId) })) continue;
       if (!this.allow(target.deviceId)) continue;
       const payload = hitlPushPayload(request, {
         hostId: this.deps.hostId(),

@@ -145,6 +145,45 @@ export interface RemoteMethodSpec {
   handler: (params: Record<string, unknown>, ctx: RemoteCallContext) => unknown;
 }
 
+// ── Работа участника общего хоста (TASK-142.3, decision-135) ──
+
+/** Кто запустил агента: git-автор его коммитов и доверие к нему. */
+export interface LauncherProfile {
+  memberId: string;
+  name: string;
+  email: string;
+  /** Может работать без HITL и с терминалом хоста (maintainer и выше). */
+  trusted: boolean;
+}
+
+/** Личное рабочее дерево участника, в котором идут его агенты и сессии. */
+export interface MemberWorkspace {
+  worktreePath: string;
+  branch: string;
+}
+
+export interface LauncherProvider {
+  profile(memberId: string): LauncherProfile | null;
+  /** Worktree участника для задачи (без задачи — личный). Ошибка — запуск запрещён, без отката в основное дерево. */
+  workspace(input: { projectPath: string; memberId: string; taskId?: string }): Promise<MemberWorkspace | null>;
+}
+
+/** Запрос HITL для маршрутизации: чей он и когда создан. */
+export interface HitlRouteRef {
+  memberId?: string;
+  createdAt: number;
+}
+
+export interface HitlRouting {
+  /** Видит ли устройство запрос в момент `now`. */
+  visible(request: HitlRouteRef, device: RemoteDeviceRef, now: number): boolean;
+  /** Когда запрос становится виден старшим ролям (эскалация), если становится. */
+  escalateAt(request: HitlRouteRef): number | undefined;
+}
+
+/** Действие над чужой работой: решить чужой HITL, писать в чужую сессию, остановить чужой рой. */
+export type OwnershipAction = 'hitl' | 'session';
+
 const RIGHTS_RANK: Record<DeviceRightsName, number> = { readOnly: 0, hitl: 1, full: 2 };
 
 /** Меньшие из двух прав. */
@@ -176,6 +215,12 @@ export interface EditionMainApi {
   addRemoteMethod(name: string, spec: RemoteMethodSpec): void;
   /** Сопряжённые устройства хоста. */
   devices(): DeviceDirectory;
+  /** Профиль и worktree участника, запустившего агента. */
+  setLauncherProvider(provider: LauncherProvider): void;
+  /** Кому из устройств показывать запрос HITL и когда звать старших. */
+  setHitlRouting(routing: HitlRouting): void;
+  /** Запрет действия над работой другого участника: строка — причина отказа. */
+  addOwnershipGuard(guard: (ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => string | null): void;
 }
 
 export interface SaveTextFileOptions {
@@ -216,6 +261,9 @@ let pairingRedeemer: ((input: { code: string; deviceId: string; deviceName: stri
 const remoteMethods = new Map<string, RemoteMethodSpec>();
 const emptyDirectory: DeviceDirectory = { list: () => [], revoke: () => undefined };
 let deviceDirectory: DeviceDirectory = emptyDirectory;
+let launcherProvider: LauncherProvider | null = null;
+let hitlRouting: HitlRouting | null = null;
+const ownershipGuards: Array<(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => string | null> = [];
 
 export const editionRegistry = {
   api(): EditionMainApi {
@@ -245,8 +293,70 @@ export const editionRegistry = {
       addRemoteMethod: (name, spec) => {
         remoteMethods.set(name, spec);
       },
-      devices: () => deviceDirectory
+      devices: () => deviceDirectory,
+      setLauncherProvider: (provider) => {
+        launcherProvider = provider;
+      },
+      setHitlRouting: (routing) => {
+        hitlRouting = routing;
+      },
+      addOwnershipGuard: (guard) => {
+        ownershipGuards.push(guard);
+      }
     };
+  },
+
+  /** Профиль участника-запускающего; без модуля или для владельца хоста — `null` (работа как раньше). */
+  launcherProfile(memberId: string | undefined): LauncherProfile | null {
+    if (!memberId || !launcherProvider) return null;
+    try {
+      return launcherProvider.profile(memberId);
+    } catch (err) {
+      console.warn('[edition] Профиль участника не получен:', err);
+      return null;
+    }
+  },
+
+  /**
+   * Worktree участника. Ошибку провайдера пробрасывает: агент участника не должен молча уйти в основное дерево
+   * хоста (decision-84 п. 4).
+   */
+  async memberWorkspace(input: { projectPath: string; memberId: string | undefined; taskId?: string }): Promise<MemberWorkspace | null> {
+    if (!input.memberId || !launcherProvider) return null;
+    return launcherProvider.workspace({ projectPath: input.projectPath, memberId: input.memberId, ...(input.taskId ? { taskId: input.taskId } : {}) });
+  },
+
+  /** Видит ли устройство запрос HITL. Без модуля — все одобренные устройства, как раньше. Сбой — не видит. */
+  hitlVisible(request: HitlRouteRef, device: RemoteDeviceRef, now: number): boolean {
+    if (!hitlRouting) return true;
+    try {
+      return hitlRouting.visible(request, device, now);
+    } catch (err) {
+      console.warn('[edition] Маршрут HITL упал:', err);
+      return false;
+    }
+  },
+
+  hitlEscalateAt(request: HitlRouteRef): number | undefined {
+    if (!hitlRouting) return undefined;
+    try {
+      return hitlRouting.escalateAt(request);
+    } catch {
+      return undefined;
+    }
+  },
+
+  /** Причина запрета действия над чужой работой или `null`. Сбой проверки — запрет. */
+  checkOwnership(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction): string | null {
+    for (const guard of ownershipGuards) {
+      try {
+        const reason = guard(ownerMemberId, actorMemberId, action);
+        if (reason) return reason;
+      } catch (err) {
+        return `Проверка владельца не удалась: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    return null;
   },
 
   /** Права устройства после всех сужений. Сбой ограничения — только чтение: права не должны молча расширяться. */
@@ -371,8 +481,27 @@ export const editionRegistry = {
     pairingRedeemer = null;
     remoteMethods.clear();
     deviceDirectory = emptyDirectory;
+    launcherProvider = null;
+    hitlRouting = null;
+    ownershipGuards.length = 0;
   }
 };
+
+/**
+ * Окружение git для процессов агента участника: автор — участник, коммиттер — ProjectHub Agent (decision-8 п. 1).
+ * Так подписываются и коммиты, которые агент делает сам, и авто-коммит результата.
+ */
+export function launcherGitEnv(profile: LauncherProfile | null): Record<string, string> {
+  if (!profile) return {};
+  return {
+    GIT_AUTHOR_NAME: profile.name,
+    GIT_AUTHOR_EMAIL: profile.email,
+    GIT_COMMITTER_NAME: AGENT_COMMITTER.name,
+    GIT_COMMITTER_EMAIL: AGENT_COMMITTER.email
+  };
+}
+
+export const AGENT_COMMITTER = { name: 'ProjectHub Agent', email: 'agent@projecthub.local' } as const;
 
 /** Бюджет сессии с учётом потолка ограничений: меньший из двух, если потолок есть. */
 export function capSessionBudget(ownBudgetUsd: number | undefined, capUsd: number | undefined): number | undefined {

@@ -55,7 +55,7 @@ export interface RemoteInboxDeps {
   agentTasks(): Promise<RemotePendingAgentTask[]>;
   swarms(projectPath?: string): SwarmSession[];
   /** Новая сессия роли по задаче (тот же путь, что `start_assigned_agent`). */
-  startAgent(options: { projectPath: string; taskId: string; taskTitle: string; roleSlug: string; prompt: string; doneLoop: boolean }): Promise<{ swarmId: string } | { error: string }>;
+  startAgent(options: { projectPath: string; taskId: string; taskTitle: string; roleSlug: string; prompt: string; doneLoop: boolean; memberId?: string }): Promise<{ swarmId: string } | { error: string }>;
   updateTask(projectPath: string, taskId: string, mutate: (data: Record<string, unknown>, content: string) => { data: Record<string, unknown>; content: string }): Promise<boolean>;
   applyNote(content: string, note: string): string;
   timestamp(): string;
@@ -256,7 +256,7 @@ export class RemoteInboxService {
    * Implementation Notes и, по флагу `restart`, новым запуском роли. Задача должна быть в Review: двойное нажатие на
    * двух телефонах не переведёт задачу, которую уже приняли или вернули.
    */
-  async reviewTask(params: Record<string, unknown>, device: { name: string; rights: DeviceRights }): Promise<RemoteReviewResult> {
+  async reviewTask(params: Record<string, unknown>, device: { name: string; rights: DeviceRights; memberId?: string }): Promise<RemoteReviewResult> {
     const action = params.action;
     if (action !== 'done' && action !== 'return') throw new Error('action must be done or return');
     const { projectPath, task } = await this.reviewTaskOf(params.projectPath, params.taskId);
@@ -288,7 +288,16 @@ export class RemoteInboxService {
       `Комментарий проверяющего:\n${comment}`,
       'Исправь замечания и доведи задачу до критериев приёмки.'
     ].join('\n\n');
-    const res = await this.deps.startAgent({ projectPath, taskId: task.id, taskTitle: task.title, roleSlug, prompt, doneLoop: Boolean(prior?.doneLoop) });
+    const res = await this.deps.startAgent({
+      projectPath,
+      taskId: task.id,
+      taskTitle: task.title,
+      roleSlug,
+      prompt,
+      doneLoop: Boolean(prior?.doneLoop),
+      // Доработку по замечаниям запускает участник — агент в его worktree (TASK-142.3).
+      ...(device.memberId ? { memberId: device.memberId } : {})
+    });
     if ('error' in res) throw new Error(`Задача возвращена, агент не запущен: ${res.error}`);
     return { ok: true, status, swarmId: res.swarmId };
   }

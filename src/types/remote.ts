@@ -522,6 +522,8 @@ export interface RemoteStudioSessionSummary {
   /** Сессию начали с телефона. */
   origin?: 'desktop' | 'phone';
   originDevice?: string;
+  /** Участник общего хоста, чья сессия (TASK-142.3): писать может только он. Без поля — владелец хоста. */
+  memberId?: string;
   modelLabel?: string;
   /** Агент сейчас отвечает в этой сессии. */
   running: boolean;

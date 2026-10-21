@@ -118,7 +118,7 @@ import { AGENT_TRACE_FORMAT, AGENT_TRACE_VERSION, type AgentCheckpoint, type Age
 import { redactSecrets } from './hitlAudit.js';
 import type { HitlRequest, RolePermissions } from './hitlTypes.js';
 import { superviseChildExit, type ChildExitSupervisor } from './processSweep.js';
-import { capSessionBudget, editionRegistry, type AgentLaunchContext, type AgentLaunchVerdict, type AgentOutcomeRecord, type LiveAgentRun } from '../extensions/editionRegistry.js';
+import { capSessionBudget, editionRegistry, launcherGitEnv, AGENT_COMMITTER, type AgentLaunchContext, type AgentLaunchVerdict, type AgentOutcomeRecord, type LiveAgentRun } from '../extensions/editionRegistry.js';
 import type { ComposeResult, ComposeSelection, JudgeState } from './arenaTypes.js';
 import type { BacklogRenumberSummary } from '../../src/types/electron';
 import type {
@@ -1374,6 +1374,11 @@ export class AgentFleetService extends EventEmitter {
         if (seen.has(key)) continue;
         seen.add(key);
         if (normalizeFsPath(agent.worktreePath) === normalizeFsPath(session.projectPath)) continue;
+        // Личный worktree участника живёт дольше сессии: работа фиксируется коммитом, каталог остаётся.
+        if (session.memberWorktree && key === normalizeFsPath(session.memberWorktree.path)) {
+          if (this.pathExists(agent.worktreePath)) await this.materializeAgentResult(session, agent).catch(() => undefined);
+          continue;
+        }
         try {
           if (this.pathExists(agent.worktreePath)) {
             await this.materializeAgentResult(session, agent);
@@ -1454,7 +1459,8 @@ export class AgentFleetService extends EventEmitter {
     taskId: string | undefined,
     origin: SwarmOrigin | undefined,
     cfg: AgentSlotConfig,
-    slots: number
+    slots: number,
+    memberId?: string
   ): AgentLaunchContext {
     return {
       projectPath,
@@ -1464,6 +1470,7 @@ export class AgentFleetService extends EventEmitter {
       engine: cfg.engine,
       ...(cfg.providerConfig?.model ? { model: cfg.providerConfig.model } : {}),
       origin: origin ?? 'swarm',
+      ...(memberId ? { memberId } : {}),
       slots
     };
   }
@@ -1476,11 +1483,12 @@ export class AgentFleetService extends EventEmitter {
     projectPath: string,
     taskId: string | undefined,
     origin: SwarmOrigin | undefined,
-    agents: AgentSlotConfig[]
+    agents: AgentSlotConfig[],
+    memberId?: string
   ): Promise<AgentLaunchVerdict> {
     const verdicts: AgentLaunchVerdict[] = [];
     for (const cfg of agents) {
-      verdicts.push(await editionRegistry.checkAgentLaunch(this.launchContext(projectPath, taskId, origin, cfg, agents.length)));
+      verdicts.push(await editionRegistry.checkAgentLaunch(this.launchContext(projectPath, taskId, origin, cfg, agents.length, memberId)));
     }
     const blocked = verdicts.find((v) => !v.allowed);
     if (blocked) throw new Error(blocked.reason || 'Запуск агента запрещён ограничениями');
@@ -1490,6 +1498,41 @@ export class AgentFleetService extends EventEmitter {
       ...(caps.length > 0 ? { capUsd: Math.min(...caps) } : {}),
       notices: verdicts.flatMap((v) => v.notices)
     };
+  }
+
+  /**
+   * Запуск от имени участника общего хоста (TASK-142.3, decision-84 п. 4, 8): агент идёт в личном worktree
+   * участника — без отката в основное дерево, если его не удалось подготовить, — а участнику без доверия
+   * (роль ниже maintainer) режим без HITL недоступен, даже если его разрешают глобальные настройки или роль.
+   */
+  private async prepareMemberLaunch(
+    projectPath: string,
+    memberId: string | undefined,
+    taskId: string | undefined,
+    agents: AgentSlotConfig[]
+  ): Promise<{ agents: AgentSlotConfig[]; memberWorktree?: { path: string; branch: string } }> {
+    if (!memberId) return { agents };
+    const workspace = await editionRegistry.memberWorkspace({ projectPath, memberId, ...(taskId ? { taskId } : {}) });
+    if (workspace && agents.length > 1) {
+      throw new Error('Агент участника работает в его worktree: несколько агентов в одном запуске участнику недоступны');
+    }
+    const trusted = editionRegistry.launcherProfile(memberId)?.trusted === true;
+    return {
+      agents: trusted ? agents : agents.map((cfg) => ({ ...cfg, permissions: { ...(cfg.permissions ?? {}), autoApprove: false } })),
+      ...(workspace ? { memberWorktree: { path: workspace.worktreePath, branch: workspace.branch } } : {})
+    };
+  }
+
+  /** Результат участника уходит в основную ветку только очередью слияния (decision-84 п. 6). */
+  private memberMergeError(session: SwarmSession): string | null {
+    return session.memberWorktree
+      ? `Результат участника в ветке ${session.memberWorktree.branch} попадает в основную ветку через очередь слияния, а не напрямую`
+      : null;
+  }
+
+  /** Окружение git процессов агента: автор — участник, коммиттер — ProjectHub Agent. Для владельца — пусто. */
+  private memberGitEnv(session: SwarmSession): Record<string, string> {
+    return launcherGitEnv(editionRegistry.launcherProfile(session.memberId));
   }
 
   /** Итог результата агента для точек расширения (отчёты о пользе, TASK-146). */
@@ -1509,6 +1552,7 @@ export class AgentFleetService extends EventEmitter {
       ...(agent.config.roleSlug ? { roleSlug: agent.config.roleSlug } : {}),
       engine: agent.config.engine,
       ...(model ? { model } : {}),
+      ...(session.memberId ? { memberId: session.memberId } : {}),
       ...(typeof agent.metrics.costUsd === 'number' ? { costUsd: agent.metrics.costUsd } : {}),
       durationMs: Date.now() - session.createdAt
     });
@@ -1528,6 +1572,7 @@ export class AgentFleetService extends EventEmitter {
         engine: agent.config.engine,
         ...(agent.metrics.usage?.model || this.effectiveModel(agent) ? { model: agent.metrics.usage?.model || this.effectiveModel(agent) } : {}),
         origin: session.origin ?? 'swarm',
+        ...(session.memberId ? { memberId: session.memberId } : {}),
         sessionId: session.id,
         agentId: agent.id,
         status: 'running',
@@ -1543,8 +1588,9 @@ export class AgentFleetService extends EventEmitter {
    * Запуск режима Fan-Out (соревнование / параллельная генерация).
    */
   public async startFanOut(options: StartFanOutOptions): Promise<SwarmSession> {
-    const { projectPath, prompt, taskId, taskTitle, agents } = options;
-    const launch = await this.checkLaunch(projectPath, taskId, options.origin, agents);
+    const { projectPath, prompt, taskId, taskTitle } = options;
+    const launch = await this.checkLaunch(projectPath, taskId, options.origin, options.agents, options.memberId);
+    const { agents, memberWorktree } = await this.prepareMemberLaunch(projectPath, options.memberId, taskId, options.agents);
     const budgetUsd = capSessionBudget(options.budgetUsd, launch.capUsd);
     const useWorktrees = options.useWorktrees !== false;
     const autoCommitAgentResults = options.autoCommitAgentResults !== false;
@@ -1564,6 +1610,8 @@ export class AgentFleetService extends EventEmitter {
       ...(options.origin ? { origin: options.origin } : {}),
       ...(options.automation ? { automation: options.automation } : {}),
       ...(options.review ? { review: options.review } : {}),
+      ...(options.memberId ? { memberId: options.memberId } : {}),
+      ...(memberWorktree ? { memberWorktree } : {}),
       mode: 'fan_out',
       prompt,
       baseBranch,
@@ -1600,6 +1648,8 @@ export class AgentFleetService extends EventEmitter {
     roleSlug: string;
     hostId?: string;
     useWorktrees?: boolean;
+    /** Участник общего хоста, который запустил агента с устройства (TASK-142.3). */
+    memberId?: string;
   }): Promise<SwarmSession | { error: string }> {
     if (options.hostId && options.hostId !== hitlService.currentHostId) {
       return { error: `Хост "${options.hostId}" недоступен — федерация между машинами ещё не реализована (TASK-66).` };
@@ -1624,6 +1674,7 @@ export class AgentFleetService extends EventEmitter {
     maxIterations?: number;
     origin?: SwarmOrigin;
     automation?: SwarmAutomationMeta;
+    memberId?: string;
   }): Promise<SwarmSession | { error: string }> {
     const built = await this.buildRoleSlot(
       options.projectPath,
@@ -1647,7 +1698,8 @@ export class AgentFleetService extends EventEmitter {
           ...(budgetUsd ? { budgetUsd } : {}),
           ...(options.maxIterations ? { maxIterations: options.maxIterations } : {}),
           ...(options.origin ? { origin: options.origin } : {}),
-          ...(options.automation ? { automation: options.automation } : {})
+          ...(options.automation ? { automation: options.automation } : {}),
+          ...(options.memberId ? { memberId: options.memberId } : {})
         });
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };
@@ -1663,6 +1715,7 @@ export class AgentFleetService extends EventEmitter {
         useWorktrees: options.useWorktrees,
         ...(options.origin ? { origin: options.origin } : {}),
         ...(options.automation ? { automation: options.automation } : {}),
+        ...(options.memberId ? { memberId: options.memberId } : {}),
         ...(budgetUsd ? { budgetUsd } : {}),
         agents: [slot]
       });
@@ -1721,7 +1774,11 @@ export class AgentFleetService extends EventEmitter {
         this.prepareAgentForResume(session, agentState);
         continue;
       }
-      if (session.useWorktrees) {
+      if (session.memberWorktree) {
+        agentState.worktreePath = session.memberWorktree.path;
+        agentState.worktreeBranch = session.memberWorktree.branch;
+        this.log(session, agentState, `[Swarm] Worktree участника: ${session.memberWorktree.path} (ветка ${session.memberWorktree.branch})`);
+      } else if (session.useWorktrees) {
         try {
           const agentSlug = sanitizeSlug(agentState.config.name || agentState.id);
           const branchName = `swarm/${session.id.slice(-6)}/${agentSlug}`;
@@ -1780,7 +1837,8 @@ export class AgentFleetService extends EventEmitter {
     if (!options.agent) throw new Error('Не задан агент-исполнитель');
     const task = await findTaskFile(projectPath, taskId);
     if (!task) throw new Error(`Задача ${taskId} не найдена в backlog/tasks`);
-    const launch = await this.checkLaunch(projectPath, taskId, options.origin, [options.agent]);
+    const launch = await this.checkLaunch(projectPath, taskId, options.origin, [options.agent], options.memberId);
+    const member = await this.prepareMemberLaunch(projectPath, options.memberId, taskId, [options.agent]);
 
     const settings = await loadDoneLoopSettings(projectPath, {
       maxIterations: options.maxIterations,
@@ -1793,7 +1851,7 @@ export class AgentFleetService extends EventEmitter {
     const baseBranch = await this.detectBaseBranch(projectPath, options.baseBranch);
     await this.getPriceTable();
 
-    const agentState = this.newAgentState(options.agent, options.agent.id || `done-${Date.now().toString(36)}`, Date.now());
+    const agentState = this.newAgentState(member.agents[0], options.agent.id || `done-${Date.now().toString(36)}`, Date.now());
     const session: SwarmSession = {
       id: swarmId,
       projectPath,
@@ -1801,6 +1859,8 @@ export class AgentFleetService extends EventEmitter {
       taskTitle: options.taskTitle ?? (typeof task.data.title === 'string' ? task.data.title : undefined),
       ...(options.origin ? { origin: options.origin } : {}),
       ...(options.automation ? { automation: options.automation } : {}),
+      ...(options.memberId ? { memberId: options.memberId } : {}),
+      ...(member.memberWorktree ? { memberWorktree: member.memberWorktree } : {}),
       mode: 'done_loop',
       prompt,
       baseBranch,
@@ -1840,6 +1900,10 @@ export class AgentFleetService extends EventEmitter {
 
     if (resume) {
       this.prepareAgentForResume(session, agent);
+    } else if (how === 'start' && session.memberWorktree) {
+      agent.worktreePath = session.memberWorktree.path;
+      agent.worktreeBranch = session.memberWorktree.branch;
+      this.log(session, agent, `[Swarm] Worktree участника: ${session.memberWorktree.path} (ветка ${session.memberWorktree.branch})`);
     } else if (how === 'start' && session.useWorktrees) {
       try {
         const branchName = `swarm/${session.id.slice(-6)}/done-${sanitizeSlug(session.taskId || agent.config.name || agent.id)}`;
@@ -2042,6 +2106,8 @@ export class AgentFleetService extends EventEmitter {
   public async composeFromCandidates(swarmId: string, selections: ComposeSelection[]): Promise<ComposeResult> {
     const session = this.sessions.get(swarmId);
     if (!session) return { success: false, error: `Swarm session ${swarmId} not found` };
+    const memberMerge = this.memberMergeError(session);
+    if (memberMerge) return { success: false, error: memberMerge };
 
     // Шлюз безопасности по выбранным файлам (decision-56 п. 7) — до того, как файлы попадут в основное дерево.
     const gateItems = selections
@@ -2209,6 +2275,8 @@ export class AgentFleetService extends EventEmitter {
     // Новый usage за этот ход: recordUsage всегда записывает новый объект.
     const usageBeforeRun = agentState.metrics.usage;
     this.liveRuns.set(agentState.id, { session, agent: agentState, startedAt: startTime, costBefore: usageBeforeRun?.costUsd ?? 0 });
+    // Запросы HITL агента участника уходят ему (decision-84 п. 5): движку не нужно знать об участниках.
+    const unbindHitlOwner = hitlService.bindSessionOwner(this.hitlSessionId(agentState), session.memberId);
     try {
       // Тир модели и fallback-цепочка (decision-44): без тира — один проход, как раньше.
       const routing = await this.prepareModelRouting(session, agentState);
@@ -2302,6 +2370,7 @@ export class AgentFleetService extends EventEmitter {
       const runUsage = usageDelta(agentState.metrics.usage, usageBeforeRun);
       if (runUsage) this.trace(session, agentState, { type: 'usage', scope: 'run', usage: runUsage });
       this.liveRuns.delete(agentState.id);
+      unbindHitlOwner();
       // Итог запуска с расходом — точкам расширения (журнал расходов и бюджеты Team, decision-124).
       editionRegistry.emitAgentRun({
         at: Date.now(),
@@ -2313,6 +2382,7 @@ export class AgentFleetService extends EventEmitter {
         engine: agentState.config.engine,
         ...(runUsage?.model || startModel ? { model: runUsage?.model || startModel } : {}),
         origin: session.origin ?? 'swarm',
+        ...(session.memberId ? { memberId: session.memberId } : {}),
         sessionId: session.id,
         agentId: agentState.id,
         status: agentState.status,
@@ -2813,6 +2883,7 @@ export class AgentFleetService extends EventEmitter {
             ...process.env,
             FORCE_COLOR: '0',
             CLAUDE_CONFIG_DIR: account.configDir,
+            ...this.memberGitEnv(session),
             ...hitl.env
           }
         });
@@ -3128,7 +3199,7 @@ export class AgentFleetService extends EventEmitter {
           cwd: targetPath,
           shell: true,
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, FORCE_COLOR: '0' }
+          env: { ...process.env, FORCE_COLOR: '0', ...this.memberGitEnv(session) }
         });
       } catch {
         return this.runCliApiFallback(session, agentState, targetPath, prompt, role, 'Codex CLI не запустился (бинарник не найден)')
@@ -3269,7 +3340,7 @@ export class AgentFleetService extends EventEmitter {
           cwd: targetPath,
           shell: true,
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, FORCE_COLOR: '0' }
+          env: { ...process.env, FORCE_COLOR: '0', ...this.memberGitEnv(session) }
         });
       } catch {
         return this.runCliApiFallback(session, agentState, targetPath, prompt, role, 'Gemini CLI не запустился (бинарник не найден)')
@@ -3955,6 +4026,8 @@ export class AgentFleetService extends EventEmitter {
 
     // 1. Слияние ветки
     let mergedBranch: string | undefined;
+    const memberMerge = mergeIntoBase ? this.memberMergeError(session) : null;
+    if (memberMerge) return { success: false, error: memberMerge };
     if (mergeIntoBase && winnerAgent.worktreeBranch) {
       const gate = await this.securityMergeGate(session, [{ agent: winnerAgent }], options.automatic === true);
       if (!gate.ok) return { success: false, error: gate.error };
@@ -4149,13 +4222,16 @@ export class AgentFleetService extends EventEmitter {
         const taskOrSession = session.taskId || session.id;
         const commitMsg = commitMessage ?? `agent(${role}): ${taskOrSession}`;
 
-        // Коммит с явным авторством ProjectHub Agent без изменения глобального gitconfig
+        // Коммиттер — ProjectHub Agent без изменения глобального gitconfig; автор — участник общего хоста, если
+        // агента запустил он (decision-84 п. 5), иначе тоже ProjectHub Agent.
+        const author = editionRegistry.launcherProfile(session.memberId);
         await git.raw([
           '-c',
-          'user.name=ProjectHub Agent',
+          `user.name=${AGENT_COMMITTER.name}`,
           '-c',
-          'user.email=agent@projecthub.local',
+          `user.email=${AGENT_COMMITTER.email}`,
           'commit',
+          ...(author ? [`--author=${author.name} <${author.email}>`] : []),
           '-m',
           commitMsg
         ]);
