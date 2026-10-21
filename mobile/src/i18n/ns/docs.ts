@@ -26,7 +26,36 @@ export const en = {
     proposed: 'proposed',
     rejected: 'rejected',
     deprecated: 'deprecated'
-  } as Record<string, string>
+  } as Record<string, string>,
+  branches: {
+    title: 'Documentation branches',
+    hint: 'Agent edits that are not in the main documentation yet',
+    proposed: 'awaiting acceptance',
+    open: 'in progress',
+    docs: (n: number) => `${n} docs`,
+    conflicts: (n: number) => `conflicts: ${n}`,
+    added: 'new',
+    modified: 'modified',
+    removed: 'removed',
+    mainChanged: 'main changed too',
+    renumbered: (from: string, to: string) => `${from} is taken in main → ${to}`,
+    changed: 'Changed',
+    willRemove: 'The document will be removed from main.',
+    same: 'Main already matches the branch.',
+    conflictHint: 'Changed differently in main and in the branch — choose what to keep.',
+    ours: 'Main',
+    theirs: 'Branch',
+    both: 'Both',
+    acceptAll: 'Accept all',
+    acceptDoc: 'Accept this document',
+    reject: 'Reject',
+    rejectConfirm: 'Reject the branch? Its edits will be discarded.',
+    merged: 'Accepted. Files are written on the computer without a commit.',
+    partial: 'Document accepted. Other edits still await a decision.',
+    nothing: 'Nothing to accept.',
+    conflictLeft: (n: number) => `Unresolved conflicts: ${n}`,
+    failed: (e: string) => `Failed: ${e}`
+  }
 };
 
 export const ru: typeof en = {
@@ -56,5 +85,34 @@ export const ru: typeof en = {
     proposed: 'предложено',
     rejected: 'отклонено',
     deprecated: 'устарело'
+  },
+  branches: {
+    title: 'Ветки документации',
+    hint: 'Правки агентов, которых ещё нет в основной документации',
+    proposed: 'ждёт принятия',
+    open: 'в работе',
+    docs: (n: number) => `${n} док.`,
+    conflicts: (n: number) => `конфликтов: ${n}`,
+    added: 'новый',
+    modified: 'изменён',
+    removed: 'удалён',
+    mainChanged: 'основная тоже менялась',
+    renumbered: (from: string, to: string) => `${from} занят в основной → ${to}`,
+    changed: 'Изменено',
+    willRemove: 'Документ будет удалён из основной.',
+    same: 'Основная уже совпадает с веткой.',
+    conflictHint: 'Изменено по-разному в основной и в ветке — выберите, что оставить.',
+    ours: 'Основная',
+    theirs: 'Ветка',
+    both: 'Обе',
+    acceptAll: 'Принять всё',
+    acceptDoc: 'Принять документ',
+    reject: 'Отклонить',
+    rejectConfirm: 'Отклонить ветку? Правки в ней будут отброшены.',
+    merged: 'Принято. Файлы записаны на компьютере без коммита.',
+    partial: 'Документ принят. Остальные правки ждут решения.',
+    nothing: 'Принимать нечего.',
+    conflictLeft: (n: number) => `Конфликтов без решения: ${n}`,
+    failed: (e: string) => `Не удалось: ${e}`
   }
 };

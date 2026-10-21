@@ -70,6 +70,10 @@ const api: IElectronAPI = {
   readDoc: (filePath: string) => ipcRenderer.invoke('docs:read', filePath),
   saveDoc: (filePath: string, content: string) => ipcRenderer.invoke('docs:save', filePath, content),
   createDoc: (projectPath: string, params: any) => ipcRenderer.invoke('docs:create', projectPath, params),
+  listDocBranches: (projectPath: string) => ipcRenderer.invoke('docs:branches:list', projectPath),
+  diffDocBranch: (projectPath: string, branchId: string) => ipcRenderer.invoke('docs:branches:diff', projectPath, branchId),
+  mergeDocBranch: (projectPath: string, branchId: string, options?: any) => ipcRenderer.invoke('docs:branches:merge', projectPath, branchId, options),
+  closeDocBranch: (projectPath: string, branchId: string) => ipcRenderer.invoke('docs:branches:close', projectPath, branchId),
 
   // Project Template Wizard
   checkTemplateAvailable: (customSource?: string) =>

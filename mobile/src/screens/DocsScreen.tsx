@@ -27,6 +27,7 @@ import { useT } from '../i18n/react';
 import { DocsCache } from '../protocol/docsCache';
 import { docBodyForDisplay, filterDocs, headingKey, splitFrontmatter } from '../protocol/docsModel';
 import { createDocsCacheStorage } from '../platform/docsCacheIdb';
+import { DocBranchesPanel } from './DocBranchesPanel';
 
 /**
  * Документация проекта (TASK-140.17): дерево разделов с документами и решениями, поиск по названию и id, чтение
@@ -197,6 +198,8 @@ function DocsList({ controller }: { controller: DocsController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getState);
   const [query, setQuery] = useState(ui.query);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(ui.expanded);
+  // Ветки документации (decision-151) перечитываются вместе со списком по жесту обновления.
+  const [branchesTick, setBranchesTick] = useState(0);
 
   useEffect(() => {
     ui.query = query;
@@ -225,7 +228,13 @@ function DocsList({ controller }: { controller: DocsController }) {
   const unsupported = isUnsupportedHostError(state.listError);
 
   return (
-    <Screen onRefresh={() => controller.refreshList()}>
+    <Screen
+      onRefresh={() => {
+        setBranchesTick((n) => n + 1);
+        return controller.refreshList();
+      }}
+    >
+      {state.projectPath && !state.listFromCache && <DocBranchesPanel projectPath={state.projectPath} refreshTick={branchesTick} />}
       <div className="relative mb-3">
         <MagnifyingGlassIcon size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
         <input

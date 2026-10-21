@@ -65,6 +65,8 @@ export function defaultChannelMatrix(): Record<NotificationKind, NotificationCha
     securityFinding: ['tray', 'os', 'telegram', 'remote'],
     // Задачи агента не исполнятся, пока человек их не подтвердит (decision-89): ему нужно узнать о них вне окна.
     agentTask: ['tray', 'os', 'telegram', 'remote'],
+    // Ветка документации ждёт решения человека (decision-151): без него правки агента не попадут в основную.
+    docBranch: ['tray', 'os', 'telegram', 'remote'],
     // Деньги: остановка запусков по лимиту случается без человека у экрана, предупреждение заранее — тоже.
     spendLimit: ['tray', 'os', 'telegram', 'remote'],
     // Очередь слияния: участникам события уходят адресно на их устройства, канал «remote» здесь разослал бы всем.
@@ -554,6 +556,22 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         action: { type: 'openTask', projectPath: event.projectPath, ...(single ? { taskId: single.id } : {}) },
         // Кнопка «Подтвердить» в Telegram (TASK-155): билет подтверждает ровно задачи этой пачки.
         ...(event.approvalTicket ? { agentTaskApproval: { ticket: event.approvalTicket, count: ids.length } } : {})
+      };
+    }
+    // ── Ветки документации (TASK-194, decision-151): уведомляем только о предложении слияния — ждёт человека ──
+    case 'docs:branchChanged': {
+      if (event.event !== 'proposed') return null;
+      return {
+        id: `doc-branch-${event.branchId}-${event.at}`,
+        kind: 'docBranch',
+        severity: 'warning',
+        title: trim(`Правки документации ждут принятия: ${event.branchId}${event.title ? ` «${event.title}»` : ''}`, 120),
+        body: [projectName(event.projectPath), event.author].filter(Boolean).join(' · '),
+        at: event.at,
+        dedupKey: `docBranch:${event.projectPath}:${event.branchId}:${event.at}`,
+        projectPath: event.projectPath,
+        projectName: projectName(event.projectPath),
+        action: { type: 'openDocBranch', projectPath: event.projectPath, branchId: event.branchId }
       };
     }
     case 'automation:notify':

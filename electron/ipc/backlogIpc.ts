@@ -31,6 +31,8 @@ import { listMilestones, createMilestone, saveMilestone, deleteMilestone } from 
 import { assertInsideRegisteredProject, assertRegisteredProject } from '../services/projectPathGuard';
 import { DEFAULT_TASK_STATUS } from '../../src/utils/taskStatus.js';
 import { agentTaskApproval } from '../services/agentTaskApprovalInstance';
+import { diffDocBranch, sanitizeResolutions } from '../services/docBranches';
+import { closeDocBranchAsHuman, docBranchesOverview, mergeDocBranchAsHuman } from '../services/docBranchActions';
 import type { IpcContext } from './types';
 
 function fmString(value: unknown): string | undefined {
@@ -277,6 +279,32 @@ export function registerBacklogIpc(ctx: IpcContext) {
 
   ipcMain.handle('docs:create', async (_event, projectPath: string, params: CreateDocParams) => {
     return await createProjectDoc(await assertRegisteredProject(projectPath), params);
+  });
+
+  // Ветки документации (TASK-194, decision-151): список, дифф, принятие и отклонение человеком.
+  ipcMain.handle('docs:branches:list', async (_event, projectPath: string) => {
+    return await docBranchesOverview(await assertRegisteredProject(projectPath));
+  });
+
+  ipcMain.handle('docs:branches:diff', async (_event, projectPath: string, branchId: string) => {
+    return await diffDocBranch(await assertRegisteredProject(projectPath), String(branchId));
+  });
+
+  ipcMain.handle(
+    'docs:branches:merge',
+    async (_event, projectPath: string, branchId: string, options?: { docs?: unknown; resolutions?: unknown }) => {
+      const docs = Array.isArray(options?.docs) ? options.docs.filter((d): d is string => typeof d === 'string') : undefined;
+      return await mergeDocBranchAsHuman(
+        await assertRegisteredProject(projectPath),
+        String(branchId),
+        { ...(docs?.length ? { docs } : {}), resolutions: sanitizeResolutions(options?.resolutions) },
+        { kind: 'local' }
+      );
+    }
+  );
+
+  ipcMain.handle('docs:branches:close', async (_event, projectPath: string, branchId: string) => {
+    return await closeDocBranchAsHuman(await assertRegisteredProject(projectPath), String(branchId), { kind: 'local' });
   });
 
   // Milestones

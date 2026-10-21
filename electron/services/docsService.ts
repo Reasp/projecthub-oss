@@ -401,15 +401,6 @@ export async function createProjectDoc(
   const targetDir = path.join(normalizedProject, 'backlog', category === 'decision' ? 'decisions' : 'docs');
   await fs.mkdir(targetDir, { recursive: true });
 
-  const user = splitUserContent(params.content);
-  const tags = (params.tags && params.tags.length > 0 ? params.tags : toStringList(user.data.tags))
-    .map((t) => t.trim())
-    .filter(Boolean);
-
-  const stamp = nowStamp();
-  const lines: string[] = ['---'];
-  let status: string | undefined;
-
   // Номер выбираем непосредственно перед записью, чтобы не поймать гонку с CLI/другой сессией;
   // если файл с таким id уже успел появиться — берём следующий.
   let num = await nextFreeNumber(normalizedProject, targetDir, prefix);
@@ -421,6 +412,55 @@ export async function createProjectDoc(
     fullPath = path.join(targetDir, `${id} - ${titleSlug(cleanTitle)}.md`);
   }
 
+  const rendered = renderNewDocFile(params, id);
+
+  // 'wx' — не перезаписывать, если файл появился между проверкой и записью.
+  await fs.writeFile(fullPath, rendered.content, { encoding: 'utf-8', flag: 'wx' });
+
+  const stat = await fs.stat(fullPath);
+  return {
+    id,
+    title: cleanTitle,
+    category,
+    filePath: fullPath,
+    fileRelative: path.relative(normalizedProject, fullPath).replace(/\\/g, '/'),
+    tags: rendered.tags,
+    section: rendered.section,
+    status: rendered.status,
+    date: rendered.date,
+    updatedAt: stat.mtime.toISOString(),
+    size: stat.size
+  };
+}
+
+export interface RenderedDocFile {
+  /** Имя файла `<id> - <Title-Slug>.md`. */
+  fileName: string;
+  /** Каталог относительно `backlog/`: `docs` или `decisions`. */
+  dir: 'docs' | 'decisions';
+  content: string;
+  tags: string[];
+  section?: string;
+  status?: string;
+  date: string;
+}
+
+/**
+ * Файл нового документа или решения по стандарту Backlog.md с уже выданным `id`: frontmatter, шаблон тела,
+ * имя файла. Без записи на диск — ветка документации (decision-151) кладёт его в свой коммит.
+ */
+export function renderNewDocFile(params: CreateDocParams, id: string): RenderedDocFile {
+  const category: DocCategory = params.type === 'decision' ? 'decision' : 'doc';
+  const cleanTitle = params.title.trim();
+  if (!cleanTitle) throw new Error('Название документа не может быть пустым');
+  const user = splitUserContent(params.content);
+  const tags = (params.tags && params.tags.length > 0 ? params.tags : toStringList(user.data.tags))
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  const stamp = nowStamp();
+  const lines: string[] = ['---'];
+  let status: string | undefined;
   lines.push(`id: ${id}`);
   lines.push(`title: ${yamlString(cleanTitle)}`);
   if (category === 'decision') {
@@ -437,23 +477,44 @@ export async function createProjectDoc(
   lines.push('---', '');
 
   const body = user.body ?? (category === 'decision' ? decisionTemplate(cleanTitle) : docTemplate(cleanTitle));
-  const fileContent = lines.join('\n') + '\n' + body;
-
-  // 'wx' — не перезаписывать, если файл появился между проверкой и записью.
-  await fs.writeFile(fullPath, fileContent, { encoding: 'utf-8', flag: 'wx' });
-
-  const stat = await fs.stat(fullPath);
   return {
-    id,
-    title: cleanTitle,
-    category,
-    filePath: fullPath,
-    fileRelative: path.relative(normalizedProject, fullPath).replace(/\\/g, '/'),
+    fileName: `${id} - ${titleSlug(cleanTitle)}.md`,
+    dir: category === 'decision' ? 'decisions' : 'docs',
+    content: lines.join('\n') + '\n' + body,
     tags,
     section,
     status,
-    date: stamp,
-    updatedAt: stat.mtime.toISOString(),
-    size: stat.size
+    date: stamp
+  };
+}
+
+/** Документ из текста файла без чтения диска: для файлов ветки документации (decision-151). */
+export function docItemFromContent(raw: string, fileRelative: string, projectRoot: string): DocItem {
+  const rel = fileRelative.replace(/\\/g, '/');
+  const category: DocCategory = rel.startsWith('backlog/decisions/') ? 'decision' : 'doc';
+  const categoryRoot = category === 'decision' ? 'backlog/decisions' : 'backlog/docs';
+  const fileName = path.posix.basename(rel);
+  let data: Record<string, unknown> = {};
+  let content = raw;
+  try {
+    const parsed = matter(raw);
+    data = parsed.data ?? {};
+    content = parsed.content;
+  } catch {
+    // битый frontmatter — id и заголовок из имени файла
+  }
+  const h1 = content.match(/^#\s+(.+)$/m);
+  return {
+    id: resolveDocId(data, fileName, category),
+    title: toOptionalString(data.title) || (h1 ? h1[1].trim() : fileName.replace(/\.md$/i, '')),
+    category,
+    filePath: path.join(projectRoot, ...rel.split('/')),
+    fileRelative: rel,
+    tags: toStringList(data.tags),
+    section: normalizeSection(toOptionalString(data.section)) ?? sectionFromRelativePath(path.posix.relative(categoryRoot, rel)),
+    status: category === 'decision' ? toOptionalString(data.status) || 'accepted' : toOptionalString(data.status),
+    date: toOptionalString(data.date) ?? toOptionalString(data.created_date),
+    updatedAt: new Date(0).toISOString(),
+    size: Buffer.byteLength(raw, 'utf-8')
   };
 }

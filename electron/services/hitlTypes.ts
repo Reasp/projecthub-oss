@@ -225,9 +225,19 @@ export interface RolePermissions {
    * Не задано — `ask` у роли, `propose` у сессии без роли.
    */
   taskCreate?: TaskCreateMode;
+  /**
+   * Слияние ветки документации агентом (`doc_branch_merge`, decision-151): `allow` — сразу (роль-ревьюер документации),
+   * `ask` — через карточку HITL, `deny` — запрещено. Не задано — `ask`.
+   */
+  docMerge?: DocMergeMode;
 }
 
 export type TaskCreateMode = 'propose' | 'ask' | 'deny';
+export type DocMergeMode = 'allow' | 'ask' | 'deny';
+
+export function isDocMergeMode(value: unknown): value is DocMergeMode {
+  return value === 'allow' || value === 'ask' || value === 'deny';
+}
 
 // ─────────────────────────── Шина событий (decision-10, п. 5) ───────────────────────────
 
@@ -398,6 +408,16 @@ export type AppBusEvent =
       at: number;
       /** Билет кнопки «Подтвердить» вне окна (TASK-155): подтверждает ровно задачи этой пачки. */
       approvalTicket?: string;
+    }
+  /** Ветка документации открыта, изменена, подтянула основную, предложена, принята или закрыта (decision-151). */
+  | {
+      type: 'docs:branchChanged';
+      projectPath: string;
+      branchId: string;
+      event: 'opened' | 'updated' | 'synced' | 'proposed' | 'merged' | 'closed';
+      title?: string;
+      author?: string;
+      at: number;
     }
   /** Действие `notify` правила автоматизации. */
   | {

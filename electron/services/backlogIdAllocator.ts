@@ -8,7 +8,8 @@ import { TASK_DIRS, formatBacklogId, indexBacklogPaths, nextSubtaskNumber, nextT
  *
  * Номер — максимум занятых плюс один, где занятые:
  * - файлы `backlog/` проекта (задачи — во всех каталогах, включая `archive/drafts`);
- * - закоммиченные локальные ветки и удалённые ветки после последнего `fetch` (`git ls-tree`, без checkout);
+ * - закоммиченные локальные ветки, удалённые ветки после последнего `fetch` и ветки документации
+ *   (`git ls-tree`, без checkout);
  * - незакоммиченные файлы `backlog/` соседних worktree проекта.
  * Без git или при ошибке git — только диск: создание задачи из-за git не ломается.
  */
@@ -86,7 +87,8 @@ export async function collectTakenBacklogPaths(projectPath: string, options: Col
   try {
     const prefix = (await git(['rev-parse', '--show-prefix'], { cwd: root })).trim().replace(/\\/g, '/');
     const backlogPrefix = `${prefix}backlog/`;
-    const refs = await git(['for-each-ref', '--format=%(objectname)', 'refs/heads', 'refs/remotes'], { cwd: root });
+    // refs/projecthub/docs — ветки документации (decision-151): номер, выданный в ветке, тоже занят.
+    const refs = await git(['for-each-ref', '--format=%(objectname)', 'refs/heads', 'refs/remotes', 'refs/projecthub/docs'], { cwd: root });
     for (const sha of new Set(refs.split('\n').map((l) => l.trim()).filter(Boolean))) {
       paths.push(...(await backlogPathsAtCommit(git, root, sha, backlogPrefix).catch(() => [])));
     }

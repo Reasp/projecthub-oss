@@ -997,6 +997,79 @@ export interface CreateDocParams {
   content?: string;
 }
 
+// ── Ветки документации (TASK-194, decision-151) — зеркало electron/services/docBranches.ts ──
+
+export type DocResolution = 'ours' | 'theirs' | 'both' | { text: string };
+export type DocBranchResolutions = Record<string, Record<string, DocResolution>>;
+
+export interface DocBranchMeta {
+  id: string;
+  title: string;
+  status: 'open' | 'proposed' | 'merged' | 'closed';
+  prefix: string;
+  base: string;
+  author?: string;
+  sessionId?: string;
+  task?: string;
+  createdAt: string;
+  updatedAt: string;
+  proposal?: string;
+  proposedAt?: string;
+  mergedAt?: string;
+  mergedBy?: string;
+  closedAt?: string;
+}
+
+export interface DocConflict {
+  key: string;
+  label: string;
+  scope: 'frontmatter' | 'section';
+  base: string | null;
+  ours: string | null;
+  theirs: string | null;
+}
+
+export interface DocBranchFile {
+  path: string;
+  branchPath: string;
+  docId: string;
+  title: string;
+  change: 'added' | 'modified' | 'removed';
+  parts: Array<{ key: string; label: string; scope: 'frontmatter' | 'section'; change: 'added' | 'removed' | 'modified' }>;
+  mainChanged: boolean;
+  conflicts: DocConflict[];
+  renumberedFrom?: string;
+  base: string | null;
+  branch: string | null;
+  main: string | null;
+  merged: string | null;
+}
+
+export interface DocBranchDiff {
+  branch: DocBranchMeta;
+  files: DocBranchFile[];
+  renumbered: Array<{ kind: string; from: string; to: string }>;
+}
+
+export interface DocBranchSummary extends DocBranchMeta {
+  docs: Array<{ docId: string; title: string; path: string; change: 'added' | 'modified' | 'removed'; conflicts: number }>;
+  conflicts: number;
+}
+
+export interface DocBranchesOverview {
+  available: boolean;
+  branches: DocBranchSummary[];
+}
+
+export interface DocBranchMergeResult {
+  status: 'merged' | 'partial' | 'conflict' | 'nothing';
+  written: string[];
+  removed: string[];
+  renumbered: Array<{ kind: string; from: string; to: string }>;
+  conflicts: Array<DocConflict & { doc: string; path: string }>;
+  branch: DocBranchMeta;
+}
+
 export interface IElectronAPI {
   // Projects & Registry
   listProjects: () => Promise<ProjectInfo[]>;
@@ -1020,6 +1093,16 @@ export interface IElectronAPI {
   readDoc: (filePath: string) => Promise<string>;
   saveDoc: (filePath: string, content: string) => Promise<boolean>;
   createDoc: (projectPath: string, params: CreateDocParams) => Promise<DocItem>;
+  /** Ветки документации (TASK-194, decision-151): открытые и предложенные с изменёнными документами. */
+  listDocBranches: (projectPath: string) => Promise<DocBranchesOverview>;
+  diffDocBranch: (projectPath: string, branchId: string) => Promise<DocBranchDiff>;
+  /** Принять ветку целиком или документы `docs`; конфликт без `resolutions` — ничего не пишется. */
+  mergeDocBranch: (
+    projectPath: string,
+    branchId: string,
+    options?: { docs?: string[]; resolutions?: DocBranchResolutions }
+  ) => Promise<DocBranchMergeResult>;
+  closeDocBranch: (projectPath: string, branchId: string) => Promise<DocBranchMeta>;
 
   // Project Template Wizard
   checkTemplateAvailable: (customSource?: string) => Promise<TemplateAvailability>;
@@ -1870,6 +1953,8 @@ export interface RolePermissions {
   approvalTimeoutMin?: number;
   /** Заведение задач агентом (decision-89): `propose` — с меткой `agent-created`, `ask` — карточка HITL, `deny`. */
   taskCreate?: 'propose' | 'ask' | 'deny';
+  /** Принятие ветки документации агентом (decision-151); не задано — через карточку. */
+  docMerge?: 'allow' | 'ask' | 'deny';
 }
 
 // Реестр ролей агентов (decision-9, TASK-60). Зеркало `electron/services/roleTypes.ts`.
@@ -2671,6 +2756,7 @@ export type NotificationKind =
   | 'prReview'
   | 'securityFinding'
   | 'agentTask'
+  | 'docBranch'
   | 'spendLimit'
   | 'mergeQueue';
 
@@ -2685,6 +2771,7 @@ export type NotificationAction =
   | { type: 'openAutomations'; projectPath?: string }
   | { type: 'openSecurity'; projectPath?: string }
   | { type: 'openTask'; projectPath?: string; taskId?: string }
+  | { type: 'openDocBranch'; projectPath?: string; branchId?: string }
   | { type: 'openApp' };
 
 export interface AppNotification {

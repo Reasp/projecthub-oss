@@ -46,6 +46,8 @@ export type NotificationKind =
   | 'securityFinding'
   /** Агент завёл задачи, они ждут подтверждения человека (TASK-153, decision-89). */
   | 'agentTask'
+  /** Агент предложил слить ветку документации, она ждёт человека (TASK-194, decision-151). */
+  | 'docBranch'
   /** Ограничение расходов: израсходована заметная доля или весь лимит, запуски остановлены (decision-124). */
   | 'spendLimit'
   /** Очередь слияния общего хоста: ждёт ревью, слито, возвращено, пауза (TASK-142.4). */
@@ -67,6 +69,7 @@ export const NOTIFICATION_KINDS: NotificationKind[] = [
   'prReview',
   'securityFinding',
   'agentTask',
+  'docBranch',
   'spendLimit',
   'mergeQueue'
 ];
@@ -84,6 +87,7 @@ export type NotificationAction =
   | { type: 'openAutomations'; projectPath?: string }
   | { type: 'openSecurity'; projectPath?: string }
   | { type: 'openTask'; projectPath?: string; taskId?: string }
+  | { type: 'openDocBranch'; projectPath?: string; branchId?: string }
   | { type: 'openApp' };
 
 /** Нормализованное уведомление — то, что шина событий превращает в доставку по каналам. */

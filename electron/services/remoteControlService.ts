@@ -69,6 +69,8 @@ import { hitlService } from './hitlService.js';
 import { confirmProofPayload, parseConfirmKey, verifyConfirmProof } from './hitlConfirmProof.js';
 import { fitsPhoneReview, hitlDetailForPhone } from './remoteHitlDetail.js';
 import { listRemoteDocs, readRemoteDoc } from './remoteDocs.js';
+import { diffDocBranch, sanitizeResolutions } from './docBranches.js';
+import { closeDocBranchAsHuman, docBranchesOverview, mergeDocBranchAsHuman, remoteDocBranchDiff } from './docBranchActions.js';
 import { parsePushAction, parsePushRegistration, verifyPushAction, type PushHostEndpoint, type PushRegistration } from './remotePush.js';
 import { RemotePushService, type PushTarget } from './remotePushService.js';
 import { RemoteInboxService, type InboxTask, type NoteContext } from './remoteInboxService.js';
@@ -211,7 +213,10 @@ const REMOTE_WRITE_METHODS = new Set([
   // Разбор голосовой команды телефона зовёт модель пользователя, то есть тратит его деньги (decision-137 п. 3).
   'voice_command',
   // Новый проект на этом ПК (decision-137 п. 9): пишет на диск и в реестр.
-  'create_project'
+  'create_project',
+  // Ветки документации (decision-151): принять правки агента в основную или отклонить — решение человека, как HITL.
+  'merge_doc_branch',
+  'close_doc_branch'
 ]);
 
 interface DeviceTokenRecord {
@@ -3459,7 +3464,7 @@ class RemoteControlService {
   private async dispatchRpcUnaudited(method: string, params: any = {}, device: RemoteDevice): Promise<any> {
     // Проверка прав на модификацию в Read-Only режиме
     const writeMethods = REMOTE_WRITE_METHODS;
-    const hitlRightsMethods = new Set(['hitl_decision', 'approve_agent_tasks', 'inbox_dismiss', 'review_task']);
+    const hitlRightsMethods = new Set(['hitl_decision', 'approve_agent_tasks', 'inbox_dismiss', 'review_task', 'merge_doc_branch', 'close_doc_branch']);
 
     if (this.readOnly && writeMethods.has(method)) {
       throw new Error(`Method ${method} is forbidden in Read-Only mode`);
@@ -3636,6 +3641,40 @@ class RemoteControlService {
       case 'get_doc': {
         if (!activePath) throw new Error('No active project specified');
         return await readRemoteDoc(await assertRegisteredProject(String(activePath)), params.path, params.knownHash);
+      }
+
+      // Ветки документации (TASK-194, decision-151): список, итог принятия по документам, решение человека.
+      case 'get_doc_branches': {
+        if (!activePath) return { available: false, branches: [] };
+        return await docBranchesOverview(await assertRegisteredProject(String(activePath)));
+      }
+
+      case 'get_doc_branch_diff': {
+        if (!activePath) throw new Error('No active project specified');
+        return remoteDocBranchDiff(await diffDocBranch(await assertRegisteredProject(String(activePath)), String(params.branchId || '')));
+      }
+
+      case 'merge_doc_branch': {
+        const projectPath = await assertRegisteredProject(String(params.projectPath || activePath || ''));
+        const docs = Array.isArray(params.docs) ? params.docs.filter((d: unknown): d is string => typeof d === 'string').slice(0, 200) : undefined;
+        const result = await mergeDocBranchAsHuman(
+          projectPath,
+          String(params.branchId || ''),
+          { ...(docs?.length ? { docs } : {}), resolutions: sanitizeResolutions(params.resolutions) },
+          { kind: 'remote', deviceId: device.id, deviceName: device.name, ...(device.memberId ? { memberId: device.memberId } : {}) }
+        );
+        return { ...result, branch: { id: result.branch.id, title: result.branch.title, status: result.branch.status } };
+      }
+
+      case 'close_doc_branch': {
+        const projectPath = await assertRegisteredProject(String(params.projectPath || activePath || ''));
+        const meta = await closeDocBranchAsHuman(projectPath, String(params.branchId || ''), {
+          kind: 'remote',
+          deviceId: device.id,
+          deviceName: device.name,
+          ...(device.memberId ? { memberId: device.memberId } : {})
+        });
+        return { id: meta.id, status: meta.status };
       }
 
       case 'update_task_status': {

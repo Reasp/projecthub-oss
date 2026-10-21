@@ -38,6 +38,10 @@ export const projectAgentToolDeps: ProjectToolDeps = {
   onAgentTaskPending(info) {
     agentTaskNotifier.add(info);
   },
+  // Ветки документации (decision-151): окно документации обновляет список, предложение — уведомление человеку.
+  onDocBranchChanged(info) {
+    appEventBus.publish({ type: 'docs:branchChanged', ...info, at: Date.now() });
+  },
   async getAgentTaskLimits() {
     return (await agentTaskSettings.get()).limits;
   }

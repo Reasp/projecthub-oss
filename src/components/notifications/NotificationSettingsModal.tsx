@@ -30,6 +30,7 @@ const KINDS: NotificationKind[] = [
   'prReview',
   'securityFinding',
   'agentTask',
+  'docBranch',
   'spendLimit',
   'mergeQueue'
 ];

@@ -22,6 +22,7 @@ import { AutomationsModal } from './components/automations/AutomationsModal';
 import { EditionOverlays } from './extensions/editionUi';
 import { useAutomationsStore } from './store/useAutomationsStore';
 import { useRemoteControlStore } from './store/useRemoteControlStore';
+import { useDocBranchesStore } from './store/useDocBranchesStore';
 import { RemoteHostsModal } from './components/federation/RemoteHostsModal';
 import { RemoteSessionView } from './components/fleet/RemoteSessionView';
 import { useProjectStore } from './store/useProjectStore';
@@ -152,6 +153,12 @@ export const App: React.FC = () => {
           break;
         case 'openRemote':
           useRemoteControlStore.getState().open(action.tab);
+          break;
+        // Ветка документации ждёт принятия (decision-151): вкладка документации и окно веток на ней.
+        case 'openDocBranch':
+          focusProject(action.projectPath);
+          setActiveTab('docs');
+          if (action.projectPath) useDocBranchesStore.getState().open({ projectPath: action.projectPath, branchId: action.branchId });
           break;
         case 'openApp':
         default:

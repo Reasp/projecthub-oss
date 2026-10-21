@@ -332,8 +332,61 @@ export type RemoteRpcMethod =
   // Документация проекта на телефоне (TASK-140.17): список без текстов и документ со сверкой хэша
   | 'get_docs'
   | 'get_doc'
+  // Ветки документации (TASK-194, decision-151): список, итог принятия, принять или отклонить
+  | 'get_doc_branches'
+  | 'get_doc_branch_diff'
+  | 'merge_doc_branch'
+  | 'close_doc_branch'
   // Дерево флота (TASK-174, decision-129): все проекты хоста одним снимком
   | 'get_overview';
+
+/** Ветка документации в ответе `get_doc_branches` (decision-151). */
+export interface RemoteDocBranch {
+  id: string;
+  title: string;
+  status: 'open' | 'proposed' | 'merged' | 'closed';
+  author?: string;
+  task?: string;
+  proposal?: string;
+  updatedAt: string;
+  docs: Array<{ docId: string; title: string; path: string; change: 'added' | 'modified' | 'removed'; conflicts: number }>;
+  conflicts: number;
+}
+
+/** Ответ `get_doc_branches`: `available: false` — проект не в git. */
+export interface RemoteDocBranches {
+  available: boolean;
+  branches: RemoteDocBranch[];
+}
+
+/** Ответ `get_doc_branch_diff`: что изменится в основной по каждому документу и конфликты разделов. */
+export interface RemoteDocBranchDiff {
+  branch: { id: string; title: string; status: RemoteDocBranch['status']; author?: string; proposal?: string };
+  files: Array<{
+    path: string;
+    docId: string;
+    title: string;
+    change: 'added' | 'modified' | 'removed';
+    /** Подписи изменённых разделов и полей. */
+    parts: string[];
+    mainChanged: boolean;
+    renumberedFrom?: string;
+    conflicts: Array<{ key: string; label: string; ours: string | null; theirs: string | null }>;
+    /** Текст в основной сейчас; `null` — документа нет. */
+    main: string | null;
+    /** Текст после принятия; `null` — документ будет удалён или есть конфликт. */
+    merged: string | null;
+  }>;
+}
+
+/** Ответ `merge_doc_branch`. */
+export interface RemoteDocBranchMerge {
+  status: 'merged' | 'partial' | 'conflict' | 'nothing';
+  written: string[];
+  removed: string[];
+  conflicts: Array<{ doc: string; key: string; label: string }>;
+  branch: { id: string; title: string; status: RemoteDocBranch['status'] };
+}
 
 /** Документ или решение в ответе `get_docs` — без текста, с хэшем содержимого для сверки кэша телефона. */
 export interface RemoteDocEntry {

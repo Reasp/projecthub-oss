@@ -705,6 +705,10 @@ export interface TranslationDictionary {
     taskCreatePropose: string;
     taskCreateAsk: string;
     taskCreateDeny: string;
+    docMerge: string;
+    docMergeHint: string;
+    docMergeDefault: string;
+    docMergeAllow: string;
     agentTaskLimitsButton: string;
     agentTaskLimits: {
       title: string;
@@ -1067,6 +1071,51 @@ export interface TranslationDictionary {
     obsidianNoBacklog: string;
     obsidianFailed: string;
     showOnGraph: string;
+    /** Ветки документации (TASK-194, decision-151). */
+    branches: {
+      button: string;
+      buttonHint: string;
+      title: string;
+      empty: string;
+      notGit: string;
+      statusOpen: string;
+      statusProposed: string;
+      docsCount: string;
+      conflictsCount: string;
+      selectBranch: string;
+      acceptAll: string;
+      acceptDoc: string;
+      acceptResolved: string;
+      reject: string;
+      rejectConfirm: string;
+      added: string;
+      modified: string;
+      removed: string;
+      mainChanged: string;
+      renumbered: string;
+      parts: string;
+      resultTitle: string;
+      removedDoc: string;
+      conflictTitle: string;
+      conflictsHint: string;
+      takeOurs: string;
+      takeTheirs: string;
+      takeBoth: string;
+      ours: string;
+      theirs: string;
+      base: string;
+      none: string;
+      diffTooLarge: string;
+      diffSame: string;
+      diffGap: string;
+      merged: string;
+      partial: string;
+      nothing: string;
+      conflictLeft: string;
+      failed: string;
+      inBranches: string;
+      inBranchesHint: string;
+    };
   };
   /** Вкладки «Граф кода» (GitNexus) и «Граф документации» (LightRAG) — TASK-167, decision-118. */
   graph: {
@@ -2982,6 +3031,7 @@ export interface TranslationDictionary {
       | 'prMerged'
       | 'securityFinding'
       | 'agentTask'
+      | 'docBranch'
       | 'spendLimit'
       | 'mergeQueue',
       string

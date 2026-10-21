@@ -20,8 +20,12 @@ import {
   Quote,
   Brain,
   ExternalLink,
-  ShareNetwork
+  ShareNetwork,
+  GitBranch
 } from '../common/icons';
+import { DocBranchesModal } from './DocBranchesModal';
+import { useDocBranchesStore } from '../../store/useDocBranchesStore';
+import type { DocBranchesOverview } from '../../types/electron';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTimeoutState, useTimers } from '../../hooks/useTimeoutState';
@@ -96,6 +100,28 @@ export const DocsRagView: React.FC = () => {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+
+  // Ветки документации (TASK-194, decision-151): счётчик на кнопке, плашка у документа, окно с диффом.
+  const [branches, setBranches] = useState<DocBranchesOverview | null>(null);
+  const branchesRequest = useDocBranchesStore((s) => s.request);
+  const openBranches = useDocBranchesStore((s) => s.open);
+  const closeBranches = useDocBranchesStore((s) => s.close);
+  const projectPath = selectedProject?.path;
+  const loadBranches = React.useCallback(() => {
+    if (!projectPath || !window.api?.listDocBranches) return;
+    window.api.listDocBranches(projectPath).then(setBranches).catch(() => setBranches(null));
+  }, [projectPath]);
+  useEffect(() => {
+    loadBranches();
+    if (!window.api?.onBusEvent) return;
+    return window.api.onBusEvent((event: { type?: string; projectPath?: string }) => {
+      if (event?.type === 'docs:branchChanged' && event.projectPath === projectPath) loadBranches();
+    });
+  }, [projectPath, loadBranches]);
+  const proposedCount = branches?.branches.filter((br) => br.status === 'proposed').length ?? 0;
+  const selectedDocBranches = selectedDoc
+    ? (branches?.branches ?? []).filter((br) => br.docs.some((d) => d.path === selectedDoc.fileRelative || d.docId === selectedDoc.id))
+    : [];
 
   // Переход по ссылке `[[mem-N]]` (TASK-121): показать раздел памяти, сам факт выберет MemoryView.
   useEffect(() => {
@@ -248,6 +274,19 @@ export const DocsRagView: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
+      {branchesRequest && projectPath && branchesRequest.projectPath === projectPath && (
+        <DocBranchesModal
+          projectPath={projectPath}
+          initialBranchId={branchesRequest.branchId}
+          initialDocPath={branchesRequest.docPath}
+          onClose={closeBranches}
+          onMainChanged={() => {
+            void fetchDocs(projectPath);
+            // Открытый документ перечитывается, только если в нём нет несохранённых правок человека.
+            if (selectedDoc && !isDocDirty) void selectDoc(selectedDoc);
+          }}
+        />
+      )}
       {/* Заголовок вида со статистикой индекса — как у остальных вкладок (decision-73) */}
       <div className="h-11 px-4 flex items-center justify-between gap-4 shrink-0 flex-nowrap overflow-hidden border-b border-ph-line">
         <div className="flex items-center gap-3.5 min-w-0 flex-1 overflow-hidden">
@@ -296,6 +335,25 @@ export const DocsRagView: React.FC = () => {
             <Plus className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">{t.docs.newDoc}</span>
           </button>
+
+          {branches?.available && (
+            <button
+              onClick={() => projectPath && openBranches({ projectPath })}
+              title={t.docs.branches.buttonHint}
+              data-testid="docs-branches"
+              className="flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs text-slate-300 hover:bg-ph-hover hover:text-white transition shrink-0 whitespace-nowrap"
+            >
+              <GitBranch className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">{t.docs.branches.button}</span>
+              {branches.branches.length > 0 && (
+                <span
+                  className={`text-[10px] px-1.5 rounded-full ${proposedCount > 0 ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-700 text-slate-300'}`}
+                >
+                  {proposedCount > 0 ? proposedCount : branches.branches.length}
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             onClick={() => void handleOpenInObsidian()}
@@ -433,6 +491,17 @@ export const DocsRagView: React.FC = () => {
                         <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3" /> {t.common.saved}
                         </span>
+                      )}
+                      {selectedDocBranches.length > 0 && projectPath && (
+                        <button
+                          onClick={() => openBranches({ projectPath, branchId: selectedDocBranches[0].id, docPath: selectedDoc.fileRelative })}
+                          title={t.docs.branches.inBranchesHint}
+                          data-testid="doc-in-branches"
+                          className="text-[11px] px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-200 border border-indigo-500/30 font-medium flex items-center gap-1 hover:bg-indigo-500/25"
+                        >
+                          <GitBranch className="w-3 h-3" />
+                          {t.docs.branches.inBranches.replace('{ids}', selectedDocBranches.map((br) => br.id).join(', '))}
+                        </button>
                       )}
                     </div>
                     <span className="text-[11px] font-mono text-slate-500 block truncate">
