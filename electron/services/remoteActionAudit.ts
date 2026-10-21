@@ -27,8 +27,11 @@ export interface RemoteAuditEntry {
   target?: Record<string, string>;
   /** Отказ по праву устройства на проект (TASK-180) — пишется и для методов чтения. */
   denied?: 'project';
-  /** Действие сделал владелец в окне ПК, а не устройство (`deviceId` — чьи права меняли). */
-  actor?: 'window';
+  /**
+   * Действие сделал владелец, а не устройство (`deviceId` — чьи права меняли): в окне ПК или командой ph-agent
+   * на самом хосте (decision-147).
+   */
+  actor?: 'window' | 'cli';
 }
 
 const TARGET_FIELDS = ['taskId', 'filePath', 'processId', 'name', 'processName', 'swarmId', 'roleSlug', 'requestId', 'ruleId', 'actionId', 'newStatus'] as const;

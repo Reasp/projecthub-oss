@@ -7,6 +7,9 @@ import { agentDataDir, agentHomeDir, secretKeySource } from './electronShim.js';
 import {
   HELP,
   WINDOWS_TASK_NAME,
+  applyProjectRightsEdit,
+  describeProjectRights,
+  hasProjectRightsEdit,
   launchdPlist,
   pairingLink,
   parseArgs,
@@ -198,7 +201,37 @@ async function devices(args: PhAgentArgs): Promise<void> {
   }
   const list = remoteControlService.getPairedDevices();
   if (list.length === 0) out('Сопряжённых устройств нет');
-  for (const d of list) out(`${d.deviceId}  ${d.rights}  ${d.name}  ${new Date(d.createdAt).toISOString().slice(0, 16)}`);
+  for (const d of list) {
+    const scoped = d.projectRights ? '  права по проектам: ph-agent device-projects ' + d.deviceId : '';
+    out(`${d.deviceId}  ${d.rights}  ${d.name}  ${new Date(d.createdAt).toISOString().slice(0, 16)}${scoped}`);
+  }
+}
+
+/** Права устройства по проектам (decision-144, decision-147): показать или изменить (при остановленном ph-agent). */
+async function deviceProjects(args: PhAgentArgs): Promise<void> {
+  const id = args.rest[0];
+  if (!id) fail('укажите deviceId: ph-agent device-projects <deviceId> [--default …] [--project <путь>=…] [--reset]');
+  const edit = hasProjectRightsEdit(args.projectRights);
+  if (edit) {
+    const pid = runningPid();
+    if (pid) fail(`остановите ph-agent (pid ${pid}) перед сменой прав: работающий процесс перезапишет список устройств`);
+  }
+  const { projectRegistry, remoteControlService } = await loadServices();
+  await remoteControlService.initOnStartup();
+  const device = remoteControlService.getPairedDevices().find((d) => d.deviceId === id);
+  if (!device) fail(`устройства ${id} нет: список — ph-agent devices`);
+  let rights = device.projectRights;
+  if (edit) {
+    rights = applyProjectRightsEdit(rights, args.projectRights, (p) => path.resolve(p));
+    remoteControlService.setDeviceProjectRights(id, rights ?? null, 'cli');
+    // Запись токенов асинхронная — даём ей завершиться до выхода.
+    await new Promise((r) => setTimeout(r, 300));
+    out(rights ? 'Права по проектам сохранены.' : 'Настройки по проектам сняты: снова права устройства на все проекты.');
+  }
+  out(`${device.name} (${device.deviceId}), права устройства: ${device.rights}`);
+  const registry = (await projectRegistry.getProjects()).map((p) => p.path);
+  for (const line of describeProjectRights(device.rights, rights, registry)) out(`  ${line}`);
+  if (device.memberId) out(`  Участник ${device.memberId}: действует ещё потолок его роли в команде.`);
 }
 
 async function status(): Promise<void> {
@@ -331,6 +364,8 @@ async function main(): Promise<void> {
     case 'devices':
     case 'revoke':
       return devices(args);
+    case 'device-projects':
+      return deviceProjects(args);
     case 'claude-login':
       return claudeLogin();
     case 'service':

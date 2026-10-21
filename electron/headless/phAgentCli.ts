@@ -2,6 +2,15 @@
  * Чистые функции ph-agent (TASK-130, [[decision-119]]): разбор командной строки, ссылка сопряжения для hub-режима
  * и файлы службы для systemd, launchd и планировщика Windows. Без файловой системы и процессов — тестируются unit.
  */
+import type { DeviceRights } from '../../src/types/remote';
+import {
+  isProjectAccess,
+  projectAccessFor,
+  projectAccessKey,
+  sanitizeProjectRights,
+  type DeviceProjectRights,
+  type ProjectAccess
+} from '../../src/utils/projectAccess';
 
 export type PhAgentCommand =
   | 'start'
@@ -11,6 +20,7 @@ export type PhAgentCommand =
   | 'remove-project'
   | 'projects'
   | 'devices'
+  | 'device-projects'
   | 'revoke'
   | 'claude-login'
   | 'service'
@@ -27,12 +37,31 @@ export interface PhAgentArgs {
   dryRun: boolean;
   /** Автозапуск назначенных этому хосту задач по `git pull` (decision-19 п. 5). */
   autoAssigned: boolean;
+  /** Правка прав устройства по проектам (`device-projects`, decision-147). */
+  projectRights: ProjectRightsEdit;
 }
 
-const COMMANDS = new Set<PhAgentCommand>(['start', 'pair-info', 'status', 'add-project', 'remove-project', 'projects', 'devices', 'revoke', 'claude-login', 'service', 'help']);
+/** Право в правке: уровень доступа или `inherit` — снять настройку. */
+export type ProjectAccessEdit = ProjectAccess | 'inherit';
+
+export interface ProjectRightsEdit {
+  /** Сначала снять все настройки по проектам — снова права устройства на все проекты. */
+  reset: boolean;
+  /** Право для остальных и новых проектов. */
+  defaultAccess?: ProjectAccessEdit;
+  /** Переопределения по проектам, по порядку флагов. */
+  projects: Array<{ path: string; access: ProjectAccessEdit }>;
+}
+
+const COMMANDS = new Set<PhAgentCommand>(['start', 'pair-info', 'status', 'add-project', 'remove-project', 'projects', 'devices', 'device-projects', 'revoke', 'claude-login', 'service', 'help']);
+
+function parseAccessEdit(raw: string, flag: string): ProjectAccessEdit {
+  if (raw === 'inherit' || isProjectAccess(raw)) return raw;
+  throw new Error(`${flag}: none | readOnly | hitl | full | inherit`);
+}
 
 export function parseArgs(argv: readonly string[]): PhAgentArgs {
-  const out: PhAgentArgs = { command: 'start', rest: [], dryRun: false, autoAssigned: false };
+  const out: PhAgentArgs = { command: 'start', rest: [], dryRun: false, autoAssigned: false, projectRights: { reset: false, projects: [] } };
   let commandSet = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -54,7 +83,15 @@ export function parseArgs(argv: readonly string[]): PhAgentArgs {
     } else if (a === '--data') out.data = value();
     else if (a === '--dry-run') out.dryRun = true;
     else if (a === '--auto-assigned') out.autoAssigned = true;
-    else if (a.startsWith('--')) throw new Error(`Неизвестный флаг ${a}`);
+    else if (a === '--reset') out.projectRights.reset = true;
+    else if (a === '--default') out.projectRights.defaultAccess = parseAccessEdit(value(), a);
+    else if (a === '--project') {
+      // <путь>=<право>: путь может содержать «=», право — нет, поэтому делим по последнему.
+      const v = value();
+      const at = v.lastIndexOf('=');
+      if (at <= 0) throw new Error('--project: <путь>=<none|readOnly|hitl|full|inherit>');
+      out.projectRights.projects.push({ path: v.slice(0, at), access: parseAccessEdit(v.slice(at + 1), a) });
+    } else if (a.startsWith('--')) throw new Error(`Неизвестный флаг ${a}`);
     else if (!commandSet && COMMANDS.has(a as PhAgentCommand)) {
       if (out.command !== 'help') out.command = a as PhAgentCommand;
       commandSet = true;
@@ -73,6 +110,11 @@ export const HELP = `ph-agent — хост федерации ProjectHub без 
   remove-project <путь>        убрать проект из реестра
   projects                     список проектов
   devices                      сопряжённые устройства и их права
+  device-projects <deviceId>   права устройства по проектам хоста (decision-144)
+      [--default none|readOnly|hitl|full|inherit]     право для остальных и новых проектов
+      [--project <путь>=none|readOnly|hitl|full|inherit]   переопределение проекта (флаг повторяется)
+      [--reset]                снять все настройки — снова права устройства на все проекты
+      С флагами меняет права (ph-agent должен быть остановлен), без флагов — показывает их.
   revoke <deviceId>            отозвать устройство (ph-agent должен быть остановлен)
   claude-login                 войти в Claude Code для агентов этого хоста
   service install|uninstall|status [--dry-run]   служба: systemd (Linux), LaunchAgent (macOS), планировщик (Windows)
@@ -211,6 +253,46 @@ export function windowsTaskXml(spec: ServiceSpec, userId: string): string {
   </Actions>
 </Task>
 `;
+}
+
+export function hasProjectRightsEdit(edit: ProjectRightsEdit): boolean {
+  return edit.reset || edit.defaultAccess !== undefined || edit.projects.length > 0;
+}
+
+/**
+ * Новые права устройства по проектам после правки из командной строки. Пути — как их понимает хост
+ * (`projectAccessKey`); `resolvePath` делает относительный путь абсолютным. `undefined` — настроек не осталось.
+ */
+export function applyProjectRightsEdit(
+  current: DeviceProjectRights | undefined,
+  edit: ProjectRightsEdit,
+  resolvePath: (p: string) => string = (p) => p
+): DeviceProjectRights | undefined {
+  const projects: Record<string, ProjectAccess> = edit.reset ? {} : { ...(current?.projects ?? {}) };
+  let defaultAccess = edit.reset ? undefined : current?.defaultAccess;
+  if (edit.defaultAccess !== undefined) defaultAccess = edit.defaultAccess === 'inherit' ? undefined : edit.defaultAccess;
+  for (const { path, access } of edit.projects) {
+    const key = projectAccessKey(resolvePath(path));
+    if (access === 'inherit') delete projects[key];
+    else projects[key] = access;
+  }
+  return sanitizeProjectRights({ projects, ...(defaultAccess ? { defaultAccess } : {}) });
+}
+
+/** Строки «право  путь  (откуда)» по проектам реестра и по переопределениям проектов, которых в реестре нет. */
+export function describeProjectRights(deviceRights: DeviceRights, rights: DeviceProjectRights | undefined, registry: readonly string[]): string[] {
+  const lines: string[] = [];
+  const known = new Set(registry.map(projectAccessKey));
+  for (const p of registry) {
+    const own = rights?.projects?.[projectAccessKey(p)];
+    const source = own ? 'переопределение' : rights?.defaultAccess ? 'для остальных проектов' : 'права устройства';
+    lines.push(`${projectAccessFor(deviceRights, rights, p).padEnd(8)}  ${p}  (${source})`);
+  }
+  for (const [key, access] of Object.entries(rights?.projects ?? {})) {
+    if (!known.has(key)) lines.push(`${access.padEnd(8)}  ${key}  (переопределение, проекта нет в реестре)`);
+  }
+  lines.push(`Остальные и новые проекты: ${rights?.defaultAccess ?? `права устройства (${deviceRights})`}`);
+  return lines;
 }
 
 /** Аргументы `start`, которые служба должна повторять при каждом запуске. */

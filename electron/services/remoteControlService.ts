@@ -879,7 +879,7 @@ class RemoteControlService {
    * Пусто — снова права устройства на все проекты. Применяется сразу: подключённое устройство получает
    * `overview:changed` и перечитывает сводку. Смена пишется в журнал действий.
    */
-  public setDeviceProjectRights(deviceId: string, raw: unknown): RemoteControlStatus {
+  public setDeviceProjectRights(deviceId: string, raw: unknown, actor: 'window' | 'cli' = 'window'): RemoteControlStatus {
     const record = this.deviceTokens.get(deviceId);
     if (!record) throw new Error('Устройство не найдено');
     const rights = sanitizeProjectRights(raw);
@@ -893,7 +893,7 @@ class RemoteControlService {
       deviceId,
       deviceName: record.deviceName,
       ...(record.memberId ? { memberId: record.memberId } : {}),
-      actor: 'window',
+      actor,
       target: projectRightsSummary(rights)
     });
     if (this.connectedDevices.has(deviceId)) {
