@@ -30,8 +30,12 @@ interface SwarmState {
     mode?: SwarmMode;
   } | null;
 
+  /** Просьба показать в Agents Studio чат или арену роя: дерево флота открывает сессию снаружи (TASK-174). */
+  aiViewRequest: { mode: 'studio' | 'swarm'; seq: number } | null;
+
   loadSwarmsAction: (projectPath: string) => Promise<void>;
   setActiveSwarmId: (projectPath: string, swarmId: string | null) => void;
+  requestAiView: (mode: 'studio' | 'swarm') => void;
   openNewSwarmModal: (initialConfig?: { taskId?: string; taskTitle?: string; prompt?: string; mode?: SwarmMode }) => void;
   closeNewSwarmModal: () => void;
   startFanOutAction: (options: StartFanOutOptions) => Promise<SwarmSession | null>;
@@ -94,6 +98,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
   swarms: {},
   activeSwarmId: {},
   isLoading: false,
+  aiViewRequest: null,
   isNewSwarmModalOpen: false,
   initialNewSwarmConfig: null,
 
@@ -125,6 +130,8 @@ export const useSwarmStore = create<SwarmState>((set) => ({
       activeSwarmId: { ...state.activeSwarmId, [projectPath]: swarmId }
     }));
   },
+
+  requestAiView: (mode) => set((state) => ({ aiViewRequest: { mode, seq: (state.aiViewRequest?.seq ?? 0) + 1 } })),
 
   openNewSwarmModal: (initialConfig) => {
     set({

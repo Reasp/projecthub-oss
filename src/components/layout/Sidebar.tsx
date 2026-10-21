@@ -35,6 +35,7 @@ import { ScanSettingsModal } from '../projects/ScanSettingsModal';
 import { ProjectInitModal, type ProjectInitMode } from '../projects/ProjectInitModal';
 import { TemplatesModal } from '../projects/TemplatesModal';
 import { VoiceBadge } from '../voice/VoiceBadge';
+import { ComputersSection } from '../fleet/ComputersSection';
 
 /**
  * Сайдбар каталога проектов (decision-73), по образцу Explorer в VS Code:
@@ -217,7 +218,8 @@ export const Sidebar: React.FC = () => {
           </button>
         )}
 
-        <div className="h-px bg-ph-line shrink-0" />
+        {/* Компьютеры → проекты → сессии (TASK-174, decision-129) */}
+        <ComputersSection />
 
         {/* Список проектов */}
         <div className="flex-1 overflow-y-auto py-1">

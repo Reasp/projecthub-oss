@@ -69,6 +69,9 @@ import { listRemoteDocs, readRemoteDoc } from './remoteDocs.js';
 import { parsePushAction, parsePushRegistration, verifyPushAction, type PushHostEndpoint, type PushRegistration } from './remotePush.js';
 import { RemotePushService, type PushTarget } from './remotePushService.js';
 import { RemoteInboxService, type InboxTask, type NoteContext } from './remoteInboxService.js';
+import { FleetOverviewService } from './fleetOverviewService.js';
+import { terminalSessionTracker } from './terminalSessionTracker.js';
+import { overviewActions, type RemoteOverview } from '../../src/utils/fleetOverview.js';
 import { KeepAwakeController } from './keepAwake.js';
 import { ProgressThrottle, progressFromSession } from './remoteProgress.js';
 import { VoiceUploads, parseVoiceChunk, recognizeVoice, type VoiceLanguage, type VoiceResult } from './remoteVoice.js';
@@ -360,6 +363,26 @@ class RemoteControlService {
     log: (message) => logger.warn(message)
   });
 
+  /** Дерево флота (TASK-174, decision-129): все проекты хоста одним снимком и событие изменения. */
+  private overview = new FleetOverviewService({
+    now: () => Date.now(),
+    hostId: () => this.hostId,
+    machineName: () => this.machineName || os.hostname(),
+    platform: process.platform,
+    projects: async () => (await projectRegistry.getProjects()).map((p) => p.path),
+    studioDir: (projectPath) => aiSessionStore.projectDir(projectPath),
+    studioRunning: (id) => studioRemoteBridge.isRunning(id),
+    profileNames: async () => new Map((await llmProfileService.listProfiles()).map((p) => [p.id, p.name])),
+    swarms: (projectPath) => agentFleetService.listSwarms(projectPath),
+    terminals: (projectPath) => terminalSessionTracker.list(projectPath),
+    pending: () => hitlService.listPending(),
+    processes: (projectPath) => processManager.listProcessesForProject(projectPath),
+    log: (message) => logger.warn(message)
+  });
+  private overviewSubscribed = false;
+  /** Состояния роев, по которым последний раз считалось изменение сводки: вывод агента её не перерисовывает. */
+  private swarmOverviewKeys = new Map<string, string>();
+
   /** Не давать ПК уснуть, пока ждёт человека (decision-117 п. 9); по умолчанию включено. */
   private keepAwake = true;
   private keepAwakeController = new KeepAwakeController(
@@ -432,7 +455,10 @@ class RemoteControlService {
 
   private connectedDevices = new Map<string, RemoteDevice>();
   private localClients = new Map<string, ClientConnection>();
+  /** Проект окна ProjectHub (ph-agent — первый проект реестра): по умолчанию для устройств, не выбравших свой. */
   private activeProjectPath: string | null = null;
+  /** Проект, выбранный устройством (`select_project`): у каждого свой, клиенты не перебивают друг друга (decision-129 п. 8). */
+  private deviceProjects = new Map<string, string>();
   private knownFederationHosts = new Map<string, FederationHost>();
   private cachedLocalProjects: Array<{ id: string; name: string; path: string }> = [];
 
@@ -864,6 +890,9 @@ class RemoteControlService {
         this.trackSwarmHitl(event.request.sessionId, event.request.id, event.type === 'hitl:requested');
       }
       if (event.type.startsWith('hitl:') || event.type.startsWith('agent:') || event.type === 'swarm:finished') this.refreshKeepAwake();
+      if (event.type.startsWith('hitl:') || event.type.startsWith('agent:') || event.type === 'swarm:finished' || event.type === 'process:crashed') {
+        this.overview.markChanged();
+      }
       if (!this.enabled) return;
       if (event.type === 'hitl:requested') {
         const r = event.request;
@@ -979,6 +1008,7 @@ class RemoteControlService {
       this.progressSubscribed = true;
       agentFleetService.on('swarmEvent', (event: { session?: SwarmSession }) => this.pushProgress(event.session));
     }
+    this.subscribeOverview();
     this.subscribeToEventBus();
     await this.loadPersistedSecrets();
     // Автозапуск назначенных задач живёт в backlog-вотчере и не зависит от того, включён ли
@@ -997,6 +1027,43 @@ class RemoteControlService {
 
   public setActiveProject(projectPath: string | null) {
     this.activeProjectPath = projectPath;
+  }
+
+  /**
+   * Источники изменения сводки флота (decision-129 п. 6): терминалы по хукам, поток Studio, процессы, состояния роев.
+   * HITL и агенты приходят через шину в `subscribeToEventBus`. Событие уходит устройствам и окну с дебаунсом.
+   */
+  private subscribeOverview(): void {
+    if (this.overviewSubscribed) return;
+    this.overviewSubscribed = true;
+    terminalSessionTracker.onChange(() => this.overview.markChanged());
+    studioRemoteBridge.onEvent((event) => {
+      if (event === 'studio:started' || event === 'studio:complete' || event === 'studio:error') this.overview.markChanged();
+    });
+    processManager.onStatusChanged(() => this.overview.markChanged());
+    agentFleetService.on('swarmEvent', (event: { session?: SwarmSession }) => {
+      const s = event.session;
+      if (!s) return;
+      const key = `${s.status}|${s.agents.map((a) => a.status).join(',')}`;
+      if (this.swarmOverviewKeys.get(s.id) === key) return;
+      this.swarmOverviewKeys.set(s.id, key);
+      if (this.swarmOverviewKeys.size > 500) this.swarmOverviewKeys.delete(this.swarmOverviewKeys.keys().next().value as string);
+      this.overview.markChanged();
+    });
+    this.overview.onChanged(() => {
+      if (this.enabled) this.broadcastEvent('overview:changed', { at: Date.now() }, { transient: true });
+      this.notifyRenderer('overview:changed', { at: Date.now() });
+    });
+  }
+
+  /** Сводка этого ПК для окна ProjectHub: человек за ПК может всё (decision-129 п. 10). */
+  public getLocalOverview(): Promise<RemoteOverview> {
+    return this.overview.getOverview('full');
+  }
+
+  /** Проект устройства: свой выбор, иначе проект окна. */
+  private deviceProject(deviceId: string): string | null {
+    return this.deviceProjects.get(deviceId) ?? this.activeProjectPath;
   }
 
   /** Постоянный идентификатор этого хоста (decision-11); используется очередью HITL и аудитом. */
@@ -2947,7 +3014,7 @@ class RemoteControlService {
       deviceId: device.id,
       ...(device.name ? { deviceName: device.name } : {}),
       ...(device.memberId ? { memberId: device.memberId } : {}),
-      ...(typeof (p.projectPath ?? this.activeProjectPath) === 'string' ? { projectPath: String(p.projectPath ?? this.activeProjectPath) } : {}),
+      ...(typeof (p.projectPath ?? this.deviceProject(device.id)) === 'string' ? { projectPath: String(p.projectPath ?? this.deviceProject(device.id)) } : {}),
       ...(auditTarget(p) ? { target: auditTarget(p) } : {})
     };
     try {
@@ -2999,7 +3066,7 @@ class RemoteControlService {
     const denied = editionRegistry.checkRpc(method, deviceRef);
     if (denied) throw new Error(denied);
 
-    const activePath = params.projectPath || this.activeProjectPath;
+    const activePath = params.projectPath || this.deviceProject(device.id);
 
     switch (method) {
       case 'get_status': {
@@ -3009,7 +3076,7 @@ class RemoteControlService {
           machineName: this.machineName || os.hostname(),
           platform: process.platform,
           tunnelUrl: this.tunnelUrl,
-          activeProjectPath: this.activeProjectPath,
+          activeProjectPath: this.deviceProject(device.id),
           projectsCount: projects.length,
           runningProcesses: processManager.getActiveProcessCount(),
           readOnly: this.readOnly
@@ -3061,11 +3128,17 @@ class RemoteControlService {
       }
 
       case 'select_project': {
-        this.activeProjectPath = params.projectPath;
+        // Проект только этого устройства: hub-ПК, Telegram и телефон не перебивают друг другу выбор (decision-129 п. 8).
+        const selected = await assertRegisteredProject(String(params.projectPath || ''));
+        this.deviceProjects.set(device.id, selected);
         const projects = await projectRegistry.getProjects();
-        const project = projects.find((p: any) => p.path === params.projectPath);
+        const project = projects.find((p: any) => path.resolve(p.path) === selected);
         return { activeProject: project || null };
       }
+
+      // Дерево флота (TASK-174, decision-129): все проекты одним снимком, действия — по правам устройства.
+      case 'get_overview':
+        return this.overview.getOverview(overviewActions(rights, this.readOnly));
 
       case 'get_processes': {
         if (!activePath) return [];
@@ -3689,6 +3762,8 @@ class RemoteControlService {
    * Отправка push-события всем подключенным клиентам.
    */
   public broadcastEvent(event: string, data: any, opts: { transient?: boolean } = {}) {
+    // Задачи поменяли с устройства: счётчики In Progress и Review в сводке флота устарели.
+    if (event === 'backlog:changed') this.overview.markChanged();
     if (!this.enabled) return;
 
     // Транзитные события (поток Agents Studio) не занимают буфер догона и идут без eventId: иначе один ответ агента

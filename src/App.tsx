@@ -23,6 +23,7 @@ import { EditionOverlays } from './extensions/editionUi';
 import { useAutomationsStore } from './store/useAutomationsStore';
 import { useRemoteControlStore } from './store/useRemoteControlStore';
 import { RemoteHostsModal } from './components/federation/RemoteHostsModal';
+import { RemoteSessionView } from './components/fleet/RemoteSessionView';
 import { useProjectStore } from './store/useProjectStore';
 import { useAIStudioStore } from './store/useAIStudioStore';
 import { handleStudioRemoteRequest } from './store/studioRemoteHandler';
@@ -343,6 +344,8 @@ export const App: React.FC = () => {
           <Header />
           <div className="flex-1 flex flex-col overflow-hidden relative">
             <ProjectWorkspace />
+            {/* Удалённая сессия из дерева «Компьютеры» поверх рабочей области (TASK-174) */}
+            <RemoteSessionView />
           </div>
           <TerminalPanel />
         </div>

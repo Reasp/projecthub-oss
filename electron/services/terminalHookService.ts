@@ -41,6 +41,7 @@ import {
 import type { AIProviderConfig } from './aiAgentService.js';
 import type { ApprovalResponse, AppBusEvent, HitlEngine, HitlRequest, HitlRequestType } from './hitlTypes.js';
 import type { RoleDefinition } from './roleTypes.js';
+import { terminalSessionTracker, type TerminalActivity } from './terminalSessionTracker.js';
 
 export const TERMINAL_HOOKS_FILE = 'terminal-hooks.json';
 export const TERMINAL_HOOK_TOKEN_SECRET_KEY = 'terminal_hook_token';
@@ -91,6 +92,8 @@ export interface TerminalHookDeps {
    * Необязателен: без него хук работает как раньше.
    */
   scanCommit?(workDir: string, projectPath: string, command: string): Promise<DiffSecretScanResult | null>;
+  /** Учёт терминальной сессии для дерева флота (decision-129 п. 1). Необязателен: тесты хуков без него. */
+  trackSession?(activity: TerminalActivity): void;
 }
 
 function defaultDeps(): TerminalHookDeps {
@@ -125,6 +128,7 @@ function defaultDeps(): TerminalHookDeps {
     getSecret: (key) => secretStorageService.getSecret(key),
     setSecret: (key, value) => secretStorageService.setSecret(key, value),
     now: () => Date.now(),
+    trackSession: (activity) => terminalSessionTracker.record(activity),
     scanCommit: async (workDir, projectPath, command) => {
       const { commitScanScope, scanPendingCommit } = await import('./terminalCommitScan.js');
       const scope = commitScanScope(command);
@@ -258,6 +262,8 @@ export class TerminalHookService {
   }
 
   private dispatch(event: NormalizedHookEvent, projectPath: string, budgetMs: unknown, signal?: AbortSignal): Promise<HookVerdict> {
+    // Stop учитывается в `stop()`: там известно, прошли ли проверки.
+    if (event.event !== 'Stop') this.track(event, projectPath, event.event);
     switch (event.event) {
       case 'PreToolUse':
         return this.preToolUse(event, projectPath, budgetMs, signal);
@@ -267,6 +273,22 @@ export class TerminalHookService {
       case 'Stop':
         return this.stop(event, projectPath);
     }
+  }
+
+  private track(event: NormalizedHookEvent, projectPath: string, kind: TerminalActivity['event'], failed?: string): void {
+    const meta = this.meta(event, projectPath);
+    const input = policyToolCalls(event)[0]?.input ?? event.toolInput ?? {};
+    const summary = commandFromInput(input) || filePathFromInput(input);
+    this.deps.trackSession?.({
+      sessionId: meta.sessionId,
+      projectPath,
+      engine: meta.engine,
+      agentName: meta.agentName,
+      event: kind,
+      ...(event.toolName ? { tool: event.toolName } : {}),
+      ...(summary ? { summary: preview(summary, 120) } : {}),
+      ...(failed ? { failed } : {})
+    });
   }
 
   private sessionKey(event: NormalizedHookEvent): string {
@@ -405,20 +427,26 @@ export class TerminalHookService {
 
   private async stop(event: NormalizedHookEvent, projectPath: string): Promise<HookVerdict> {
     // Antigravity: разговор ждёт своих субагентов — это не конец работы, ни уведомления, ни проверок.
-    if (event.stopIdle === false) return { kind: 'none' };
+    if (event.stopIdle === false) {
+      this.track(event, projectPath, 'PostToolUse');
+      return { kind: 'none' };
+    }
     const settings = await this.getSettings();
     const meta = this.meta(event, projectPath);
     const base = { sessionId: meta.sessionId, projectPath, origin: meta.origin, engine: meta.engine, agentName: meta.agentName, at: this.deps.now() };
     if (settings.stopChecks === 'off' || (settings.stopChecks === 'block' && event.stopHookActive)) {
+      this.track(event, projectPath, 'Stop');
       this.deps.publish({ type: 'agent:finished', outcome: 'done', ...base });
       return { kind: 'none' };
     }
     const checks = await this.deps.runStopChecks(projectPath);
     if (!checks.failed.length) {
+      this.track(event, projectPath, 'Stop');
       this.deps.publish({ type: 'agent:finished', outcome: 'done', ...base });
       return { kind: 'none' };
     }
     const reason = `Проверки проекта не прошли: ${checks.failed.join(', ')}. ${checks.summary}`;
+    this.track(event, projectPath, 'Stop', reason);
     this.deps.publish({ type: 'agent:failed', error: reason, ...base });
     return settings.stopChecks === 'block' ? { kind: 'block', reason: `${reason}. Исправь и заверши работу снова.` } : { kind: 'none', message: reason };
   }

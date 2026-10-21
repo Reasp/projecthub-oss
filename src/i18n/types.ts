@@ -2951,6 +2951,51 @@ export interface TranslationDictionary {
     clearHistory: string;
     serviceProcesses: string;
   };
+  /** Дерево «Компьютеры» в сайдбаре (TASK-174, decision-129). */
+  fleet: {
+    title: string;
+    manage: string;
+    thisPc: string;
+    waiting: string;
+    running: string;
+    failed: string;
+    online: string;
+    offline: string;
+    lastSeen: string;
+    neverSeen: string;
+    moreProjects: string;
+    hideQuiet: string;
+    moreSessions: string;
+    noSessions: string;
+    noProjects: string;
+    unsupported: string;
+    loading: string;
+    approve: string;
+    deny: string;
+    openRequest: string;
+    highRiskRemote: string;
+    readOnly: string;
+    processesFailed: string;
+    tasksInProgress: string;
+    tasksReview: string;
+    decideError: string;
+    kinds: { studio: string; swarm: string; terminal: string };
+    states: { waiting: string; failed: string; running: string; idle: string; done: string };
+    session: {
+      close: string;
+      onHost: string;
+      send: string;
+      placeholder: string;
+      stop: string;
+      noOutput: string;
+      noMessages: string;
+      terminalNote: string;
+      loadError: string;
+      live: string;
+      olderOmitted: string;
+      readOnly: string;
+    };
+  };
   /** Федерация компьютеров и hub-режим (TASK-66, decision-11). */
   federation: {
     sidebarButton: string;

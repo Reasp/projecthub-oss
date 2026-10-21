@@ -310,7 +310,9 @@ export type RemoteRpcMethod =
   | 'check_agent_launch'
   // Документация проекта на телефоне (TASK-140.17): список без текстов и документ со сверкой хэша
   | 'get_docs'
-  | 'get_doc';
+  | 'get_doc'
+  // Дерево флота (TASK-174, decision-129): все проекты хоста одним снимком
+  | 'get_overview';
 
 /** Документ или решение в ответе `get_docs` — без текста, с хэшем содержимого для сверки кэша телефона. */
 export interface RemoteDocEntry {
@@ -772,4 +774,6 @@ export interface RemoteEventPayloads {
   'ai:hitlDecided': { requestId: string; sessionId: string; approved: boolean; by: string };
   'projects:changed': void;
   'backlog:changed': { projectPath: string };
+  /** Сводка флота устарела (decision-129 п. 6): клиент перечитывает `get_overview`. */
+  'overview:changed': { at: number };
 }

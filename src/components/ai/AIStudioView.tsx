@@ -159,6 +159,15 @@ export const AIStudioView: React.FC = () => {
     if (isNewSwarmModalOpen) setAiViewMode('swarm');
   }, [isNewSwarmModalOpen]);
 
+  // Сессия, открытая из дерева «Компьютеры» (TASK-174): чат или арена роя.
+  const aiViewRequest = useSwarmStore((s) => s.aiViewRequest);
+  useEffect(() => {
+    if (!aiViewRequest) return;
+    setAiViewMode(aiViewRequest.mode);
+    // Просьба исполнена: при следующем открытии вкладки остаётся выбор человека.
+    useSwarmStore.setState({ aiViewRequest: null });
+  }, [aiViewRequest]);
+
   if (!selectedProject) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-500">

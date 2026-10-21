@@ -12,6 +12,7 @@ import { resolveInitialLanguage } from '../../../src/i18n/initialLanguage';
 import * as agents from './ns/agents';
 import * as common from './ns/common';
 import * as docs from './ns/docs';
+import * as fleet from './ns/fleet';
 import * as inbox from './ns/inbox';
 import * as models from './ns/models';
 import * as pairing from './ns/pairing';
@@ -28,7 +29,7 @@ export const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', ru: 'Р
 /** Ключ выбора в несекретных настройках страницы (`ph_mobile_pref:<ключ>`). */
 export const LANGUAGE_PREF = 'lang';
 
-const NS = { agents, common, docs, inbox, models, pairing, processes, shell, store, studio, tasks };
+const NS = { agents, common, docs, fleet, inbox, models, pairing, processes, shell, store, studio, tasks };
 
 export type Dict = { [K in keyof typeof NS]: (typeof NS)[K]['en'] };
 

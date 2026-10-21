@@ -175,6 +175,17 @@ export function AgentsScreen() {
   const [starting, setStarting] = useState(false);
   const [stopTarget, setStopTarget] = useState<RemoteSwarmSummary | null>(null);
 
+  // Агент, выбранный на экране «Компьютеры» (TASK-174): вывод открывается, как только рой пришёл с хоста.
+  const nav = useAppState((s) => s.nav);
+  useEffect(() => {
+    if (nav?.kind !== 'swarm') return;
+    const swarm = swarms.find((s) => s.id === nav.sessionId);
+    if (!swarm) return;
+    const agent = swarm.agents.find((a) => a.id === nav.agentId) ?? swarm.agents[0];
+    if (agent) setOutput({ swarm, agent });
+    store.consumeNav(nav.seq);
+  }, [nav, swarms, store]);
+
   const active = swarms.filter((s) => isActiveStatus(s.status));
   const finished = swarms.filter((s) => !isActiveStatus(s.status)).slice(0, 20);
 

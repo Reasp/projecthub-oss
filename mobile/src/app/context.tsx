@@ -5,7 +5,7 @@ import type { HostProfile } from '../protocol/pairing';
 import type { ProfileList } from '../protocol/profiles';
 import type { RemoteClient } from '../protocol/remoteClient';
 import type { AppState, AppStore } from './appStore';
-import type { HostPool, HostSummary } from './hostPool';
+import type { HostPool, HostSummary, OverviewSnapshot } from './hostPool';
 import type { InboxActions } from './inboxActions';
 
 export interface AppServices {
@@ -56,6 +56,17 @@ export function useAppState<T>(selector: (state: AppState) => T): T {
 export function useHostSummaries(): Record<string, HostSummary> {
   const { pool } = useServices();
   return useSyncExternalStore(pool.subscribe, pool.getSummaries);
+}
+
+/** Снимки дерева фоновых ПК и время последней связи (TASK-174): ссылки меняются только при изменении. */
+export function usePoolOverviews(): Record<string, OverviewSnapshot> {
+  const { pool } = useServices();
+  return useSyncExternalStore(pool.subscribe, pool.getOverviews);
+}
+
+export function useLastSeen(): Record<string, number> {
+  const { pool } = useServices();
+  return useSyncExternalStore(pool.subscribe, pool.getLastSeen);
 }
 
 export function useHaptic(): Platform['haptic'] {

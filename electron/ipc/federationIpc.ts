@@ -53,6 +53,11 @@ export function registerFederationIpc() {
     return await federationClientService.call(hostId, method, params || {});
   });
 
+  /** Сводка флота этого ПК для раздела «Компьютеры» (TASK-174, decision-129): без сети, человек за ПК может всё. */
+  ipcMain.handle('fleet:getLocalOverview', async () => {
+    return await remoteControlService.getLocalOverview();
+  });
+
   /** Каталог хостов, известных локальному хосту (свой + пришедшие с релея/LAN). */
   ipcMain.handle('federation:getHosts', async () => {
     return remoteControlService.getFederationHostsList();

@@ -40,6 +40,7 @@ import type { ConfirmPort, PushPort } from '../platform/types';
 import { uploadInChunks, type PreparedAttachment } from '../protocol/attachments';
 import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox';
 import { sendVoice } from '../protocol/voice';
+import type { OverviewSessionKind, RemoteOverview } from '../../../src/utils/fleetOverview';
 import { t } from '../i18n';
 
 /**
@@ -61,6 +62,19 @@ export interface Toast {
   id: number;
   text: string;
   kind: 'info' | 'error' | 'success';
+}
+
+/**
+ * Переход из экрана «Компьютеры» (TASK-174, decision-129 п. 11): открыть сессию на ПК и в проекте. Если ПК другой,
+ * намерение ждёт подключения к нему и применяется после загрузки.
+ */
+export interface NavIntent {
+  hostId: string;
+  projectPath: string;
+  /** `project` — только выбрать проект на другом ПК. */
+  kind: OverviewSessionKind | 'project';
+  sessionId: string;
+  agentId?: string;
 }
 
 export interface AppState {
@@ -85,6 +99,11 @@ export interface AppState {
   push: { enabled: boolean; busy: boolean } | null;
   /** Лента «Входящих» открытого ПК (TASK-140.5): Review с отчётами и журнал; HITL и задачи агентов — в полях выше. */
   inbox: InboxSnapshot | null;
+  /** Дерево открытого ПК (`get_overview`); `null` — ещё не загружено или хост старый. */
+  overview: RemoteOverview | null;
+  overviewUnsupported: boolean;
+  /** Переход к сессии, готовый к показу: экраны открывают её и сбрасывают `consumeNav`. */
+  nav: (NavIntent & { seq: number }) | null;
   toast: Toast | null;
 }
 
@@ -111,6 +130,9 @@ export class AppStore {
    */
   private studioBuffer = new Map<string, Array<{ text?: unknown; tool?: unknown }>>();
   private awaitingNewSession = false;
+  /** Намерение перехода на другой ПК: переживает `reset()` при переключении хоста. */
+  private pendingNav: NavIntent | null = null;
+  private navSeq = 0;
 
   constructor(
     private readonly client: RpcPort,
@@ -147,6 +169,9 @@ export class AppStore {
       studio: emptyStudio(),
       push: null,
       inbox: null,
+      overview: null,
+      overviewUnsupported: false,
+      nav: null,
       toast: null
     };
   }
@@ -236,6 +261,7 @@ export class AppStore {
       '';
     this.set({ projects, projectPath: pick });
     await Promise.all([
+      this.refreshOverview(),
       this.refreshHosts(),
       this.refreshHitl(),
       this.refreshInbox(),
@@ -246,6 +272,45 @@ export class AppStore {
       this.refreshGit(),
       this.refreshStudio()
     ]);
+    this.applyPendingNav();
+  }
+
+  /** Дерево всех проектов открытого ПК одним снимком (decision-129 п. 6). */
+  async refreshOverview(): Promise<void> {
+    try {
+      const overview = await this.client.rpc<RemoteOverview>('get_overview');
+      this.set({ overview, overviewUnsupported: false });
+    } catch (err) {
+      if (/Unknown RPC method/i.test(errorText(err))) this.set({ overview: null, overviewUnsupported: true });
+    }
+  }
+
+  /**
+   * Открыть сессию из экрана «Компьютеры». На открытом ПК — сразу: проект, затем `nav` для экранов. На другом ПК
+   * вызывающий переключает хост, а намерение применится после загрузки нового ПК (`applyPendingNav`).
+   */
+  async requestNav(intent: NavIntent): Promise<void> {
+    const hostId = this.state.status?.hostId || this.state.conn.hostId;
+    if (hostId && hostId === intent.hostId) {
+      await this.selectProject(intent.projectPath);
+      this.set({ nav: { ...intent, seq: ++this.navSeq } });
+      return;
+    }
+    this.pendingNav = intent;
+    // Проект нового ПК выбирается при загрузке по запомненному — запоминаем нужный заранее.
+    this.prefs.set(`project:${intent.hostId}`, intent.projectPath);
+  }
+
+  /** Переход показан: экран не откроет сессию повторно. */
+  consumeNav(seq: number): void {
+    if (this.state.nav?.seq === seq) this.set({ nav: null });
+  }
+
+  private applyPendingNav(): void {
+    const intent = this.pendingNav;
+    if (!intent || intent.hostId !== this.state.status?.hostId) return;
+    this.pendingNav = null;
+    void this.requestNav(intent);
   }
 
   async selectProject(projectPath: string): Promise<void> {
@@ -781,6 +846,9 @@ export class AppStore {
         return;
       case 'inbox:changed':
         this.debounced('inbox', () => void this.refreshInbox());
+        return;
+      case 'overview:changed':
+        this.debounced('overview', () => void this.refreshOverview());
         return;
       case 'agent:finished':
       case 'agent:failed':

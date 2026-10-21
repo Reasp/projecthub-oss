@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { BookOpenTextIcon, CaretDownIcon, GearSixIcon, KanbanIcon, ShieldCheckIcon, SparkleIcon, TerminalWindowIcon, TrayIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
-import { HostSheet } from '../components/HostSheet';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { useTabSwipe } from '../components/gestures';
 import { Button, Spinner } from '../components/ui';
@@ -11,6 +10,7 @@ import { isActiveStatus } from '../protocol/models';
 import { profileProblems, type HostProfile } from '../protocol/pairing';
 import { routeLabel } from '../protocol/remoteClient';
 import { AgentsScreen } from '../screens/AgentsScreen';
+import { ComputersScreen } from '../screens/ComputersScreen';
 import { DocsScreen } from '../screens/DocsScreen';
 import { InboxScreen } from '../screens/InboxScreen';
 import { PairingScreen } from '../screens/PairingScreen';
@@ -126,7 +126,7 @@ function StudioHub({ section, onSection }: { section: StudioSection; onSection: 
 }
 
 function Shell() {
-  const { platform } = useServices();
+  const { platform, store } = useServices();
   const tr = useT();
   const status = useAppState((s) => s.status);
   const projects = useAppState((s) => s.projects);
@@ -143,6 +143,25 @@ function Shell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tasksFocus, setTasksFocus] = useState<string | undefined>();
   const project = projects.find((p) => p.path === projectPath);
+
+  // Переход с экрана «Компьютеры» (TASK-174): сессия Studio — чат, агент роя — раздел «Агенты» (вывод откроет он сам),
+  // терминал — «Входящие», где его запросы.
+  const nav = useAppState((s) => s.nav);
+  useEffect(() => {
+    if (!nav) return;
+    if (nav.kind === 'studio') {
+      setTab('studio');
+      setStudioSection('chat');
+      void store.openStudioSession(nav.sessionId);
+      store.consumeNav(nav.seq);
+    } else if (nav.kind === 'swarm') {
+      setTab('studio');
+      setStudioSection('agents');
+    } else {
+      if (nav.kind === 'terminal') setTab('inbox');
+      store.consumeNav(nav.seq);
+    }
+  }, [nav, store]);
 
   const go = (next: Tab) => {
     if (next === tab) return;
@@ -235,7 +254,7 @@ function Shell() {
         </div>
       </nav>
 
-      <HostSheet open={hostOpen} onClose={() => setHostOpen(false)} />
+      <ComputersScreen open={hostOpen} onClose={() => setHostOpen(false)} onOpenInbox={() => go('inbox')} />
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );

@@ -109,14 +109,32 @@ function Root({ platform, initial, draft }: { platform: Platform; initial: Profi
       if (p.id) commit(updateProfile(listRef.current, p));
     })
   );
-  const [store] = useState(() => new AppStore(client, createPrefs(), undefined, platform.confirm ?? null, platform.push ?? null));
+  const [prefs] = useState(createPrefs);
+  const [store] = useState(() => new AppStore(client, prefs, undefined, platform.confirm ?? null, platform.push ?? null));
   const [pool] = useState(
     () =>
       new HostPool(
         (onChange) => makeClient(platform, onChange),
-        (p) => commit(updateProfile(listRef.current, p))
+        (p) => commit(updateProfile(listRef.current, p)),
+        undefined,
+        prefs
       )
   );
+
+  // Время последней связи открытого ПК — для строки «был в сети» на экране «Компьютеры» (TASK-174).
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = target.adding ? null : (target.profile.id ?? null);
+  useEffect(() => {
+    const seen = () => {
+      if (activeIdRef.current && client.getSnapshot().state === 'ready') pool.markSeen(activeIdRef.current);
+    };
+    const offEvents = client.onEvent(seen);
+    const offState = client.subscribe(seen);
+    return () => {
+      offEvents();
+      offState();
+    };
+  }, [client, pool]);
 
   const [inbox] = useState(() => new InboxActions(store, pool));
 

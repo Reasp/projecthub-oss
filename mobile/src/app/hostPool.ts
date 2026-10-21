@@ -3,6 +3,8 @@ import type { EndpointKind } from '../../../src/utils/remoteEndpoints';
 import { loadInbox, type InboxRpc, type InboxSnapshot } from '../protocol/inbox';
 import { profileProblems, type HostProfile } from '../protocol/pairing';
 import type { ClientSnapshot, ConnectionState, RpcMethod } from '../protocol/remoteClient';
+import type { RemoteOverview } from '../../../src/utils/fleetOverview';
+import type { PrefsPort } from './appStore';
 import { t } from '../i18n';
 
 /**
@@ -13,11 +15,25 @@ import { t } from '../i18n';
  *
  * Для «Входящих» ([[TASK-140.5]], [[decision-117]] п. 7) пул держит снимок ленты каждого ПК. Последний снимок
  * остаётся и после разрыва — запись видна с пометкой «нет связи», пока профиль не забыт.
+ *
+ * Для экрана «Компьютеры» ([[TASK-174]], [[decision-129]] п. 11) пул держит снимок `get_overview` каждого ПК и время
+ * последней связи. Время хранится между запусками; снимок офлайн-ПК экран не показывает — только «был в сети».
  */
 
 export const MAX_BACKGROUND_HOSTS = 8;
 /** Пауза перед перечитыванием ленты после события: пачка событий — один запрос. */
 export const INBOX_REFRESH_MS = 600;
+
+/** Время последней связи пишется не чаще, чем раз в это время. */
+const SEEN_WRITE_MS = 30_000;
+const SEEN_PREF = 'fleet:lastSeen';
+
+/** Снимок дерева ПК: сводка или признак старого хоста без `get_overview`. */
+export interface OverviewSnapshot {
+  overview: RemoteOverview | null;
+  unsupported?: boolean;
+  at: number;
+}
 
 /** События хоста, после которых лента устарела. */
 const INBOX_EVENTS = new Set(['ai:hitl', 'ai:hitlDecided', 'backlog:changed', 'inbox:changed', 'notification', 'projects:changed']);
@@ -47,6 +63,7 @@ interface Entry {
   pending: Set<string>;
   unsubscribe: Array<() => void>;
   inboxTimer: unknown;
+  overviewTimer: unknown;
 }
 
 /** Поля, смена которых требует нового подключения; смена адресов и прав — нет. */
@@ -59,6 +76,11 @@ export class HostPool {
   private summaries: Record<string, HostSummary> = {};
   /** Последний снимок ленты по `id` профиля — живёт дольше соединения. */
   private inboxes: Record<string, InboxSnapshot> = {};
+  /** Последний снимок дерева по `id` профиля. */
+  private overviews: Record<string, OverviewSnapshot> = {};
+  /** Время последней связи по `id` профиля, включая открытый ПК. */
+  private lastSeen: Record<string, number>;
+  private seenWrittenAt = 0;
   private listeners = new Set<() => void>();
   private paused = false;
   private wanted: HostProfile[] = [];
@@ -70,12 +92,72 @@ export class HostPool {
     private readonly timers: { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (t: unknown) => void } = {
       setTimeout: (fn, ms) => setTimeout(fn, ms),
       clearTimeout: (t) => clearTimeout(t as ReturnType<typeof setTimeout>)
+    },
+    private readonly prefs: PrefsPort | null = null,
+    private readonly now: () => number = () => Date.now()
+  ) {
+    let seen: Record<string, number> = {};
+    try {
+      const raw = prefs?.get(SEEN_PREF);
+      if (raw) seen = JSON.parse(raw) as Record<string, number>;
+    } catch {
+      // испорченная запись — начинаем заново
     }
-  ) {}
+    this.lastSeen = seen && typeof seen === 'object' ? seen : {};
+  }
 
   getSummaries = (): Record<string, HostSummary> => this.summaries;
 
   getInboxes = (): Record<string, InboxSnapshot> => this.inboxes;
+
+  getOverviews = (): Record<string, OverviewSnapshot> => this.overviews;
+
+  getLastSeen = (): Record<string, number> => this.lastSeen;
+
+  /** Связь с ПК есть прямо сейчас (событие, ответ): время запоминается, на диск — не чаще раза в 30 с. */
+  markSeen(id: string): void {
+    const now = this.now();
+    const prev = this.lastSeen[id] ?? 0;
+    if (now - prev < 1000) return;
+    this.lastSeen = { ...this.lastSeen, [id]: now };
+    if (now - this.seenWrittenAt >= SEEN_WRITE_MS || now - prev > SEEN_WRITE_MS) {
+      this.seenWrittenAt = now;
+      try {
+        this.prefs?.set(SEEN_PREF, JSON.stringify(this.lastSeen));
+      } catch {
+        // хранилище недоступно — время живёт до перезапуска
+      }
+    }
+    this.emit();
+  }
+
+  /** Перечитать дерево фонового ПК. Старый хост без метода — признак `unsupported`, без повторов. */
+  async refreshOverview(id: string): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry || this.summaries[id]?.state !== 'ready') return;
+    try {
+      const overview = await entry.client.rpc<RemoteOverview>('get_overview');
+      if (this.entries.get(id) !== entry) return;
+      this.overviews = { ...this.overviews, [id]: { overview, at: this.now() } };
+      this.markSeen(id);
+      this.emit();
+    } catch (err) {
+      if (/Unknown RPC method/i.test(err instanceof Error ? err.message : String(err))) {
+        this.overviews = { ...this.overviews, [id]: { overview: null, unsupported: true, at: this.now() } };
+        this.emit();
+      }
+    }
+  }
+
+  private scheduleOverview(id: string): void {
+    const entry = this.entries.get(id);
+    if (!entry) return;
+    if (entry.overviewTimer) this.timers.clearTimeout(entry.overviewTimer);
+    entry.overviewTimer = this.timers.setTimeout(() => {
+      entry.overviewTimer = null;
+      void this.refreshOverview(id);
+    }, INBOX_REFRESH_MS);
+  }
 
   /** Есть ли живое соединение с ПК: действие над его записью уйдёт только так. */
   isReady(id: string): boolean {
@@ -133,6 +215,10 @@ export class HostPool {
       this.inboxes = Object.fromEntries(Object.entries(this.inboxes).filter(([id]) => keep.has(id)));
       this.emit();
     }
+    if (Object.keys(this.overviews).some((id) => !keep.has(id))) {
+      this.overviews = Object.fromEntries(Object.entries(this.overviews).filter(([id]) => keep.has(id)));
+      this.emit();
+    }
     if (this.paused) return;
     this.apply();
   }
@@ -175,7 +261,7 @@ export class HostPool {
       if (entry) entry.profile = { ...p, id };
       this.onProfileChange({ ...p, id });
     });
-    const entry: Entry = { client, profile, connKey: connectionKey(profile), pending: new Set(), unsubscribe: [], inboxTimer: null };
+    const entry: Entry = { client, profile, connKey: connectionKey(profile), pending: new Set(), unsubscribe: [], inboxTimer: null, overviewTimer: null };
     this.entries.set(id, entry);
     entry.unsubscribe.push(
       client.subscribe((snap) => this.setSummary(id, { state: snap.state, route: snap.route, error: snap.error })),
@@ -190,6 +276,7 @@ export class HostPool {
     if (!entry) return;
     this.entries.delete(id);
     if (entry.inboxTimer) this.timers.clearTimeout(entry.inboxTimer);
+    if (entry.overviewTimer) this.timers.clearTimeout(entry.overviewTimer);
     for (const u of entry.unsubscribe) u();
     entry.client.disconnect();
     const { [id]: _gone, ...rest } = this.summaries;
@@ -201,6 +288,11 @@ export class HostPool {
     const entry = this.entries.get(id);
     if (!entry) return;
     const d = (data || {}) as { requestId?: unknown };
+    this.markSeen(id);
+    if (event === 'overview:changed') {
+      this.scheduleOverview(id);
+      return;
+    }
     if (event === 'client:ready') {
       void this.refresh(id);
       return;
@@ -219,7 +311,7 @@ export class HostPool {
   private async refresh(id: string): Promise<void> {
     const entry = this.entries.get(id);
     if (!entry) return;
-    await this.refreshInbox(id);
+    await Promise.all([this.refreshInbox(id), this.refreshOverview(id)]);
     if (this.entries.get(id) !== entry) return;
     if (!this.inboxes[id]) {
       try {

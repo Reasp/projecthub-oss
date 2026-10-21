@@ -880,6 +880,15 @@ const api: IElectronAPI = {
   federationCall: (hostId: string, method: string, params?: Record<string, unknown>) =>
     ipcRenderer.invoke('federation:call', hostId, method, params),
   getFederationHosts: () => ipcRenderer.invoke('federation:getHosts'),
+  // Дерево флота (TASK-174): сводка этого ПК и событие её изменения
+  getLocalOverview: () => ipcRenderer.invoke('fleet:getLocalOverview'),
+  onLocalOverviewChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('overview:changed', handler);
+    return () => {
+      ipcRenderer.removeListener('overview:changed', handler);
+    };
+  },
   onFederationPeersChanged: (callback: (peers: unknown[]) => void) => {
     const handler = (_event: unknown, peers: unknown[]) => callback(peers);
     ipcRenderer.on('federation:peersChanged', handler);

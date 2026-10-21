@@ -1580,6 +1580,9 @@ export interface IElectronAPI {
   disconnectFederationPeer: (hostId: string) => Promise<FederationPeerState>;
   federationCall: <T = unknown>(hostId: string, method: RemoteRpcMethod | string, params?: Record<string, unknown>) => Promise<T>;
   getFederationHosts: () => Promise<FederationHost[]>;
+  /** Сводка флота этого ПК (TASK-174, decision-129) и событие её изменения с дебаунсом. */
+  getLocalOverview: () => Promise<import('../utils/fleetOverview').RemoteOverview>;
+  onLocalOverviewChanged: (callback: () => void) => () => void;
   onFederationPeersChanged: (callback: (peers: FederationPeerState[]) => void) => () => void;
   onFederationEvent: (
     callback: (payload: { hostId: string; machineName: string; event: string; data: unknown }) => void
