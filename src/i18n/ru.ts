@@ -1731,13 +1731,18 @@ export const ru: TranslationDictionary = {
       agentMode: 'Agent',
       chatMode: 'Chat',
       adrMode: 'ADR',
-      contextTags: 'Контекстные теги',
-      quickPrompts: 'Быстрые команды:',
+      contextTags: 'Вставить контекст',
+      quickPrompts: 'Быстрые команды',
       handsFreePlaceholder: 'Talon Voice активен: говорите текст вслух без кнопок...',
       handsFreeDisableTitle: 'Talon Voice Hands-Free активен (кликните для отключения)',
       handsFreeEnableTitle: 'Включить Talon Voice диктовку промпта',
       voicePromptCmd: 'промпт [текст]',
-      voiceAskCmd: 'напиши [текст]'
+      voiceAskCmd: 'напиши [текст]',
+      modeTitle: 'Режим',
+      accountTitle: 'Аккаунт Claude Code этой вкладки: {name}',
+      accountHeading: 'Аккаунт Claude Code вкладки',
+      accountFromProject: 'Как у проекта ({name})',
+      tabAgent: 'Агент: {agent}'
     },
     steps: {
       title: 'Шаги агента и вызовы инструментов',

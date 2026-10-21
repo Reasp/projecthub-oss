@@ -26,6 +26,7 @@ import {
   ArrowsLeftRightIcon,
   ArrowsOutIcon,
   AsteriskIcon,
+  AtIcon,
   BankIcon,
   BellIcon,
   BellRingingIcon,
@@ -229,6 +230,7 @@ export const ArrowRightLeft = wrap(ArrowsLeftRightIcon, 'ArrowRightLeft');
 export const ArrowUp = wrap(ArrowUpIcon, 'ArrowUp');
 export const ArrowUpFromLine = wrap(ArrowLineUpIcon, 'ArrowUpFromLine');
 export const Asterisk = wrap(AsteriskIcon, 'Asterisk');
+export const At = wrap(AtIcon, 'At');
 export const Ban = wrap(ProhibitIcon, 'Ban');
 export const BarChart2 = wrap(ChartBarIcon, 'BarChart2');
 export const Bell = wrap(BellIcon, 'Bell');

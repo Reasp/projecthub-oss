@@ -1622,6 +1622,11 @@ export interface TranslationDictionary {
       handsFreeEnableTitle: string;
       voicePromptCmd: string;
       voiceAskCmd: string;
+      modeTitle: string;
+      accountTitle: string;
+      accountHeading: string;
+      accountFromProject: string;
+      tabAgent: string;
     };
     steps: {
       title: string;

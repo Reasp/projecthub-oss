@@ -1729,13 +1729,18 @@ export const en: TranslationDictionary = {
       agentMode: 'Agent',
       chatMode: 'Chat',
       adrMode: 'ADR',
-      contextTags: 'Context Tags',
-      quickPrompts: 'Quick Prompts:',
+      contextTags: 'Insert context',
+      quickPrompts: 'Quick prompts',
       handsFreePlaceholder: 'Talon Voice active: speak aloud hands-free...',
       handsFreeDisableTitle: 'Talon Voice Hands-Free active (click to disable)',
       handsFreeEnableTitle: 'Enable Talon Voice prompt dictation',
       voicePromptCmd: 'prompt [text]',
-      voiceAskCmd: 'ask [text]'
+      voiceAskCmd: 'ask [text]',
+      modeTitle: 'Mode',
+      accountTitle: 'Claude Code account of this tab: {name}',
+      accountHeading: 'Claude Code account for this tab',
+      accountFromProject: 'Same as project ({name})',
+      tabAgent: 'Agent: {agent}'
     },
     steps: {
       title: 'Agent Steps & Tool Calls',

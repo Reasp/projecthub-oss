@@ -16,12 +16,14 @@ import type {
   RateLimitWarning,
   ProjectAgentStatus,
   AutoApproveRules,
-  ContextPartKey
+  ContextPartKey,
+  StudioSessionAgent
 } from '../types/electron';
 import { useProjectStore } from './useProjectStore';
 import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { upsertToolCall } from '../lib/aiToolCalls';
+import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
 
 export type { AISession };
 
@@ -57,10 +59,13 @@ interface AIStudioState {
   // Actions
   fetchConfig: () => Promise<void>;
   saveConfig: (config: AIProviderConfig) => Promise<void>;
-  /** Статус аккаунта Claude Code проекта (TASK-152): без проекта — профиль по умолчанию. */
-  fetchClaudeAuth: (projectPath?: string, force?: boolean) => Promise<void>;
-  /** Окно входа со встроенным терминалом для аккаунта проекта (TASK-152.2). */
-  startClaudeLogin: (projectPath?: string) => Promise<void>;
+  /**
+   * Статус аккаунта Claude Code (TASK-152): аккаунта вкладки (TASK-170), иначе проекта, без проекта —
+   * профиль по умолчанию.
+   */
+  fetchClaudeAuth: (projectPath?: string, force?: boolean, accountId?: string) => Promise<void>;
+  /** Окно входа со встроенным терминалом для аккаунта вкладки или проекта (TASK-152.2, TASK-170). */
+  startClaudeLogin: (projectPath?: string, accountId?: string) => Promise<void>;
   claudeLogout: (projectPath?: string) => Promise<void>;
   setMode: (mode: 'chat' | 'agent' | 'architect') => void;
   setIsSettingsOpen: (open: boolean) => void;
@@ -82,6 +87,8 @@ interface AIStudioState {
   renameSession: (projectPath: string, sessionId: string, newTitle: string) => void;
   /** Привязывает сессию к задаче (TASK-64) — дальше contextBuilder собирает контекст на каждое сообщение. */
   setSessionTask: (projectPath: string, sessionId: string, taskId: string | undefined) => void;
+  /** Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code только этой сессии. */
+  setSessionAgent: (projectPath: string, sessionId: string, agent: StudioSessionAgent) => void;
   /** Включает/выключает часть контекста (задача/RAG/GitNexus/git) на сессию. */
   toggleContextPart: (projectPath: string, sessionId: string, key: ContextPartKey, enabled: boolean) => void;
   clearSession: (projectPath: string, sessionId?: string) => void;
@@ -291,10 +298,14 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
       },
 
-      fetchClaudeAuth: async (projectPath, force) => {
+      fetchClaudeAuth: async (projectPath, force, accountId) => {
         if (window.api?.getClaudeAuthStatus) {
           try {
-            const auth = await window.api.getClaudeAuthStatus({ ...(projectPath ? { projectPath } : {}), force: force === true });
+            const auth = await window.api.getClaudeAuthStatus({
+              ...(projectPath ? { projectPath } : {}),
+              ...(accountId ? { accountId } : {}),
+              force: force === true
+            });
             set({ claudeAuth: auth });
           } catch (err) {
             console.error('Failed to fetch Claude auth status:', err);
@@ -302,9 +313,10 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
       },
 
-      startClaudeLogin: async (projectPath) => {
+      startClaudeLogin: async (projectPath, accountId) => {
         try {
-          await useClaudeAccountsStore.getState().openLoginForProject(projectPath);
+          if (accountId) useClaudeAccountsStore.getState().openLogin(accountId);
+          else await useClaudeAccountsStore.getState().openLoginForProject(projectPath);
         } catch (err) {
           console.error('Failed to start Claude login:', err);
         }
@@ -379,11 +391,14 @@ export const useAIStudioStore = create<AIStudioState>()(
 
       createSession: (projectPath: string, initialTitle?: string, opts: CreateSessionOptions = {}) => {
         const existing = get().sessions[projectPath] || [];
+        // Новая вкладка начинает с агента текущей (TASK-170), дальше её агент меняется независимо.
+        const active = existing.find((s) => s.id === get().activeSessionId[projectPath]);
         const newSession: AISession = {
           id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           title: initialTitle || `Диалог ${existing.length + 1}`,
           createdAt: Date.now(),
           messages: [],
+          agent: effectiveSessionAgent(get().config, active?.agent),
           ...(opts.origin ? { origin: opts.origin } : {}),
           ...(opts.originDevice ? { originDevice: opts.originDevice } : {})
         };
@@ -502,6 +517,15 @@ export const useAIStudioStore = create<AIStudioState>()(
         });
       },
 
+      setSessionAgent: (projectPath: string, sessionId: string, agent: StudioSessionAgent) => {
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => (s.id === sessionId ? { ...s, agent } : s))
+          }
+        }));
+      },
+
       toggleContextPart: (projectPath: string, sessionId: string, key: ContextPartKey, enabled: boolean) => {
         set((state) => {
           const projectSessions = state.sessions[projectPath] || [];
@@ -599,15 +623,17 @@ export const useAIStudioStore = create<AIStudioState>()(
           activeSessionId = get().createSession(projectPath);
           projectSessions = get().sessions[projectPath] || [];
         }
-        const requestConfig = opts.config ?? get().config;
+        const currentSession = projectSessions.find((s) => s.id === activeSessionId)!;
+        // Модель с телефона — на этот запрос; иначе агент вкладки поверх общего конфига (TASK-170).
+        const requestConfig = opts.config ?? sessionRequestConfig(get().config, currentSession.agent);
         const requestMode = opts.mode ?? get().mode;
+        const claudeAccountId = requestConfig.provider === 'anthropic' ? sessionClaudeAccountId(currentSession.agent) : undefined;
         const lastSelection = {
           provider: requestConfig.provider,
           ...(requestConfig.profileId ? { profileId: requestConfig.profileId } : {}),
           model: requestConfig.model
         };
 
-        const currentSession = projectSessions.find((s) => s.id === activeSessionId)!;
         const currentMessages = currentSession.messages || [];
 
         const userMsg: AIMessage = {
@@ -849,7 +875,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           taskId: currentSession.activeTaskId,
           contextParts: currentSession.contextParts,
           // Агент работает в активном рабочем дереве проекта (TASK-62, decision-15).
-          workspaceRoot: useProjectStore.getState().workspaceRoot || undefined
+          workspaceRoot: useProjectStore.getState().workspaceRoot || undefined,
+          ...(claudeAccountId ? { claudeAccountId } : {})
         };
 
         try {

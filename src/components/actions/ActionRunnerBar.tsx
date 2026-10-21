@@ -134,15 +134,12 @@ export const ActionRunnerBar: React.FC = () => {
       <button
         onClick={handleRunDeploy}
         disabled={isStartingDeploy || Boolean(runningDeployProcess)}
-        className="flex items-center gap-1.5 h-7 px-2 rounded-md text-slate-300 hover:bg-ph-hover hover:text-white text-xs transition disabled:opacity-50"
+        className="flex items-center h-7 px-1.5 rounded-md text-slate-400 hover:bg-ph-hover hover:text-white transition disabled:opacity-50"
         title={t.actions.startDeploy.replace('{command}', config.deploy.command)}
+        aria-label={t.actions.deploy}
       >
-        {isStartingDeploy ? (
-          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-        ) : (
-          <Rocket className="w-3.5 h-3.5 text-slate-400" />
-        )}
-        <span className="hidden sm:inline">{t.actions.deploy}</span>
+        {/* Иконка с подсказкой (TASK-169): подпись в шапке только у Run */}
+        {isStartingDeploy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
         <VoiceBadge command={t.voice.voiceBadges.deploy} variant="indigo" />
       </button>
 
@@ -150,15 +147,11 @@ export const ActionRunnerBar: React.FC = () => {
       <button
         onClick={handleRunTest}
         disabled={isStartingTest}
-        className="flex items-center gap-1.5 h-7 px-2 rounded-md text-slate-300 hover:bg-ph-hover hover:text-white text-xs transition"
+        className="flex items-center h-7 px-1.5 rounded-md text-slate-400 hover:bg-ph-hover hover:text-white transition"
         title={t.actions.startTest.replace('{command}', config.test.command)}
+        aria-label={t.actions.test}
       >
-        {isStartingTest ? (
-          <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
-        ) : (
-          <FlaskConical className="w-3.5 h-3.5 text-slate-400" />
-        )}
-        <span className="hidden md:inline">{t.actions.test}</span>
+        {isStartingTest ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
         <VoiceBadge command={t.voice.voiceBadges.test} variant="amber" />
       </button>
 

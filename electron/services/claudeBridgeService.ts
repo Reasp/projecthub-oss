@@ -1257,6 +1257,8 @@ class ClaudeBridgeService extends EventEmitter {
       builtinTools?: string[];
       /** Дополнение системного промпта CLI-сессии (например, правила голосовой команды). */
       systemPromptAddon?: string;
+      /** Аккаунт Claude Code вкладки Agents Studio (TASK-170): перекрывает привязку проекта, как аккаунт слота. */
+      claudeAccountId?: string;
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1350,6 +1352,7 @@ class ClaudeBridgeService extends EventEmitter {
       contextParts?: Partial<Record<ContextPartKey, boolean>>;
       builtinTools?: string[];
       systemPromptAddon?: string;
+      claudeAccountId?: string;
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1443,8 +1446,8 @@ class ClaudeBridgeService extends EventEmitter {
     // Human-in-the-loop (TASK-42): разрешения запрашиваются через встроенный MCP-сервер
     // до выполнения инструмента. --dangerously-skip-permissions — только как запасной
     // вариант при auto-approve, если сервер поднять не удалось.
-    // Аккаунт Claude Code проекта сессии (decision-87): привязка в реестре машины, иначе по умолчанию.
-    const account = (await claudeAccountService.resolve({ projectPath })).account;
+    // Аккаунт Claude Code (decision-87): вкладки Studio (TASK-170), иначе привязка проекта в реестре машины, иначе по умолчанию.
+    const account = (await claudeAccountService.resolve({ projectPath, slotAccountId: req.claudeAccountId })).account;
     const hitl = await this.prepareCliPermissions(sessionId, projectPath, req.config, onChunk, {
       origin: 'studio',
       engine: 'claude-cli',

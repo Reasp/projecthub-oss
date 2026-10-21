@@ -2841,6 +2841,16 @@ export interface AISession {
   /** Модель и режим последнего промпта — для истории и продолжения с телефона. */
   lastSelection?: { provider: string; profileId?: string; model: string };
   lastMode?: 'chat' | 'agent' | 'architect';
+  /** Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code; без поля — общий выбор Studio. */
+  agent?: StudioSessionAgent;
+}
+
+/** Агент вкладки Agents Studio (TASK-170). `claudeAccountId` действует только для Claude Code CLI. */
+export interface StudioSessionAgent {
+  provider: AIProviderConfig['provider'];
+  profileId?: string;
+  model: string;
+  claudeAccountId?: string;
 }
 
 /** Запрос хоста к стору Agents Studio от имени телефона (`aiStudio:remoteRequest`). */
@@ -2870,6 +2880,8 @@ export interface AIStreamRequest {
   contextParts?: Partial<Record<ContextPartKey, boolean>>;
   /** Активное рабочее дерево (worktree) — рабочий каталог агента; backlog общий (TASK-62). */
   workspaceRoot?: string;
+  /** Аккаунт Claude Code вкладки (TASK-170); без поля — аккаунт проекта. */
+  claudeAccountId?: string;
 }
 
 export interface GitWorktreeInfo {

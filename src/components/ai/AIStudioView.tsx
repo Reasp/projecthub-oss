@@ -22,7 +22,8 @@ import {
   MessageSquare,
   Landmark,
   History,
-  Smartphone
+  Smartphone,
+  Server
 } from '../common/icons';
 import { ClaudeLogo } from '../common/BrandLogo';
 import { useAIStudioStore, type AISession } from '../../store/useAIStudioStore';
@@ -36,7 +37,10 @@ import { InteractiveApprovalCard } from './InteractiveApprovalCard';
 import { SubagentsPanel } from './SubagentsPanel';
 import { PromptInputArea } from './PromptInputArea';
 import { ContextAppliedCard } from './ContextAppliedCard';
-import { ModelSelectorDropdown } from './ModelSelectorDropdown';
+import { SessionAgentPicker } from './SessionAgentPicker';
+import { ComposerMenu } from './ComposerMenu';
+import { effectiveSessionAgent, sessionClaudeAccountId } from '../../lib/studioSessionAgent';
+import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { RateLimitWarningBanner } from './RateLimitWarningBanner';
 import { AgentStepsAccordion } from './AgentStepsAccordion';
 import { LiveActivitySidebar } from './LiveActivitySidebar';
@@ -86,6 +90,7 @@ export const AIStudioView: React.FC = () => {
     renameSession,
     clearSession,
     setSessionTask,
+    setSessionAgent,
     toggleContextPart,
     sendMessage,
     retryFailedMessage,
@@ -110,15 +115,22 @@ export const AIStudioView: React.FC = () => {
   const projectRateLimitWarning = rateLimitWarnings[projectPath] || null;
   const projectAgentStatus = projectStatuses[projectPath] || null;
   const currentLiveOutput = liveOutputs[projectPath] || '';
+  // Агент вкладки (TASK-170): у старой вкладки без своего агента — общий выбор Studio.
+  const currentAgent = effectiveSessionAgent(config, currentSession?.agent);
+  const sessionAccountId = sessionClaudeAccountId(currentSession?.agent);
+  const claudeAccounts = useClaudeAccountsStore((s) => s.overview?.accounts);
 
   useEffect(() => {
     fetchConfig();
-    // Статус аккаунта Claude Code этого проекта (TASK-152.3): привязка в реестре машины.
-    fetchClaudeAuth(projectPath || undefined);
     if (projectPath) {
       fetchSubagents(projectPath);
     }
-  }, [fetchConfig, fetchClaudeAuth, fetchSubagents, projectPath]);
+  }, [fetchConfig, fetchSubagents, projectPath]);
+
+  useEffect(() => {
+    // Статус аккаунта Claude Code вкладки, иначе проекта (TASK-152.3, TASK-170).
+    fetchClaudeAuth(projectPath || undefined, false, sessionAccountId);
+  }, [fetchClaudeAuth, projectPath, sessionAccountId]);
 
   // История диалогов читается с диска один раз на проект (TASK-35)
   useEffect(() => {
@@ -156,6 +168,11 @@ export const AIStudioView: React.FC = () => {
       </div>
     );
   }
+
+  const modeLabel = (m: 'agent' | 'chat' | 'architect') =>
+    m === 'agent' ? t.aiStudio.input.agentMode : m === 'chat' ? t.aiStudio.input.chatMode : t.aiStudio.input.adrMode;
+  const modeIcon = (m: 'agent' | 'chat' | 'architect') =>
+    m === 'agent' ? <Zap className="w-3.5 h-3.5" /> : m === 'chat' ? <MessageSquare className="w-3.5 h-3.5" /> : <Landmark className="w-3.5 h-3.5" />;
 
   const toggleThought = (msgId: string) => {
     setExpandedThoughts((prev) => ({
@@ -202,6 +219,10 @@ export const AIStudioView: React.FC = () => {
           {projectSessions.map((session, idx) => {
             const isActive = session.id === currentSessionId;
             const tabNumber = idx + 1;
+            const tabAgent = effectiveSessionAgent(config, session.agent);
+            const tabAccount = sessionClaudeAccountId(session.agent);
+            const tabAccountName = tabAccount ? claudeAccounts?.find((a) => a.id === tabAccount)?.name : undefined;
+            const tabAgentLabel = [tabAgent.model, tabAccountName].filter(Boolean).join(' · ');
 
             return (
               <div
@@ -212,7 +233,7 @@ export const AIStudioView: React.FC = () => {
                     ? 'bg-ph-panel border-indigo-400 text-slate-100'
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-ph-hover/60'
                 }`}
-                title={t.aiStudio.chatVoiceTooltip.replace('{title}', session.title || t.aiStudio.newChat).replace('{num}', String(tabNumber))}
+                title={`${t.aiStudio.chatVoiceTooltip.replace('{title}', session.title || t.aiStudio.newChat).replaceAll('{num}', String(tabNumber))}\n${t.aiStudio.input.tabAgent.replace('{agent}', tabAgentLabel)}`}
               >
                 {/* Voice / Tab Order Badge */}
                 <span
@@ -226,12 +247,14 @@ export const AIStudioView: React.FC = () => {
                   {tabNumber}
                 </span>
 
-                {/* Claude Anthropic Orange Spark Icon; сессия с телефона — значок телефона (TASK-140.10) */}
+                {/* Значок агента вкладки: Claude Code или сервер модели (TASK-170); сессия с телефона — телефон (TASK-140.10) */}
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
                   {session.origin === 'phone' ? (
                     <Smartphone className="w-3.5 h-3.5 text-sky-300" aria-label={t.aiStudio.fromPhone} />
-                  ) : (
+                  ) : tabAgent.provider === 'anthropic' ? (
                     <ClaudeLogo className="w-3.5 h-3.5" />
+                  ) : (
+                    <Server className="w-3.5 h-3.5 text-slate-400" />
                   )}
                 </div>
 
@@ -252,6 +275,8 @@ export const AIStudioView: React.FC = () => {
                 >
                   {session.title || t.aiStudio.newChat}
                 </span>
+                {/* Свой аккаунт Claude Code вкладки — короткой подписью, чтобы различать вкладки разных аккаунтов */}
+                {tabAccountName && <span className="text-[11px] text-amber-300/80 max-w-[70px] truncate">{tabAccountName}</span>}
 
                 <VoiceBadge
                   command={t.aiStudio.voiceChatCmd.replace('{num}', String(tabNumber))}
@@ -344,6 +369,7 @@ export const AIStudioView: React.FC = () => {
           {/* Claude.ai Auth Status & Logout Button Group */}
           {claudeAuth?.isLoggedIn ? (
             <div className="flex items-center shrink-0">
+              {/* Почта — в подсказке (TASK-169): аккаунт вкладки виден в поле ввода и во вкладке */}
               <button
                 onClick={() => setIsSettingsOpen(true)}
                 title={`${claudeAuth.accountName ? `${t.claudeAccounts.accountLabel}: ${claudeAuth.accountName}. ` : ''}${t.aiStudio.loggedInAs}: ${claudeAuth.email} (${claudeAuth.seatTier || 'Pro'})`}
@@ -351,14 +377,11 @@ export const AIStudioView: React.FC = () => {
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
                 <ClaudeLogo className="w-3.5 h-3.5" />
-                <span className="max-w-[110px] lg:max-w-[170px] truncate">
-                  {claudeAuth.email}
-                </span>
               </button>
               <button
                 onClick={async () => {
                   await claudeLogout(projectPath || undefined);
-                  await fetchClaudeAuth(projectPath || undefined, true);
+                  await fetchClaudeAuth(projectPath || undefined, true, sessionAccountId);
                 }}
                 title={t.aiStudio.logoutClaudeTitle}
                 className="ph-icon-button hover:text-rose-300"
@@ -368,7 +391,7 @@ export const AIStudioView: React.FC = () => {
             </div>
           ) : (
             <button
-              onClick={() => startClaudeLogin(projectPath || undefined)}
+              onClick={() => startClaudeLogin(projectPath || undefined, sessionAccountId)}
               title={t.aiStudio.loginClaudeTitle}
               className="flex items-center gap-1.5 h-7 px-2 rounded-md text-xs transition shrink-0 bg-ph-raised hover:bg-ph-hover text-slate-100"
             >
@@ -407,43 +430,7 @@ export const AIStudioView: React.FC = () => {
             </span>
           )}
 
-          {/* Quick Model Selector Dropdown matching official Claude Code UI */}
-          <ModelSelectorDropdown
-            config={config}
-            onSelect={(selection) => saveConfig({ ...config, ...selection })}
-          />
-
-          {/* Лимиты Claude Code — в строке состояния (decision-73), здесь не дублируются */}
-
-          {/* Auto-Approve Quick Toggle */}
-          <button
-            type="button"
-            onClick={() => saveConfig({ ...config, autoApprove: !config.autoApprove })}
-            title={config.autoApprove ? t.aiStudio.autoApproveOn : t.aiStudio.autoApproveOff}
-            className={`flex items-center gap-1.5 h-7 px-2 rounded-md text-xs transition shrink-0 ${
-              config.autoApprove ? 'text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15' : 'text-slate-400 hover:text-slate-100 hover:bg-ph-hover'
-            }`}
-          >
-            <ShieldCheck className={`w-3.5 h-3.5 ${config.autoApprove ? 'text-emerald-400' : 'text-slate-400'}`} />
-            <span className="hidden xl:inline">{t.aiStudio.autoApprove}</span>
-            <span className="text-[11px] text-slate-500">{config.autoApprove ? 'ON' : 'OFF'}</span>
-          </button>
-
-          {/* Mode Switcher */}
-          <div className="flex items-center p-0.5 rounded-md bg-ph-raised shrink-0">
-            {(['agent', 'chat', 'architect'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={`flex items-center gap-1.5 h-6 px-2 rounded text-xs transition ${
-                  mode === m ? 'bg-ph-hover text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {m === 'agent' ? <Zap className="w-3.5 h-3.5" /> : m === 'chat' ? <MessageSquare className="w-3.5 h-3.5" /> : <Landmark className="w-3.5 h-3.5" />}
-                {m === 'agent' ? t.aiStudio.input.agentMode : m === 'chat' ? t.aiStudio.input.chatMode : t.aiStudio.input.adrMode}
-              </button>
-            ))}
-          </div>
+          {/* Модель, режим и авто-подтверждение — в нижней строке поля ввода (TASK-169); лимиты — в строке состояния (decision-73) */}
 
           <button
             onClick={() => clearSession(projectPath, currentSessionId)}
@@ -456,19 +443,19 @@ export const AIStudioView: React.FC = () => {
           <button
             onClick={() => setIsRolesModalOpen(true)}
             title={t.roles.title}
-            className="flex items-center gap-1.5 h-7 px-2 rounded-md text-xs transition shrink-0 text-slate-400 hover:text-slate-100 hover:bg-ph-hover"
+            aria-label={t.roles.title}
+            className="ph-icon-button shrink-0"
           >
             <Users className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t.roles.title}</span>
           </button>
 
           <button
             onClick={() => setIsSettingsOpen(true)}
             title={t.aiStudio.settings}
-            className="flex items-center gap-1.5 h-7 px-2 rounded-md text-xs transition shrink-0 text-slate-400 hover:text-slate-100 hover:bg-ph-hover"
+            aria-label={t.aiStudio.settings}
+            className="ph-icon-button shrink-0"
           >
             <Settings className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t.aiStudio.settings}</span>
           </button>
         </div>
       </div>
@@ -520,7 +507,7 @@ export const AIStudioView: React.FC = () => {
                       <p className="text-[11px] text-slate-400">{t.aiStudio.useSubscriptionDesc}</p>
                     </div>
                     <button
-                      onClick={() => startClaudeLogin(projectPath || undefined)}
+                      onClick={() => startClaudeLogin(projectPath || undefined, sessionAccountId)}
                       className="px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs transition whitespace-nowrap"
                     >
                       {t.aiStudio.loginClaude}
@@ -749,6 +736,52 @@ export const AIStudioView: React.FC = () => {
         gitRepoDetails={gitRepoDetails}
         onSend={(text) => sendMessage(projectPath, text)}
         onAbort={abortStream}
+        footerStart={
+          <>
+            {currentSessionId && (
+              <SessionAgentPicker
+                projectPath={projectPath}
+                agent={currentAgent}
+                config={config}
+                onChange={(agent) => setSessionAgent(projectPath, currentSessionId, agent)}
+              />
+            )}
+            <ComposerMenu
+              title={t.aiStudio.input.modeTitle}
+              heading={t.aiStudio.input.modeTitle}
+              chevron
+              testId="composer-mode-menu"
+              trigger={
+                <>
+                  {modeIcon(mode)}
+                  <span>{modeLabel(mode)}</span>
+                </>
+              }
+              items={(['agent', 'chat', 'architect'] as const).map((m) => ({
+                key: m,
+                label: modeLabel(m),
+                icon: modeIcon(m),
+                checked: mode === m,
+                onSelect: () => setMode(m)
+              }))}
+            />
+          </>
+        }
+        footerEnd={
+          <button
+            type="button"
+            onClick={() => saveConfig({ ...config, autoApprove: !config.autoApprove })}
+            title={`${t.aiStudio.autoApprove}: ${config.autoApprove ? t.aiStudio.autoApproveOn : t.aiStudio.autoApproveOff}`}
+            aria-label={t.aiStudio.autoApprove}
+            aria-pressed={!!config.autoApprove}
+            className={`flex items-center gap-1 h-7 px-1.5 rounded-md text-xs transition shrink-0 ${
+              config.autoApprove ? 'text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15' : 'text-slate-400 hover:text-slate-100 hover:bg-ph-raised'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            {config.autoApprove && <span>{t.aiStudio.autoApprove}</span>}
+          </button>
+        }
       />
 
       {/* Settings Modal */}

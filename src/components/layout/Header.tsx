@@ -70,6 +70,8 @@ export const Header: React.FC = () => {
   };
 
   const toolButton = 'flex items-center gap-1.5 h-7 px-2 rounded-md text-xs text-slate-300 hover:bg-ph-hover hover:text-white transition whitespace-nowrap shrink-0';
+  // Второстепенные действия — иконки с подсказкой (TASK-169): подпись остаётся у Run и у кнопок, требующих внимания.
+  const iconToolButton = 'flex items-center h-7 px-1.5 rounded-md text-slate-400 hover:bg-ph-hover hover:text-white transition whitespace-nowrap shrink-0';
 
   return (
     <header className="h-10 shrink-0 border-b border-ph-line pr-2 flex items-stretch justify-between gap-3 bg-ph-chrome overflow-hidden">
@@ -150,26 +152,24 @@ export const Header: React.FC = () => {
 
         <div className="w-px h-4 bg-ph-line mx-1.5" />
 
-        <button onClick={handleOpenCode} title={t.header.vsCode} className={toolButton}>
-          <Code className="w-3.5 h-3.5 text-slate-400" />
-          <span className="hidden xl:inline">{t.header.vsCode}</span>
+        <button onClick={handleOpenCode} title={t.header.vsCode} aria-label={t.header.vsCode} className={iconToolButton}>
+          <Code className="w-4 h-4" />
           <VoiceBadge command={t.voice.voiceBadges.code} />
         </button>
 
-        <button onClick={handleOpenExplorer} title={t.header.folder} className={toolButton}>
-          <FolderOpen className="w-3.5 h-3.5 text-slate-400" />
-          <span className="hidden xl:inline">{t.header.folder}</span>
+        <button onClick={handleOpenExplorer} title={t.header.folder} aria-label={t.header.folder} className={iconToolButton}>
+          <FolderOpen className="w-4 h-4" />
           <VoiceBadge command={t.voice.voiceBadges.folder} />
         </button>
 
         <button
           onClick={toggleTerminal}
           title={`${t.header.console} (Ctrl+\`)`}
+          aria-label={t.header.console}
           aria-pressed={isTerminalOpen}
-          className={`${toolButton} ${isTerminalOpen ? 'bg-ph-hover text-white' : ''}`}
+          className={`${iconToolButton} ${isTerminalOpen ? 'bg-ph-hover text-white' : ''}`}
         >
-          <TerminalSquare className={`w-3.5 h-3.5 ${isTerminalOpen ? 'text-indigo-400' : 'text-slate-400'}`} />
-          <span className="hidden lg:inline">{t.header.console}</span>
+          <TerminalSquare className={`w-4 h-4 ${isTerminalOpen ? 'text-indigo-400' : ''}`} />
           <VoiceBadge command={t.voice.voiceBadges.terminal} />
         </button>
       </div>

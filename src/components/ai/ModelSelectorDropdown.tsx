@@ -13,6 +13,8 @@ export type ModelSelection = Pick<AIProviderConfig, 'provider' | 'profileId' | '
 interface ModelSelectorDropdownProps {
   config: AIProviderConfig;
   onSelect: (selection: ModelSelection) => void;
+  /** `above` — меню вверх от кнопки и кнопка без рамки: нижняя строка поля ввода Studio (TASK-169). */
+  placement?: 'below' | 'above';
 }
 
 const CLI_GROUP_KEY = 'claude-cli';
@@ -85,7 +87,7 @@ const FALLBACK_MODELS: ClaudeModelOption[] = [
   }
 ];
 
-export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ config, onSelect }) => {
+export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ config, onSelect, placement = 'below' }) => {
   const { t } = useI18n();
   const ps = t.providerSelect;
   const [isOpen, setIsOpen] = useState(false);
@@ -99,13 +101,17 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
   const searchRef = useRef<HTMLInputElement>(null);
   // Меню рендерится порталом в body с fixed-позицией: шапка Agents Studio прокручивается по горизонтали
   // (overflow-x-auto), а такой предок обрезает абсолютное меню по своей высоте (decision-17).
-  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [menuPos, setMenuPos] = useState<React.CSSProperties | null>(null);
 
   const updateMenuPos = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setMenuPos({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
-  }, []);
+    setMenuPos(
+      placement === 'above'
+        ? { bottom: window.innerHeight - rect.top + 6, left: Math.max(8, Math.min(rect.left, window.innerWidth - 392)) }
+        : { top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) }
+    );
+  }, [placement]);
 
   useLayoutEffect(() => {
     if (!isOpen) return;
@@ -282,10 +288,14 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
           e.stopPropagation();
           setIsOpen((prev) => !prev);
         }}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-ph-panel border border-slate-800 hover:border-slate-700 hover:bg-ph-raised text-slate-200 text-[11px] font-medium transition shadow-sm cursor-pointer"
+        className={
+          placement === 'above'
+            ? 'flex items-center gap-1.5 h-7 px-1.5 rounded-md text-xs text-slate-300 hover:text-slate-100 hover:bg-ph-raised transition cursor-pointer min-w-0'
+            : 'flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-ph-panel border border-slate-800 hover:border-slate-700 hover:bg-ph-raised text-slate-200 text-[11px] font-medium transition shadow-sm cursor-pointer'
+        }
         title={ps.selectModelTitle}
       >
-        <ClaudeLogo className="w-3.5 h-3.5" />
+        {config.provider === 'anthropic' ? <ClaudeLogo className="w-3.5 h-3.5 shrink-0" /> : <Server className="w-3.5 h-3.5 shrink-0 text-slate-400" />}
         <span className="font-medium max-w-[160px] truncate">{triggerLabel}</span>
         {triggerSource && <span className="text-[11px] text-slate-400 max-w-[110px] truncate">· {triggerSource}</span>}
         {activeProfile?.local && <HardDrive className="w-3 h-3 text-emerald-400" aria-label={ps.local} />}
@@ -296,7 +306,7 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
       {isOpen && menuPos && createPortal(
         <div
           ref={menuRef}
-          style={{ top: menuPos.top, right: menuPos.right }}
+          style={menuPos}
           className="fixed w-96 max-w-[calc(100vw-16px)] bg-ph-raised border border-slate-800 rounded-xl shadow-2xl z-[10000] overflow-hidden animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/50"
           onClick={(e) => e.stopPropagation()}
         >

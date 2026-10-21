@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { AISession, AIMessage, AIToolCall } from '../../src/types/electron';
+import { sanitizeSessionAgent } from '../../src/lib/studioSessionAgent.js';
 import { getStatePath } from './appPaths.js';
 import { stateFields, withVersion } from './stateFiles.js';
 
@@ -134,8 +135,14 @@ export function compactSessionForStorage(session: AISession): AISession {
           }
         }
       : {}),
-    ...(session.lastMode === 'agent' || session.lastMode === 'chat' || session.lastMode === 'architect' ? { lastMode: session.lastMode } : {})
+    ...(session.lastMode === 'agent' || session.lastMode === 'chat' || session.lastMode === 'architect' ? { lastMode: session.lastMode } : {}),
+    // Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code переживают перезапуск.
+    ...withAgent(sanitizeSessionAgent(session.agent))
   };
+}
+
+function withAgent(agent: AISession['agent']): Pick<AISession, 'agent'> {
+  return agent ? { agent } : {};
 }
 
 function isSelection(value: unknown): value is { provider: string; profileId?: string; model: string } {
