@@ -38,6 +38,12 @@ function gitOrNull(args) {
   }
 }
 
+// Пути изменённых файлов. `-z` — без экранирования: иначе git отдаёт путь с кириллицей как `"backlog/\320….md"`,
+// и isCodePath принимает задачу или документ за код.
+function changedPaths(args) {
+  return git(['diff', '-z', '--name-only', ...args]).split('\0').filter(Boolean);
+}
+
 function readWorking(file) {
   const full = path.join(rootDir, file);
   return fs.existsSync(full) ? fs.readFileSync(full, 'utf-8') : undefined;
@@ -98,7 +104,7 @@ function ensureStaged() {
   if (!branch || !MAIN_BRANCHES.has(branch)) return;
   const head = versionAt('HEAD');
   if (!head) return;
-  const changed = git(['diff', '--cached', '--name-only', 'HEAD']).split('\n').filter(Boolean);
+  const changed = changedPaths(['--cached', 'HEAD']);
   if (!changed.some(isCodePath)) return;
   const staged = readVersions(gitOrNull(['show', ':package.json']) ?? '', 1)[0];
   if (compareVersions(staged, head) > 0) return;
@@ -116,7 +122,7 @@ function ensureMerge(squash) {
   if (!branch || !MAIN_BRANCHES.has(branch)) return;
   const parents = (gitOrNull(['rev-list', '--parents', '-n', '1', 'HEAD']) ?? '').trim().split(/\s+/).slice(1);
   if (parents.length < 2) return;
-  const changed = git(['diff', '--name-only', parents[0], 'HEAD']).split('\n').filter(Boolean);
+  const changed = changedPaths([parents[0], 'HEAD']);
   if (!changed.some(isCodePath)) return;
   if (compareVersions(versionAt('HEAD'), versionAt(parents[0])) > 0) return;
   bump(true);
@@ -160,7 +166,7 @@ function verify(range) {
     if (!parent) continue;
     // Правило действует с коммита, который его ввёл: у более ранних родителей этого файла нет.
     if (gitOrNull(['cat-file', '-e', `${parent}:scripts/version-rules.mjs`]) === null) continue;
-    const changed = git(['diff', '--name-only', parent, sha]).split('\n').filter(Boolean);
+    const changed = changedPaths([parent, sha]);
     if (!changed.some(isCodePath)) continue;
     const before = versionAt(parent);
     const after = versionAt(sha);
