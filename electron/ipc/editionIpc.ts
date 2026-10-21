@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import fs from 'node:fs/promises';
 import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
 import { buildEdition, loadEditionModules } from '../extensions/loadEditionModules';
@@ -44,6 +44,27 @@ export function registerEditionIpc(ctx: IpcContext): void {
       return { success: true, path: result.filePath };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  editionRegistry.setPdfSaver(async (options) => {
+    const win = ctx.getMainWindow();
+    const dialogOptions = { title: options.title, defaultPath: options.defaultName, filters: [{ name: 'PDF', extensions: ['pdf'] }] };
+    const result = win ? await dialog.showSaveDialog(win, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
+    if (result.canceled || !result.filePath) return { success: false, canceled: true };
+    // Скрытое окно без скриптов и сети: страница — готовый HTML отчёта, печать в PDF средствами Chromium.
+    // Своя сессия в памяти: запрет сети в ней не задевает окно приложения.
+    const printer = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, offscreen: true, partition: 'projecthub-pdf' } });
+    try {
+      printer.webContents.session.webRequest.onBeforeRequest((details, cb) => cb({ cancel: !details.url.startsWith('data:') }));
+      await printer.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(options.html)}`);
+      const pdf = await printer.webContents.printToPDF({ printBackground: true, pageSize: 'A4', landscape: true });
+      await fs.writeFile(result.filePath, pdf);
+      return { success: true, path: result.filePath };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      printer.destroy();
     }
   });
 

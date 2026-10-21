@@ -2947,7 +2947,7 @@ class RemoteControlService {
       deviceId: device.id,
       ...(device.name ? { deviceName: device.name } : {}),
       ...(device.memberId ? { memberId: device.memberId } : {}),
-      ...(typeof (p.projectPath ?? this.deviceProject(device.id)) === 'string' ? { projectPath: String(p.projectPath ?? this.deviceProject(device.id)) } : {}),
+      ...(typeof (p.projectPath ?? this.activeProjectPath) === 'string' ? { projectPath: String(p.projectPath ?? this.activeProjectPath) } : {}),
       ...(auditTarget(p) ? { target: auditTarget(p) } : {})
     };
     try {

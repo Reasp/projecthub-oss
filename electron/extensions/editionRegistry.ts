@@ -61,6 +61,34 @@ export interface AgentRunRecord {
   outputTokens?: number;
 }
 
+/**
+ * Чем закончился результат агента (отчёты о пользе, TASK-146): принят (победитель Arena, цикл
+ * «до готовности» дошёл до цели), отклонён (проигравший кандидат, сессия удалена без слияния) или не удался.
+ */
+export interface AgentOutcomeRecord {
+  at: number;
+  kind: 'arena' | 'doneLoop' | 'discard';
+  verdict: 'accepted' | 'rejected' | 'failed';
+  projectPath: string;
+  taskId?: string;
+  sessionId: string;
+  agentId: string;
+  roleSlug?: string;
+  engine: string;
+  model?: string;
+  memberId?: string;
+  /** Кандидатов в сессии Arena (сравнение «на одной задаче»). */
+  candidates?: number;
+  /** Итераций цикла «до готовности». */
+  iterations?: number;
+  /** Итог цикла как его называет цикл: success, max_iterations, budget, agent_error… */
+  loopOutcome?: string;
+  /** Расход агента за всю сессию. */
+  costUsd?: number;
+  /** Время от создания сессии до итога. */
+  durationMs?: number;
+}
+
 /** Идущий запуск: сколько он уже потратил с начала этого запуска. */
 export interface LiveAgentRun extends Omit<AgentRunRecord, 'at' | 'status'> {
   status: 'running';
@@ -128,12 +156,16 @@ export type IpcHandler = (...args: unknown[]) => unknown;
 export interface EditionMainApi {
   addLaunchGuard(guard: LaunchGuard): void;
   onAgentRun(listener: (record: AgentRunRecord) => void): void;
+  /** Итог результата агента: принят, отклонён или не удался. */
+  onAgentOutcome(listener: (record: AgentOutcomeRecord) => void): void;
   /** Идущие запуски агентов — чтобы учесть расход, который ещё не попал в итог. */
   liveRuns(): LiveAgentRun[];
   /** Канал IPC рендерера. В ph-agent окна нет, и регистрация там ничего не делает. */
   handleIpc(channel: string, handler: IpcHandler): void;
   /** Сохранить текст через системный диалог окна. Без окна (ph-agent) — { success: false }. */
   saveTextFile(options: SaveTextFileOptions): Promise<SaveTextFileResult>;
+  /** Напечатать HTML в PDF (скрытое окно без сети) и сохранить через системный диалог. Без окна — { success: false }. */
+  saveHtmlAsPdf(options: SaveHtmlAsPdfOptions): Promise<SaveTextFileResult>;
   /** Сузить права устройства (роль участника). Расширить нельзя: берётся меньшее из исходных и возвращённых. */
   addDeviceRightsLimit(limit: (device: RemoteDeviceRef) => DeviceRightsName): void;
   /** Запрет метода RPC для устройства: строка — причина отказа. */
@@ -153,6 +185,12 @@ export interface SaveTextFileOptions {
   filters?: Array<{ name: string; extensions: string[] }>;
 }
 
+export interface SaveHtmlAsPdfOptions {
+  title: string;
+  defaultName: string;
+  html: string;
+}
+
 export interface SaveTextFileResult {
   success: boolean;
   canceled?: boolean;
@@ -166,10 +204,12 @@ export interface EditionMainModule {
 
 const guards: LaunchGuard[] = [];
 const runListeners: Array<(record: AgentRunRecord) => void> = [];
+const outcomeListeners: Array<(record: AgentOutcomeRecord) => void> = [];
 let liveRunsProvider: () => LiveAgentRun[] = () => [];
 let ipcRegistrar: (channel: string, handler: IpcHandler) => void = () => undefined;
 const noWindowSave = async (): Promise<SaveTextFileResult> => ({ success: false, error: 'Нет окна для диалога сохранения' });
 let textFileSaver: (options: SaveTextFileOptions) => Promise<SaveTextFileResult> = noWindowSave;
+let pdfSaver: (options: SaveHtmlAsPdfOptions) => Promise<SaveTextFileResult> = noWindowSave;
 const rightsLimits: Array<(device: RemoteDeviceRef) => DeviceRightsName> = [];
 const rpcGuards: Array<(method: string, device: RemoteDeviceRef) => string | null> = [];
 let pairingRedeemer: ((input: { code: string; deviceId: string; deviceName: string }) => Promise<PairingRedemption | null>) | null = null;
@@ -186,9 +226,13 @@ export const editionRegistry = {
       onAgentRun: (listener) => {
         runListeners.push(listener);
       },
+      onAgentOutcome: (listener) => {
+        outcomeListeners.push(listener);
+      },
       liveRuns: () => liveRunsProvider(),
       handleIpc: (channel, handler) => ipcRegistrar(channel, handler),
       saveTextFile: (options) => textFileSaver(options),
+      saveHtmlAsPdf: (options) => pdfSaver(options),
       addDeviceRightsLimit: (limit) => {
         rightsLimits.push(limit);
       },
@@ -287,6 +331,16 @@ export const editionRegistry = {
     }
   },
 
+  emitAgentOutcome(record: AgentOutcomeRecord): void {
+    for (const listener of outcomeListeners) {
+      try {
+        listener(record);
+      } catch (err) {
+        console.warn('[edition] Подписчик итога результата упал:', err);
+      }
+    }
+  },
+
   setLiveRunsProvider(provider: () => LiveAgentRun[]): void {
     liveRunsProvider = provider;
   },
@@ -299,13 +353,19 @@ export const editionRegistry = {
     textFileSaver = saver;
   },
 
+  setPdfSaver(saver: (options: SaveHtmlAsPdfOptions) => Promise<SaveTextFileResult>): void {
+    pdfSaver = saver;
+  },
+
   /** Только для тестов: вернуть реестр в состояние открытой редакции. */
   resetForTests(): void {
     guards.length = 0;
     runListeners.length = 0;
+    outcomeListeners.length = 0;
     liveRunsProvider = () => [];
     ipcRegistrar = () => undefined;
     textFileSaver = noWindowSave;
+    pdfSaver = noWindowSave;
     rightsLimits.length = 0;
     rpcGuards.length = 0;
     pairingRedeemer = null;

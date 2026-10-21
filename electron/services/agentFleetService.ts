@@ -118,7 +118,7 @@ import { AGENT_TRACE_FORMAT, AGENT_TRACE_VERSION, type AgentCheckpoint, type Age
 import { redactSecrets } from './hitlAudit.js';
 import type { HitlRequest, RolePermissions } from './hitlTypes.js';
 import { superviseChildExit, type ChildExitSupervisor } from './processSweep.js';
-import { capSessionBudget, editionRegistry, type AgentLaunchContext, type AgentLaunchVerdict, type LiveAgentRun } from '../extensions/editionRegistry.js';
+import { capSessionBudget, editionRegistry, type AgentLaunchContext, type AgentLaunchVerdict, type AgentOutcomeRecord, type LiveAgentRun } from '../extensions/editionRegistry.js';
 import type { ComposeResult, ComposeSelection, JudgeState } from './arenaTypes.js';
 import type { BacklogRenumberSummary } from '../../src/types/electron';
 import type {
@@ -1356,6 +1356,14 @@ export class AgentFleetService extends EventEmitter {
     const session = this.sessions.get(swarmId);
     if (!session) return { success: false, error: `Swarm session ${swarmId} not found` };
 
+    // Результаты удалённой без слияния сессии отклонены человеком (отчёты о пользе, TASK-146). Цикл «до готовности»
+    // и ревью PR подводят итог сами, а сессия с победителем уже записана в pickWinner.
+    if (!session.winnerAgentId && session.mode !== 'done_loop' && !session.review) {
+      for (const agent of session.agents) {
+        if (agent.status === 'completed') this.emitOutcome(session, agent, { kind: 'discard', verdict: 'rejected', candidates: session.agents.length });
+      }
+    }
+
     this.stopSwarm(swarmId, false);
 
     if (cleanupWorktrees && session.useWorktrees) {
@@ -1482,6 +1490,28 @@ export class AgentFleetService extends EventEmitter {
       ...(caps.length > 0 ? { capUsd: Math.min(...caps) } : {}),
       notices: verdicts.flatMap((v) => v.notices)
     };
+  }
+
+  /** Итог результата агента для точек расширения (отчёты о пользе, TASK-146). */
+  private emitOutcome(
+    session: SwarmSession,
+    agent: AgentSlotState,
+    fields: Pick<AgentOutcomeRecord, 'kind' | 'verdict'> & Partial<Pick<AgentOutcomeRecord, 'candidates' | 'iterations' | 'loopOutcome'>>
+  ): void {
+    const model = agent.metrics.usage?.model || this.effectiveModel(agent);
+    editionRegistry.emitAgentOutcome({
+      at: Date.now(),
+      ...fields,
+      projectPath: session.projectPath,
+      ...(session.taskId ? { taskId: session.taskId } : {}),
+      sessionId: session.id,
+      agentId: agent.id,
+      ...(agent.config.roleSlug ? { roleSlug: agent.config.roleSlug } : {}),
+      engine: agent.config.engine,
+      ...(model ? { model } : {}),
+      ...(typeof agent.metrics.costUsd === 'number' ? { costUsd: agent.metrics.costUsd } : {}),
+      durationMs: Date.now() - session.createdAt
+    });
   }
 
   /** Идущие запуски агентов с расходом с начала запуска — для учёта бюджетов до итога (decision-124). */
@@ -1886,6 +1916,15 @@ export class AgentFleetService extends EventEmitter {
       session.error = result.reason || 'Цикл «до готовности» не достиг цели';
       this.emitSwarmEvent({ type: 'swarm_updated', swarmId: session.id, session });
       appEventBus.publish({ type: 'agent:failed', ...busBase, at: Date.now(), durationMs, error: `До готовности: ${session.error}` });
+    }
+    // Остановку человеком в итоги не пишем: это не оценка результата.
+    if (result.outcome !== 'stopped') {
+      this.emitOutcome(session, agent, {
+        kind: 'doneLoop',
+        verdict: result.outcome === 'success' ? 'accepted' : 'failed',
+        iterations: session.doneLoop.iterations.length,
+        loopOutcome: result.outcome
+      });
     }
   }
 
@@ -4012,6 +4051,10 @@ export class AgentFleetService extends EventEmitter {
     session.winnerAgentId = winnerAgentId;
     session.status = 'completed';
     session.completedAt = Date.now();
+    // Итоги для отчётов о пользе (TASK-146): победитель принят, остальные кандидаты на этой задаче отклонены.
+    for (const agent of session.agents) {
+      this.emitOutcome(session, agent, { kind: 'arena', verdict: agent.id === winnerAgentId ? 'accepted' : 'rejected', candidates: session.agents.length });
+    }
 
     this.emitSwarmEvent({
       type: 'swarm_updated',
