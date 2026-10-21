@@ -23,6 +23,8 @@ import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { computerUseService, type ComputerCallContext } from './computerUseService.js';
 import { jsonSchemaToZodShape } from './jsonSchemaToZod.js';
 import { NOTIFY_TOOL_DEFINITION } from './remoteInbox.js';
+import { BASE_SYNC_TOOL_DEFINITION, baseSyncAction, runBaseSync } from './baseSync.js';
+import { execGit } from './checkpointGit.js';
 import { notifyHuman } from './agentNotifier.js';
 import { MEMORY_TOOL_DEFINITIONS, callMemoryTool, type MemoryToolContext } from './memoryTools.js';
 import { memoryToolDeps } from './memoryToolDeps.js';
@@ -750,6 +752,23 @@ class McpServerService {
     // 11b. Позвать человека на телефоне (TASK-140.5, decision-117 п. 8)
     // ─────────────────────────────────────────────────────────────
     this.registerNotifyTool(server, (args) => this.memoryCallContext(hitlSessionId, args));
+
+    // ─────────────────────────────────────────────────────────────
+    // 11c. Подтянуть основную ветку в свой worktree (decision-141) — только агенту ProjectHub: рабочее дерево и
+    // git-автор — из его сессии. Одобрение — обычной карточкой permission-prompt Claude CLI.
+    // ─────────────────────────────────────────────────────────────
+    if (hitlSessionId) {
+      server.registerTool(
+        BASE_SYNC_TOOL_DEFINITION.name,
+        { title: BASE_SYNC_TOOL_DEFINITION.name, description: BASE_SYNC_TOOL_DEFINITION.description, inputSchema: jsonSchemaToZodShape(BASE_SYNC_TOOL_DEFINITION.input_schema) },
+        async (args: Record<string, unknown>) => {
+          const ctx = claudeBridgeService.getBaseSyncContext(hitlSessionId);
+          if (!ctx) return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена.' }] };
+          const res = await runBaseSync(execGit, { workDir: ctx.workDir, action: baseSyncAction(args.action), env: ctx.gitEnv });
+          return { isError: res.status === 'refused', content: [{ type: 'text' as const, text: res.text }] };
+        }
+      );
+    }
 
     // ─────────────────────────────────────────────────────────────
     // 11a. Задачи, документы и поиск по документации (TASK-136.6, decision-78 п. 12)

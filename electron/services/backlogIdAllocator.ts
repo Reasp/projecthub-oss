@@ -115,18 +115,61 @@ export interface AllocateOptions extends CollectOptions {
   extraTaken?: Iterable<string>;
 }
 
+/**
+ * Выданные номера, файла которых ещё нет: между выдачей и записью файла вызывающий ждёт (`await`), и параллельные
+ * создания на общем хосте — телефон участника, его ПК и окно владельца — иначе получают один номер (TASK-184).
+ * Резерв снимается, как только файл с этим номером виден, или через {@link RESERVE_MS}, если запись не случилась.
+ */
+const RESERVE_MS = 30_000;
+const reserved = new Map<string, Map<string, number>>();
+const allocating = new Map<string, Promise<unknown>>();
+
+function projectKeyOf(projectPath: string): string {
+  const p = path.resolve(projectPath).replace(/[\\/]+$/, '');
+  return process.platform === 'win32' ? p.toLowerCase() : p;
+}
+
 /** Следующий свободный канонический id (`TASK-135`, `TASK-80.4`, `decision-94`, `doc-14`, `mem-7`, `m-2`). */
 export async function allocateBacklogId(projectPath: string, kind: BacklogIdKind, options: AllocateOptions = {}): Promise<string> {
+  // Выдача по проекту — по одной: следующая видит резерв предыдущей.
+  const key = projectKeyOf(projectPath);
+  const prev = allocating.get(key) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(() => allocateNow(key, projectPath, kind, options));
+  allocating.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (allocating.get(key) === run) allocating.delete(key);
+  }
+}
+
+async function allocateNow(key: string, projectPath: string, kind: BacklogIdKind, options: AllocateOptions): Promise<string> {
   const { ids } = indexBacklogPaths(await collectTakenBacklogPaths(projectPath, options));
   const taken = new Set<string>(ids.get(kind) ?? []);
+  const pending = reserved.get(key) ?? new Map<string, number>();
+  const now = Date.now();
+  for (const [id, until] of pending) {
+    if (until <= now || (parseBacklogId(id)?.kind === kind && taken.has(id))) pending.delete(id);
+    else if (parseBacklogId(id)?.kind === kind) taken.add(id);
+  }
   for (const raw of options.extraTaken ?? []) {
     const ref = parseBacklogId(raw);
     if (ref && ref.kind === kind) taken.add(ref.id);
   }
+  let id: string;
   if (kind === 'task' && options.parentTaskId) {
     const parent = parseBacklogId(options.parentTaskId);
     if (!parent || parent.kind !== 'task') throw new Error(`Родитель подзадачи — не задача: ${options.parentTaskId}`);
-    return `${parent.id}.${nextSubtaskNumber(parent.id, taken)}`;
+    id = `${parent.id}.${nextSubtaskNumber(parent.id, taken)}`;
+  } else {
+    id = formatBacklogId(kind, [nextTopNumber(kind, taken)]);
   }
-  return formatBacklogId(kind, [nextTopNumber(kind, taken)]);
+  pending.set(id, now + RESERVE_MS);
+  reserved.set(key, pending);
+  return id;
+}
+
+/** Только для тестов: забыть резервы номеров. */
+export function resetBacklogIdReservationsForTests(): void {
+  reserved.clear();
 }

@@ -200,6 +200,8 @@ export interface SubprocessOptions {
   sessionId?: string;
   timeoutMs?: number;
   maxOutputBytes?: number;
+  /** Дополнительные переменные окружения: git-автор участника общего хоста (decision-135). */
+  env?: Record<string, string>;
 }
 
 export interface SubprocessResult {
@@ -271,6 +273,8 @@ export interface CliPermissionMeta {
   taskAllowsComputerUse?: boolean;
   /** Задача сессии — источник фактов памяти проекта (TASK-76). */
   taskId?: string;
+  /** Участник общего хоста, чей агент (decision-135): git-автор слияния основной ветки (decision-141). */
+  memberId?: string;
 }
 
 interface CliPermissionContext extends CliPermissionMeta {
@@ -455,6 +459,16 @@ class ClaudeBridgeService extends EventEmitter {
   }
 
   /** Контекст инструментов задач и документов: как у памяти плюс права роли — режим заведения задач (decision-89). */
+  /**
+   * Контекст `sync_base_branch` CLI-сессии (decision-141): рабочее дерево агента и git-окружение участника.
+   * null — сессия завершена.
+   */
+  public getBaseSyncContext(sessionId: string): { workDir: string; gitEnv: Record<string, string> } | null {
+    const ctx = this.cliPermissionContexts.get(sessionId);
+    if (!ctx) return null;
+    return { workDir: ctx.workspaceRoot || ctx.projectPath, gitEnv: launcherGitEnv(editionRegistry.launcherProfile(ctx.memberId)) };
+  }
+
   public getProjectToolContext(sessionId: string): (MemoryToolContext & { permissions?: RolePermissions; roleSlug?: string }) | null {
     const base = this.getMemoryCallContext(sessionId);
     if (!base) return null;
@@ -1316,7 +1330,7 @@ class ClaudeBridgeService extends EventEmitter {
    * Политика общая с Swarm и Claude CLI (`evaluateToolRequest`); фоновые команды разрешены.
    */
   private studioToolContext(
-    req: { sessionId: string; projectPath: string; config: AIProviderConfig; workspaceRoot?: string; taskId?: string },
+    req: { sessionId: string; projectPath: string; config: AIProviderConfig; workspaceRoot?: string; taskId?: string; memberId?: string },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void
   ): ApiToolContext {
     const { sessionId, projectPath } = req;
@@ -1331,6 +1345,7 @@ class ClaudeBridgeService extends EventEmitter {
       engine: 'api',
       allowBackground: true,
       ...(req.taskId ? { taskId: req.taskId } : {}),
+      gitEnv: launcherGitEnv(editionRegistry.launcherProfile(req.memberId)),
       isActive: isRunning,
       ...createStudioToolCallbacks({
         emit: onChunk,
@@ -1457,7 +1472,8 @@ class ClaudeBridgeService extends EventEmitter {
       engine: 'claude-cli',
       claudeAccount: account.name,
       workspaceRoot: workDir,
-      ...(req.taskId ? { taskId: req.taskId } : {})
+      ...(req.taskId ? { taskId: req.taskId } : {}),
+      ...(req.memberId ? { memberId: req.memberId } : {})
     });
     let hitlWarning = '';
     if (hitl) {
@@ -1746,7 +1762,7 @@ class ClaudeBridgeService extends EventEmitter {
       try {
         child = spawn(shell, args, {
           cwd,
-          env: { ...process.env, FORCE_COLOR: '0' }
+          env: { ...process.env, ...options.env, FORCE_COLOR: '0' }
         });
       } catch (err) {
         reject(err);

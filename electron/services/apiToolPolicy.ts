@@ -3,6 +3,7 @@ import { DEFAULT_MAX_TOOL_STEPS } from './apiToolLoop.js';
 import type { AIProviderConfig } from './aiAgentService.js';
 import type { HitlRequestType } from './hitlTypes.js';
 import { isMemoryToolName } from './memoryTools.js';
+import { BASE_SYNC_TOOL_NAME, baseSyncAction, baseSyncCommand } from './baseSync.js';
 
 /**
  * Политика инструментов API-агента Swarm и Agents Studio (TASK-101, TASK-103, decision-46 п. 1, 2, 4, 6, decision-47): чистые функции без
@@ -11,7 +12,7 @@ import { isMemoryToolName } from './memoryTools.js';
  */
 
 /** Инструменты API-движка (`aiAgentService.getAnthropicTools`), которые умеет исполнять общий исполнитель. */
-export type ApiToolKind = 'read' | 'list' | 'search' | 'write' | 'command' | 'question' | 'computer' | 'memory' | 'notify' | 'unknown';
+export type ApiToolKind = 'read' | 'list' | 'search' | 'write' | 'command' | 'sync' | 'question' | 'computer' | 'memory' | 'notify' | 'unknown';
 
 /** Префикс инструментов прокси управления компьютером (`computerToolCatalog.COMPUTER_TOOL_PREFIX`). */
 const COMPUTER_PREFIX = 'computer_';
@@ -26,7 +27,8 @@ const KIND_BY_NAME: Record<string, ApiToolKind> = {
   run_command: 'command',
   bash: 'command',
   ask_question: 'question',
-  projecthub_notify: 'notify'
+  projecthub_notify: 'notify',
+  [BASE_SYNC_TOOL_NAME]: 'sync'
 };
 
 /**
@@ -39,6 +41,8 @@ const CLAUDE_ALIASES: Record<Exclude<ApiToolKind, 'computer' | 'memory' | 'unkno
   search: ['Grep'],
   write: ['Write', 'Edit'],
   command: ['Bash'],
+  // Подтянуть основную ветку — git-команда в своём worktree (decision-141).
+  sync: ['Bash'],
   question: ['AskUserQuestion'],
   // Позвать человека — тот же канал, что вопрос (decision-117 п. 8).
   notify: ['AskUserQuestion']
@@ -163,6 +167,12 @@ export function planApiToolCall(
         };
       }
       break;
+    case 'sync':
+      // Слияние основной ветки в свой worktree — та же политика, что команда `git merge` (decision-141): allow/deny-списки
+      // команд действуют, участник без доверия получает карточку.
+      verdict = evaluateToolRequest(narrowed, workDir, 'run_command', { command: 'git merge' }, { autonomous: options.autonomous });
+      approvalType = 'command';
+      break;
     default:
       verdict = evaluateToolRequest(narrowed, workDir, 'ask_question', {});
       approvalType = 'question';
@@ -176,6 +186,7 @@ export function planApiToolCall(
     ...(kind === 'read' || kind === 'write' ? { filePath } : {}),
     ...(kind === 'list' ? { filePath: text(args.subDir) || '.' } : {}),
     ...(kind === 'command' ? { command } : {}),
+    ...(kind === 'sync' ? { command: baseSyncCommand(baseSyncAction(args.action)) } : {}),
     ...(kind === 'command' && args.background === true && options.allowBackground ? { background: true } : {})
   };
 }

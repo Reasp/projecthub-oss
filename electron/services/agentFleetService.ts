@@ -2501,6 +2501,7 @@ export class AgentFleetService extends EventEmitter {
       // Агент роя работает в своём worktree — карточки одобрения и диффы берут файлы оттуда (TASK-62).
       workspaceRoot: targetPath,
       ...(session.taskId ? { taskId: session.taskId } : {}),
+      ...(session.memberId ? { memberId: session.memberId } : {}),
       // Управление компьютером в цикле «до готовности» — только по явному разрешению задачи (TASK-82).
       doneLoop: session.mode === 'done_loop',
       taskAllowsComputerUse:
@@ -2638,6 +2639,8 @@ export class AgentFleetService extends EventEmitter {
       taskAllowsComputerUse: taskAllowsComputer,
       roleAutoApprove: agentState.config.permissions?.autoApprove,
       ...(session.taskId ? { taskId: session.taskId } : {}),
+      // Команды и слияние основной ветки агента участника — от его имени (decision-135, decision-141).
+      gitEnv: this.memberGitEnv(session),
       isActive: () => agentState.status === 'running',
       // Fallback модели запрещается исполнением инструмента, а не намерением модели (decision-44 п. 6).
       onExecute: () => this.toolActivity.add(agentState.id),

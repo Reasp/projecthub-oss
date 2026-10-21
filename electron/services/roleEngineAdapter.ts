@@ -43,7 +43,7 @@ const API_TOOLS_BY_CATEGORY: Record<ToolCategory, string[]> = {
   // Память проекта (TASK-76): поиск — вместе с чтением, запись и удаление — с записью
   read: ['read_file', 'list_dir', 'memory_search'],
   write: ['write_file', 'memory_write', 'memory_delete'],
-  command: ['run_command'],
+  command: ['run_command', 'sync_base_branch'],
   search: ['search_rag'],
   subagent: [],
   // Позвать человека на телефоне (decision-117 п. 8) — тот же канал «к человеку», что и вопрос.

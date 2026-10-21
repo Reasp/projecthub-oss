@@ -69,9 +69,20 @@ export function hostInScope(scope: Scope, profileId: string): boolean {
 }
 
 /** Пути с хоста Windows приходят то с `\`, то с `/`, регистр букв диска разный. */
+const normPath = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
 export function samePath(a: string, b: string): boolean {
-  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  return norm(a) === norm(b);
+  return normPath(a) === normPath(b);
+}
+
+/**
+ * Путь — сам проект или внутри него: агент роя и участника общего хоста работает в `.worktrees/…` проекта, и его
+ * запросы HITL несут путь worktree (decision-46 п. 2), а относятся к проекту (TASK-142.6).
+ */
+export function withinPath(child: string, root: string): boolean {
+  const c = normPath(child);
+  const r = normPath(root);
+  return c === r || c.startsWith(`${r}/`);
 }
 
 export interface ScopeProjectRef {

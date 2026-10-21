@@ -2,6 +2,7 @@ import path from 'node:path';
 import { planApiToolCall, type ApiToolKind, type ApiToolPlan } from './apiToolPolicy.js';
 import { truncateToolResult, type ToolExecutionResult } from './apiToolLoop.js';
 import type { AIProviderConfig, AIToolCall } from './aiAgentService.js';
+import { baseSyncAction, baseSyncCommand, type BaseSyncAction } from './baseSync.js';
 import type {
   ApprovalResponse,
   HitlEngine,
@@ -34,7 +35,7 @@ export interface ApiToolExecutorDeps {
   runCommand(
     command: string,
     cwd: string,
-    options: { sessionId: string; timeoutMs?: number; onOutput?: (outputSoFar: string) => void }
+    options: { sessionId: string; timeoutMs?: number; onOutput?: (outputSoFar: string) => void; env?: Record<string, string> }
   ): Promise<{ output: string; exitCode: number | null; timedOut: boolean; truncated?: boolean }>;
   /** Фоновый процесс через менеджер процессов (только при `allowBackground`, decision-47 п. 3). */
   startBackgroundProcess?(
@@ -50,6 +51,10 @@ export interface ApiToolExecutorDeps {
   callMemoryTool?(name: string, args: Record<string, unknown>, ctx: ApiToolContext): Promise<ToolExecutionResult>;
   /** `projecthub_notify` (TASK-140.5, decision-117 п. 8): сообщение во «Входящие» телефона и push. */
   callNotifyTool?(args: Record<string, unknown>, ctx: ApiToolContext): Promise<ToolExecutionResult>;
+  /** Что сольёт `sync_base_branch` (decision-141): основная ветка и ветка worktree — для карточки HITL; строка — отказ. */
+  previewBaseSync?(workDir: string): Promise<{ base: string; branch: string } | string>;
+  /** `sync_base_branch`: слить основную ветку в worktree агента, продолжить или отменить слияние. */
+  runBaseSync?(action: BaseSyncAction, ctx: ApiToolContext): Promise<ToolExecutionResult>;
 }
 
 /** Статус вызова для чата: те же значения, что у `AIToolCall.status`, кроме `pending`. */
@@ -89,6 +94,11 @@ export interface ApiToolContext {
   allowBackground?: boolean;
   /** Задача сессии — источник фактов памяти проекта (TASK-76). */
   taskId?: string;
+  /**
+   * Git-окружение процессов агента участника общего хоста (decision-135): автор — участник, коммиттер — ProjectHub
+   * Agent. Действует на `run_command` и `sync_base_branch`; пусто — gitconfig хоста.
+   */
+  gitEnv?: Record<string, string>;
   /** Агент ещё работает: перед каждым инструментом (стоп, бюджет). */
   isActive(): boolean;
   /** Инструмент прошёл политику и начинает исполняться — для запрета fallback модели (decision-44 п. 6). */
@@ -289,6 +299,19 @@ export class ApiToolExecutor {
           command: plan.command,
           details: explanation || 'Выполнение команды в рабочем каталоге агента'
         };
+      case 'sync': {
+        const action = baseSyncAction(args.action);
+        const target = this.deps.previewBaseSync ? await this.deps.previewBaseSync(ctx.workDir).catch(() => 'git недоступен') : null;
+        const known = target && typeof target !== 'string' ? target : undefined;
+        const what = action === 'abort' ? 'Отменить слияние основной ветки' : action === 'continue' ? 'Завершить слияние основной ветки' : 'Подтянуть основную ветку';
+        return {
+          ...base,
+          type: 'command',
+          title: `${who}${what}${known ? `: ${known.base} → ${known.branch}` : ''}`,
+          command: baseSyncCommand(action, known),
+          details: explanation || (typeof target === 'string' ? target : 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются')
+        };
+      }
       case 'question': {
         const questionData = this.deps.parseQuestion(args);
         return { ...base, type: 'question', title: `${who}${questionData.title}`, details: questionData.subtitle, questionData };
@@ -358,6 +381,7 @@ export class ApiToolExecutor {
         const res = await this.deps.runCommand(plan.command!, ctx.workDir, {
           sessionId: ctx.sessionId,
           timeoutMs,
+          ...(ctx.gitEnv && Object.keys(ctx.gitEnv).length > 0 ? { env: ctx.gitEnv } : {}),
           ...(onUpdate ? { onOutput: (outputSoFar: string) => onUpdate(call, { kind: plan.kind, status: 'running', result: outputSoFar }) } : {})
         });
         if (res.timedOut) {
@@ -370,6 +394,10 @@ export class ApiToolExecutor {
         if (res.exitCode === 0) return { content: output || 'Команда успешно выполнена (код 0)' };
         return { content: `Команда завершилась с кодом ${res.exitCode}:\n${output}`, isError: true };
       }
+      case 'sync':
+        if (!this.deps.runBaseSync) return { content: 'Подтягивание основной ветки агенту недоступно.', isError: true };
+        ctx.onToolUpdate?.(call, { kind: plan.kind, status: 'running' });
+        return this.deps.runBaseSync(baseSyncAction(args.action), ctx);
       case 'question':
         return { content: answer?.text || (answer?.approved ? 'Подтверждено пользователем' : 'Без ответа') };
       default:

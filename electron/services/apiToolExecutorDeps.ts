@@ -11,6 +11,8 @@ import type { ComputerOrigin } from './computerPolicy.js';
 import { callMemoryTool as runMemoryTool } from './memoryTools.js';
 import { memoryToolDeps } from './memoryToolDeps.js';
 import { notifyHuman } from './agentNotifier.js';
+import { execGit } from './checkpointGit.js';
+import { resolveBaseSyncTarget, runBaseSync } from './baseSync.js';
 
 /**
  * Боевые зависимости исполнителя API-инструментов Swarm и Agents Studio (decision-46 п. 1, decision-47): единая
@@ -75,6 +77,15 @@ export function createApiToolExecutorDeps(): ApiToolExecutorDeps {
         args
       );
       return { content: res.text, isError: res.isError };
+    },
+    previewBaseSync: async (workDir) => {
+      const target = await resolveBaseSyncTarget(execGit, workDir);
+      return typeof target === 'string' ? target : { base: target.base, branch: target.branch };
+    },
+    runBaseSync: async (action, ctx) => {
+      const res = await runBaseSync(execGit, { workDir: ctx.workDir, action, ...(ctx.gitEnv ? { env: ctx.gitEnv } : {}) });
+      // Конфликт — ожидаемый итог слияния, а не сбой инструмента: ошибка — только отказ (decision-141).
+      return { content: res.text, isError: res.status === 'refused' };
     },
     callMemoryTool: async (name, args, ctx) => {
       // Память всегда в основном дереве проекта, даже если агент работает в worktree (decision-51 п. 3)

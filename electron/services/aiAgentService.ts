@@ -10,6 +10,7 @@ import { searchProjectDocs } from './ragSearch.js';
 import { buildAgentContext, buildComputerUseInstructions, type ContextPartKey } from './contextBuilder.js';
 import { MEMORY_TOOL_DEFINITIONS, MEMORY_TOOL_PREFIX } from './memoryTools.js';
 import { NOTIFY_TOOL_DEFINITION } from './remoteInbox.js';
+import { BASE_SYNC_TOOL_DEFINITION } from './baseSync.js';
 import { secretStorageService } from './secretStorageService.js';
 import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountService.js';
 import matter from 'gray-matter';
@@ -1500,6 +1501,8 @@ Answer directly, clearly, and concisely as Claude Code. If the user addresses yo
           required: ['question', 'options']
         }
       },
+      // Подтянуть основную ветку в свой worktree (decision-141): одно описание с MCP-сервером Claude CLI
+      { name: BASE_SYNC_TOOL_DEFINITION.name, description: BASE_SYNC_TOOL_DEFINITION.description, input_schema: BASE_SYNC_TOOL_DEFINITION.input_schema },
       // Память проекта (TASK-76, decision-51 п. 4): одна реализация с MCP-сервером Claude CLI
       ...MEMORY_TOOL_DEFINITIONS.map((d) => ({ name: d.name, description: d.description, input_schema: d.input_schema })),
       // Позвать человека на телефоне (TASK-140.5, decision-117 п. 8): то же, что инструмент встроенного MCP

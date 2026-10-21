@@ -67,6 +67,7 @@ const PROJECTHUB_TOOLS: Record<string, RiskAssessment> = {
   task_approve: { risk: 'moderate', reason: 'подтверждение задач агента' },
   tracker_sync_run: { risk: 'moderate', reason: 'запись в трекер' },
   'gh pr comment': { risk: 'moderate', reason: 'комментарий в PR' },
+  sync_base_branch: { risk: 'moderate', reason: 'слияние основной ветки в свой worktree' },
   merge: { risk: 'high', reason: 'слияние в основную ветку с находками безопасности' },
   'git commit': { risk: 'high', reason: 'коммит с похожими на секреты строками' }
 };
