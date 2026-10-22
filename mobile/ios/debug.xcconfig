@@ -1,0 +1,10 @@
+CAPACITOR_DEBUG = true
+
+// Defaults of the App target's Debug configuration (TASK-140.18). The version comes from the root package.json and the
+// signing team from Xcode's account: scripts/mobile/ios.mjs writes both to local.xcconfig, which is not in git, so
+// Xcode's Run button builds with the same values as the script.
+PRODUCT_BUNDLE_IDENTIFIER = com.projecthub.mobile
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1
+
+#include? "local.xcconfig"
