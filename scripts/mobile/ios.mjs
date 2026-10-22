@@ -5,6 +5,7 @@
  *   npm run mobile:ios:sim        — собрать под симулятор
  *   npm run mobile:ios:selftest   — собрать, запустить в симуляторе и проверить WebCrypto, Keychain и ws:// в LAN
  *   npm run mobile:ios:install    — собрать с подписью бесплатной командой Apple ID и поставить на iPhone по кабелю
+ *                                   (iOS 17+ — devicectl, iOS 16 и старше — libimobiledevice: brew install ideviceinstaller)
  *   npm run mobile:ios:open       — записать подпись и версию в local.xcconfig и открыть проект в Xcode
  *
  * Подпись — Personal Team из Xcode → Settings → Accounts (бесплатный Apple ID): приложение работает 7 дней, push и
@@ -25,6 +26,7 @@ const derivedDir = path.join(projectDir, 'build');
 const mode = process.argv[2] || 'sim';
 const DEFAULT_BUNDLE_ID = 'com.projecthub.mobile';
 const REMOTE_PORT = 42050;
+const TRUST_HINT = 'Если iPhone не открывает приложение: Настройки → Основные → VPN и управление устройством → ваш Apple ID → «Доверять».';
 
 if (process.platform !== 'darwin') fail('сборка iOS возможна только на macOS с Xcode');
 if (!['sim', 'selftest', 'install', 'open'].includes(mode)) fail(`неизвестный режим «${mode}»: sim, selftest, install или open`);
@@ -117,6 +119,41 @@ function findDevice() {
   } finally {
     fs.rmSync(out, { force: true });
   }
+}
+
+/** Сопряжённый iPhone, который видит libimobiledevice (usbmuxd): нужен для iOS 16 и старше. */
+function findLegacyDevice() {
+  try {
+    const udid = capture('idevice_id', ['-l']).split('\n').map((l) => l.trim()).find(Boolean);
+    if (!udid) return null;
+    const info = (key) => capture('ideviceinfo', ['-u', udid, '-k', key]).trim();
+    return { udid, name: info('DeviceName') || 'iPhone', os: info('ProductVersion') };
+  } catch {
+    return null;
+  }
+}
+
+/** UDID телефонов из профиля подписи сборки. */
+function provisionedDevices(app) {
+  try {
+    const profile = capture('security', ['cms', '-D', '-i', path.join(app, 'embedded.mobileprovision')]);
+    const json = execFileSync('plutil', ['-extract', 'ProvisionedDevices', 'json', '-o', '-', '-'], { input: profile, encoding: 'utf8' });
+    return JSON.parse(json);
+  } catch {
+    return [];
+  }
+}
+
+/** .ipa из подписанного .app: Payload/App.app в zip. */
+function packageIpa(app) {
+  const staging = path.join(derivedDir, 'ipa');
+  fs.rmSync(staging, { recursive: true, force: true });
+  fs.mkdirSync(path.join(staging, 'Payload'), { recursive: true });
+  run('ditto', [app, path.join(staging, 'Payload', 'App.app')], root, env);
+  const ipa = path.join(derivedDir, 'ProjectHub-ios-debug.ipa');
+  fs.rmSync(ipa, { force: true });
+  run('zip', ['-qry', ipa, 'Payload'], staging, env);
+  return ipa;
 }
 
 /** Симулятор iPhone: PH_IOS_SIM, уже запущенный или с самой новой iOS. */
@@ -241,22 +278,38 @@ if (mode === 'sim' || mode === 'selftest') {
 }
 
 // install
-const device = findDevice();
-if (!device) {
-  fail('iPhone не найден: подключите его кабелем, разблокируйте, нажмите «Доверять» и включите Настройки → Конфиденциальность и безопасность → Режим разработчика');
-}
-console.log(`iPhone: ${device.name}${device.os ? `, iOS ${device.os}` : ''}`);
-if (!device.ready || !device.udid) {
-  fail(`${device.name} не на связи с Xcode: подключите кабелем, разблокируйте и подтвердите «Доверять этому компьютеру»; для iOS 16 и старше откройте Xcode → Window → Devices and Simulators — либо npm run mobile:ios:open и Run`);
-}
-xcodebuild(['-destination', `id=${device.udid}`, '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration', 'build']);
 const app = path.join(derivedDir, 'Build', 'Products', 'Debug-iphoneos', 'App.app');
-if (!fs.existsSync(app)) fail(`приложение не найдено: ${app}`);
-run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', device.id, app], root, env);
-try {
-  capture('xcrun', ['devicectl', 'device', 'process', 'launch', '--device', device.id, bundleId]);
-  console.log('✅ Установлено и запущено на iPhone.');
-} catch {
-  console.log('✅ Установлено. Если iPhone не открывает приложение: Настройки → Основные → VPN и управление устройством → ваш Apple ID → «Доверять».');
+const device = findDevice();
+if (device?.ready && device.udid) {
+  console.log(`iPhone: ${device.name}${device.os ? `, iOS ${device.os}` : ''}`);
+  xcodebuild(['-destination', `id=${device.udid}`, '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration', 'build']);
+  if (!fs.existsSync(app)) fail(`приложение не найдено: ${app}`);
+  run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', device.id, app], root, env);
+  try {
+    capture('xcrun', ['devicectl', 'device', 'process', 'launch', '--device', device.id, bundleId]);
+    console.log('✅ Установлено и запущено на iPhone.');
+  } catch {
+    console.log(`✅ Установлено. ${TRUST_HINT}`);
+  }
+} else {
+  // iOS 16 и старше: CoreDevice их не поддерживает, а Xcode 27 не видит вовсе. Ставим подписанную сборку через
+  // libimobiledevice — он работает с сопряжённым телефоном напрямую по USB.
+  const legacy = findLegacyDevice();
+  if (!legacy) {
+    fail(
+      'iPhone не найден: подключите его кабелем, разблокируйте и нажмите «Доверять». Для iOS 17+ включите Настройки → ' +
+        'Конфиденциальность и безопасность → Режим разработчика; для iOS 16 и старше нужен libimobiledevice: brew install ideviceinstaller'
+    );
+  }
+  console.log(`iPhone: ${legacy.name}, iOS ${legacy.os} — установка через libimobiledevice`);
+  xcodebuild(['-destination', 'generic/platform=iOS', '-allowProvisioningUpdates', 'build']);
+  if (!fs.existsSync(app)) fail(`приложение не найдено: ${app}`);
+  // Профиль бесплатной команды пускает только зарегистрированные телефоны; зарегистрировать новый может только Xcode.
+  if (!provisionedDevices(app).includes(legacy.udid)) {
+    fail(`${legacy.name} не зарегистрирован в профиле команды: подключите его один раз к Xcode (Window → Devices and Simulators) или к Xcode 16, затем повторите`);
+  }
+  const ipa = packageIpa(app);
+  run('ideviceinstaller', ['-u', legacy.udid, 'install', ipa], root, env);
+  console.log(`✅ Установлено: откройте ProjectHub на iPhone. ${TRUST_HINT}`);
 }
 console.log('Подпись бесплатного Apple ID действует 7 дней: потом повторите npm run mobile:ios:install.');
