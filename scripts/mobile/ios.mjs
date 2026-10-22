@@ -9,7 +9,7 @@
  *   npm run mobile:ios:open       — записать подпись и версию в local.xcconfig и открыть проект в Xcode
  *
  * Подпись — Personal Team из Xcode → Settings → Accounts (бесплатный Apple ID): приложение работает 7 дней, push и
- * TestFlight недоступны (decision-152). Команду можно задать явно: PH_IOS_TEAM=<Team ID>; bundle id — PH_IOS_BUNDLE_ID,
+ * TestFlight недоступны (decision-155). Команду можно задать явно: PH_IOS_TEAM=<Team ID>; bundle id — PH_IOS_BUNDLE_ID,
  * если com.projecthub.mobile уже занят чужой командой. Релизная подпись и сторы — TASK-140.6.
  */
 import { execFileSync, spawn } from 'node:child_process';
