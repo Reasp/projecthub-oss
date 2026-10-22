@@ -14,6 +14,8 @@ export interface ProjectRegistryEntry {
    * `claude-accounts.json`. В файлы проекта не пишется; без поля — профиль по умолчанию.
    */
   claudeAccountId?: string;
+  /** Аккаунты Codex CLI и Gemini CLI проекта на этой машине (TASK-152.6, decision-163); без ключа — обычный каталог CLI. */
+  engineAccounts?: Partial<Record<'codex-cli' | 'gemini-cli', string>>;
 }
 
 export interface RegistryConfig {
@@ -280,15 +282,38 @@ class ProjectRegistry {
     return true;
   }
 
-  /** Снять привязку всех проектов к удалённому профилю; возвращает число затронутых проектов. */
+  /** Привязка аккаунта Codex CLI или Gemini CLI к проекту; `null` — снять. Проекта вне реестра не добавляет. */
+  async setEngineAccountId(projectPath: string, engine: 'codex-cli' | 'gemini-cli', accountId: string | null): Promise<boolean> {
+    const normalized = path.normalize(projectPath).toLowerCase();
+    const config = await this.getConfig();
+    const target = config.projects.find((p) => path.normalize(p.path).toLowerCase() === normalized);
+    if (!target) return false;
+    const next = { ...target.engineAccounts };
+    if (accountId) next[engine] = accountId;
+    else delete next[engine];
+    if (Object.keys(next).length) target.engineAccounts = next;
+    else delete target.engineAccounts;
+    await this.saveConfig(config);
+    return true;
+  }
+
+  /** Снять привязку всех проектов к удалённому профилю любого движка; возвращает число затронутых проектов. */
   async clearClaudeAccount(accountId: string): Promise<number> {
     const config = await this.getConfig();
     let changed = 0;
     for (const project of config.projects) {
+      let touched = false;
       if (project.claudeAccountId === accountId) {
         delete project.claudeAccountId;
-        changed++;
+        touched = true;
       }
+      for (const engine of ['codex-cli', 'gemini-cli'] as const) {
+        if (project.engineAccounts?.[engine] !== accountId) continue;
+        delete project.engineAccounts[engine];
+        if (!Object.keys(project.engineAccounts).length) delete project.engineAccounts;
+        touched = true;
+      }
+      if (touched) changed++;
     }
     if (changed > 0) await this.saveConfig(config);
     return changed;

@@ -298,7 +298,8 @@ export function exportSwarmSessionMarkdown(session: SwarmSession, options: Markd
     lines.push(...modelRoutingLines(agent));
     // Имя профиля, не e-mail (decision-87 п. 14).
     if (agent.claudeAccount) {
-      lines.push(`- Аккаунт Claude Code: «${agent.claudeAccount.name}» (${CLAUDE_ACCOUNT_SOURCE_LABEL[agent.claudeAccount.source]})`);
+      const cli = agent.config.engine === 'codex-cli' ? 'Codex CLI' : agent.config.engine === 'gemini-cli' ? 'Gemini CLI' : 'Claude Code';
+      lines.push(`- Аккаунт ${cli}: «${agent.claudeAccount.name}» (${CLAUDE_ACCOUNT_SOURCE_LABEL[agent.claudeAccount.source]})`);
     }
     if (agent.worktreeBranch) lines.push(`- Ветка: \`${agent.worktreeBranch}\``);
     if (agent.worktreePath) lines.push(`- Worktree: \`${agent.worktreePath}\``);

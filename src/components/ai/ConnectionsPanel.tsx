@@ -5,12 +5,20 @@ import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { addOptionGroups, hasAnthropicKey, legacyIcon, legacyProviderOf, presetIcon, type AddOption } from '../../lib/connections';
+import { CLI_ENGINE_ENV, CLI_ENGINE_NAME } from '../../lib/cliAccountEngines';
 import { ClaudeAccountRow, ClaudeAccountWarnings, cleanIpcError, useClaudeAccountActions } from './ClaudeAccountParts';
 import { ConnectionRow, connectionBadge } from './ConnectionRow';
 import { LlmProfileEditor, draftFromPreset, draftFromProfile, type ProfileDraft } from './LlmProfileEditor';
 import { ProviderIcon } from './ProviderIcon';
 
 const LEGACY_NAMES: Record<string, string> = { openrouter: 'OpenRouter', deepseek: 'DeepSeek', ollama: 'Ollama', custom: 'Custom OpenAI' };
+
+/** Ключ и test id пункта «Добавить»: у CLI-движков — вместе с движком. */
+function optionKey(option: AddOption): string {
+  if (option.kind === 'preset') return option.presetId;
+  if (option.kind === 'cli-account' || option.kind === 'cli-directory') return `${option.kind}-${option.engine}`;
+  return option.kind;
+}
 
 interface ConnectionsPanelProps {
   /** Форма настроек Studio: ключ Anthropic и старое подключение живут в ней и сохраняются кнопкой «Сохранить». */
@@ -29,6 +37,7 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ form, onForm
   const c = t.aiConnections;
   const dialog = useDialog();
   const accounts = useClaudeAccountsStore((s) => s.overview?.accounts) ?? [];
+  const engineAccounts = useClaudeAccountsStore((s) => s.overview?.engineAccounts) ?? [];
   const statusesLoading = useClaudeAccountsStore((s) => s.statusesLoading);
   const refreshStatuses = useClaudeAccountsStore((s) => s.refreshStatuses);
   const claude = useClaudeAccountActions();
@@ -57,6 +66,8 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ form, onForm
     setError(null);
     if (option.kind === 'claude-account') void claude.create();
     else if (option.kind === 'claude-directory') void claude.connect('dialog');
+    else if (option.kind === 'cli-account') void claude.create(option.engine);
+    else if (option.kind === 'cli-directory') void claude.connect('dialog', option.engine);
     else if (option.kind === 'anthropic-key') setKeyEditor('');
     else {
       const preset = presetOf(option.presetId);
@@ -98,6 +109,11 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ form, onForm
         return { label: c.claudeAccount, hint: c.claudeAccountHint };
       case 'claude-directory':
         return { label: c.claudeDirectory, hint: c.claudeDirectoryHint };
+      case 'cli-account':
+      case 'cli-directory': {
+        const fill = (text: string) => text.replace('{engine}', CLI_ENGINE_NAME[option.engine]).replace('{env}', CLI_ENGINE_ENV[option.engine]);
+        return option.kind === 'cli-account' ? { label: fill(c.cliAccount), hint: fill(c.cliAccountHint) } : { label: fill(c.cliDirectory), hint: fill(c.cliDirectoryHint) };
+      }
       case 'anthropic-key':
         return {
           label: c.providerAnthropicApi,
@@ -117,12 +133,12 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ form, onForm
           const { label, hint, disabled } = optionLabel(option);
           return (
             <button
-              key={option.kind === 'preset' ? option.presetId : option.kind}
+              key={optionKey(option)}
               type="button"
               disabled={!!disabled}
               title={disabled ?? hint}
               onClick={() => pick(option)}
-              data-testid={`connection-add-${option.kind === 'preset' ? option.presetId : option.kind}`}
+              data-testid={`connection-add-${optionKey(option)}`}
               className="flex items-center gap-2 px-2.5 py-2 rounded-md border border-ph-line bg-ph-base hover:border-slate-600 hover:bg-ph-hover text-left transition disabled:opacity-40 disabled:hover:border-ph-line"
             >
               <ProviderIcon icon={option.icon} className="w-4 h-4 shrink-0" />
@@ -218,6 +234,9 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ form, onForm
 
       <ul className="space-y-1.5">
         {accounts.map((account) => (
+          <ClaudeAccountRow key={account.id} account={account} actions={claude} />
+        ))}
+        {engineAccounts.map((account) => (
           <ClaudeAccountRow key={account.id} account={account} actions={claude} />
         ))}
 

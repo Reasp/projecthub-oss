@@ -375,13 +375,16 @@ const api: IElectronAPI = {
     overview: () => ipcRenderer.invoke('claudeAccounts:overview'),
     statuses: (force?: boolean) => ipcRenderer.invoke('claudeAccounts:statuses', force),
     status: (id: string, force?: boolean) => ipcRenderer.invoke('claudeAccounts:status', id, force),
-    create: (name: string) => ipcRenderer.invoke('claudeAccounts:create', name),
-    connectExternal: (input: { name: string; source: 'dialog' | 'processEnv' }) => ipcRenderer.invoke('claudeAccounts:connectExternal', input),
+    create: (name: string, engine?: string) => ipcRenderer.invoke('claudeAccounts:create', name, engine),
+    connectExternal: (input: { name: string; source: 'dialog' | 'processEnv'; engine?: string }) => ipcRenderer.invoke('claudeAccounts:connectExternal', input),
     rename: (id: string, name: string) => ipcRenderer.invoke('claudeAccounts:rename', id, name),
     remove: (id: string) => ipcRenderer.invoke('claudeAccounts:remove', id),
     logout: (id: string) => ipcRenderer.invoke('claudeAccounts:logout', id),
     forProject: (projectPath: string) => ipcRenderer.invoke('claudeAccounts:forProject', projectPath),
     setProject: (projectPath: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setProject', projectPath, accountId),
+    projectEngines: (projectPath: string) => ipcRenderer.invoke('claudeAccounts:projectEngines', projectPath),
+    setProjectEngine: (projectPath: string, engine: string, accountId: string | null) =>
+      ipcRenderer.invoke('claudeAccounts:setProjectEngine', projectPath, engine, accountId),
     setRole: (roleSlug: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setRole', roleSlug, accountId)
   },
   // Синхронизация задач с внешним трекером (TASK-128, decision-103)

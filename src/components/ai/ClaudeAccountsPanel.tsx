@@ -14,7 +14,7 @@ export const ClaudeAccountsPanel: React.FC = () => {
   const statusesLoading = useClaudeAccountsStore((s) => s.statusesLoading);
   const refreshStatuses = useClaudeAccountsStore((s) => s.refreshStatuses);
   const actions = useClaudeAccountActions();
-  const accounts = overview?.accounts ?? [];
+  const accounts = [...(overview?.accounts ?? []), ...(overview?.engineAccounts ?? [])];
 
   return (
     <div className="space-y-3" data-testid="claude-accounts-panel">

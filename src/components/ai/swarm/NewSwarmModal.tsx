@@ -29,6 +29,7 @@ import { findProfileByRef, slotProviderFromChoice, slotProviderFromRole } from '
 import type { AgentSlotConfig, DoneLoopSettings, LlmProfileView, SwarmMode } from '../../../types/electron';
 import { useClaudeAccountsStore } from '../../../store/useClaudeAccountsStore';
 import { swarmQuotaPlan } from '../../../lib/subscriptionQuota';
+import { CLI_ENGINE_NAME, hasAccountChoice } from '../../../lib/cliAccountEngines';
 import { SubscriptionQuotaNotice } from '../SubscriptionQuotaNotice';
 
 /** Слот исполнителя цикла «до готовности» по умолчанию — роль `implementer`, если она есть. */
@@ -173,6 +174,7 @@ export const NewSwarmModal: React.FC = () => {
   const { t } = useTranslation();
   const presets = useMemo(() => getPresets(t), [t]);
   const claudeAccounts = useClaudeAccountsStore((s) => s.overview?.accounts ?? EMPTY_ACCOUNTS);
+  const engineAccounts = useClaudeAccountsStore((s) => s.overview?.engineAccounts ?? EMPTY_ACCOUNTS);
   const refreshClaudeAccounts = useClaudeAccountsStore((s) => s.refresh);
   const roleAccounts = useClaudeAccountsStore((s) => s.overview?.roleAccounts);
 
@@ -645,21 +647,32 @@ export const NewSwarmModal: React.FC = () => {
                       );
                     })()}
 
-                    {/* Аккаунт Claude Code слота (TASK-152.4): переопределяет роль и проект; показывается, когда профилей больше одного */}
-                    {agent.engine === 'claude-cli' && claudeAccounts.length > 1 && (
-                      <select
-                        value={agent.claudeAccountId || ''}
-                        onChange={(e) => handleUpdateAgent(idx, { claudeAccountId: e.target.value || undefined })}
-                        className="px-2 py-1 rounded-sm border border-border bg-background text-foreground text-xs max-w-44"
-                        title={t.claudeAccounts.slotAccountLabel}
-                        data-testid="swarm-slot-claude-account"
-                      >
-                        <option value="">{t.claudeAccounts.slotAccountInherit}</option>
-                        {claudeAccounts.map((account) => (
-                          <option key={account.id} value={account.id}>{account.name}</option>
-                        ))}
-                      </select>
-                    )}
+                    {/* Аккаунт CLI слота (TASK-152.4, decision-163): переопределяет роль и проект. У Claude Code — когда
+                        профилей больше одного, у Codex CLI и Gemini CLI — когда есть профиль их движка. */}
+                    {agent.engine !== 'api' && (() => {
+                      const slotAccounts = agent.engine === 'claude-cli' ? claudeAccounts : engineAccounts.filter((a) => a.engine === agent.engine);
+                      if (!hasAccountChoice(slotAccounts, agent.engine)) return null;
+                      const label = agent.engine === 'claude-cli'
+                        ? t.claudeAccounts.slotAccountLabel
+                        : t.claudeAccounts.slotEngineAccountLabel.replace('{engine}', CLI_ENGINE_NAME[agent.engine]);
+                      // Поле от другого движка (слот сменил движок) здесь не выбрано: резолвер его пропустит.
+                      const value = slotAccounts.some((a) => a.id === agent.claudeAccountId) ? agent.claudeAccountId : '';
+                      return (
+                        <select
+                          value={value}
+                          onChange={(e) => handleUpdateAgent(idx, { claudeAccountId: e.target.value || undefined })}
+                          className="px-2 py-1 rounded-sm border border-border bg-background text-foreground text-xs max-w-44"
+                          title={label}
+                          aria-label={label}
+                          data-testid={agent.engine === 'claude-cli' ? 'swarm-slot-claude-account' : `swarm-slot-${agent.engine}-account`}
+                        >
+                          <option value="">{t.claudeAccounts.slotAccountInherit}</option>
+                          {slotAccounts.map((account) => (
+                            <option key={account.id} value={account.id}>{account.name}</option>
+                          ))}
+                        </select>
+                      );
+                    })()}
 
                     {agent.engine === 'api' && (
                       <ProviderProfileSelect

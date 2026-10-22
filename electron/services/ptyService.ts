@@ -4,6 +4,7 @@ import os from 'node:os';
 import { existsSync } from 'node:fs';
 import { BrowserWindow } from 'electron';
 import { claudeAccountService } from './claudeAccountService.js';
+import { accountEngine, cliAccountEnv, type CliAccountEngine } from './claudeAccounts.js';
 import {
   DEFAULT_PTY_EXIT_TTL_MS,
   PTY_EXIT_TTL_ENV,
@@ -11,6 +12,9 @@ import {
   resolvePtyExitTtlMs
 } from './ptyExitTtl.js';
 import type { PtySession, CreatePtyOptions } from '../../src/types/electron';
+
+/** Команда входа в профиль аккаунта во встроенном терминале по движку профиля. */
+const LOGIN_COMMAND: Record<CliAccountEngine, string> = { 'claude-cli': 'claude auth login', 'codex-cli': 'codex login', 'gemini-cli': 'gemini' };
 
 interface ActivePty {
   info: PtySession;
@@ -101,20 +105,24 @@ class PtyService {
 
     // Вход в профиль аккаунта (TASK-152.2): `claude auth login` во встроенном терминале с каталогом
     // профиля. Каталог берётся из списка профилей по id, а не из пути рендерера.
+    // Профиль Codex CLI или Gemini CLI входит своей командой (decision-163): `codex login`, а у Gemini CLI входа
+    // вне сессии нет — запускается сам `gemini`, он спрашивает способ входа при первом запуске.
     const loginAccount = options.type === 'claude-login'
-      ? await claudeAccountService.getAccount(String(options.claudeAccountId ?? ''))
+      ? await claudeAccountService.getAnyAccount(String(options.claudeAccountId ?? ''))
       : undefined;
     if (options.type === 'claude-login' && !loginAccount) {
       throw new Error('Профиль аккаунта Claude Code не найден.');
     }
+    const loginEngine = loginAccount ? accountEngine(loginAccount) : 'claude-cli';
 
     if (options.type === 'claude-login') {
+      const command = LOGIN_COMMAND[loginEngine];
       if (isWin) {
         shell = process.env.COMSPEC || 'cmd.exe';
-        args = ['/c', 'claude auth login'];
+        args = ['/c', command];
       } else {
         shell = process.env.SHELL || '/bin/bash';
-        args = ['-l', '-c', 'claude auth login'];
+        args = ['-l', '-c', command];
       }
     } else if (options.type === 'claude') {
       if (isWin) {
@@ -152,8 +160,24 @@ class PtyService {
 
     // Аккаунт Claude Code — профиля входа или проекта терминала (decision-87); перекрывает и
     // CLAUDE_CONFIG_DIR, с которым запущен сам ProjectHub, — как раньше перекрывал каталог ProjectHub.
-    const account = loginAccount ?? (await claudeAccountService.resolve({ projectPath: options.projectPath })).account;
-    const accountEnv = { CLAUDE_CONFIG_DIR: account.configDir };
+    // Codex CLI и Gemini CLI в терминале проекта — под аккаунтами проекта, если они привязаны (decision-163).
+    let accountEnv: Record<string, string>;
+    let account: { id: string; name: string };
+    if (loginAccount && loginEngine !== 'claude-cli') {
+      account = loginAccount;
+      accountEnv = cliAccountEnv(loginEngine, loginAccount);
+    } else {
+      const claudeAccount = loginAccount ?? (await claudeAccountService.resolve({ projectPath: options.projectPath })).account;
+      account = claudeAccount;
+      accountEnv = { CLAUDE_CONFIG_DIR: claudeAccount.configDir };
+      if (!loginAccount) {
+        try {
+          Object.assign(accountEnv, await claudeAccountService.projectEngineEnv(options.projectPath));
+        } catch (err) {
+          console.warn('[PtyService] Не удалось определить аккаунты Codex/Gemini проекта:', err);
+        }
+      }
+    }
     const env = {
       ...process.env,
       TERM: 'xterm-256color',

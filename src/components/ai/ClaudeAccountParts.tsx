@@ -4,7 +4,8 @@ import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useDialogStore } from '../../store/useDialogStore';
 import { useTranslation } from '../../i18n/useTranslation';
-import type { ClaudeAccountView } from '../../types/electron';
+import type { ClaudeAccountView, CliAccountEngine } from '../../types/electron';
+import { CLI_ENGINE_NAME, CLI_ENGINE_ENV, accountEngineOf } from '../../lib/cliAccountEngines';
 import { ConnectionRow, connectionBadge } from './ConnectionRow';
 
 export function cleanIpcError(err: unknown): string {
@@ -45,21 +46,23 @@ export function useClaudeAccountActions() {
   const askName = (title: string, defaultValue = '') =>
     dialog.prompt({ title, message: t.claudeAccounts.namePrompt, defaultValue, placeholder: t.claudeAccounts.namePlaceholder });
 
-  const create = async () => {
-    const name = await askName(t.claudeAccounts.addManaged);
+  const fill = (text: string, engine: CliAccountEngine) => text.replace('{engine}', CLI_ENGINE_NAME[engine]).replace('{env}', CLI_ENGINE_ENV[engine]);
+
+  const create = async (engine: CliAccountEngine = 'claude-cli') => {
+    const name = await askName(engine === 'claude-cli' ? t.claudeAccounts.addManaged : fill(t.aiConnections.cliAccount, engine));
     if (!name?.trim()) return;
     await run('create', async () => {
-      const account = await window.api.claudeAccounts.create(name);
+      const account = await window.api.claudeAccounts.create(name, engine);
       await refresh();
       openLogin(account.id);
     });
   };
 
-  const connect = async (source: 'dialog' | 'processEnv') => {
-    const name = await askName(t.claudeAccounts.connectExisting);
+  const connect = async (source: 'dialog' | 'processEnv', engine: CliAccountEngine = 'claude-cli') => {
+    const name = await askName(engine === 'claude-cli' ? t.claudeAccounts.connectExisting : fill(t.aiConnections.cliDirectory, engine));
     if (!name?.trim()) return;
     await run('connect', async () => {
-      const account = await window.api.claudeAccounts.connectExternal({ name, source });
+      const account = await window.api.claudeAccounts.connectExternal({ name, source, engine });
       if (account) await refreshStatus(account.id, true);
     });
   };
@@ -71,11 +74,13 @@ export function useClaudeAccountActions() {
   };
 
   const remove = async (account: ClaudeAccountView) => {
+    const engine = accountEngineOf(account);
+    const template = engine !== 'claude-cli'
+      ? fill(t.claudeAccounts.cliRemoveMessage, engine)
+      : account.kind === 'external' ? t.claudeAccounts.removeExternalMessage : t.claudeAccounts.removeManagedMessage;
     const ok = await dialog.confirm({
       title: t.claudeAccounts.removeTitle.replace('{name}', account.name),
-      message: (account.kind === 'external' ? t.claudeAccounts.removeExternalMessage : t.claudeAccounts.removeManagedMessage)
-        .replace('{dir}', account.configDir)
-        .replace('{count}', String(account.projectCount)),
+      message: template.replace('{dir}', account.configDir).replace('{count}', String(account.projectCount)),
       confirmText: t.claudeAccounts.remove,
       danger: true
     });
@@ -86,7 +91,9 @@ export function useClaudeAccountActions() {
   const logout = async (account: ClaudeAccountView) => {
     const ok = await dialog.confirm({
       title: t.claudeAccounts.logoutTitle.replace('{name}', account.name),
-      message: account.kind === 'external' ? t.claudeAccounts.logoutExternalMessage.replace('{dir}', account.configDir) : t.claudeAccounts.logoutMessage,
+      message: account.kind === 'external'
+        ? t.claudeAccounts.logoutExternalMessage.replace('{dir}', account.configDir)
+        : account.engine ? t.claudeAccounts.cliLogoutMessage : t.claudeAccounts.logoutMessage,
       confirmText: t.claudeAccounts.logout,
       danger: account.kind === 'external'
     });
@@ -146,11 +153,16 @@ export const ClaudeAccountRow: React.FC<{ account: ClaudeAccountView; actions: C
   const { t } = useTranslation();
   const status = useClaudeAccountsStore((s) => s.statuses[account.id]);
   const disabled = actions.busy !== null;
+  const engine = accountEngineOf(account);
 
   const statusText = !status ? (
     <span className="text-slate-500">{t.claudeAccounts.checking}</span>
+  ) : status.unsupported ? (
+    <span className="text-slate-400">{t.claudeAccounts.cliStatusUnsupported}</span>
   ) : status.error ? (
     <span className="text-rose-300">{t.claudeAccounts.statusError.replace('{error}', status.error)}</span>
+  ) : status.loggedIn && engine !== 'claude-cli' ? (
+    <span className="text-emerald-300">{t.claudeAccounts.cliLoggedIn.replace('{method}', status.authMethod ?? '—')}</span>
   ) : status.loggedIn ? (
     <span className="text-emerald-300" data-testid="claude-account-email">
       {status.email ?? '—'}
@@ -162,8 +174,8 @@ export const ClaudeAccountRow: React.FC<{ account: ClaudeAccountView; actions: C
 
   return (
     <ConnectionRow
-      icon="claude"
-      providerLabel={t.aiConnections.providerClaudeCode}
+      icon={engine === 'claude-cli' ? 'claude' : 'cli'}
+      providerLabel={engine === 'claude-cli' ? t.aiConnections.providerClaudeCode : CLI_ENGINE_NAME[engine]}
       name={account.name}
       title={account.configDir}
       testId={`claude-account-${account.id}`}
@@ -183,7 +195,7 @@ export const ClaudeAccountRow: React.FC<{ account: ClaudeAccountView; actions: C
       }
       actions={
         <>
-          {status?.loggedIn ? (
+          {status?.loggedIn && engine !== 'gemini-cli' ? (
             <button type="button" className="ph-icon-button" title={t.claudeAccounts.logout} aria-label={t.claudeAccounts.logout} disabled={disabled} onClick={() => void actions.logout(account)}>
               <LogOut className="w-3.5 h-3.5" />
             </button>

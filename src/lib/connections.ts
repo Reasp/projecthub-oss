@@ -1,4 +1,4 @@
-import type { AIProviderConfig, LlmProviderPreset } from '../types/electron';
+import type { AIProviderConfig, LlmProviderPreset, OtherCliAccountEngine } from '../types/electron';
 
 /**
  * Подключения Agents Studio (TASK-172): аккаунты Claude Code, ключ Anthropic API, профили серверов моделей
@@ -6,8 +6,8 @@ import type { AIProviderConfig, LlmProviderPreset } from '../types/electron';
  * «Добавить», распознавание старого подключения и выбор модели по умолчанию.
  */
 
-/** Значок провайдера: логотип сервиса, локальный сервер или сервер вообще. */
-export type ConnectionIcon = 'claude' | 'anthropic' | 'openrouter' | 'deepseek' | 'ollama' | 'local' | 'server';
+/** Значок провайдера: логотип сервиса, локальный сервер, сервер вообще или другой CLI-агент (Codex, Gemini). */
+export type ConnectionIcon = 'claude' | 'anthropic' | 'openrouter' | 'deepseek' | 'ollama' | 'local' | 'server' | 'cli';
 
 const PRESET_BRANDS: Record<string, ConnectionIcon> = {
   openrouter: 'openrouter',
@@ -49,6 +49,9 @@ export function claudeEngineOf(config: Pick<AIProviderConfig, 'provider' | 'apiK
 export type AddOption =
   | { kind: 'claude-account'; icon: 'claude' }
   | { kind: 'claude-directory'; icon: 'claude' }
+  /** Аккаунт Codex CLI или Gemini CLI (decision-163): новый каталог ProjectHub или подключённый существующий. */
+  | { kind: 'cli-account'; engine: OtherCliAccountEngine; icon: 'cli' }
+  | { kind: 'cli-directory'; engine: OtherCliAccountEngine; icon: 'cli' }
   | { kind: 'anthropic-key'; icon: 'anthropic' }
   | { kind: 'preset'; presetId: string; name: string; icon: ConnectionIcon };
 
@@ -71,7 +74,11 @@ export function addOptionGroups(presets: Pick<LlmProviderPreset, 'id' | 'name' |
   return {
     subscription: [
       { kind: 'claude-account', icon: 'claude' },
-      { kind: 'claude-directory', icon: 'claude' }
+      { kind: 'claude-directory', icon: 'claude' },
+      { kind: 'cli-account', engine: 'codex-cli', icon: 'cli' },
+      { kind: 'cli-directory', engine: 'codex-cli', icon: 'cli' },
+      { kind: 'cli-account', engine: 'gemini-cli', icon: 'cli' },
+      { kind: 'cli-directory', engine: 'gemini-cli', icon: 'cli' }
     ],
     apiKey: [{ kind: 'anthropic-key', icon: 'anthropic' }, ...presets.filter((p) => p.requiresApiKey).map(preset)],
     server: presets.filter((p) => !p.requiresApiKey).map(preset)

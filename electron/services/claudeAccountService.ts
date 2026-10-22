@@ -7,28 +7,39 @@ import { projectRegistry } from './projectRegistry.js';
 import { findOwningProject } from './pathGuard.js';
 import {
   DEFAULT_CLAUDE_ACCOUNT_ID,
+  OTHER_CLI_ACCOUNT_ENGINES,
+  accountEngine,
   addClaudeAccount,
   claudeAccountEnv,
+  cliAccountEnv,
   defaultClaudeConfigDir,
   findAccountByConfigDir,
   findSharedLoginGroups,
+  listAllAccounts,
   listClaudeAccounts,
+  listEngineAccounts,
   normalizeClaudeAccountsSettings,
   parseClaudeAuthStatus,
+  parseCodexLoginStatus,
   removeClaudeAccount,
   renameClaudeAccount,
   resolveClaudeAccount,
+  resolveEngineAccount,
   setRoleClaudeAccount,
   type AddClaudeAccountInput,
   type ClaudeAccountAuthStatus,
   type ClaudeAccountProfile,
   type ClaudeAccountResolution,
-  type ClaudeAccountsSettings
+  type ClaudeAccountsSettings,
+  type CliAccountEngine,
+  type EngineAccountResolution,
+  type OtherCliAccountEngine
 } from './claudeAccounts.js';
 
 /**
  * Аккаунты Claude Code (TASK-152, decision-87): профили в `<userData>/claude-accounts.json`, привязка
- * проекта в реестре машины, единый резолвер окружения для всех запусков Claude CLI.
+ * проекта в реестре машины, единый резолвер окружения для всех запусков Claude CLI. Те же профили и
+ * привязки у Codex CLI и Gemini CLI (TASK-152.6, decision-163).
  */
 
 const SETTINGS_FILE = 'claude-accounts.json';
@@ -66,6 +77,8 @@ export interface ClaudeAccountView extends ClaudeAccountProfile {
 
 export interface ClaudeAccountsOverview {
   accounts: ClaudeAccountView[];
+  /** Профили Codex CLI и Gemini CLI (decision-163): отдельно, чтобы не попадать в выбор аккаунта Claude Code. */
+  engineAccounts: ClaudeAccountView[];
   roleAccounts: Record<string, string>;
   /** `CLAUDE_CONFIG_DIR` процесса ProjectHub и профиль, который на него указывает (decision-87 п. 7). */
   processConfigDir?: string;
@@ -83,14 +96,19 @@ interface CliRun {
 
 /** `claude <args>` под каталогом аккаунта. stdin закрыт сразу: CLI иначе ждёт ввод. */
 export function runClaudeCliWithAccount(args: string[], configDir: string, timeoutMs: number): Promise<CliRun> {
+  return runCliWithEnv('claude', args, { CLAUDE_CONFIG_DIR: configDir }, timeoutMs);
+}
+
+/** CLI движка с переменными аккаунта поверх окружения процесса. */
+function runCliWithEnv(command: string, args: string[], accountEnv: Record<string, string>, timeoutMs: number): Promise<CliRun> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn('claude', args, {
+      child = spawn(command, args, {
         shell: true,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
-        env: { ...process.env, FORCE_COLOR: '0', CLAUDE_CONFIG_DIR: configDir }
+        env: { ...process.env, FORCE_COLOR: '0', ...accountEnv }
       });
     } catch (err) {
       resolve({ code: null, stdout: '', stderr: '', spawnError: err instanceof Error ? err.message : String(err) });
@@ -173,16 +191,25 @@ class ClaudeAccountService {
     return (await this.listAccounts()).find((account) => account.id === id);
   }
 
+  /** Профиль любого движка по id (вход, статус, выход). */
+  async getAnyAccount(id: string): Promise<ClaudeAccountProfile | undefined> {
+    return listAllAccounts(await this.load(), getHomeDir()).find((account) => account.id === id);
+  }
+
+  async listEngineAccounts(engine: OtherCliAccountEngine): Promise<ClaudeAccountProfile[]> {
+    return listEngineAccounts(await this.load(), engine);
+  }
+
   async overview(): Promise<ClaudeAccountsOverview> {
     const settings = await this.load();
     const accounts = listClaudeAccounts(settings, getHomeDir());
+    const engineAccounts = settings.engineProfiles ?? [];
     const projects = await projectRegistry.getProjects();
     const counts = new Map<string, number>();
+    const count = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
     for (const project of projects) {
-      const id = project.claudeAccountId && accounts.some((a) => a.id === project.claudeAccountId)
-        ? project.claudeAccountId
-        : DEFAULT_CLAUDE_ACCOUNT_ID;
-      counts.set(id, (counts.get(id) ?? 0) + 1);
+      count(project.claudeAccountId && accounts.some((a) => a.id === project.claudeAccountId) ? project.claudeAccountId : DEFAULT_CLAUDE_ACCOUNT_ID);
+      for (const id of Object.values(project.engineAccounts ?? {})) if (id) count(id);
     }
     const processAccount = findAccountByConfigDir(accounts, PROCESS_CLAUDE_CONFIG_DIR, process.platform);
     return {
@@ -192,6 +219,7 @@ class ClaudeAccountService {
         ...(isSameDir(account.configDir, path.join(getHomeDir(), '.claude')) ? { isHomeClaudeDir: true } : {}),
         projectCount: counts.get(account.id) ?? 0
       })),
+      engineAccounts: engineAccounts.map((account) => ({ ...account, isDefault: false, projectCount: counts.get(account.id) ?? 0 })),
       roleAccounts: { ...settings.roleAccounts },
       ...(PROCESS_CLAUDE_CONFIG_DIR ? { processConfigDir: PROCESS_CLAUDE_CONFIG_DIR } : {}),
       ...(processAccount ? { processConfigDirAccountId: processAccount.id } : {}),
@@ -199,14 +227,63 @@ class ClaudeAccountService {
     };
   }
 
-  /** Привязка проекта (по корню или worktree внутри него). */
-  async projectAccountId(projectPath: string | null | undefined): Promise<string | undefined> {
+  /** Запись реестра проекта, которому принадлежит путь (корень или worktree внутри него). */
+  private async owningEntry(projectPath: string | null | undefined) {
     if (!projectPath?.trim()) return undefined;
     const projects = await projectRegistry.getProjects();
     const owner = findOwningProject(projects.map((p) => p.path), projectPath);
     if (!owner) return undefined;
     const normalized = path.normalize(owner).toLowerCase();
-    return projects.find((p) => path.normalize(p.path).toLowerCase() === normalized)?.claudeAccountId;
+    return projects.find((p) => path.normalize(p.path).toLowerCase() === normalized);
+  }
+
+  /** Привязка проекта (по корню или worktree внутри него). */
+  async projectAccountId(projectPath: string | null | undefined): Promise<string | undefined> {
+    return (await this.owningEntry(projectPath))?.claudeAccountId;
+  }
+
+  /** Привязка проекта к аккаунту Codex CLI или Gemini CLI. */
+  async projectEngineAccountId(engine: OtherCliAccountEngine, projectPath: string | null | undefined): Promise<string | undefined> {
+    return (await this.owningEntry(projectPath))?.engineAccounts?.[engine];
+  }
+
+  /**
+   * Аккаунт запуска Codex CLI или Gemini CLI: слот → роль → проект (decision-163). Нет привязок — `account` пуст и
+   * CLI работает со своим обычным каталогом, как до профилей.
+   */
+  async resolveEngine(engine: OtherCliAccountEngine, query: ClaudeAccountQuery = {}): Promise<EngineAccountResolution> {
+    const settings = await this.load();
+    const roleAccountId = query.roleSlug ? settings.roleAccounts[query.roleSlug] : undefined;
+    let projectAccountId: string | undefined;
+    try {
+      projectAccountId = await this.projectEngineAccountId(engine, query.projectPath);
+    } catch (err) {
+      console.warn('[ClaudeAccounts] Реестр проектов недоступен, аккаунт проекта не определён:', (err as Error)?.message);
+    }
+    const resolution = resolveEngineAccount({
+      engine,
+      accounts: listAllAccounts(settings, getHomeDir()),
+      slotAccountId: query.slotAccountId,
+      roleAccountId,
+      projectAccountId
+    });
+    for (const miss of resolution.missing) {
+      console.warn(`[ClaudeAccounts] Профиль «${miss.id}» (${miss.source}) не найден — ${engine} работает без профиля.`);
+    }
+    return resolution;
+  }
+
+  /** Окружение запуска Codex CLI или Gemini CLI: `{ CODEX_HOME }` / `{ GEMINI_CLI_HOME }` аккаунта или пусто. */
+  async engineEnvFor(engine: OtherCliAccountEngine, query: ClaudeAccountQuery = {}): Promise<Record<string, string>> {
+    const { account } = await this.resolveEngine(engine, query);
+    return account ? cliAccountEnv(engine, account) : {};
+  }
+
+  /** Привязки проекта ко всем движкам, кроме Claude Code, — для встроенного терминала. */
+  async projectEngineEnv(projectPath: string | null | undefined): Promise<Record<string, string>> {
+    const env: Record<string, string> = {};
+    for (const engine of OTHER_CLI_ACCOUNT_ENGINES) Object.assign(env, await this.engineEnvFor(engine, { projectPath }));
+    return env;
   }
 
   /** Аккаунт запуска: слот → роль → проект → по умолчанию. Пропущенные ссылки — в лог. */
@@ -232,15 +309,15 @@ class ClaudeAccountService {
     return claudeAccountEnv((await this.resolve(query)).account);
   }
 
-  async createManaged(name: string): Promise<ClaudeAccountProfile> {
-    return this.add({ name, kind: 'managed' });
+  async createManaged(name: string, engine: CliAccountEngine = 'claude-cli'): Promise<ClaudeAccountProfile> {
+    return this.add({ name, kind: 'managed', engine });
   }
 
-  async connectExternal(name: string, configDir: string): Promise<ClaudeAccountProfile> {
+  async connectExternal(name: string, configDir: string, engine: CliAccountEngine = 'claude-cli'): Promise<ClaudeAccountProfile> {
     const dir = path.resolve(configDir.trim());
     const stat = await fs.stat(dir).catch(() => null);
     if (!stat?.isDirectory()) throw new Error(`Каталог не найден: ${dir}`);
-    return this.add({ name, kind: 'external', configDir: dir });
+    return this.add({ name, kind: 'external', configDir: dir, engine });
   }
 
   private async add(input: AddClaudeAccountInput): Promise<ClaudeAccountProfile> {
@@ -274,26 +351,42 @@ class ClaudeAccountService {
     return projectRegistry.setClaudeAccountId(projectPath, accountId === DEFAULT_CLAUDE_ACCOUNT_ID ? null : accountId);
   }
 
+  /** Привязка проекта к аккаунту Codex CLI или Gemini CLI; `null` — обычный каталог CLI. */
+  async setProjectEngineAccount(projectPath: string, engine: OtherCliAccountEngine, accountId: string | null): Promise<boolean> {
+    if (accountId && !(await this.listEngineAccounts(engine)).some((a) => a.id === accountId)) {
+      throw new Error('Профиль аккаунта не найден.');
+    }
+    return projectRegistry.setEngineAccountId(projectPath, engine, accountId);
+  }
+
   async setRoleAccount(roleSlug: string, accountId: string | null): Promise<void> {
     await this.save(setRoleClaudeAccount(await this.load(), roleSlug, accountId, getHomeDir()));
   }
 
   /** `claude auth status --json` профиля; кэш на 30 с, параллельные запросы делят один запуск. */
   async authStatus(id: string, force = false): Promise<ClaudeAccountAuthStatus> {
-    const account = await this.getAccount(id);
+    const account = await this.getAnyAccount(id);
     if (!account) return { loggedIn: false, error: 'Профиль не найден.', checkedAt: Date.now() };
+    const engine = accountEngine(account);
+    // Gemini CLI не сообщает вход без запуска сессии, а файлы входа ProjectHub не читает (decision-87 п. 8).
+    if (engine === 'gemini-cli') return { loggedIn: false, unsupported: true, checkedAt: Date.now() };
     const cached = this.authCache.get(id);
     if (!force && cached && Date.now() - cached.checkedAt < AUTH_STATUS_TTL_MS) return cached;
     const inflight = this.authInflight.get(id);
     if (inflight) return inflight;
 
     const run = (async () => {
-      const result = await runClaudeCliWithAccount(['auth', 'status', '--json'], account.configDir, AUTH_STATUS_TIMEOUT_MS);
+      const result = engine === 'codex-cli'
+        ? await runCliWithEnv('codex', ['login', 'status'], cliAccountEnv(engine, account), AUTH_STATUS_TIMEOUT_MS)
+        : await runClaudeCliWithAccount(['auth', 'status', '--json'], account.configDir, AUTH_STATUS_TIMEOUT_MS);
+      const cli = engine === 'codex-cli' ? 'Codex CLI' : 'Claude CLI';
       const status = result.timedOut
-        ? { loggedIn: false, error: 'claude auth status не ответил вовремя.', checkedAt: Date.now() }
+        ? { loggedIn: false, error: `${cli}: статус входа не получен вовремя.`, checkedAt: Date.now() }
         : result.spawnError
-          ? { loggedIn: false, error: `Не удалось запустить Claude CLI: ${result.spawnError}`, checkedAt: Date.now() }
-          : parseClaudeAuthStatus(result.stdout || result.stderr, result.code);
+          ? { loggedIn: false, error: `Не удалось запустить ${cli}: ${result.spawnError}`, checkedAt: Date.now() }
+          : engine === 'codex-cli'
+            ? parseCodexLoginStatus(`${result.stdout}\n${result.stderr}`, result.code)
+            : parseClaudeAuthStatus(result.stdout || result.stderr, result.code);
       this.authCache.set(id, status);
       return status;
     })().finally(() => this.authInflight.delete(id));
@@ -303,10 +396,15 @@ class ClaudeAccountService {
 
   /** Статусы всех профилей и группы профилей с одним входом (признак общего Keychain на macOS). */
   async allAuthStatuses(force = false): Promise<{ statuses: Record<string, ClaudeAccountAuthStatus>; sharedLogin: string[][] }> {
-    const accounts = await this.listAccounts();
-    const entries = await Promise.all(accounts.map(async (a) => [a.id, await this.authStatus(a.id, force)] as const));
+    const settings = await this.load();
+    const claude = listClaudeAccounts(settings, getHomeDir());
+    const all = [...claude, ...(settings.engineProfiles ?? [])];
+    const entries = await Promise.all(all.map(async (a) => [a.id, await this.authStatus(a.id, force)] as const));
     const statuses = Object.fromEntries(entries);
-    return { statuses, sharedLogin: findSharedLoginGroups(entries.map(([id, status]) => ({ id, status }))) };
+    // Общий Keychain — вопрос Claude Code; у других движков e-mail в статусе нет.
+    const claudeIds = new Set(claude.map((a) => a.id));
+    const sharedLogin = findSharedLoginGroups(entries.filter(([id]) => claudeIds.has(id)).map(([id, status]) => ({ id, status })));
+    return { statuses, sharedLogin };
   }
 
   invalidateAuth(id?: string): void {
@@ -319,10 +417,15 @@ class ClaudeAccountService {
    * глобальный `~/.claude.json` ProjectHub не трогает.
    */
   async logout(id: string): Promise<ClaudeAccountAuthStatus> {
-    const account = await this.getAccount(id);
+    const account = await this.getAnyAccount(id);
     if (!account) throw new Error('Профиль не найден.');
-    const result = await runClaudeCliWithAccount(['auth', 'logout'], account.configDir, LOGOUT_TIMEOUT_MS);
-    if (result.spawnError) throw new Error(`Не удалось запустить Claude CLI: ${result.spawnError}`);
+    const engine = accountEngine(account);
+    // Gemini CLI выходит только командой /auth внутри сессии — во встроенном терминале профиля.
+    if (engine === 'gemini-cli') throw new Error('Gemini CLI не умеет выходить из командной строки: выйдите командой /auth в терминале профиля.');
+    const result = engine === 'codex-cli'
+      ? await runCliWithEnv('codex', ['logout'], cliAccountEnv(engine, account), LOGOUT_TIMEOUT_MS)
+      : await runClaudeCliWithAccount(['auth', 'logout'], account.configDir, LOGOUT_TIMEOUT_MS);
+    if (result.spawnError) throw new Error(`Не удалось запустить ${engine === 'codex-cli' ? 'Codex CLI' : 'Claude CLI'}: ${result.spawnError}`);
     this.authCache.delete(id);
     return this.authStatus(id, true);
   }

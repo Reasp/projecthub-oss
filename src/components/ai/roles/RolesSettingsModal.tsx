@@ -9,6 +9,7 @@ import { ProviderProfileSelect, useLlmProfiles, useProfileModels } from '../Prov
 import { ModelTierSelect } from '../ModelTierSelect';
 import { RoleSyncPanel } from './RoleSyncPanel';
 import { useClaudeAccountsStore } from '../../../store/useClaudeAccountsStore';
+import { CLI_ENGINE_NAME, accountsForEngine, hasAccountChoice } from '../../../lib/cliAccountEngines';
 import { SkillsPanel } from './SkillsPanel';
 import { AgentTaskLimitsPanel } from './AgentTaskLimitsPanel';
 import type { RoleDefinition, RoleEngine, ToolCategory } from '../../../types/electron';
@@ -76,7 +77,6 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
   const roles = useMemo(() => rolesByProject[selectedProject?.path || ''] || [], [rolesByProject, selectedProject?.path]);
   const claudeOverview = useClaudeAccountsStore((s) => s.overview);
   const refreshClaudeAccounts = useClaudeAccountsStore((s) => s.refresh);
-  const claudeAccountsList = claudeOverview?.accounts ?? [];
   const roleAccounts = claudeOverview?.roleAccounts ?? {};
   const setRoleAccount = async (slug: string, accountId: string | null) => {
     await window.api.claudeAccounts.setRole(slug, accountId);
@@ -352,26 +352,32 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                   className="w-full text-xs rounded-sm border border-border bg-background px-2 py-1.5 text-foreground"
                 />
               </div>
-              {/* Аккаунт Claude Code роли (TASK-152.4): привязка на машине, в файл роли не пишется */}
-              {claudeAccountsList.length > 1 && draft.slug.trim() && (!draft.engine || draft.engine === 'claude-cli') && (
-                <div>
-                  <label className="text-[11px] font-medium text-muted-foreground block mb-1" title={t.claudeAccounts.roleAccountHint}>
-                    {t.claudeAccounts.roleAccountLabel}
-                  </label>
-                  <select
-                    value={roleAccounts[draft.slug.trim()] ?? ''}
-                    onChange={(e) => void setRoleAccount(draft.slug.trim(), e.target.value || null)}
-                    className="w-full text-xs rounded-sm border border-border bg-background px-2 py-1.5 text-foreground"
-                    title={t.claudeAccounts.roleAccountHint}
-                    data-testid="role-claude-account"
-                  >
-                    <option value="">{t.claudeAccounts.roleAccountInherit}</option>
-                    {claudeAccountsList.map((account) => (
-                      <option key={account.id} value={account.id}>{account.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* Аккаунт CLI роли (TASK-152.4, decision-163): привязка на машине, в файл роли не пишется */}
+              {draft.slug.trim() && draft.engine !== 'api' && (() => {
+                const engine = draft.engine || 'claude-cli';
+                const roleAccountsList = accountsForEngine(claudeOverview, engine);
+                if (!hasAccountChoice(roleAccountsList, engine)) return null;
+                const bound = roleAccounts[draft.slug.trim()];
+                return (
+                  <div>
+                    <label className="text-[11px] font-medium text-muted-foreground block mb-1" title={t.claudeAccounts.roleAccountHint}>
+                      {engine === 'claude-cli' ? t.claudeAccounts.roleAccountLabel : t.claudeAccounts.roleEngineAccountLabel.replace('{engine}', CLI_ENGINE_NAME[engine])}
+                    </label>
+                    <select
+                      value={bound && roleAccountsList.some((a) => a.id === bound) ? bound : ''}
+                      onChange={(e) => void setRoleAccount(draft.slug.trim(), e.target.value || null)}
+                      className="w-full text-xs rounded-sm border border-border bg-background px-2 py-1.5 text-foreground"
+                      title={t.claudeAccounts.roleAccountHint}
+                      data-testid={engine === 'claude-cli' ? 'role-claude-account' : `role-${engine}-account`}
+                    >
+                      <option value="">{t.claudeAccounts.roleAccountInherit}</option>
+                      {roleAccountsList.map((account) => (
+                        <option key={account.id} value={account.id}>{account.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })()}
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground block mb-1">{t.roles.budgetUsd}</label>
                 <input

@@ -1352,14 +1352,17 @@ export interface IElectronAPI {
     overview: () => Promise<ClaudeAccountsOverview>;
     statuses: (force?: boolean) => Promise<{ statuses: Record<string, ClaudeAccountAuthStatus>; sharedLogin: string[][] }>;
     status: (id: string, force?: boolean) => Promise<ClaudeAccountAuthStatus>;
-    create: (name: string) => Promise<ClaudeAccountProfile>;
+    create: (name: string, engine?: CliAccountEngine) => Promise<ClaudeAccountProfile>;
     /** Каталог выбирается в системном диалоге или берётся из CLAUDE_CONFIG_DIR процесса; `null` — диалог отменён. */
-    connectExternal: (input: { name: string; source: 'dialog' | 'processEnv' }) => Promise<ClaudeAccountProfile | null>;
+    connectExternal: (input: { name: string; source: 'dialog' | 'processEnv'; engine?: CliAccountEngine }) => Promise<ClaudeAccountProfile | null>;
     rename: (id: string, name: string) => Promise<void>;
     remove: (id: string) => Promise<{ removed: ClaudeAccountProfile; unboundProjects: number }>;
     logout: (id: string) => Promise<ClaudeAccountAuthStatus>;
     forProject: (projectPath: string) => Promise<{ account: ClaudeAccountProfile; source: ClaudeAccountSource }>;
     setProject: (projectPath: string, accountId: string | null) => Promise<boolean>;
+    /** Аккаунты Codex CLI и Gemini CLI проекта на этой машине (decision-163); `null` — обычный каталог CLI. */
+    projectEngines: (projectPath: string) => Promise<Record<OtherCliAccountEngine, string | null>>;
+    setProjectEngine: (projectPath: string, engine: OtherCliAccountEngine, accountId: string | null) => Promise<boolean>;
     setRole: (roleSlug: string, accountId: string | null) => Promise<void>;
   };
   /** Синхронизация задач с внешним трекером (TASK-128, decision-103). */
@@ -1924,11 +1927,17 @@ export interface RateLimitWarning {
 
 export type ClaudeAccountSource = 'slot' | 'role' | 'project' | 'default';
 
+/** Движки, у которых бывают профили аккаунтов (decision-163). */
+export type CliAccountEngine = 'claude-cli' | 'codex-cli' | 'gemini-cli';
+export type OtherCliAccountEngine = Exclude<CliAccountEngine, 'claude-cli'>;
+
 export interface ClaudeAccountProfile {
   id: string;
   name: string;
   kind: 'managed' | 'external';
   configDir: string;
+  /** Нет — Claude Code. */
+  engine?: OtherCliAccountEngine;
   createdAt?: string;
 }
 
@@ -1940,6 +1949,8 @@ export interface ClaudeAccountView extends ClaudeAccountProfile {
 
 export interface ClaudeAccountsOverview {
   accounts: ClaudeAccountView[];
+  /** Профили Codex CLI и Gemini CLI (decision-163). */
+  engineAccounts: ClaudeAccountView[];
   roleAccounts: Record<string, string>;
   processConfigDir?: string;
   processConfigDirAccountId?: string;
@@ -1954,6 +1965,8 @@ export interface ClaudeAccountAuthStatus {
   subscriptionType?: string;
   configDirectory?: string;
   error?: string;
+  /** CLI не сообщает статус входа (Gemini CLI): вход проверяется в терминале. */
+  unsupported?: boolean;
   checkedAt: number;
 }
 

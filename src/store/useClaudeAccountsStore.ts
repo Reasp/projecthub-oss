@@ -3,7 +3,8 @@ import type {
   ClaudeAccountAuthStatus,
   ClaudeAccountProfile,
   ClaudeAccountSource,
-  ClaudeAccountsOverview
+  ClaudeAccountsOverview,
+  OtherCliAccountEngine
 } from '../types/electron';
 
 /**
@@ -34,6 +35,10 @@ interface ClaudeAccountsState {
   refreshStatus: (id: string, force?: boolean) => Promise<ClaudeAccountAuthStatus | null>;
   loadProjectAccount: (projectPath: string) => Promise<ProjectClaudeAccount | null>;
   setProjectAccount: (projectPath: string, accountId: string | null) => Promise<void>;
+  /** Аккаунты Codex CLI и Gemini CLI проекта по корню проекта (decision-163); `null` — обычный каталог CLI. */
+  projectEngineAccounts: Record<string, Record<OtherCliAccountEngine, string | null>>;
+  loadProjectEngines: (projectPath: string) => Promise<void>;
+  setProjectEngineAccount: (projectPath: string, engine: OtherCliAccountEngine, accountId: string | null) => Promise<void>;
   openLogin: (accountId: string) => void;
   /** Вход в аккаунт проекта (или профиль по умолчанию без проекта). */
   openLoginForProject: (projectPath?: string) => Promise<void>;
@@ -48,6 +53,7 @@ export const useClaudeAccountsStore = create<ClaudeAccountsState>((set, get) => 
   sharedLogin: [],
   statusesLoading: false,
   projectAccounts: {},
+  projectEngineAccounts: {},
   loginAccountId: null,
   isManagerOpen: false,
 
@@ -91,6 +97,22 @@ export const useClaudeAccountsStore = create<ClaudeAccountsState>((set, get) => 
     if (!window.api?.claudeAccounts) return;
     await window.api.claudeAccounts.setProject(projectPath, accountId);
     await Promise.all([get().loadProjectAccount(projectPath), get().refresh()]);
+  },
+
+  loadProjectEngines: async (projectPath) => {
+    if (!window.api?.claudeAccounts?.projectEngines || !projectPath) return;
+    try {
+      const engines = await window.api.claudeAccounts.projectEngines(projectPath);
+      set((state) => ({ projectEngineAccounts: { ...state.projectEngineAccounts, [projectPath]: engines } }));
+    } catch (err) {
+      console.warn('[ClaudeAccounts] Не удалось прочитать аккаунты Codex/Gemini проекта:', err);
+    }
+  },
+
+  setProjectEngineAccount: async (projectPath, engine, accountId) => {
+    if (!window.api?.claudeAccounts) return;
+    await window.api.claudeAccounts.setProjectEngine(projectPath, engine, accountId);
+    await Promise.all([get().loadProjectEngines(projectPath), get().refresh()]);
   },
 
   openLogin: (accountId) => set({ loginAccountId: accountId }),

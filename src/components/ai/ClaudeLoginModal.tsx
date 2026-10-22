@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, RefreshCw, CheckCircle2 } from '../common/icons';
+import { X, RefreshCw, CheckCircle2, Terminal } from '../common/icons';
 import { ClaudeLogo } from '../common/BrandLogo';
 import { PtyTabTerminal } from '../terminal/PtyTabTerminal';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
@@ -22,7 +22,9 @@ export const ClaudeLoginModal: React.FC = () => {
   const [status, setStatus] = useState<ClaudeAccountAuthStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const account = overview?.accounts.find((a) => a.id === accountId);
+  // Профиль Codex CLI или Gemini CLI входит своей командой (decision-163), окно то же.
+  const account = [...(overview?.accounts ?? []), ...(overview?.engineAccounts ?? [])].find((a) => a.id === accountId);
+  const engine = account?.engine;
 
   useEffect(() => {
     if (!accountId) return;
@@ -84,7 +86,7 @@ export const ClaudeLoginModal: React.FC = () => {
       <div className="w-full max-w-3xl bg-ph-elevated border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
         <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <ClaudeLogo className="w-4 h-4 shrink-0" />
+            {engine ? <Terminal className="w-4 h-4 shrink-0 text-sky-300" /> : <ClaudeLogo className="w-4 h-4 shrink-0" />}
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-white truncate">{t.claudeAccounts.loginTitle.replace('{name}', name)}</h2>
               {account && <p className="text-[11px] text-slate-500 font-mono truncate">{account.configDir}</p>}
@@ -95,7 +97,9 @@ export const ClaudeLoginModal: React.FC = () => {
           </button>
         </div>
 
-        <p className="px-5 pt-3 text-xs text-slate-400 leading-relaxed">{t.claudeAccounts.loginHint}</p>
+        <p className="px-5 pt-3 text-xs text-slate-400 leading-relaxed">
+          {engine === 'codex-cli' ? t.claudeAccounts.cliLoginHintCodex : engine === 'gemini-cli' ? t.claudeAccounts.cliLoginHintGemini : t.claudeAccounts.loginHint}
+        </p>
 
         <div className="m-4 h-[320px] rounded-lg border border-ph-line overflow-hidden bg-ph-base">
           {error ? (
@@ -114,11 +118,14 @@ export const ClaudeLoginModal: React.FC = () => {
             {exited && status?.loggedIn && (
               <span className="flex items-center gap-1.5 text-emerald-300">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                {t.claudeAccounts.loggedInAs.replace('{email}', status.email ?? '—')}
+                {engine
+                  ? t.claudeAccounts.cliLoggedIn.replace('{method}', status.authMethod ?? '—')
+                  : t.claudeAccounts.loggedInAs.replace('{email}', status.email ?? '—')}
                 {status.subscriptionType ? ` · ${status.subscriptionType}` : ''}
               </span>
             )}
-            {exited && status && !status.loggedIn && <span className="text-amber-300">{t.claudeAccounts.loginNotCompleted}</span>}
+            {exited && status?.unsupported && <span>{t.claudeAccounts.cliLoginUnverified}</span>}
+            {exited && status && !status.loggedIn && !status.unsupported && <span className="text-amber-300">{t.claudeAccounts.loginNotCompleted}</span>}
             {exited && !status && <span>{t.claudeAccounts.checking}</span>}
           </div>
           <button type="button" onClick={closeLogin} className={exited ? 'ph-btn ph-btn-primary' : 'ph-btn ph-btn-secondary'}>

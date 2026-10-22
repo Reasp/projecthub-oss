@@ -3393,6 +3393,10 @@ export interface TranslationDictionary {
     claudeAccountHint: string;
     claudeDirectory: string;
     claudeDirectoryHint: string;
+    cliAccount: string;
+    cliAccountHint: string;
+    cliDirectory: string;
+    cliDirectoryHint: string;
     anthropicKeyHint: string;
     anthropicKeyBlocked: string;
     anthropicKeyExists: string;
@@ -3756,6 +3760,18 @@ export interface TranslationDictionary {
     roleAccountInherit: string;
     roleAccountHint: string;
     homeClaudeDirWarning: string;
+    /** Аккаунты Codex CLI и Gemini CLI (decision-163). `{engine}` — имя CLI, `{env}` — переменная каталога. */
+    cliStatusUnsupported: string;
+    cliLoggedIn: string;
+    cliLoginHintCodex: string;
+    cliLoginHintGemini: string;
+    cliLoginUnverified: string;
+    cliLogoutMessage: string;
+    cliRemoveMessage: string;
+    engineMenuTitle: string;
+    engineDefault: string;
+    slotEngineAccountLabel: string;
+    roleEngineAccountLabel: string;
   };
   secretIssues: {
     title: string;

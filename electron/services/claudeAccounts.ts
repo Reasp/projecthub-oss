@@ -6,6 +6,8 @@ import path from 'node:path';
  *
  * Профиль — это каталог `CLAUDE_CONFIG_DIR`. Секретов модуль не видит и не хранит: вход лежит в
  * каталоге (или в Keychain на macOS) и проверяется только командой CLI.
+ *
+ * Те же профили есть у Codex CLI (`CODEX_HOME`) и Gemini CLI (`GEMINI_CLI_HOME`) — поле `engine`, decision-163.
  */
 
 export const DEFAULT_CLAUDE_ACCOUNT_ID = 'default';
@@ -16,13 +18,40 @@ export const CLAUDE_ACCOUNT_NAME_MAX_LENGTH = 40;
 /** `managed` — каталог ProjectHub; `external` — подключённый существующий каталог (например, из Rider). */
 export type ClaudeAccountKind = 'managed' | 'external';
 
+/** CLI-движок, у которого бывают аккаунты (TASK-152.6, decision-163). */
+export type CliAccountEngine = 'claude-cli' | 'codex-cli' | 'gemini-cli';
+/** Движки, кроме Claude Code: у них нет профиля по умолчанию — без привязки CLI берёт свой обычный каталог. */
+export type OtherCliAccountEngine = Exclude<CliAccountEngine, 'claude-cli'>;
+export const OTHER_CLI_ACCOUNT_ENGINES: readonly OtherCliAccountEngine[] = ['codex-cli', 'gemini-cli'];
+
+/**
+ * Переменная окружения каталога аккаунта: `CODEX_HOME` — каталог Codex CLI (по умолчанию `~/.codex`), `GEMINI_CLI_HOME`
+ * — корень, внутри которого Gemini CLI держит `.gemini` (по умолчанию домашний каталог).
+ */
+export const CLI_ACCOUNT_ENV_VAR: Record<CliAccountEngine, string> = {
+  'claude-cli': 'CLAUDE_CONFIG_DIR',
+  'codex-cli': 'CODEX_HOME',
+  'gemini-cli': 'GEMINI_CLI_HOME'
+};
+
+export function isOtherCliAccountEngine(value: unknown): value is OtherCliAccountEngine {
+  return value === 'codex-cli' || value === 'gemini-cli';
+}
+
 export interface ClaudeAccountProfile {
   id: string;
   name: string;
   kind: ClaudeAccountKind;
-  /** Абсолютный путь — значение `CLAUDE_CONFIG_DIR`. */
+  /** Абсолютный путь — значение переменной каталога движка (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`). */
   configDir: string;
+  /** Движок аккаунта; нет поля — Claude Code. */
+  engine?: OtherCliAccountEngine;
   createdAt?: string;
+}
+
+/** Движок профиля: без поля — Claude Code. */
+export function accountEngine(account: Pick<ClaudeAccountProfile, 'engine'>): CliAccountEngine {
+  return account.engine ?? 'claude-cli';
 }
 
 /** Содержимое `claude-accounts.json`. Профиль по умолчанию в списке не хранится — только его имя. */
@@ -30,6 +59,11 @@ export interface ClaudeAccountsSettings {
   version: number;
   defaultName?: string;
   profiles: ClaudeAccountProfile[];
+  /**
+   * Профили Codex CLI и Gemini CLI (decision-163). Отдельный ключ, а не `profiles`: прежние сборки ProjectHub не знают
+   * поля `engine` и отдали бы такой каталог в `CLAUDE_CONFIG_DIR`. Пустой список в файл не пишется.
+   */
+  engineProfiles?: ClaudeAccountProfile[];
   /** Аккаунт роли на этой машине: slug роли → id профиля (decision-87 п. 6). */
   roleAccounts: Record<string, string>;
 }
@@ -67,6 +101,13 @@ export function managedClaudeConfigDir(homeDir: string, id: string): string {
   return path.join(homeDir, '.projecthub', 'claude_accounts', id);
 }
 
+const MANAGED_DIR_NAME: Record<OtherCliAccountEngine, string> = { 'codex-cli': 'codex_accounts', 'gemini-cli': 'gemini_accounts' };
+
+/** Каталог своего профиля ProjectHub для движка. */
+export function managedCliAccountDir(homeDir: string, engine: CliAccountEngine, id: string): string {
+  return engine === 'claude-cli' ? managedClaudeConfigDir(homeDir, id) : path.join(homeDir, '.projecthub', MANAGED_DIR_NAME[engine], id);
+}
+
 export function isValidClaudeAccountId(id: unknown): id is string {
   return typeof id === 'string' && ACCOUNT_ID.test(id) && id !== DEFAULT_CLAUDE_ACCOUNT_ID;
 }
@@ -98,23 +139,36 @@ export function normalizeClaudeAccountsSettings(raw: unknown): ClaudeAccountsSet
   if (defaultName) result.defaultName = defaultName;
 
   const seen = new Set<string>();
-  for (const item of Array.isArray(input.profiles) ? input.profiles : []) {
-    if (!item || typeof item !== 'object') continue;
+  const parseProfile = (item: unknown, engine: OtherCliAccountEngine | null): ClaudeAccountProfile | null => {
+    if (!item || typeof item !== 'object') return null;
     const entry = item as Record<string, unknown>;
     const id = entry.id;
     const name = cleanName(entry.name);
     const configDir = typeof entry.configDir === 'string' ? entry.configDir.trim() : '';
     const kind: ClaudeAccountKind | null = entry.kind === 'managed' || entry.kind === 'external' ? entry.kind : null;
-    if (!isValidClaudeAccountId(id) || seen.has(id) || !name || !kind || !configDir || !path.isAbsolute(configDir)) continue;
+    if (!isValidClaudeAccountId(id) || seen.has(id) || !name || !kind || !configDir || !path.isAbsolute(configDir)) return null;
     seen.add(id);
-    result.profiles.push({
+    return {
       id,
       name,
       kind,
       configDir: path.normalize(configDir),
+      ...(engine ? { engine } : {}),
       ...(typeof entry.createdAt === 'string' && entry.createdAt ? { createdAt: entry.createdAt } : {})
-    });
+    };
+  };
+  for (const item of Array.isArray(input.profiles) ? input.profiles : []) {
+    const profile = parseProfile(item, null);
+    if (profile) result.profiles.push(profile);
   }
+  const engineProfiles: ClaudeAccountProfile[] = [];
+  for (const item of Array.isArray(input.engineProfiles) ? input.engineProfiles : []) {
+    const engine = item && typeof item === 'object' ? (item as Record<string, unknown>).engine : undefined;
+    if (!isOtherCliAccountEngine(engine)) continue;
+    const profile = parseProfile(item, engine);
+    if (profile) engineProfiles.push(profile);
+  }
+  if (engineProfiles.length) result.engineProfiles = engineProfiles;
 
   if (input.roleAccounts && typeof input.roleAccounts === 'object' && !Array.isArray(input.roleAccounts)) {
     for (const [slug, id] of Object.entries(input.roleAccounts as Record<string, unknown>)) {
@@ -137,6 +191,21 @@ export function listClaudeAccounts(settings: ClaudeAccountsSettings, homeDir: st
     },
     ...settings.profiles
   ];
+}
+
+/** Профили Codex CLI или Gemini CLI в порядке добавления. Профиля по умолчанию у них нет. */
+export function listEngineAccounts(settings: ClaudeAccountsSettings, engine: OtherCliAccountEngine): ClaudeAccountProfile[] {
+  return (settings.engineProfiles ?? []).filter((p) => p.engine === engine);
+}
+
+/** Все профили всех движков: Claude Code (с профилем по умолчанию), затем остальные. */
+export function listAllAccounts(settings: ClaudeAccountsSettings, homeDir: string): ClaudeAccountProfile[] {
+  return [...listClaudeAccounts(settings, homeDir), ...(settings.engineProfiles ?? [])];
+}
+
+/** Профили того же движка — для проверки имени. */
+function sameEngineAccounts(settings: ClaudeAccountsSettings, engine: CliAccountEngine, homeDir: string): ClaudeAccountProfile[] {
+  return engine === 'claude-cli' ? listClaudeAccounts(settings, homeDir) : listEngineAccounts(settings, engine);
 }
 
 function cleanId(id: string | null | undefined): string | undefined {
@@ -177,6 +246,46 @@ export function claudeAccountEnv(account: Pick<ClaudeAccountProfile, 'configDir'
   return { CLAUDE_CONFIG_DIR: account.configDir };
 }
 
+export interface EngineAccountResolution {
+  /** Нет — привязок нет: CLI работает со своим обычным каталогом, окружение не меняется. */
+  account?: ClaudeAccountProfile;
+  source: ClaudeAccountSource;
+  missing: ClaudeAccountResolution['missing'];
+}
+
+/**
+ * Аккаунт запуска Codex CLI или Gemini CLI: слот → роль → проект, как у Claude Code (decision-163). Профиль другого
+ * движка на уровне пропускается молча — например, слот сменил движок, а поле аккаунта осталось; удалённый профиль
+ * попадает в `missing`. Ничего не нашлось — профиля нет, а не профиль по умолчанию.
+ */
+export function resolveEngineAccount(input: {
+  engine: OtherCliAccountEngine;
+  accounts: ClaudeAccountProfile[];
+  slotAccountId?: string | null;
+  roleAccountId?: string | null;
+  projectAccountId?: string | null;
+}): EngineAccountResolution {
+  const byId = new Map(input.accounts.map((account) => [account.id, account]));
+  const missing: EngineAccountResolution['missing'] = [];
+  const levels: Array<[Exclude<ClaudeAccountSource, 'default'>, string | undefined]> = [
+    ['slot', cleanId(input.slotAccountId)],
+    ['role', cleanId(input.roleAccountId)],
+    ['project', cleanId(input.projectAccountId)]
+  ];
+  for (const [source, id] of levels) {
+    if (!id) continue;
+    const account = byId.get(id);
+    if (!account) missing.push({ source, id });
+    else if (account.engine === input.engine) return { account, source, missing };
+  }
+  return { source: 'default', missing };
+}
+
+/** Окружение запуска CLI движка под аккаунтом: одна переменная каталога. */
+export function cliAccountEnv(engine: CliAccountEngine, account: Pick<ClaudeAccountProfile, 'configDir'>): Record<string, string> {
+  return { [CLI_ACCOUNT_ENV_VAR[engine]]: account.configDir };
+}
+
 /** Новый id профиля: короткий, пригоден как имя каталога, не совпадает с занятыми. */
 export function newClaudeAccountId(existingIds: Iterable<string>, now = Date.now(), random = Math.random): string {
   const taken = new Set(existingIds);
@@ -203,6 +312,15 @@ export interface AddClaudeAccountInput {
   kind: ClaudeAccountKind;
   /** Для `external` — подключаемый каталог; для `managed` вычисляется из `homeDir`. */
   configDir?: string;
+  /** Движок профиля; нет — Claude Code (decision-163). */
+  engine?: CliAccountEngine;
+}
+
+/** Без пустого списка: файл прежнего вида остаётся прежним. */
+function withEngineProfiles(settings: ClaudeAccountsSettings, engineProfiles: ClaudeAccountProfile[]): ClaudeAccountsSettings {
+  const rest: ClaudeAccountsSettings = { ...settings };
+  delete rest.engineProfiles;
+  return engineProfiles.length ? { ...rest, engineProfiles } : rest;
 }
 
 /** Добавление профиля: возвращает новые настройки и профиль либо бросает с понятной причиной. */
@@ -211,9 +329,11 @@ export function addClaudeAccount(
   input: AddClaudeAccountInput,
   ctx: { homeDir: string; platform: NodeJS.Platform; now?: Date; id?: string }
 ): { settings: ClaudeAccountsSettings; account: ClaudeAccountProfile } {
-  const accounts = listClaudeAccounts(settings, ctx.homeDir);
-  const nameError = validateClaudeAccountName(input.name, accounts);
+  const engine = input.engine ?? 'claude-cli';
+  // Имена уникальны внутри движка, id и каталоги — среди всех профилей.
+  const nameError = validateClaudeAccountName(input.name, sameEngineAccounts(settings, engine, ctx.homeDir));
   if (nameError) throw new Error(nameError);
+  const accounts = listAllAccounts(settings, ctx.homeDir);
 
   const id = ctx.id ?? newClaudeAccountId(accounts.map((a) => a.id));
   if (!isValidClaudeAccountId(id) || accounts.some((a) => a.id === id)) throw new Error(`Некорректный id профиля: ${id}`);
@@ -221,10 +341,10 @@ export function addClaudeAccount(
   let configDir: string;
   if (input.kind === 'external') {
     const dir = input.configDir?.trim();
-    if (!dir || !path.isAbsolute(dir)) throw new Error('Укажите абсолютный путь к каталогу конфигурации Claude Code.');
+    if (!dir || !path.isAbsolute(dir)) throw new Error('Укажите абсолютный путь к каталогу конфигурации CLI.');
     configDir = path.normalize(dir);
   } else {
-    configDir = managedClaudeConfigDir(ctx.homeDir, id);
+    configDir = managedCliAccountDir(ctx.homeDir, engine, id);
   }
   const duplicate = accounts.find((a) => sameDir(a.configDir, configDir, ctx.platform));
   if (duplicate) throw new Error(`Этот каталог уже подключён как профиль «${duplicate.name}».`);
@@ -234,9 +354,11 @@ export function addClaudeAccount(
     name: cleanName(input.name) as string,
     kind: input.kind,
     configDir,
+    ...(engine !== 'claude-cli' ? { engine } : {}),
     createdAt: (ctx.now ?? new Date()).toISOString()
   };
-  return { settings: { ...settings, profiles: [...settings.profiles, account] }, account };
+  if (engine === 'claude-cli') return { settings: { ...settings, profiles: [...settings.profiles, account] }, account };
+  return { settings: withEngineProfiles(settings, [...(settings.engineProfiles ?? []), account]), account };
 }
 
 export function renameClaudeAccount(
@@ -245,25 +367,28 @@ export function renameClaudeAccount(
   name: string,
   homeDir: string
 ): ClaudeAccountsSettings {
-  const accounts = listClaudeAccounts(settings, homeDir);
-  if (!accounts.some((a) => a.id === id)) throw new Error('Профиль не найден.');
-  const nameError = validateClaudeAccountName(name, accounts, id);
+  const target = listAllAccounts(settings, homeDir).find((a) => a.id === id);
+  if (!target) throw new Error('Профиль не найден.');
+  const nameError = validateClaudeAccountName(name, sameEngineAccounts(settings, accountEngine(target), homeDir), id);
   if (nameError) throw new Error(nameError);
   const clean = cleanName(name) as string;
   if (id === DEFAULT_CLAUDE_ACCOUNT_ID) return { ...settings, defaultName: clean };
-  return { ...settings, profiles: settings.profiles.map((p) => (p.id === id ? { ...p, name: clean } : p)) };
+  const rename = (p: ClaudeAccountProfile) => (p.id === id ? { ...p, name: clean } : p);
+  if (target.engine) return withEngineProfiles(settings, (settings.engineProfiles ?? []).map(rename));
+  return { ...settings, profiles: settings.profiles.map(rename) };
 }
 
-/** Удаление профиля вместе с привязками ролей к нему. Профиль по умолчанию не удаляется. */
+/** Удаление профиля любого движка вместе с привязками ролей к нему. Профиль по умолчанию не удаляется. */
 export function removeClaudeAccount(
   settings: ClaudeAccountsSettings,
   id: string
 ): { settings: ClaudeAccountsSettings; removed: ClaudeAccountProfile } {
   if (id === DEFAULT_CLAUDE_ACCOUNT_ID) throw new Error('Профиль по умолчанию удалить нельзя.');
-  const removed = settings.profiles.find((p) => p.id === id);
+  const removed = [...settings.profiles, ...(settings.engineProfiles ?? [])].find((p) => p.id === id);
   if (!removed) throw new Error('Профиль не найден.');
   const roleAccounts = Object.fromEntries(Object.entries(settings.roleAccounts).filter(([, accountId]) => accountId !== id));
-  return { settings: { ...settings, profiles: settings.profiles.filter((p) => p.id !== id), roleAccounts }, removed };
+  const next = withEngineProfiles(settings, (settings.engineProfiles ?? []).filter((p) => p.id !== id));
+  return { settings: { ...next, profiles: settings.profiles.filter((p) => p.id !== id), roleAccounts }, removed };
 }
 
 /** Привязка роли к профилю на машине; `null` или профиль по умолчанию без явного выбора — снять. */
@@ -279,7 +404,7 @@ export function setRoleClaudeAccount(
   if (!accountId) {
     delete roleAccounts[slug];
   } else {
-    if (!listClaudeAccounts(settings, homeDir).some((a) => a.id === accountId)) throw new Error('Профиль не найден.');
+    if (!listAllAccounts(settings, homeDir).some((a) => a.id === accountId)) throw new Error('Профиль не найден.');
     roleAccounts[slug] = accountId;
   }
   return { ...settings, roleAccounts };
@@ -297,6 +422,8 @@ export interface ClaudeAccountAuthStatus {
   configDirectory?: string;
   /** Статус не получен (CLI не запустился, не ответил, ответ не JSON). */
   error?: string;
+  /** CLI не умеет сообщать статус входа без запуска сессии (Gemini CLI): вход проверяется в терминале. */
+  unsupported?: boolean;
   checkedAt: number;
 }
 
@@ -334,6 +461,20 @@ export function parseClaudeAuthStatus(stdout: string, code: number | null, check
     error: firstLine ? firstLine.slice(0, 200) : `claude auth status: код выхода ${code ?? 'нет'}`,
     checkedAt
   };
+}
+
+/**
+ * Разбор `codex login status` (decision-163): «Logged in using ChatGPT», «Logged in using an API key - sk-…»,
+ * «Not logged in». Хвост с маской ключа не сохраняется. Синтаксис по документации Codex CLI, вживую не проверен —
+ * Codex у владельца не оплачен; незнакомый ответ становится ошибкой статуса, а не входом.
+ */
+export function parseCodexLoginStatus(output: string, code: number | null, checkedAt = Date.now()): ClaudeAccountAuthStatus {
+  const text = output.trim();
+  const loggedIn = /logged in using\s+(chatgpt|an api key|api key)/i.exec(text);
+  if (loggedIn) return { loggedIn: true, authMethod: /chatgpt/i.test(loggedIn[1]) ? 'chatgpt' : 'api-key', checkedAt };
+  if (/not logged in/i.test(text)) return { loggedIn: false, checkedAt };
+  const firstLine = text.split(/\r?\n/).find((line) => line.trim())?.trim();
+  return { loggedIn: false, error: firstLine ? firstLine.slice(0, 200) : `codex login status: код выхода ${code ?? 'нет'}`, checkedAt };
 }
 
 /**

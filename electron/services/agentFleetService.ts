@@ -9,7 +9,7 @@ import { worktreeService } from './worktreeService.js';
 import { aiAgentService, type AIProviderConfig, type AIMessage, type StreamToolBoundary } from './aiAgentService.js';
 import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService } from './claudeAccountService.js';
-import { CLAUDE_ACCOUNT_SOURCE_LABEL } from './claudeAccounts.js';
+import { CLAUDE_ACCOUNT_SOURCE_LABEL, cliAccountEnv, type OtherCliAccountEngine } from './claudeAccounts.js';
 import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_MCP_TOOL_TIMEOUT_MS } from './claudeBridgeService.js';
 import { studioLiveRuns } from './studioLiveRuns.js';
 import { hitlService } from './hitlService.js';
@@ -3167,6 +3167,30 @@ export class AgentFleetService extends EventEmitter {
   }
 
   /**
+   * Аккаунт слота Codex CLI или Gemini CLI (TASK-152.6, decision-163): слот → роль → проект, как у Claude Code.
+   * Без привязок окружение не меняется — CLI берёт свой обычный каталог, как до профилей.
+   */
+  private async engineAccountEnv(session: SwarmSession, agentState: AgentSlotState, engine: OtherCliAccountEngine): Promise<Record<string, string>> {
+    const resolution = await claudeAccountService.resolveEngine(engine, {
+      projectPath: session.projectPath,
+      slotAccountId: agentState.config.claudeAccountId,
+      roleSlug: agentState.config.roleSlug
+    });
+    const label = engine === 'codex-cli' ? 'Codex CLI' : 'Gemini CLI';
+    for (const miss of resolution.missing) {
+      this.log(session, agentState, `[Swarm] ⚠️ Профиль аккаунта «${miss.id}» (${CLAUDE_ACCOUNT_SOURCE_LABEL[miss.source]}) удалён — ${label} без профиля.`);
+    }
+    if (!resolution.account) {
+      delete agentState.claudeAccount;
+      return {};
+    }
+    const { account, source } = resolution;
+    agentState.claudeAccount = { id: account.id, name: account.name, source };
+    this.log(session, agentState, `[Swarm] Аккаунт ${label}: «${account.name}» (${CLAUDE_ACCOUNT_SOURCE_LABEL[source]})`);
+    return cliAccountEnv(engine, account);
+  }
+
+  /**
    * Codex CLI: `codex exec` в неинтерактивном режиме (AC #3). Промпт роли — преамбулой перед
    * промптом пользователя, через stdin (не argv — на Windows длинные/спецсимвольные аргументы
    * ломаются экранированием shell). Флаги взяты из публичной документации Codex CLI
@@ -3182,6 +3206,7 @@ export class AgentFleetService extends EventEmitter {
   ): Promise<void> {
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'codex.cmd' : 'codex';
+    const accountEnv = await this.engineAccountEnv(session, agentState, 'codex-cli');
     const effective = await this.resolveEffectivePermissions(agentState);
     const invocation = buildEngineInvocation({
       engine: 'codex-cli',
@@ -3203,7 +3228,7 @@ export class AgentFleetService extends EventEmitter {
           cwd: targetPath,
           shell: true,
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, FORCE_COLOR: '0', ...this.memberGitEnv(session) }
+          env: { ...process.env, FORCE_COLOR: '0', ...accountEnv, ...this.memberGitEnv(session) }
         });
       } catch {
         return this.runCliApiFallback(session, agentState, targetPath, prompt, role, 'Codex CLI не запустился (бинарник не найден)')
@@ -3323,6 +3348,7 @@ export class AgentFleetService extends EventEmitter {
   ): Promise<void> {
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'gemini.cmd' : 'gemini';
+    const accountEnv = await this.engineAccountEnv(session, agentState, 'gemini-cli');
     const effective = await this.resolveEffectivePermissions(agentState);
     const invocation = buildEngineInvocation({
       engine: 'gemini-cli',
@@ -3344,7 +3370,7 @@ export class AgentFleetService extends EventEmitter {
           cwd: targetPath,
           shell: true,
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, FORCE_COLOR: '0', ...this.memberGitEnv(session) }
+          env: { ...process.env, FORCE_COLOR: '0', ...accountEnv, ...this.memberGitEnv(session) }
         });
       } catch {
         return this.runCliApiFallback(session, agentState, targetPath, prompt, role, 'Gemini CLI не запустился (бинарник не найден)')
