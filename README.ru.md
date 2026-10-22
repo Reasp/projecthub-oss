@@ -193,6 +193,27 @@ npm run site:export   # обновить продуктовый контекст
 
 ---
 
+## Сборка открытой редакции из публичного зеркала
+
+Публичный репозиторий `projecthub-oss` содержит только то, что нужно для сборки бесплатной (открытой) редакции: исходники, конфиги сборки, упаковываемые ресурсы и этот README. Тестов, внутренней документации и платных модулей там нет, поэтому сборные скрипты источника `npm run pack:win` / `pack:mac` для него не подходят. Используйте прямые команды:
+
+```bash
+git clone https://github.com/Reasp/projecthub-oss.git
+cd projecthub-oss
+npm install                                  # нужны Node.js 22 и Git
+node scripts/build-info.mjs                  # отметка сборки для вкладки «Диагностика»
+npm run build:open                           # десктоп и ph-agent без ee/, проверка бандлов
+npm run build:mobile                         # по желанию: веб-клиент для телефона, его раздаёт десктоп
+npx electron-builder --win portable          # Windows: release/*.exe
+npx electron-builder --mac dmg               # macOS (без подписи)
+npx electron-builder --linux AppImage        # Linux
+npx electron-builder --win --dir             # быстрая распакованная сборка: release/win-unpacked/
+```
+
+Зеркало пересобирается из приватного источника при каждом выпуске; pull request'ы принимаются в нём и переносятся в источник (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+---
+
 ## CI/CD и релизы
 
 CI (`.github/workflows/ci.yml`) гоняет полный локальный гейт (`npm run build`: validate-docs,

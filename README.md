@@ -193,6 +193,27 @@ of this one (decision-158).
 
 ---
 
+## Building the open edition from the public mirror
+
+The public repository `projecthub-oss` contains only what is needed to build the free (open) edition: sources, build configs, bundled resources and this README. There are no tests, no internal documentation and no paid modules there, so the all-in-one `npm run pack:win` / `pack:mac` scripts of the source repository are not the way to build it. Use the direct commands:
+
+```bash
+git clone https://github.com/Reasp/projecthub-oss.git
+cd projecthub-oss
+npm install                                  # Node.js 22 and Git required
+node scripts/build-info.mjs                  # build stamp shown in Diagnostics
+npm run build:open                           # desktop app and ph-agent without ee/, bundle check
+npm run build:mobile                         # optional: web client for phones, served by the desktop app
+npx electron-builder --win portable          # Windows: release/*.exe
+npx electron-builder --mac dmg               # macOS (unsigned)
+npx electron-builder --linux AppImage        # Linux
+npx electron-builder --win --dir             # quick unpacked build: release/win-unpacked/
+```
+
+The mirror is regenerated from the private source on every release; pull requests are accepted there and transferred into the source (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+---
+
 ## CI/CD and releases
 
 CI (`.github/workflows/ci.yml`) runs the full local gate (`npm run build`: validate-docs,
