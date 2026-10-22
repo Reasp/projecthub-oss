@@ -610,6 +610,8 @@ export interface TranslationDictionary {
     inProgress: string;
     review: string;
     done: string;
+    inProgressHuman: string;
+    reviewHuman: string;
     newTask: string;
     searchTasks: string;
     allLabels: string;

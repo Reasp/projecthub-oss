@@ -128,7 +128,14 @@ export const en = {
   inboxEmpty: 'The inbox is empty.',
   opening: (screen: string) => `Opening ${screen}.`,
   screens: { inbox: 'Inbox', tasks: 'Tasks', docs: 'Docs', processes: 'Processes', studio: 'Studio', computers: 'Computers' } as Record<string, string>,
-  statuses: { 'To Do': 'To Do', 'In Progress': 'In Progress', Review: 'Review', Done: 'Done' } as Record<string, string>
+  statuses: {
+    'To Do': 'To Do',
+    'In Progress': 'In Progress',
+    'InProgress(Human)': 'waiting for a human',
+    Review: 'Review',
+    'Review(Human)': 'human review',
+    Done: 'Done'
+  } as Record<string, string>
 };
 
 export const ru: typeof en = {
@@ -248,5 +255,12 @@ export const ru: typeof en = {
   inboxEmpty: 'Во «Входящих» пусто.',
   opening: (screen) => `Открываю: ${screen}.`,
   screens: { inbox: 'Входящие', tasks: 'Задачи', docs: 'Документы', processes: 'Процессы', studio: 'Studio', computers: 'Компьютеры' },
-  statuses: { 'To Do': 'к выполнению', 'In Progress': 'в работе', Review: 'на ревью', Done: 'готово' }
+  statuses: {
+    'To Do': 'к выполнению',
+    'In Progress': 'в работе',
+    'InProgress(Human)': 'ждёт человека',
+    Review: 'на ревью',
+    'Review(Human)': 'на проверке у человека',
+    Done: 'готово'
+  }
 };

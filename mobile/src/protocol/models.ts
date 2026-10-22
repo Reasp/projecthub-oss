@@ -70,6 +70,18 @@ export function rightsLabel(rights: DeviceRights | null | undefined, hostReadOnl
 /** Колонки Backlog.md в порядке процесса (правило 5 infra-dev). */
 export const KANBAN_STATUSES = ['To Do', 'In Progress', 'Review', 'Done'] as const;
 
+/** Порядок колонок: Human-статусы (decision-162) встают за своей стадией, а не в конец. */
+const COLUMN_ORDER = ['To Do', 'In Progress', 'InProgress(Human)', 'Review', 'Review(Human)', 'Done'];
+
+/** Колонки по порядку движения задачи; свои статусы — после стандартных, в порядке появления. */
+export function orderColumns<T extends { status: string }>(columns: T[]): T[] {
+  const rank = (s: string) => {
+    const i = COLUMN_ORDER.indexOf(s);
+    return i < 0 ? COLUMN_ORDER.length : i;
+  };
+  return columns.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c.status) - rank(b.c.status) || a.i - b.i).map((x) => x.c);
+}
+
 export interface KanbanColumn {
   status: string;
   tasks: RemoteTaskSummary[];
@@ -108,7 +120,7 @@ export function groupTasksByStatus(tasks: RemoteTaskSummary[]): KanbanColumn[] {
     if (!columns.has(status)) columns.set(status, []);
     columns.get(status)!.push(task);
   }
-  return [...columns.entries()].map(([status, list]) => ({ status, tasks: [...list].sort(compareTasks) }));
+  return orderColumns([...columns.entries()].map(([status, list]) => ({ status, tasks: [...list].sort(compareTasks) })));
 }
 
 export function criteriaProgress(task: RemoteTaskSummary): { done: number; total: number } {

@@ -712,6 +712,8 @@ export const ru: TranslationDictionary = {
     inProgress: 'В работе (In Progress)',
     review: 'На проверке (Review)',
     done: 'Завершено (Done)',
+    inProgressHuman: 'Ждёт человека (InProgress(Human))',
+    reviewHuman: 'Проверка человеком (Review(Human))',
     newTask: 'Новая задача',
     searchTasks: 'Поиск задач...',
     allLabels: 'Все метки',

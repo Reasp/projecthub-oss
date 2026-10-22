@@ -18,6 +18,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { CreateMilestoneModal } from './CreateMilestoneModal';
 import type { Milestone } from '../../types/electron';
+import { taskStage } from '../../utils/taskStatus';
 
 export const MilestonesRoadmapView: React.FC = () => {
   const { t } = useTranslation();
@@ -150,10 +151,10 @@ export const MilestonesRoadmapView: React.FC = () => {
               );
 
               const totalCount = mTasks.length;
-              const doneCount = mTasks.filter((taskItem) => taskItem.status === 'Done').length;
-              const inProgressCount = mTasks.filter((taskItem) => taskItem.status === 'In Progress').length;
-              const reviewCount = mTasks.filter((taskItem) => taskItem.status === 'Review').length;
-              const todoCount = mTasks.filter((taskItem) => taskItem.status === 'To Do').length;
+              const doneCount = mTasks.filter((taskItem) => taskStage(taskItem.status) === 'done').length;
+              const inProgressCount = mTasks.filter((taskItem) => taskStage(taskItem.status) === 'inProgress').length;
+              const reviewCount = mTasks.filter((taskItem) => taskStage(taskItem.status) === 'review').length;
+              const todoCount = mTasks.filter((taskItem) => taskStage(taskItem.status) === 'todo').length;
 
               const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
               const isExpanded = expandedMilestoneId === m.id;
@@ -314,11 +315,11 @@ export const MilestonesRoadmapView: React.FC = () => {
 
                             <span
                               className={`text-[11px] px-2 py-0.5 rounded font-semibold ${
-                                task.status === 'Done'
+                                taskStage(task.status) === 'done'
                                   ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                  : task.status === 'In Progress'
+                                  : taskStage(task.status) === 'inProgress'
                                   ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                                  : task.status === 'Review'
+                                  : taskStage(task.status) === 'review'
                                   ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                                   : 'bg-slate-800 text-slate-400 border border-slate-700'
                               }`}

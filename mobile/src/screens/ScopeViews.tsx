@@ -20,7 +20,10 @@ import { DOT, SessionRow } from './ComputersScreen';
 const STATUS_TONE: Record<string, 'neutral' | 'accent' | 'review' | 'success'> = {
   'To Do': 'neutral',
   'In Progress': 'accent',
+  // Ждут человека (decision-162): цвет своей стадии.
+  'InProgress(Human)': 'accent',
   Review: 'review',
+  'Review(Human)': 'review',
   Done: 'success'
 };
 

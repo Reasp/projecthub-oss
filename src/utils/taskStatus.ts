@@ -80,6 +80,42 @@ export function resolveDoneStatus(statuses: readonly string[]): string | undefin
   return matchStatus(statuses, 'Done') || statuses[statuses.length - 1];
 }
 
+/**
+ * Статусы передачи человеку (decision-162), как в шаблоне проекта: работа ждёт действия, которое может сделать только
+ * человек (`InProgress(Human)`), или проверки, которую нельзя автоматизировать (`Review(Human)`).
+ */
+export const HUMAN_IN_PROGRESS_STATUS = 'InProgress(Human)';
+export const HUMAN_REVIEW_STATUS = 'Review(Human)';
+
+/** Ключ без пробелов: `InProgress(Human)` и `In Progress (Human)` — один статус. */
+const compactKey = (status: string | null | undefined) => normalizeStatusKey(status).replace(/\s+/g, '');
+
+/** Стадия задачи для счётчиков и цвета: Human-статусы — те же «в работе» и «на проверке», только у человека. */
+export type TaskStage = 'todo' | 'inProgress' | 'review' | 'done' | 'other';
+
+export function taskStage(status: string | null | undefined): TaskStage {
+  switch (compactKey(status ?? DEFAULT_TASK_STATUS)) {
+    case 'todo':
+      return 'todo';
+    case 'inprogress':
+    case 'inprogress(human)':
+      return 'inProgress';
+    case 'review':
+    case 'review(human)':
+      return 'review';
+    case 'done':
+      return 'done';
+    default:
+      return 'other';
+  }
+}
+
+/** Задача ждёт человека: `InProgress(Human)` или `Review(Human)`. */
+export function isHumanStatus(status: string | null | undefined): boolean {
+  const key = compactKey(status);
+  return key === 'inprogress(human)' || key === 'review(human)';
+}
+
 export interface StatusCounts {
   total: number;
   /** Счётчики по статусам конфига; ключ — статус в написании конфига. */
@@ -180,6 +216,24 @@ const KNOWN_STATUS_VISUALS: Record<string, StatusVisual> = {
     chartDot: 'bg-purple-400',
     chartBar: 'bg-purple-500'
   },
+  'inprogress(human)': {
+    dot: 'bg-orange-400',
+    text: 'text-orange-400',
+    border: 'border-orange-500/40',
+    badge: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    chartText: 'text-orange-400',
+    chartDot: 'bg-orange-400',
+    chartBar: 'bg-orange-500'
+  },
+  'review(human)': {
+    dot: 'bg-fuchsia-400',
+    text: 'text-fuchsia-400',
+    border: 'border-fuchsia-500/40',
+    badge: 'bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30',
+    chartText: 'text-fuchsia-400',
+    chartDot: 'bg-fuchsia-400',
+    chartBar: 'bg-fuchsia-500'
+  },
   done: {
     dot: 'bg-emerald-400',
     text: 'text-emerald-400',
@@ -274,7 +328,7 @@ function hashStatus(key: string): number {
 /** Классы оформления статуса: стандартные — историческими цветами, кастомные — по хэшу имени. */
 export function statusVisual(status: string): StatusVisual {
   const key = normalizeStatusKey(status);
-  const known = KNOWN_STATUS_VISUALS[key];
+  const known = KNOWN_STATUS_VISUALS[key] ?? (isHumanStatus(status) ? KNOWN_STATUS_VISUALS[compactKey(status)] : undefined);
   if (known) return known;
   return CUSTOM_STATUS_VISUALS[hashStatus(key) % CUSTOM_STATUS_VISUALS.length];
 }
@@ -284,6 +338,9 @@ export interface StatusLabels {
   inProgress: string;
   review: string;
   done: string;
+  /** Human-статусы (decision-162); без подписи — как в конфиге. */
+  inProgressHuman?: string;
+  reviewHuman?: string;
 }
 
 /**
@@ -301,6 +358,8 @@ export function statusLabel(status: string, labels: StatusLabels): string {
     case 'done':
       return labels.done;
     default:
+      if (compactKey(status) === 'inprogress(human)') return labels.inProgressHuman ?? status;
+      if (compactKey(status) === 'review(human)') return labels.reviewHuman ?? status;
       return status;
   }
 }
@@ -317,6 +376,8 @@ export function statusGlyph(status: string): string {
     case 'done':
       return '●';
     default:
+      if (compactKey(status) === 'inprogress(human)') return '◑';
+      if (compactKey(status) === 'review(human)') return '◇';
       return '•';
   }
 }

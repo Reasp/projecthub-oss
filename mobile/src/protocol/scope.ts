@@ -1,5 +1,5 @@
 import type { RemoteTaskSummary } from '../../../src/types/remote';
-import { KANBAN_STATUSES } from './models';
+import { KANBAN_STATUSES, orderColumns } from './models';
 import type { PhoneFleetHost } from './fleet';
 import type { RpcMethod } from './remoteClient';
 
@@ -163,7 +163,7 @@ export function groupScopedTasks(tasks: readonly ScopedTask[]): ScopedColumn[] {
     columns.get(status)!.push(t);
   }
   const rank = (t: ScopedTask) => PRIORITY[String(t.task.priority ?? '').toLowerCase()] ?? 1;
-  return [...columns.entries()].map(([status, list]) => ({
+  return orderColumns([...columns.entries()].map(([status, list]) => ({
     status,
     tasks: [...list].sort(
       (a, b) =>
@@ -172,5 +172,5 @@ export function groupScopedTasks(tasks: readonly ScopedTask[]): ScopedColumn[] {
         a.ref.projectName.localeCompare(b.ref.projectName) ||
         a.task.id.localeCompare(b.task.id, undefined, { numeric: true })
     )
-  }));
+  })));
 }

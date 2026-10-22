@@ -711,6 +711,8 @@ export const en: TranslationDictionary = {
     inProgress: 'In Progress',
     review: 'Review',
     done: 'Done',
+    inProgressHuman: 'Waiting for a human',
+    reviewHuman: 'Human review',
     newTask: 'New Task',
     searchTasks: 'Search tasks...',
     allLabels: 'All Labels',

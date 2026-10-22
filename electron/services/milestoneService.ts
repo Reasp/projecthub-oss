@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import matter from 'gray-matter';
 import type { Milestone, CreateMilestoneParams } from '../../src/types/electron';
 import { allocateBacklogId } from './backlogIdAllocator';
+import { taskStage } from '../../src/utils/taskStatus';
 
 function fmString(value: unknown): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
@@ -43,9 +44,11 @@ export async function listMilestones(projectPath: string): Promise<Milestone[]> 
             const key = String(milestoneKey).trim().toLowerCase();
             const current = taskMap.get(key) || { total: 0, done: 0, inProgress: 0, review: 0, todo: 0 };
             current.total++;
-            if (status === 'Done') current.done++;
-            else if (status === 'In Progress') current.inProgress++;
-            else if (status === 'Review') current.review++;
+            // Human-статусы (decision-162) — те же «в работе» и «на проверке».
+            const stage = taskStage(String(status));
+            if (stage === 'done') current.done++;
+            else if (stage === 'inProgress') current.inProgress++;
+            else if (stage === 'review') current.review++;
             else current.todo++;
             taskMap.set(key, current);
           }
