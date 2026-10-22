@@ -341,7 +341,7 @@ export function registerAiIpc(ctx: IpcContext) {
       const message = info?.message || err?.message || String(err);
       studioLiveRuns.finish(req.sessionId);
       console.error(`[Main] ai:streamChat failed for session ${req.sessionId}: ${message}`);
-      claudeBridgeService.setProjectStatus(req.projectPath, 'error', message);
+      claudeBridgeService.setProjectStatus(req.projectPath, 'error', { code: 'failed', detail: message });
       send(`ai:error:${req.sessionId}`, message, info);
       studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message);
     }

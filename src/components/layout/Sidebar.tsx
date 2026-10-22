@@ -7,6 +7,7 @@ import {
   FolderPlus,
   GitBranch,
   CheckCircle2,
+  AlertCircle,
   Clock,
   Sparkles,
   Star,
@@ -29,6 +30,7 @@ import { useSwarmStore } from '../../store/useSwarmStore';
 import { useHitlStore } from '../../store/useHitlStore';
 import { useFederationStore } from '../../store/useFederationStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { describeAgentStatus } from '../../lib/agentStatusText';
 import { useDialog } from '../../hooks/useDialog';
 import { useVoiceState } from '../../hooks/useVoiceState';
 import { ScanSettingsModal } from '../projects/ScanSettingsModal';
@@ -466,13 +468,22 @@ export const Sidebar: React.FC = () => {
                 {agentStatus?.status === 'running' && (
                   <div className="flex items-center gap-1.5 pl-[42px] mt-1 text-[11px] text-slate-400 min-w-0">
                     <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
-                    <span className="truncate">{agentStatus.lastMessage || t.sidebar.agentWorking}</span>
+                    <span className="truncate">{describeAgentStatus(agentStatus, t.hitl.statusMessages, t.hitl.requestText) || t.sidebar.agentWorking}</span>
                   </div>
                 )}
                 {agentStatus?.status === 'done' && (
                   <div className="flex items-center gap-1.5 pl-[42px] mt-1 text-[11px] text-emerald-400">
                     <CheckCircle2 className="w-3 h-3 shrink-0" />
-                    <span className="truncate">{t.sidebar.claudeFinishedTask}</span>
+                    <span className="truncate">{t.sidebar.agentFinishedTask}</span>
+                  </div>
+                )}
+                {agentStatus?.status === 'error' && (
+                  <div
+                    className="flex items-center gap-1.5 pl-[42px] mt-1 text-[11px] text-red-400 min-w-0"
+                    title={describeAgentStatus(agentStatus, t.hitl.statusMessages, t.hitl.requestText) || undefined}
+                  >
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{t.sidebar.agentFailedTask}</span>
                   </div>
                 )}
               </div>

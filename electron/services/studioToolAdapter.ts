@@ -17,10 +17,21 @@ export interface StudioToolChunk {
   approvalRequest?: HitlRequest;
 }
 
+/**
+ * Статус агента кодом (TASK-204, правило 25): текст собирает интерфейс из словарей, `detail` — команда или текст
+ * ошибки. Ожидание решения отдельного кода не имеет: интерфейс берёт заголовок `pendingApproval`.
+ */
+export type AgentStatusCode = 'analyzing' | 'continuing' | 'processing' | 'executing' | 'approval_cancelled' | 'aborted' | 'completed' | 'failed';
+
+export interface AgentStatusKey {
+  code: AgentStatusCode;
+  detail?: string;
+}
+
 export interface StudioToolAdapterDeps {
   emit(chunk: StudioToolChunk): void;
   /** Статус проекта Agents Studio (`claudeBridgeService.setProjectStatus`). */
-  setStatus(status: 'running' | 'waiting_approval', message: string, pendingApproval?: HitlRequest): void;
+  setStatus(status: 'running' | 'waiting_approval', message: string | AgentStatusKey, pendingApproval?: HitlRequest): void;
   /** У сессии остались другие ожидающие карточки. */
   hasPendingApprovals(): boolean;
   /** Сессия ещё идёт: после завершения статус проекта не трогаем. */
@@ -29,7 +40,7 @@ export interface StudioToolAdapterDeps {
 
 export type StudioToolCallbacks = Required<Pick<ApiToolContext, 'onApprovalRequest' | 'onApprovalSettled' | 'onToolUpdate'>>;
 
-export const STUDIO_STATUS_PROCESSING = 'Обработка результатов...';
+export const STUDIO_STATUS_PROCESSING: AgentStatusKey = { code: 'processing' };
 
 function commandOf(call: AIToolCall): string {
   const args = call.args ?? {};
@@ -62,7 +73,7 @@ export function createStudioToolCallbacks(deps: StudioToolAdapterDeps): StudioTo
       if (update.kind !== 'command') return;
       if (update.status === 'running') {
         // Статус ставится один раз на запуск, а не на каждый кусок вывода.
-        if (update.result === undefined) deps.setStatus('running', `Выполняется: ${commandOf(call)}`);
+        if (update.result === undefined) deps.setStatus('running', { code: 'executing', detail: commandOf(call) });
       } else {
         backToRunning();
       }

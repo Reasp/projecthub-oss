@@ -83,7 +83,8 @@ export const ru: TranslationDictionary = {
     ragReadyTooltip: 'RAG Индекс готов: {count} чанков',
     requiresDecisionExclamation: 'Требует решения!',
     agentWorking: 'Агент выполняет задачу...',
-    claudeFinishedTask: 'Claude завершил задачу',
+    agentFinishedTask: 'Агент завершил задачу',
+    agentFailedTask: 'Агент остановился с ошибкой',
     inProgressTooltip: 'В работе (In Progress)',
     toDoTooltip: 'К выполнению (To Do)',
     reviewTooltip: 'На проверке (Review)',
@@ -1855,6 +1856,7 @@ export const ru: TranslationDictionary = {
     tabWaitingApproval: 'Вкладка ждёт вашего решения',
     memberSession: (member) => `Сессия участника ${member}: здесь её можно только читать, пишет в неё он со своих устройств`,
     newChat: 'Новый чат',
+    chatN: 'Чат {n}',
     newSession: 'Новая сессия',
     closeSession: 'Закрыть сессию',
     renameSession: 'Переименовать диалог',
@@ -3286,6 +3288,43 @@ export const ru: TranslationDictionary = {
     autoInstallUnsupportedMac: 'На macOS без подписи автоустановка недоступна — только ссылка на релиз'
   },
   hitl: {
+    statusMessages: {
+      analyzing: 'Агент анализирует задачу...',
+      continuing: 'Агент продолжает работу...',
+      processing: 'Обработка результатов...',
+      executing: 'Выполняется: {detail}',
+      approval_cancelled: 'Ожидание одобрения отменено',
+      aborted: 'Сессия прервана пользователем',
+      completed: 'Агент завершил задачу',
+      failed: 'Ошибка: {detail}'
+    },
+    requestText: {
+      titles: {
+        file_write: 'Запись файла',
+        file_write_excluded: '⚠️ Файл в списке исключений',
+        command: 'Запуск команды',
+        command_denied: '⚠️ Команда из списка запрещённых',
+        process: 'Фоновый процесс',
+        sync_merge: 'Подтянуть основную ветку',
+        sync_continue: 'Завершить слияние основной ветки',
+        sync_abort: 'Отменить слияние основной ветки',
+        read: 'Чтение',
+        read_outside: 'Чтение'
+      },
+      details: {
+        file_write: 'Изменение содержимого файла',
+        file_write_excluded: 'Изменение содержимого файла',
+        command: 'Выполнение команды в рабочем каталоге агента',
+        command_denied: 'Выполнение команды в рабочем каталоге агента',
+        process: 'Выполнение команды в рабочем каталоге агента',
+        sync_merge: 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются',
+        sync_continue: 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются',
+        sync_abort: 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются',
+        read: 'Разрешить агенту прочитать {target}?',
+        read_outside: 'Путь {target} вне рабочего каталога агента. Разрешить чтение?'
+      },
+      readQuestion: { title: 'Чтение файла', allow: 'Разрешить чтение', deny: 'Запретить чтение' }
+    },
     badgeTooltip: 'Центр решений: запросы агентов, ожидающие подтверждения, и история решений',
     badgePending: '{count} ожидают решения',
     title: 'Центр решений (Human-in-the-loop)',

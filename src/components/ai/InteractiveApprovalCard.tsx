@@ -18,6 +18,7 @@ import type { ApprovalRequest, QuestionOption } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { RiskBadge } from '../hitl/RiskBadge';
+import { describeHitlRequest } from '../../lib/agentStatusText';
 
 interface InteractiveApprovalCardProps {
   request: ApprovalRequest;
@@ -38,7 +39,9 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
 
   // Question mode state
   const isQuestion = request.type === 'question' && request.questionData;
-  const qData = request.questionData;
+  // Заголовок, пояснение и вопрос — на языке интерфейса по коду из main (TASK-204).
+  const text = describeHitlRequest(request, t.hitl.requestText);
+  const qData = text.questionData;
   const isMulti = Boolean(qData?.isMultiSelect);
 
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
@@ -332,12 +335,12 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
           </div>
 
           <p className="text-xs text-slate-200 font-medium">
-            {request.title}
+            {text.title}
           </p>
 
-          {request.details && (
+          {text.details && (
             <p className="text-[11px] text-slate-400">
-              {request.details}
+              {text.details}
             </p>
           )}
 

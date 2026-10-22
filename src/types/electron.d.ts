@@ -1794,11 +1794,21 @@ export interface FileTreeNode {
 
 export type AgentStatusType = 'idle' | 'running' | 'waiting_approval' | 'done' | 'error';
 
+/** Статус агента кодом (TASK-204); зеркало `electron/services/studioToolAdapter.ts`. */
+export type AgentStatusCode = 'analyzing' | 'continuing' | 'processing' | 'executing' | 'approval_cancelled' | 'aborted' | 'completed' | 'failed';
+
+export interface AgentStatusKey {
+  code: AgentStatusCode;
+  detail?: string;
+}
+
 export interface ProjectAgentStatus {
   projectPath: string;
   projectName: string;
   status: AgentStatusType;
   lastMessage?: string;
+  /** Сообщение кодом (TASK-204): текст — из словарей (`src/lib/agentStatusText.ts`). */
+  messageKey?: AgentStatusKey;
   pendingApproval?: ApprovalRequest;
   activeSubagentsCount?: number;
   updatedAt: number;
@@ -1818,6 +1828,26 @@ export interface QuestionData {
   allowOther?: boolean;
 }
 
+/** Вид карточки HITL кодом (TASK-204); зеркало `electron/services/hitlTypes.ts`. */
+export type HitlTextCode =
+  | 'file_write'
+  | 'file_write_excluded'
+  | 'command'
+  | 'command_denied'
+  | 'process'
+  | 'sync_merge'
+  | 'sync_continue'
+  | 'sync_abort'
+  | 'read'
+  | 'read_outside';
+
+export interface HitlTextKey {
+  code: HitlTextCode;
+  target?: string;
+  agent?: string;
+  ownDetails?: boolean;
+}
+
 export interface ApprovalRequest {
   id: string;
   sessionId: string;
@@ -1834,6 +1864,8 @@ export interface ApprovalRequest {
     patch: string;
   };
   questionData?: QuestionData;
+  /** Заголовок и пояснение кодом (TASK-204); без поля — `title`/`details` как есть. */
+  textKey?: HitlTextKey;
   createdAt: number;
   /** Метаданные единого HITL-контура (TASK-57). */
   origin?: HitlOrigin;
@@ -3023,6 +3055,8 @@ export interface AgentContextPreview {
 export interface AISession {
   id: string;
   title: string;
+  /** Заголовок по умолчанию: первый промпт заменит его своим началом (TASK-204). */
+  autoTitle?: boolean;
   createdAt: number;
   messages: AIMessage[];
   claudeCliSessionId?: string;

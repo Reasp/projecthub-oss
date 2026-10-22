@@ -9,6 +9,7 @@ import type {
   HitlOrigin,
   HitlOutcome,
   HitlRequest,
+  HitlTextCode,
   QuestionData
 } from './hitlTypes.js';
 
@@ -276,40 +277,53 @@ export class ApiToolExecutor {
     const base = { id: this.deps.newRequestId(), ...meta, createdAt: Date.now() };
     const who = ctx.agentName ? `${ctx.agentName}: ` : '';
     const explanation = typeof args.explanation === 'string' ? args.explanation : undefined;
+    // Заголовок и пояснение — кодом для интерфейса (TASK-204); английский текст — запасной для аудита и MCP.
+    const keyed = (code: HitlTextCode, target: string | undefined, fallbackTitle: string, details: string, ownDetails: boolean) => ({
+      title: `${who}${fallbackTitle}${target ? `: ${target}` : ''}`,
+      details,
+      textKey: { code, ...(target ? { target } : {}), ...(ctx.agentName ? { agent: ctx.agentName } : {}), ...(ownDetails ? { ownDetails } : {}) }
+    });
     switch (plan.kind) {
       case 'write': {
         const filePath = plan.filePath!;
         const abs = path.resolve(ctx.workDir, filePath);
         const oldContent = this.deps.fileExists(abs) ? await this.deps.readFile(abs).catch(() => '') : '';
         const newContent = typeof args.content === 'string' ? args.content : '';
+        const excluded = plan.rule === 'write-excluded';
         return {
           ...base,
           type: 'file_write',
-          title: `${who}${plan.rule === 'write-excluded' ? '⚠️ Файл в списке исключений' : 'Запись файла'}: ${filePath}`,
+          ...keyed(excluded ? 'file_write_excluded' : 'file_write', filePath, excluded ? '⚠️ File is on the exclusion list' : 'Write file',
+            explanation || 'Change the file contents', Boolean(explanation)),
           filePath,
-          details: explanation || 'Изменение содержимого файла',
           diff: { filePath, oldContent, newContent, patch: this.deps.generateDiff(oldContent, newContent, filePath) }
         };
       }
-      case 'command':
+      case 'command': {
+        const [code, title]: [HitlTextCode, string] = plan.rule === 'command-denied'
+          ? ['command_denied', '⚠️ Command is on the deny list']
+          : plan.background ? ['process', 'Background process'] : ['command', 'Run command'];
         return {
           ...base,
           type: 'command',
-          title: `${who}${plan.rule === 'command-denied' ? '⚠️ Команда из списка запрещённых' : plan.background ? 'Фоновый процесс' : 'Запуск команды'}: ${plan.command}`,
-          command: plan.command,
-          details: explanation || 'Выполнение команды в рабочем каталоге агента'
+          ...keyed(code, plan.command, title, explanation || 'Run the command in the agent working directory', Boolean(explanation)),
+          command: plan.command
         };
+      }
       case 'sync': {
         const action = baseSyncAction(args.action);
-        const target = this.deps.previewBaseSync ? await this.deps.previewBaseSync(ctx.workDir).catch(() => 'git недоступен') : null;
+        const target = this.deps.previewBaseSync ? await this.deps.previewBaseSync(ctx.workDir).catch(() => 'git is unavailable') : null;
         const known = target && typeof target !== 'string' ? target : undefined;
-        const what = action === 'abort' ? 'Отменить слияние основной ветки' : action === 'continue' ? 'Завершить слияние основной ветки' : 'Подтянуть основную ветку';
+        const [code, title]: [HitlTextCode, string] = action === 'abort'
+          ? ['sync_abort', 'Abort merging the base branch']
+          : action === 'continue' ? ['sync_continue', 'Finish merging the base branch'] : ['sync_merge', 'Pull the base branch'];
+        const ownDetails = explanation || (typeof target === 'string' ? target : undefined);
         return {
           ...base,
           type: 'command',
-          title: `${who}${what}${known ? `: ${known.base} → ${known.branch}` : ''}`,
-          command: baseSyncCommand(action, known),
-          details: explanation || (typeof target === 'string' ? target : 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются')
+          ...keyed(code, known ? `${known.base} → ${known.branch}` : undefined, title,
+            ownDetails || 'Merge the base branch into the agent worktree branch; the main tree and the base branch stay unchanged', Boolean(ownDetails)),
+          command: baseSyncCommand(action, known)
         };
       }
       case 'question': {
@@ -318,20 +332,21 @@ export class ApiToolExecutor {
       }
       default: {
         const target = plan.filePath || String(args.query || '');
+        const outside = plan.rule === 'read-outside';
+        const ask = `Allow the agent to read ${target}?`;
         return {
           ...base,
           type: 'question',
-          title: `${who}Чтение: ${target}`,
+          ...keyed(outside ? 'read_outside' : 'read', target, 'Read',
+            outside ? `${target} is outside the agent working directory. Allow reading?` : ask, false),
           ...(plan.filePath ? { filePath: plan.filePath } : {}),
-          details: plan.rule === 'read-outside'
-            ? `Путь ${target} вне рабочего каталога агента. Разрешить чтение?`
-            : `Разрешить агенту прочитать ${target}?`,
+          // Ответ — подпись варианта: `approvedRead` ищет в ней «deny»/«запретить» на любом языке словаря.
           questionData: {
-            title: 'Чтение файла',
-            subtitle: `Разрешить агенту прочитать ${target}?`,
+            title: 'Read file',
+            subtitle: ask,
             options: [
-              { id: 'allow', label: 'Разрешить чтение' },
-              { id: 'deny', label: 'Запретить чтение' }
+              { id: 'allow', label: 'Allow reading' },
+              { id: 'deny', label: 'Deny reading' }
             ],
             isMultiSelect: false,
             allowOther: false

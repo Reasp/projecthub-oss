@@ -26,7 +26,7 @@ import { isAgentProjectTool } from './projectAgentTools.js';
 import { isCiToolName } from './ciTools.js';
 import type { ApiToolContext } from './apiToolExecutor.js';
 import { getApiToolExecutor } from './apiToolExecutorDeps.js';
-import { createStudioToolCallbacks } from './studioToolAdapter.js';
+import { createStudioToolCallbacks, type AgentStatusKey } from './studioToolAdapter.js';
 import { claudeCliEffortArgs, normalizeReasoningEffort } from './reasoningEffort.js';
 import { usesClaudeCli } from './modelTarget.js';
 import { editionRegistry, launcherGitEnv } from '../extensions/editionRegistry.js';
@@ -58,6 +58,8 @@ export interface ProjectAgentStatus {
   projectName: string;
   status: AgentStatusType;
   lastMessage?: string;
+  /** Сообщение кодом (TASK-204): интерфейс собирает текст из словарей; `lastMessage` — тогда `detail`. */
+  messageKey?: AgentStatusKey;
   pendingApproval?: ApprovalRequest;
   activeSubagentsCount?: number;
   updatedAt: number;
@@ -579,7 +581,7 @@ class ClaudeBridgeService extends EventEmitter {
         throw err;
       } finally {
         if (this.activeSessions.has(sessionId) && this.getPendingApprovalIds(sessionId).length === 0) {
-          this.setProjectStatus(projectPath, 'running', 'Claude Code продолжает работу...');
+          this.setProjectStatus(projectPath, 'running', { code: 'continuing' });
         }
       }
     };
@@ -796,9 +798,11 @@ class ClaudeBridgeService extends EventEmitter {
   public setProjectStatus(
     projectPath: string,
     status: AgentStatusType,
-    lastMessage?: string,
+    message?: string | AgentStatusKey,
     pendingApproval?: ApprovalRequest
   ): void {
+    const messageKey = typeof message === 'object' ? message : undefined;
+    const lastMessage = typeof message === 'object' ? message.detail : message;
     const currentSubagents = this.activeSubagents.get(projectPath) || [];
     const activeCount = currentSubagents.filter((s) => s.status === 'running').length;
 
@@ -807,6 +811,7 @@ class ClaudeBridgeService extends EventEmitter {
       projectName: path.basename(projectPath),
       status,
       lastMessage,
+      ...(messageKey ? { messageKey } : {}),
       pendingApproval,
       activeSubagentsCount: activeCount,
       updatedAt: Date.now()
@@ -861,7 +866,7 @@ class ClaudeBridgeService extends EventEmitter {
     const cancelled = sessionId ? hitlService.cancelSession(sessionId, reason) : hitlService.cancelAll(reason);
     for (const req of cancelled) {
       if (this.projectStatuses.get(req.projectPath)?.status === 'waiting_approval') {
-        this.setProjectStatus(req.projectPath, 'idle', 'Ожидание одобрения отменено');
+        this.setProjectStatus(req.projectPath, 'idle', { code: 'approval_cancelled' });
       }
     }
     return cancelled.length;
@@ -905,8 +910,10 @@ class ClaudeBridgeService extends EventEmitter {
     this.finishSessionSubagents(sessionId, outcome === 'done' ? 'completed' : 'failed');
     hitlService.cancelSession(sessionId, outcome === 'done' ? 'Сессия завершена' : message);
     // Другая вкладка проекта ещё отвечает (TASK-171): проект остаётся «в работе».
-    if (this.hasOtherActiveSession(projectPath, sessionId)) this.setProjectStatus(projectPath, 'running', message);
-    else this.setProjectStatus(projectPath, outcome === 'done' ? 'done' : outcome === 'error' ? 'error' : 'idle', message);
+    if (this.hasOtherActiveSession(projectPath, sessionId)) this.setProjectStatus(projectPath, 'running', { code: 'continuing' });
+    else if (outcome === 'done') this.setProjectStatus(projectPath, 'done', { code: 'completed' });
+    else if (outcome === 'error') this.setProjectStatus(projectPath, 'error', { code: 'failed', detail: message });
+    else this.setProjectStatus(projectPath, 'idle', { code: 'aborted' });
 
     const engine = this.sessionEngines.get(sessionId) ?? 'api';
     const startedAt = this.sessionStartedAt.get(sessionId);
@@ -1057,7 +1064,7 @@ class ClaudeBridgeService extends EventEmitter {
     if (projectPath && !this.hasOtherActiveSession(projectPath, sessionId)) {
       const current = this.projectStatuses.get(projectPath)?.status;
       if (current === 'running' || current === 'waiting_approval') {
-        this.setProjectStatus(projectPath, 'idle', 'Сессия прервана пользователем');
+        this.setProjectStatus(projectPath, 'idle', { code: 'aborted' });
       }
     }
   }
@@ -1295,7 +1302,7 @@ class ClaudeBridgeService extends EventEmitter {
     // Движок сессии — Claude Code по подписке или API-провайдер; правило — в одном месте (decision-74).
     const useCli = usesClaudeCli(req.config);
     this.startSession(sessionId, projectPath, useCli ? 'claude-cli' : 'api');
-    this.setProjectStatus(projectPath, 'running', 'Агент анализирует задачу...');
+    this.setProjectStatus(projectPath, 'running', { code: 'analyzing' });
 
     if (useCli) {
       return this.runClaudeCliTask(req, onChunk, onComplete, onError);
@@ -1314,7 +1321,7 @@ class ClaudeBridgeService extends EventEmitter {
           onComplete(completedMsg);
         },
         (err, info) => {
-          this.finishSession(sessionId, projectPath, 'error', `Ошибка: ${err}`);
+          this.finishSession(sessionId, projectPath, 'error', err);
           onError(err, info);
         },
         {
@@ -1577,6 +1584,8 @@ class ClaudeBridgeService extends EventEmitter {
     const toolCalls: AIToolCall[] = [];
     let buffer = '';
     let resultUsage: AgentUsage | undefined;
+    // Итог `is_error` (нет входа, ошибка API): ответ показывается в чате, но статус проекта — ошибка (TASK-204).
+    let resultError: string | undefined;
 
     child.stdout.on('data', async (data: Buffer) => {
       buffer += data.toString('utf-8');
@@ -1662,6 +1671,7 @@ class ClaudeBridgeService extends EventEmitter {
             }
             // Реальные токены и total_cost_usd ответа — в сообщение Agents Studio (TASK-56).
             const summary = parseClaudeResultEvent(event);
+            if (summary?.isError) resultError = summary.result?.trim() || summary.subtype || 'error';
             if (summary && (summary.usage.totalTokens > 0 || typeof summary.usage.costUsd === 'number')) {
               // Та же таблица цен, что у Swarm и API-пути Agents Studio (decision-42).
               resultUsage = priceUsage(summary.usage, summary.usage.model, pricingService.getTable());
@@ -1722,6 +1732,8 @@ class ClaudeBridgeService extends EventEmitter {
         };
         if (aborted) {
           this.finishSession(sessionId, projectPath, 'aborted', 'Сессия прервана пользователем');
+        } else if (resultError) {
+          this.finishSession(sessionId, projectPath, 'error', resultError);
         } else {
           this.finishSession(sessionId, projectPath, 'done', 'Задача успешно выполнена');
         }

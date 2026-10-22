@@ -24,6 +24,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useHitlStore } from '../../store/useHitlStore';
 import { getDictionary } from '../../i18n';
+import { describeHitlRequest } from '../../lib/agentStatusText';
 import { toExecutableVoiceCommand } from '../../services/voiceClassifiedCommand';
 import { useDialog } from '../../hooks/useDialog';
 import { useTimers, useToast } from '../../hooks/useTimeoutState';
@@ -826,7 +827,8 @@ export const VoiceControlWidget: React.FC = () => {
       if (!cfg.speakHitlQuestions || !cfg.ttsEnabled || top.id === lastSpokenHitlId) return;
       lastSpokenHitlId = top.id;
       const dict = getDictionary(useProjectStore.getState().language);
-      const title = top.questionData?.title || top.title;
+      const text = describeHitlRequest(top, dict.hitl.requestText);
+      const title = text.questionData?.title || text.title;
       void voiceService.speak(dict.voice.feedback.hitlSpokenPrefix.replace('{title}', title));
     });
 

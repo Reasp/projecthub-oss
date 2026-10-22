@@ -82,7 +82,8 @@ export const en: TranslationDictionary = {
     ragReadyTooltip: 'RAG Index ready: {count} chunks',
     requiresDecisionExclamation: 'Requires decision!',
     agentWorking: 'Agent is executing task...',
-    claudeFinishedTask: 'Claude completed task',
+    agentFinishedTask: 'Agent finished the task',
+    agentFailedTask: 'Agent stopped with an error',
     inProgressTooltip: 'In Progress',
     toDoTooltip: 'To Do',
     reviewTooltip: 'In Review',
@@ -1854,6 +1855,7 @@ export const en: TranslationDictionary = {
     tabWaitingApproval: 'This tab is waiting for your decision',
     memberSession: (member) => `Session of member ${member}: read-only here, they write to it from their own devices`,
     newChat: 'New Chat',
+    chatN: 'Chat {n}',
     newSession: 'New Session',
     closeSession: 'Close session',
     renameSession: 'Rename chat',
@@ -3284,6 +3286,43 @@ export const en: TranslationDictionary = {
     autoInstallUnsupportedMac: 'Auto-install is unavailable on unsigned macOS builds — release link only'
   },
   hitl: {
+    statusMessages: {
+      analyzing: 'Agent is analyzing the task...',
+      continuing: 'Agent keeps working...',
+      processing: 'Processing results...',
+      executing: 'Running: {detail}',
+      approval_cancelled: 'Approval request cancelled',
+      aborted: 'Session interrupted by the user',
+      completed: 'Agent finished the task',
+      failed: 'Error: {detail}'
+    },
+    requestText: {
+      titles: {
+        file_write: 'Write file',
+        file_write_excluded: '⚠️ File is on the exclusion list',
+        command: 'Run command',
+        command_denied: '⚠️ Command is on the deny list',
+        process: 'Background process',
+        sync_merge: 'Pull the base branch',
+        sync_continue: 'Finish merging the base branch',
+        sync_abort: 'Abort merging the base branch',
+        read: 'Read',
+        read_outside: 'Read'
+      },
+      details: {
+        file_write: 'Change the file contents',
+        file_write_excluded: 'Change the file contents',
+        command: 'Run the command in the agent working directory',
+        command_denied: 'Run the command in the agent working directory',
+        process: 'Run the command in the agent working directory',
+        sync_merge: 'Merge the base branch into the agent worktree branch; the main tree and the base branch stay unchanged',
+        sync_continue: 'Merge the base branch into the agent worktree branch; the main tree and the base branch stay unchanged',
+        sync_abort: 'Merge the base branch into the agent worktree branch; the main tree and the base branch stay unchanged',
+        read: 'Allow the agent to read {target}?',
+        read_outside: '{target} is outside the agent working directory. Allow reading?'
+      },
+      readQuestion: { title: 'Read file', allow: 'Allow reading', deny: 'Deny reading' }
+    },
     badgeTooltip: 'Decision center: agent requests awaiting approval and decision history',
     badgePending: '{count} awaiting decision',
     title: 'Decision Center (Human-in-the-loop)',

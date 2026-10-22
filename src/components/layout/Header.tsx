@@ -4,6 +4,7 @@ import { ProjectInitModal } from '../projects/ProjectInitModal';
 import type { TemplateUpdateStatus } from '../../types/projectInit';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { describeAgentStatus } from '../../lib/agentStatusText';
 import { ActionRunnerBar } from '../actions/ActionRunnerBar';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { ProjectTabs } from './ProjectTabsBar';
@@ -98,7 +99,7 @@ export const Header: React.FC = () => {
             title={t.header.claudeExecutingTooltip}
           >
             <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin shrink-0" />
-            <span className="truncate max-w-[180px]">{agentStatus.lastMessage || t.header.working}</span>
+            <span className="truncate max-w-[180px]">{describeAgentStatus(agentStatus, t.hitl.statusMessages, t.hitl.requestText) || t.header.working}</span>
           </button>
         )}
       </div>

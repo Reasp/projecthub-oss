@@ -119,6 +119,7 @@ export function compactSessionForStorage(session: AISession): AISession {
   return {
     id: session.id,
     title: typeof session.title === 'string' ? session.title.slice(0, 500) : '',
+    ...(session.autoTitle === true ? { autoTitle: true } : {}),
     createdAt: typeof session.createdAt === 'number' ? session.createdAt : Date.now(),
     messages: Array.isArray(session.messages) ? session.messages.map(compactMessage) : [],
     ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),

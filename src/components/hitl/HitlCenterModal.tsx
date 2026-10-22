@@ -28,6 +28,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useToast } from '../../hooks/useTimeoutState';
 import { InteractiveApprovalCard } from '../ai/InteractiveApprovalCard';
 import { RiskBadge } from './RiskBadge';
+import { describeHitlRequest } from '../../lib/agentStatusText';
 import type { ApprovalRequest, HitlAuditEntry, HitlDecisionSourceKind } from '../../types/electron';
 
 const DECIDED_BY: HitlDecisionSourceKind[] = ['local', 'remote', 'mcp', 'auto', 'timeout', 'cancelled', 'shutdown'];
@@ -178,7 +179,7 @@ export const HitlCenterModal: React.FC = () => {
                     {req.tool && <span className="text-[11px] font-mono text-slate-500 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">{req.tool}</span>}
                     <RiskBadge risk={req.risk} reason={req.riskReason} />
                   </div>
-                  <div className="text-xs font-semibold text-slate-100 break-words">{req.title}</div>
+                  <div className="text-xs font-semibold text-slate-100 break-words">{describeHitlRequest(req, t.hitl.requestText).title}</div>
                   {req.command && (
                     <pre className="text-[11px] font-mono text-amber-200/90 bg-ph-panel border border-slate-800 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-all max-h-24 overflow-auto">
                       $ {req.command}
@@ -187,7 +188,7 @@ export const HitlCenterModal: React.FC = () => {
                   {!req.command && req.filePath && (
                     <div className="text-[11px] font-mono text-slate-300 truncate" title={req.filePath}>{req.filePath}</div>
                   )}
-                  {req.details && !req.command && <div className="text-[11px] text-slate-400 line-clamp-2">{req.details}</div>}
+                  {req.details && !req.command && <div className="text-[11px] text-slate-400 line-clamp-2">{describeHitlRequest(req, t.hitl.requestText).details}</div>}
                   <div className="flex items-center gap-3 text-[11px] text-slate-500">
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{t.hitl.waitingFor.replace('{time}', formatDuration(waited))}</span>
                     {left !== null && <span>{t.hitl.expiresIn.replace('{time}', formatDuration(left))}</span>}

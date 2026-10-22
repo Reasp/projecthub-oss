@@ -1,4 +1,5 @@
 import type { BaseSyncLabels, MergeFailureLabels } from '../lib/gitFailureText';
+import type { AgentStatusLabels, HitlTextLabels } from '../lib/agentStatusText';
 
 export type Language = 'en' | 'ru';
 
@@ -84,7 +85,8 @@ export interface TranslationDictionary {
     ragReadyTooltip: string;
     requiresDecisionExclamation: string;
     agentWorking: string;
-    claudeFinishedTask: string;
+    agentFinishedTask: string;
+    agentFailedTask: string;
     inProgressTooltip: string;
     toDoTooltip: string;
     reviewTooltip: string;
@@ -1734,6 +1736,8 @@ export interface TranslationDictionary {
     /** Сессия участника общего хоста (TASK-142.3): окно хоста только читает её. */
     memberSession: (member: string) => string;
     newChat: string;
+    /** Заголовок новой вкладки с подстановкой {n} (TASK-204). */
+    chatN: string;
     newSession: string;
     closeSession: string;
     renameSession: string;
@@ -3028,6 +3032,10 @@ export interface TranslationDictionary {
     autoInstallUnsupportedMac: string;
   };
   hitl: {
+    /** Статус агента кодом из main (TASK-204): шаблоны с {detail}. */
+    statusMessages: AgentStatusLabels;
+    /** Заголовки и пояснения карточек исполнителя API-инструментов кодом из main (TASK-204). */
+    requestText: HitlTextLabels;
     badgeTooltip: string;
     badgePending: string;
     title: string;

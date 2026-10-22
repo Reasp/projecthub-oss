@@ -13,6 +13,7 @@ import {
 } from '../common/icons';
 import type { SubagentInfo, ProjectAgentStatus } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { describeAgentStatus } from '../../lib/agentStatusText';
 import { useTimeoutState } from '../../hooks/useTimeoutState';
 
 interface LiveActivitySidebarProps {
@@ -154,7 +155,7 @@ export const LiveActivitySidebar: React.FC<LiveActivitySidebarProps> = ({
             <div className="flex items-center justify-between text-xs text-amber-300 font-medium">
               <span className="flex items-center gap-1.5">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                {activeStatus?.lastMessage || t.aiStudio.activity.agentWorking}
+                {(activeStatus && describeAgentStatus(activeStatus, t.hitl.statusMessages, t.hitl.requestText)) || t.aiStudio.activity.agentWorking}
               </span>
               <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200">
                 {formatElapsed(elapsedSeconds)}

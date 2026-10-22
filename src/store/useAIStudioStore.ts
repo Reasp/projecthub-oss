@@ -24,6 +24,8 @@ import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { upsertToolCall } from '../lib/aiToolCalls';
 import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
 import { canWriteStudioSession } from '../utils/studioRemote';
+import { getDictionary } from '../i18n';
+import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib/studioSessionTitle';
 
 export type { AISession };
 
@@ -222,11 +224,15 @@ function releaseStreamLater(sessionId: string, setState: (fn: (s: AIStudioState)
   else release();
 }
 
+/** Словарь Studio на языке интерфейса — для заголовков вкладок по умолчанию (TASK-204). */
+const studioText = () => getDictionary(useProjectStore.getState().language).aiStudio;
+
 function createInitialSession(): AISession {
   const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   return {
     id,
-    title: 'Новый диалог',
+    title: studioText().newChat,
+    autoTitle: true,
     createdAt: Date.now(),
     messages: []
   };
@@ -392,6 +398,9 @@ export const useAIStudioStore = create<AIStudioState>()(
           // Закрытые вкладки живут в истории (TASK-140.10) — во вкладки их не возвращаем.
           fromDisk = fromDisk.filter((s) => typeof s.archivedAt !== 'number');
           sessionPersister.markLoaded(projectPath, fromDisk);
+          // Старый русский заголовок по умолчанию — на язык интерфейса (TASK-204). Новая ссылка помечает сессию
+          // изменённой, и заголовок уходит на диск: его читают обзор компьютеров и телефон.
+          fromDisk = fromDisk.map((s) => localizeLegacyTitle(s, studioText()));
 
           set((state) => {
             // Сессии, созданные до завершения загрузки (например, голосовая команда), сохраняем.
@@ -419,7 +428,8 @@ export const useAIStudioStore = create<AIStudioState>()(
         const active = existing.find((s) => s.id === get().activeSessionId[projectPath]);
         const newSession: AISession = {
           id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          title: initialTitle || `Диалог ${existing.length + 1}`,
+          title: initialTitle || studioText().chatN.replace('{n}', String(existing.length + 1)),
+          ...(initialTitle ? {} : { autoTitle: true }),
           createdAt: Date.now(),
           messages: [],
           agent: effectiveSessionAgent(get().config, active?.agent),
@@ -521,7 +531,7 @@ export const useAIStudioStore = create<AIStudioState>()(
             sessions: {
               ...state.sessions,
               [projectPath]: projectSessions.map((s) =>
-                s.id === sessionId ? { ...s, title: cleanTitle } : s
+                s.id === sessionId ? { ...s, title: cleanTitle, autoTitle: undefined } : s
               )
             }
           };
@@ -617,7 +627,7 @@ export const useAIStudioStore = create<AIStudioState>()(
 
           const updated = existing.map((s) =>
             s.id === targetSessionId
-              ? { ...s, messages: [], title: 'Новый диалог', claudeCliSessionId: undefined }
+              ? { ...s, messages: [], title: studioText().newChat, autoTitle: true, claudeCliSessionId: undefined }
               : s
           );
 
@@ -687,18 +697,15 @@ export const useAIStudioStore = create<AIStudioState>()(
 
         const updatedMessages = [...currentMessages, userMsg, initialAssistantMsg];
 
-        // Derive auto-title if session was 'Новый диалог' or 'Диалог X'
-        let sessionTitle = currentSession.title;
-        if (sessionTitle === 'Новый диалог' || sessionTitle.startsWith('Диалог ')) {
-          const cleaned = text.replace(/[\n\r]+/g, ' ').trim();
-          sessionTitle = cleaned.length > 28 ? `${cleaned.slice(0, 26)}...` : cleaned;
-        }
+        // Заголовок по умолчанию заменяется началом первого промпта (TASK-204).
+        const autoTitle = isAutoSessionTitle(currentSession);
+        const sessionTitle = autoTitle ? titleFromPrompt(text) || currentSession.title : currentSession.title;
 
         set((state) => {
           const pSessions = state.sessions[projectPath] || [];
           const updated = pSessions.map((s) =>
             s.id === activeSessionId
-              ? { ...s, title: sessionTitle, messages: updatedMessages, lastSelection, lastMode: requestMode }
+              ? { ...s, title: sessionTitle, ...(autoTitle ? { autoTitle: undefined } : {}), messages: updatedMessages, lastSelection, lastMode: requestMode }
               : s
           );
 

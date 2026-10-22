@@ -36,6 +36,32 @@ export interface HitlScreenshots {
   after?: string;
 }
 
+/**
+ * Вид карточки исполнителя API-инструментов (TASK-204, правило 25): по нему интерфейс собирает заголовок и пояснение
+ * из словарей. `title`/`details` запроса — английский запасной текст для аудита, MCP-клиентов и старых клиентов.
+ */
+export type HitlTextCode =
+  | 'file_write'
+  | 'file_write_excluded'
+  | 'command'
+  | 'command_denied'
+  | 'process'
+  | 'sync_merge'
+  | 'sync_continue'
+  | 'sync_abort'
+  | 'read'
+  | 'read_outside';
+
+export interface HitlTextKey {
+  code: HitlTextCode;
+  /** Путь, команда или «base → branch»; в заголовке идёт после двоеточия. */
+  target?: string;
+  /** Имя агента Swarm/Handoff — префикс заголовка. */
+  agent?: string;
+  /** `details` — пояснение агента или хоста, интерфейс показывает его как есть, а не пояснение по умолчанию. */
+  ownDetails?: boolean;
+}
+
 export interface QuestionOption {
   id: string;
   label: string;
@@ -70,6 +96,8 @@ export interface HitlRequest {
     patch: string;
   };
   questionData?: QuestionData;
+  /** Заголовок и пояснение кодом (TASK-204); без поля интерфейс показывает `title`/`details` как есть. */
+  textKey?: HitlTextKey;
   createdAt: number;
   /** Источник агента (Agents Studio, Swarm, Handoff, назначенная задача). */
   origin?: HitlOrigin;
