@@ -1,12 +1,12 @@
 {
   "name": "project-hub",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "private": true,
   "description": "ProjectHub — Единая десктопная панель управления проектами с обвязкой ProjectTemplate (Backlog.md, Git, RAG, MCP, Dev-окружение)",
   "main": "dist-electron/main.js",
   "type": "module",
   "scripts": {
-    "prepare": "node scripts/version.mjs install-hooks",
+    "prepare": "node scripts/version.mjs install-hooks && node scripts/task-merge-driver.mjs install --quiet",
     "dev": "vite",
     "lint:docs": "node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs",
     "check-index": "node scripts/rag/check-index.mjs",

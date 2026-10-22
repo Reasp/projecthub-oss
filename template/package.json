@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup.mjs",
-    "prepare": "node scripts/git-hooks/install.mjs --quiet",
+    "prepare": "node scripts/git-hooks/install.mjs --quiet && node scripts/task-merge-driver.mjs install --quiet",
     "install-hooks": "node scripts/git-hooks/install.mjs",
     "test": "node --test scripts/**/*.test.mjs",
     "lint:docs": "node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs",

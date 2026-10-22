@@ -94,6 +94,10 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
      `npx backlog.md task …`), не редактировать `.md`-файлы задач напрямую. Единственное
      вынужденное исключение — `backlog/config.yml` (это конфиг, не markdown задачи) и
      документ, переваливший за лимит длины аргумента CLI (см. правило 16).
+   - **Конфликт слияния в задаче** — тоже исключение. `npm install` ставит в копию драйвер
+     `projecthub-task`: при `git merge`/`pull` задачи сливаются по полям frontmatter, а маркеры
+     конфликта остаются только вокруг поля, которое обе стороны изменили по-разному. Разрешай их
+     правкой файла — CLI на файле с маркерами не работает.
    - **Заголовки секций задачи — строго стандартные английские** (`## Description`,
      `## Acceptance Criteria`, `## Definition of Done`, `## Implementation Plan`,
      `## Implementation Notes`, `## Final Summary`) и маркеры (`<!-- SECTION:DESCRIPTION:BEGIN -->`,
