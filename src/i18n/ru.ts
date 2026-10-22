@@ -1005,7 +1005,17 @@ export const ru: TranslationDictionary = {
     indexRebuilt: 'индекс документации пересобран',
     indexFailed: 'index-docs не прошёл — пересоберите индекс вручную',
     memoryRebuilt: 'MEMORY.md пересобран',
-    error: 'Ошибка: {error}'
+    error: 'Ошибка: {error}',
+    failures: {
+      'not-in-conflict': 'Файл уже не в конфликте: {detail}',
+      'markers-left': 'В итоге остались маркеры конфликта <<<<<<< ======= >>>>>>>.',
+      'not-merging': 'Слияние не идёт.',
+      unresolved: 'Остались неразрешённые конфликты: {detail}',
+      'commit-failed': 'Коммит слияния не удался: {detail}',
+      'bad-resolution': 'Неизвестный способ разрешения файла.',
+      'git-error': '{detail}',
+      unknown: 'Операция не удалась.'
+    }
   },
   pr: {
     title: 'Pull Requests',
@@ -2315,6 +2325,24 @@ export const ru: TranslationDictionary = {
     pullAndResolve: 'Подтянуть {target} в worktree и разрешить',
     pullAndResolveHint: 'Ветка {target} сольётся в {branch} внутри worktree, конфликты разрешаются в окне. Основное дерево не меняется.',
     pulledRetry: 'Ветка {target} подтянута в {branch} без конфликтов — повторите слияние.',
+    pullRefusal: {
+      refusals: {
+        'no-main-tree': 'Не удалось определить основное дерево репозитория.',
+        'not-a-repo': 'Каталог worktree не в git-репозитории: {detail}',
+        'in-main-tree': 'Это основное дерево проекта, а не отдельный worktree: подтягивать некуда.',
+        detached: 'Worktree не на ветке (detached HEAD): слияние некуда зафиксировать.',
+        'no-branch': 'Ветки {branch} нет в репозитории.',
+        'same-branch': 'Worktree уже стоит на ветке {branch}.',
+        'main-detached': 'Основное дерево проекта не на ветке: подтягивать нечего.',
+        'on-main-branch': 'Worktree стоит на основной ветке {branch}.',
+        'nothing-to-abort': 'Незавершённого слияния нет — отменять нечего.',
+        'nothing-to-continue': 'Незавершённого слияния нет — завершать нечего.',
+        dirty: 'В worktree есть незакоммиченные изменения ({count}): сначала зафиксируйте их, затем подтягивайте {base}.',
+        'merge-failed': 'Слияние не удалось: {detail}',
+        'git-error': 'Ошибка git: {detail}'
+      },
+      unknown: 'Не удалось подтянуть {base} в worktree.'
+    },
     resolvedRetry: 'Конфликты разрешены в ветке {branch} — повторите слияние.',
     worktreeMergeInProgress: 'В worktree не завершено слияние: конфликтов — {count}. Слияние в целевую ветку недоступно, пока оно не завершено.',
     conflictedFilesList: 'Конфликтные файлы:',

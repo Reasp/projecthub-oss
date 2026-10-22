@@ -16,6 +16,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { SplitDiffViewer } from './SplitDiffViewer';
 import { MergeConflictsModal } from './MergeConflictsModal';
+import { describeBaseSyncRefusal } from '../../lib/gitFailureText';
 
 interface WorktreeCompleteModalProps {
   worktree: GitWorktreeInfo;
@@ -111,10 +112,12 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
         setAppliedFileMessage(t.worktrees.pulledRetry.replace('{target}', targetBranch).replace('{branch}', worktree.branch));
         setDiffVersion((v) => v + 1);
       } else {
-        setPullError(res.text);
+        setPullError(describeBaseSyncRefusal(res, t.worktrees.pullRefusal, targetBranch));
       }
     } catch (err) {
-      setPullError(err instanceof Error ? err.message : String(err));
+      // Отказ проверки IPC (не worktree проекта) — служебный текст main-процесса, человеку — общий локализованный.
+      console.error('[worktree] pullBaseIntoWorktree failed:', err);
+      setPullError(describeBaseSyncRefusal({}, t.worktrees.pullRefusal, targetBranch));
     } finally {
       setIsPulling(false);
     }

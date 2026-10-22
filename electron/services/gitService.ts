@@ -12,12 +12,14 @@ import { execGit } from './checkpointGit';
 import {
   abortMerge,
   finishMergeResolution,
+  mergeFailureOf,
   readConflictFile,
   readMergeState,
   resolveConflictFile,
   type ConflictFileContent,
   type ConflictResolution,
   type FinishMergeResult,
+  type MergeActionResult,
   type MergeState
 } from './mergeConflicts';
 
@@ -539,12 +541,12 @@ class GitService {
     return readConflictFile(execGit, projectPath, filePath);
   }
 
-  async resolveConflict(projectPath: string, filePath: string, resolution: ConflictResolution): Promise<{ success: boolean; error?: string }> {
+  async resolveConflict(projectPath: string, filePath: string, resolution: ConflictResolution): Promise<MergeActionResult> {
     try {
       await resolveConflictFile(execGit, projectPath, filePath, resolution);
       return { success: true };
     } catch (e) {
-      return { success: false, error: e instanceof Error ? e.message : String(e) };
+      return { success: false, error: e instanceof Error ? e.message : String(e), failure: mergeFailureOf(e) };
     } finally {
       this.broadcastGitChanged(projectPath);
     }
@@ -558,18 +560,18 @@ class GitService {
         return run.exitCode === 0 && !run.timedOut;
       });
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: e instanceof Error ? e.message : String(e), failure: mergeFailureOf(e) };
     } finally {
       this.broadcastGitChanged(projectPath);
     }
   }
 
-  async abortMerge(projectPath: string): Promise<{ success: boolean; error?: string }> {
+  async abortMerge(projectPath: string): Promise<MergeActionResult> {
     try {
       await abortMerge(execGit, projectPath);
       return { success: true };
     } catch (e) {
-      return { success: false, error: e instanceof Error ? e.message : String(e) };
+      return { success: false, error: e instanceof Error ? e.message : String(e), failure: mergeFailureOf(e) };
     } finally {
       this.broadcastGitChanged(projectPath);
     }

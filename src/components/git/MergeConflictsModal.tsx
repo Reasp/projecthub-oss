@@ -7,6 +7,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { applyConflictChoices, countConflicts, hasConflictMarkers } from '../../../electron/services/conflictMarkers';
 import type { ConflictChoice, ConflictFileContent, ConflictFileKind, ConflictResolution, MergeState } from '../../types/electron';
+import { describeMergeFailure } from '../../lib/gitFailureText';
 
 /**
  * Окно конфликтов слияния (TASK-139.3, decision-157): незавершённое слияние в рабочем дереве — выбор «моё / их / оба»
@@ -102,7 +103,7 @@ export const MergeConflictsModal: React.FC<MergeConflictsModalProps> = ({ root, 
     run(async () => {
       if (!file) return;
       const res = await window.api.resolveConflict(root, file.path, resolution);
-      if (!res.success) throw new Error(res.error || 'resolve failed');
+      if (!res.success) throw new Error(describeMergeFailure(res.failure, tm.failures));
       setNotice({ kind: 'ok', text: tm.resolved.replace('{file}', file.path) });
       await reload();
     });
@@ -111,7 +112,7 @@ export const MergeConflictsModal: React.FC<MergeConflictsModalProps> = ({ root, 
     run(async () => {
       setNotice({ kind: 'info', text: tm.finishing });
       const res = await window.api.finishMerge(root);
-      if (!res.ok) throw new Error(res.error || 'finish failed');
+      if (!res.ok) throw new Error(describeMergeFailure(res.failure, tm.failures));
       const details = [
         res.memoryRebuilt ? tm.memoryRebuilt : null,
         res.index === 'fresh' ? tm.indexFresh : res.index === 'rebuilt' ? tm.indexRebuilt : res.index === 'failed' ? tm.indexFailed : null
@@ -124,7 +125,7 @@ export const MergeConflictsModal: React.FC<MergeConflictsModalProps> = ({ root, 
     if (!(await dialog.confirm({ message: tm.abortConfirm }))) return;
     await run(async () => {
       const res = await window.api.abortMerge(root);
-      if (!res.success) throw new Error(res.error || 'abort failed');
+      if (!res.success) throw new Error(describeMergeFailure(res.failure, tm.failures));
       onClose();
     });
   };

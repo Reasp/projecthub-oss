@@ -109,10 +109,40 @@ export interface ConflictFileContent extends MergeConflictFile {
   theirs: string | null;
 }
 
+/** Почему окно конфликтов отказало: по коду интерфейс берёт текст из словарей i18n (TASK-201, правило 25). */
+export type MergeFailureCode = 'not-in-conflict' | 'markers-left' | 'not-merging' | 'unresolved' | 'commit-failed' | 'bad-resolution' | 'git-error';
+
+export interface MergeFailure {
+  code: MergeFailureCode;
+  /** Файл, список файлов или сообщение git как есть — не переводится. */
+  detail?: string;
+}
+
+export class MergeConflictError extends Error {
+  constructor(message: string, readonly failure: MergeFailure) {
+    super(message);
+    this.name = 'MergeConflictError';
+  }
+}
+
+/** Итог «разрешить файл» и «отменить слияние» для окна. */
+export interface MergeActionResult {
+  success: boolean;
+  /** Текст для лога; человеку показывается `failure` через словари. */
+  error?: string;
+  failure?: MergeFailure;
+}
+
+/** Код отказа для окна: свой — как есть, прочее (сбой git) — `git-error` с сообщением. */
+export function mergeFailureOf(err: unknown): MergeFailure {
+  if (err instanceof MergeConflictError) return err.failure;
+  return { code: 'git-error', detail: err instanceof Error ? err.message : String(err) };
+}
+
 /** Путь из окна должен быть среди неразрешённых: окно не читает и не пишет произвольные файлы репозитория. */
 async function assertUnmerged(git: GitRunner, top: string, file: string): Promise<Set<number>> {
   const stages = (await unmergedStages(git, top)).get(file);
-  if (!stages) throw new Error(`Файл не в конфликте слияния: ${file}`);
+  if (!stages) throw new MergeConflictError(`Файл не в конфликте слияния: ${file}`, { code: 'not-in-conflict', detail: file });
   return stages;
 }
 
@@ -141,7 +171,7 @@ export async function resolveConflictFile(git: GitRunner, projectRoot: string, f
   const { top } = await repoPaths(git, projectRoot);
   const stages = await assertUnmerged(git, top, file);
   if (resolution.kind === 'content') {
-    if (hasConflictMarkers(resolution.content)) throw new Error('В итоге остались маркеры конфликта <<<<<<< ======= >>>>>>>');
+    if (hasConflictMarkers(resolution.content)) throw new MergeConflictError('В итоге остались маркеры конфликта <<<<<<< ======= >>>>>>>', { code: 'markers-left' });
     await fs.writeFile(path.join(top, file), resolution.content, 'utf8');
     await git(['add', '--', file], { cwd: top });
     return;
@@ -164,8 +194,9 @@ export interface NpmRunner {
 
 export interface FinishMergeResult {
   ok: boolean;
-  /** Текст отказа или ошибки. */
+  /** Текст отказа или ошибки — для лога; человеку показывается `failure` через словари. */
   error?: string;
+  failure?: MergeFailure;
   /** Файлы, которые ещё в конфликте. */
   remaining?: string[];
   sha?: string;
@@ -197,9 +228,9 @@ async function takeOursGenerated(git: GitRunner, top: string, prefix: string, ki
  */
 export async function finishMergeResolution(git: GitRunner, projectRoot: string, npm: NpmRunner): Promise<FinishMergeResult> {
   const { top, prefix } = await repoPaths(git, projectRoot);
-  if (!(await inMergeAt(git, top))) return { ok: false, error: 'Слияние не идёт: завершать нечего' };
+  if (!(await inMergeAt(git, top))) return { ok: false, error: 'Слияние не идёт: завершать нечего', failure: { code: 'not-merging' } };
   const { generated, other } = splitConflicts([...(await unmergedStages(git, top)).keys()], prefix);
-  if (other.length > 0) return { ok: false, error: `Остались неразрешённые конфликты: ${other.join(', ')}`, remaining: other };
+  if (other.length > 0) return { ok: false, error: `Остались неразрешённые конфликты: ${other.join(', ')}`, failure: { code: 'unresolved', detail: other.join(', ') }, remaining: other };
   if (generated.size > 0) await takeOursGenerated(git, top, prefix, generated);
 
   const memoryRebuilt = writeMemoryIndex(projectRoot);
@@ -220,7 +251,8 @@ export async function finishMergeResolution(git: GitRunner, projectRoot: string,
   try {
     await git(['commit', '--no-edit'], { cwd: top });
   } catch (err) {
-    return { ok: false, error: `Коммит слияния не удался: ${err instanceof Error ? err.message : String(err)}`, memoryRebuilt, index };
+    const detail = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Коммит слияния не удался: ${detail}`, failure: { code: 'commit-failed', detail }, memoryRebuilt, index };
   }
   const sha = (await git(['rev-parse', 'HEAD'], { cwd: top })).trim();
   return { ok: true, sha, memoryRebuilt, index };
@@ -228,6 +260,6 @@ export async function finishMergeResolution(git: GitRunner, projectRoot: string,
 
 export async function abortMerge(git: GitRunner, projectRoot: string): Promise<void> {
   const { top } = await repoPaths(git, projectRoot);
-  if (!(await inMergeAt(git, top))) throw new Error('Слияние не идёт: отменять нечего');
+  if (!(await inMergeAt(git, top))) throw new MergeConflictError('Слияние не идёт: отменять нечего', { code: 'not-merging' });
   await git(['merge', '--abort'], { cwd: top });
 }

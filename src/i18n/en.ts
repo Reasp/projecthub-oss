@@ -1004,7 +1004,17 @@ export const en: TranslationDictionary = {
     indexRebuilt: 'docs index rebuilt',
     indexFailed: 'index-docs failed — rebuild the index manually',
     memoryRebuilt: 'MEMORY.md rebuilt',
-    error: 'Error: {error}'
+    error: 'Error: {error}',
+    failures: {
+      'not-in-conflict': 'The file is no longer in conflict: {detail}',
+      'markers-left': 'Conflict markers <<<<<<< ======= >>>>>>> remain in the result.',
+      'not-merging': 'No merge is in progress.',
+      unresolved: 'Unresolved conflicts remain: {detail}',
+      'commit-failed': 'The merge commit failed: {detail}',
+      'bad-resolution': 'Unknown way to resolve the file.',
+      'git-error': '{detail}',
+      unknown: 'The operation failed.'
+    }
   },
   pr: {
     title: 'Pull Requests',
@@ -2313,6 +2323,24 @@ export const en: TranslationDictionary = {
     pullAndResolve: 'Pull {target} into worktree and resolve',
     pullAndResolveHint: '{target} is merged into {branch} inside the worktree; conflicts are resolved in the window. The main tree is not touched.',
     pulledRetry: '{target} pulled into {branch} without conflicts — retry the merge.',
+    pullRefusal: {
+      refusals: {
+        'no-main-tree': 'Could not find the main tree of the repository.',
+        'not-a-repo': 'The worktree folder is not a git repository: {detail}',
+        'in-main-tree': 'This is the main project tree, not a separate worktree: there is nothing to pull into.',
+        detached: 'The worktree is not on a branch (detached HEAD): there is nowhere to commit the merge.',
+        'no-branch': 'Branch {branch} does not exist in the repository.',
+        'same-branch': 'The worktree is already on branch {branch}.',
+        'main-detached': 'The main project tree is not on a branch: there is nothing to pull.',
+        'on-main-branch': 'The worktree is on the main branch {branch}.',
+        'nothing-to-abort': 'There is no unfinished merge to abort.',
+        'nothing-to-continue': 'There is no unfinished merge to finish.',
+        dirty: 'The worktree has uncommitted changes ({count}): commit them first, then pull {base}.',
+        'merge-failed': 'The merge failed: {detail}',
+        'git-error': 'Git error: {detail}'
+      },
+      unknown: 'Could not pull {base} into the worktree.'
+    },
     resolvedRetry: 'Conflicts resolved in {branch} — retry the merge.',
     worktreeMergeInProgress: 'The worktree has an unfinished merge: {count} conflicts. Merging into the target branch is blocked until it is finished.',
     conflictedFilesList: 'Conflicted files:',

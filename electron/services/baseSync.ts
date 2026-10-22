@@ -48,11 +48,39 @@ export interface BaseSyncTarget {
 
 export type BaseSyncStatus = 'up-to-date' | 'merged' | 'conflict' | 'resolved' | 'aborted' | 'refused';
 
+/** Почему отказано: по коду интерфейс берёт текст из словарей i18n (TASK-201, правило 25). */
+export type BaseSyncRefusalCode =
+  | 'no-main-tree'
+  | 'not-a-repo'
+  | 'in-main-tree'
+  | 'detached'
+  | 'no-branch'
+  | 'same-branch'
+  | 'main-detached'
+  | 'on-main-branch'
+  | 'nothing-to-abort'
+  | 'nothing-to-continue'
+  | 'dirty'
+  | 'merge-failed'
+  | 'git-error';
+
+export interface BaseSyncRefusal {
+  code: BaseSyncRefusalCode;
+  /** Ветка из текста отказа: несуществующая, текущая или основная. */
+  branch?: string;
+  /** Число незакоммиченных файлов (`dirty`). */
+  count?: number;
+  /** Сообщение git как есть — не переводится. */
+  detail?: string;
+}
+
 export interface BaseSyncResult {
   ok: boolean;
   status: BaseSyncStatus;
-  /** Текст для модели и для чата. */
+  /** Текст для модели и для чата — русский, человеку не показывается. */
   text: string;
+  /** Код отказа при `status: 'refused'`. */
+  reason?: BaseSyncRefusal;
   target?: BaseSyncTarget;
   conflicts?: string[];
   sha?: string;
@@ -60,7 +88,12 @@ export interface BaseSyncResult {
 
 const lines = (out: string) => out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 const samePath = (a: string, b: string) => path.resolve(a).replace(/[\\/]+$/, '').toLowerCase() === path.resolve(b).replace(/[\\/]+$/, '').toLowerCase();
-const refused = (text: string, target?: BaseSyncTarget): BaseSyncResult => ({ ok: false, status: 'refused', text, ...(target ? { target } : {}) });
+const refused = (text: string, reason: BaseSyncRefusal, target?: BaseSyncTarget): BaseSyncResult =>
+  ({ ok: false, status: 'refused', text, reason, ...(target ? { target } : {}) });
+const errorText = (err: unknown) => err instanceof Error ? err.message : String(err);
+
+interface TargetRefusal { text: string; reason: BaseSyncRefusal }
+const no = (text: string, reason: BaseSyncRefusal): TargetRefusal => ({ text, reason });
 
 export { hasConflictMarkers };
 
@@ -70,32 +103,37 @@ export { hasConflictMarkers };
  * выбранную человеком ветку (TASK-139.6). Ошибка — текст для агента, без исключения.
  */
 export async function resolveBaseSyncTarget(git: GitRunner, workDir: string, base?: string): Promise<BaseSyncTarget | string> {
+  const resolved = await resolveTarget(git, workDir, base);
+  return 'text' in resolved ? resolved.text : resolved;
+}
+
+async function resolveTarget(git: GitRunner, workDir: string, base?: string): Promise<BaseSyncTarget | TargetRefusal> {
   let top: string;
   let mainPath: string;
   try {
     top = (await git(['rev-parse', '--show-toplevel'], { cwd: workDir })).trim();
     const first = lines(await git(['worktree', 'list', '--porcelain'], { cwd: workDir })).find((l) => l.startsWith('worktree '));
-    if (!first) return 'Не удалось определить основное дерево репозитория';
+    if (!first) return no('Не удалось определить основное дерево репозитория', { code: 'no-main-tree' });
     mainPath = first.slice('worktree '.length).trim();
   } catch (err) {
-    return `Рабочий каталог агента не в git-репозитории: ${err instanceof Error ? err.message : String(err)}`;
+    return no(`Рабочий каталог агента не в git-репозитории: ${errorText(err)}`, { code: 'not-a-repo', detail: errorText(err) });
   }
   if (samePath(top, mainPath)) {
-    return 'Агент работает в основном дереве проекта, а не в своём worktree: подтягивать основную ветку некуда';
+    return no('Агент работает в основном дереве проекта, а не в своём worktree: подтягивать основную ветку некуда', { code: 'in-main-tree' });
   }
   const branchOf = async (cwd: string) => (await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd }).catch(() => '')).trim();
   const branch = await branchOf(top);
-  if (!branch || branch === 'HEAD') return 'Worktree агента не на ветке (detached HEAD): слияние некуда фиксировать';
+  if (!branch || branch === 'HEAD') return no('Worktree агента не на ветке (detached HEAD): слияние некуда фиксировать', { code: 'detached' });
   if (base !== undefined) {
     // Имя ветки приходит из рендерера: только существующая локальная ветка, не опция git.
     const exists = !base.startsWith('-') && await git(['rev-parse', '--verify', '--quiet', `refs/heads/${base}^{commit}`], { cwd: workDir }).then(() => true, () => false);
-    if (!exists) return `Ветки ${base} нет в репозитории`;
-    if (base === branch) return `Worktree уже стоит на ветке ${base}`;
+    if (!exists) return no(`Ветки ${base} нет в репозитории`, { code: 'no-branch', branch: base });
+    if (base === branch) return no(`Worktree уже стоит на ветке ${base}`, { code: 'same-branch', branch: base });
     return { mainPath, base, branch };
   }
   const mainBranch = await branchOf(mainPath);
-  if (!mainBranch || mainBranch === 'HEAD') return 'Основное дерево проекта не на ветке: подтягивать нечего';
-  if (branch === mainBranch) return `Worktree агента стоит на основной ветке ${mainBranch}`;
+  if (!mainBranch || mainBranch === 'HEAD') return no('Основное дерево проекта не на ветке: подтягивать нечего', { code: 'main-detached' });
+  if (branch === mainBranch) return no(`Worktree агента стоит на основной ветке ${mainBranch}`, { code: 'on-main-branch', branch: mainBranch });
   return { mainPath, base: mainBranch, branch };
 }
 
@@ -126,8 +164,8 @@ function conflictText(target: BaseSyncTarget, conflicts: string[]): string {
  * Никогда не бросает: отказ и ошибка git — результат с текстом для модели.
  */
 export async function runBaseSync(git: GitRunner, input: { workDir: string; action: BaseSyncAction; env?: Record<string, string>; base?: string }): Promise<BaseSyncResult> {
-  const resolved = await resolveBaseSyncTarget(git, input.workDir, input.base);
-  if (typeof resolved === 'string') return refused(resolved);
+  const resolved = await resolveTarget(git, input.workDir, input.base);
+  if ('text' in resolved) return refused(resolved.text, resolved.reason);
   const target = resolved;
   const cwd = (await git(['rev-parse', '--show-toplevel'], { cwd: input.workDir })).trim();
   const env = input.env ?? {};
@@ -135,13 +173,13 @@ export async function runBaseSync(git: GitRunner, input: { workDir: string; acti
 
   try {
     if (input.action === 'abort') {
-      if (!inMerge) return refused('Незаконченного слияния нет — отменять нечего', target);
+      if (!inMerge) return refused('Незаконченного слияния нет — отменять нечего', { code: 'nothing-to-abort' }, target);
       await git(['merge', '--abort'], { cwd });
       return { ok: true, status: 'aborted', text: `Слияние ${target.base} в ${target.branch} отменено, worktree вернулся к прежнему состоянию.`, target };
     }
 
     if (input.action === 'continue') {
-      if (!inMerge) return refused(`Незаконченного слияния нет: начни с action "start"`, target);
+      if (!inMerge) return refused(`Незаконченного слияния нет: начни с action "start"`, { code: 'nothing-to-continue' }, target);
       const pending = await unmergedFiles(git, cwd);
       const withMarkers: string[] = [];
       for (const file of pending) {
@@ -165,6 +203,7 @@ export async function runBaseSync(git: GitRunner, input: { workDir: string; acti
     if (dirty.length > 0) {
       return refused(
         `В worktree есть незакоммиченные изменения (${dirty.length}): сначала зафиксируй их (git add -A и git commit), затем подтягивай ${target.base}`,
+        { code: 'dirty', count: dirty.length },
         target
       );
     }
@@ -181,14 +220,14 @@ export async function runBaseSync(git: GitRunner, input: { workDir: string; acti
       const conflicts = await unmergedFiles(git, cwd);
       if (conflicts.length === 0) {
         await git(['merge', '--abort'], { cwd }).catch(() => '');
-        return refused(`Слияние не удалось: ${err instanceof Error ? err.message : String(err)}`, target);
+        return refused(`Слияние не удалось: ${errorText(err)}`, { code: 'merge-failed', detail: errorText(err) }, target);
       }
       return { ok: false, status: 'conflict', text: conflictText(target, conflicts), target, conflicts };
     }
     const sha = (await git(['rev-parse', 'HEAD'], { cwd })).trim();
     return { ok: true, status: 'merged', text: `${target.base} слита в ${target.branch} без конфликтов (${sha.slice(0, 7)}).`, target, sha };
   } catch (err) {
-    return refused(`Ошибка git: ${err instanceof Error ? err.message : String(err)}`, target);
+    return refused(`Ошибка git: ${errorText(err)}`, { code: 'git-error', detail: errorText(err) }, target);
   }
 }
 

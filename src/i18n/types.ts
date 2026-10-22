@@ -1,3 +1,5 @@
+import type { BaseSyncLabels, MergeFailureLabels } from '../lib/gitFailureText';
+
 export type Language = 'en' | 'ru';
 
 export interface TranslationDictionary {
@@ -979,6 +981,8 @@ export interface TranslationDictionary {
     indexFailed: string;
     memoryRebuilt: string;
     error: string;
+    /** Отказ «разрешить / завершить / отменить» по коду причины (TASK-201). */
+    failures: MergeFailureLabels;
   };
   pr: {
     title: string;
@@ -2198,6 +2202,8 @@ export interface TranslationDictionary {
     pullAndResolve: string;
     pullAndResolveHint: string;
     pulledRetry: string;
+    /** Отказ подтягивания целевой ветки в worktree по коду причины (TASK-201). */
+    pullRefusal: BaseSyncLabels;
     resolvedRetry: string;
     worktreeMergeInProgress: string;
     conflictedFilesList: string;

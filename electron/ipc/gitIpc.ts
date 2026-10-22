@@ -93,7 +93,7 @@ export function registerGitIpc() {
         : r?.kind === 'ours' || r?.kind === 'theirs'
           ? { kind: r.kind }
           : null;
-    if (!parsed) return { success: false, error: 'Неизвестный способ разрешения' };
+    if (!parsed) return { success: false, error: 'Неизвестный способ разрешения', failure: { code: 'bad-resolution' } };
     return await gitService.resolveConflict(await assertWorkspaceRoot(projectPath), String(filePath), parsed);
   });
 

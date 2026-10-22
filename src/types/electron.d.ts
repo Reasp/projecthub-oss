@@ -797,10 +797,12 @@ export type {
   ConflictResolution,
   ConflictSegment,
   FinishMergeResult,
+  MergeActionResult,
   MergeConflictFile,
+  MergeFailure,
   MergeState
 } from '../../electron/services/mergeConflicts';
-import type { ConflictFileContent, ConflictResolution, FinishMergeResult, MergeState } from '../../electron/services/mergeConflicts';
+import type { ConflictFileContent, ConflictResolution, FinishMergeResult, MergeActionResult, MergeState } from '../../electron/services/mergeConflicts';
 export type { BaseSyncResult as PullBaseResult } from '../../electron/services/baseSync';
 import type { BaseSyncResult as PullBaseResult } from '../../electron/services/baseSync';
 
@@ -1257,9 +1259,9 @@ export interface IElectronAPI {
   pullRemote: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
   getMergeState: (projectPath: string) => Promise<MergeState>;
   getConflictFile: (projectPath: string, filePath: string) => Promise<ConflictFileContent>;
-  resolveConflict: (projectPath: string, filePath: string, resolution: ConflictResolution) => Promise<{ success: boolean; error?: string }>;
+  resolveConflict: (projectPath: string, filePath: string, resolution: ConflictResolution) => Promise<MergeActionResult>;
   finishMerge: (projectPath: string) => Promise<FinishMergeResult>;
-  abortMerge: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
+  abortMerge: (projectPath: string) => Promise<MergeActionResult>;
   pushRemote: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
   discardFileChanges: (projectPath: string, filePath: string) => Promise<boolean>;
   getDiffBetween: (projectPath: string, targetA: string, targetB?: string, filePath?: string) => Promise<string>;
