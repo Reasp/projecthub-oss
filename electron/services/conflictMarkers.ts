@@ -136,3 +136,41 @@ export function conflictFileKind(file: string, prefix = ''): ConflictFileKind {
 export function hasConflictMarkers(content: string): boolean {
   return /^(<{7}|>{7})(\s|$)/m.test(content) || /^={7}\r?$/m.test(content);
 }
+
+// ── Frontmatter итога ───────────────────────────────────────────────────────────────────────────────────────
+
+export interface FrontmatterLoss {
+  /** У сторон frontmatter есть, а итог не начинается закрытым блоком `---` … `---`. */
+  broken: boolean;
+  /** Поля верхнего уровня, которые есть у всех сторон с frontmatter, но пропали из итога. */
+  lostKeys: string[];
+}
+
+/** Ключи верхнего уровня frontmatter; `null` — файл не начинается закрытым блоком `---`. */
+function frontmatterKeys(content: string): Set<string> | null {
+  const text = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  const lines = text.split(/\r?\n/);
+  if (lines[0]?.trim() !== '---') return null;
+  const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---');
+  if (end < 0) return null;
+  const keys = new Set<string>();
+  for (const line of lines.slice(1, end)) {
+    const m = /^([A-Za-z_][\w-]*)\s*:/.exec(line);
+    if (m) keys.add(m[1]);
+  }
+  return keys;
+}
+
+/**
+ * Что итог потерял во frontmatter по сравнению со сторонами (TASK-203): агент или правка вручную может выкинуть
+ * поля задачи или документа, и после коммита канбан и `lint:docs` сломаются. Поле, которое одна сторона удалила,
+ * потерей не считается. `null` — у сторон нет frontmatter или итог его сохранил.
+ */
+export function frontmatterLoss(result: string, ours: string | null, theirs: string | null): FrontmatterLoss | null {
+  const sides = [ours, theirs].filter((s): s is string => s !== null).map(frontmatterKeys).filter((k): k is Set<string> => k !== null);
+  if (sides.length === 0) return null;
+  const own = frontmatterKeys(result);
+  if (!own) return { broken: true, lostKeys: [] };
+  const lostKeys = [...sides[0]].filter((key) => sides.every((s) => s.has(key)) && !own.has(key));
+  return lostKeys.length > 0 ? { broken: false, lostKeys } : null;
+}

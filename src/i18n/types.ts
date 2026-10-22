@@ -983,6 +983,10 @@ export interface TranslationDictionary {
     error: string;
     /** Отказ «разрешить / завершить / отменить» по коду причины (TASK-201). */
     failures: MergeFailureLabels;
+    /** Итог потерял frontmatter сторон (TASK-203). */
+    frontmatterBroken: string;
+    frontmatterLost: string;
+    frontmatterConfirm: string;
   };
   pr: {
     title: string;

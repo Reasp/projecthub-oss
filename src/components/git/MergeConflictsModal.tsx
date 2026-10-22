@@ -5,7 +5,7 @@ import { MarkdownViewer } from '../common/MarkdownViewer';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
-import { applyConflictChoices, countConflicts, hasConflictMarkers } from '../../../electron/services/conflictMarkers';
+import { applyConflictChoices, countConflicts, frontmatterLoss, hasConflictMarkers } from '../../../electron/services/conflictMarkers';
 import type { ConflictChoice, ConflictFileContent, ConflictFileKind, ConflictResolution, MergeState } from '../../types/electron';
 import { describeMergeFailure } from '../../lib/gitFailureText';
 
@@ -80,6 +80,9 @@ export const MergeConflictsModal: React.FC<MergeConflictsModalProps> = ({ root, 
     return blocks > 0 ? applyConflictChoices(file.segments, choices) : file.working ?? '';
   }, [file, draft, blocks, choices]);
   const resultHasMarkers = hasConflictMarkers(result);
+  // Итог без полей frontmatter, которые есть у обеих сторон, ломает задачу или документ после коммита (TASK-203).
+  const loss = useMemo(() => (file && file.state === 'content' ? frontmatterLoss(result, file.ours, file.theirs) : null), [file, result]);
+  const lossText = loss ? (loss.broken ? tm.frontmatterBroken : tm.frontmatterLost.replace('{keys}', loss.lostKeys.join(', '))) : null;
   const isMarkdown = file ? file.path.toLowerCase().endsWith('.md') : false;
 
   const choose = (index: number, choice: ConflictChoice) => {
@@ -107,6 +110,11 @@ export const MergeConflictsModal: React.FC<MergeConflictsModalProps> = ({ root, 
       setNotice({ kind: 'ok', text: tm.resolved.replace('{file}', file.path) });
       await reload();
     });
+
+  const saveResult = async () => {
+    if (lossText && !(await dialog.confirm({ message: `${lossText} ${tm.frontmatterConfirm}` }))) return;
+    await resolve({ kind: 'content', content: result });
+  };
 
   const finish = () =>
     run(async () => {
@@ -294,27 +302,33 @@ export const MergeConflictsModal: React.FC<MergeConflictsModalProps> = ({ root, 
             (isMarkdown ? <MarkdownViewer content={result} /> : <pre className="text-[11px] font-mono text-slate-200 whitespace-pre-wrap">{result}</pre>)}
         </div>
         <div className="px-4 py-2.5 border-t border-slate-800 flex items-center gap-2">
-          {resultHasMarkers && (
+          {resultHasMarkers ? (
             <span className="text-[11px] text-amber-300 flex items-center gap-1.5 mr-auto">
               <AlertTriangle className="w-3.5 h-3.5" /> {tm.markersLeft}
             </span>
+          ) : (
+            lossText && (
+              <span data-testid="frontmatter-loss" className="text-[11px] text-amber-300 flex items-center gap-1.5 mr-auto min-w-0">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {lossText}
+              </span>
+            )
           )}
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex gap-2 shrink-0">
             {file.ours !== null && (
-              <button type="button" disabled={busy} onClick={() => resolve({ kind: 'ours' })} className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+              <button type="button" disabled={busy} onClick={() => resolve({ kind: 'ours' })} className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap">
                 {tm.wholeOurs}
               </button>
             )}
             {file.theirs !== null && (
-              <button type="button" disabled={busy} onClick={() => resolve({ kind: 'theirs' })} className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+              <button type="button" disabled={busy} onClick={() => resolve({ kind: 'theirs' })} className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap">
                 {tm.wholeTheirs}
               </button>
             )}
             <button
               type="button"
               disabled={busy || resultHasMarkers}
-              onClick={() => resolve({ kind: 'content', content: result })}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white disabled:opacity-50"
+              onClick={() => void saveResult()}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white disabled:opacity-50 whitespace-nowrap"
             >
               {blocks === 0 ? tm.acceptAsIs : tm.saveResolution}
             </button>

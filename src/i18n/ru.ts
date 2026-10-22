@@ -994,7 +994,8 @@ export const ru: TranslationDictionary = {
     agentPrompt:
       'В рабочем дереве {root} идёт слияние ({title}) в ветку {branch}, конфликт в файлах:\n{files}\n\n'
       + 'Для каждого файла: прочитай его (read_file), собери итог без маркеров <<<<<<< ======= >>>>>>>, сохранив изменения обеих сторон, где они совместимы, и запиши (write_file). '
-      + 'Не выполняй git add, git commit, git merge --continue или --abort и не трогай .rag-index/ и backlog/memory/MEMORY.md: '
+      + 'Сохрани YAML-frontmatter между строками --- со всеми полями, которые есть у обеих сторон. '
+      + 'Не выполняй git add, git commit, git merge --continue или --abort и не трогай .rag-index/ и backlog/memory/ (без memory_write): '
       + 'слияние завершит человек в окне конфликтов ProjectHub, оно же пересоберёт индексы. В конце коротко перечисли, что выбрал в каждом файле.',
     agentStarted: 'Агент получил задачу в Agents Studio. Его правки файлов проходят одобрение HITL; после них примите файлы здесь.',
     finish: 'Завершить слияние',
@@ -1015,7 +1016,10 @@ export const ru: TranslationDictionary = {
       'bad-resolution': 'Неизвестный способ разрешения файла.',
       'git-error': '{detail}',
       unknown: 'Операция не удалась.'
-    }
+    },
+    frontmatterBroken: 'В итоге нет закрытого блока frontmatter (--- … ---), хотя у веток он есть.',
+    frontmatterLost: 'Из итога пропали поля frontmatter, которые есть у обеих веток: {keys}.',
+    frontmatterConfirm: 'После коммита задача или документ могут перестать открываться и не пройдут lint:docs. Всё равно принять файл?'
   },
   pr: {
     title: 'Pull Requests',

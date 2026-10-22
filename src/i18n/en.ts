@@ -993,7 +993,8 @@ export const en: TranslationDictionary = {
     agentPrompt:
       'A merge ({title}) into branch {branch} is in progress in the working tree {root}, with conflicts in:\n{files}\n\n'
       + 'For each file: read it (read_file), produce the result without <<<<<<< ======= >>>>>>> markers, keeping both sides\' changes where they are compatible, and write it (write_file). '
-      + 'Do not run git add, git commit, git merge --continue or --abort, and do not touch .rag-index/ or backlog/memory/MEMORY.md: '
+      + 'Keep the YAML frontmatter between the --- lines with every field both sides have. '
+      + 'Do not run git add, git commit, git merge --continue or --abort, and do not touch .rag-index/ or backlog/memory/ (no memory_write): '
       + 'a human finishes the merge in the ProjectHub conflicts window, which also rebuilds the indexes. At the end, briefly list what you chose in each file.',
     agentStarted: 'The agent got the task in Agents Studio. Its file edits go through HITL approval; accept the files here afterwards.',
     finish: 'Finish merge',
@@ -1014,7 +1015,10 @@ export const en: TranslationDictionary = {
       'bad-resolution': 'Unknown way to resolve the file.',
       'git-error': '{detail}',
       unknown: 'The operation failed.'
-    }
+    },
+    frontmatterBroken: 'The result has no closed frontmatter block (--- … ---), although the branches have one.',
+    frontmatterLost: 'Frontmatter fields both branches have are missing from the result: {keys}.',
+    frontmatterConfirm: 'After the commit the task or document may stop opening and fail lint:docs. Accept the file anyway?'
   },
   pr: {
     title: 'Pull Requests',
