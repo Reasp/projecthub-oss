@@ -235,6 +235,16 @@ const api: IElectronAPI = {
     ipcRenderer.invoke('git:fetchRemote', projectPath),
   pullRemote: (projectPath: string) =>
     ipcRenderer.invoke('git:pullRemote', projectPath),
+  getMergeState: (projectPath: string) =>
+    ipcRenderer.invoke('git:mergeState', projectPath),
+  getConflictFile: (projectPath: string, filePath: string) =>
+    ipcRenderer.invoke('git:conflictFile', projectPath, filePath),
+  resolveConflict: (projectPath: string, filePath: string, resolution: unknown) =>
+    ipcRenderer.invoke('git:resolveConflict', projectPath, filePath, resolution),
+  finishMerge: (projectPath: string) =>
+    ipcRenderer.invoke('git:finishMerge', projectPath),
+  abortMerge: (projectPath: string) =>
+    ipcRenderer.invoke('git:abortMerge', projectPath),
   pushRemote: (projectPath: string) =>
     ipcRenderer.invoke('git:pushRemote', projectPath),
   discardFileChanges: (projectPath: string, filePath: string) =>

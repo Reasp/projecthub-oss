@@ -32,6 +32,7 @@ import { useToast, useTimers } from '../../hooks/useTimeoutState';
 import { generateCommitMessage } from '../../services/aiAssistantService';
 import { SplitDiffViewer } from './SplitDiffViewer';
 import { WorktreePanel } from './WorktreePanel';
+import { MergeConflictsModal } from './MergeConflictsModal';
 import { formatSecretFindings } from '../../utils/securityFormat';
 
 // ─── File Status Badge ────────────────────────────────────────────────────────
@@ -77,10 +78,13 @@ export const GitInspector: React.FC = () => {
     gitStageAll,
     gitCommit,
     gitLoadFileDiff,
-    gitLoadDiffBetween
+    gitLoadDiffBetween,
+    workspaceRoot
   } = useProjectStore();
 
   const [activeTab, setActiveTab] = useState<GitTab>('working');
+  const [showConflicts, setShowConflicts] = useState(false);
+  const gitRoot = workspaceRoot || selectedProject?.path || '';
   const [newBranchName, setNewBranchName] = useState('');
   const [showNewBranchInput, setShowNewBranchInput] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
@@ -181,8 +185,16 @@ export const GitInspector: React.FC = () => {
         showSuccess(t.git.branchMerged.replace('{branch}', branch));
       } else {
         showError(t.git.mergeError.replace('{error}', res.error || 'Conflict'));
+        await openConflictsIfMerging();
       }
     }
+  };
+
+  // Слияние встало на конфликте и осталось незавершённым — сразу окно конфликтов (TASK-139.3).
+  const openConflictsIfMerging = async () => {
+    if (!gitRoot || !window.api) return;
+    const state = await window.api.getMergeState(gitRoot).catch(() => null);
+    if (state?.inMerge) setShowConflicts(true);
   };
 
   const handleFetch = async () => {
@@ -198,7 +210,10 @@ export const GitInspector: React.FC = () => {
     const res = await gitPullRemote();
     setIsRemoteAction(null);
     if (res.success) showSuccess(t.git.pullSuccess);
-    else showError(t.git.pullError.replace('{error}', res.error || ''));
+    else {
+      showError(t.git.pullError.replace('{error}', res.error || ''));
+      await openConflictsIfMerging();
+    }
   };
 
   const handlePush = async () => {
@@ -304,6 +319,29 @@ export const GitInspector: React.FC = () => {
           <CheckCircle className="w-4 h-4 shrink-0" />
           <span>{successMsg}</span>
         </div>
+      )}
+      {details?.merging && (
+        <div data-testid="merge-conflicts-banner" className="mx-4 mt-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-950/60 border border-amber-700/60 text-amber-200 text-xs shrink-0">
+          <GitMerge className="w-4 h-4 shrink-0" />
+          <span className="flex-1">{t.mergeConflicts.banner.replace('{count}', String(details.merging.conflicted.length))}</span>
+          <button
+            type="button"
+            onClick={() => setShowConflicts(true)}
+            className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-medium transition"
+          >
+            {t.mergeConflicts.resolveButton}
+          </button>
+        </div>
+      )}
+      {showConflicts && selectedProject && (
+        <MergeConflictsModal
+          root={gitRoot}
+          projectPath={selectedProject.path}
+          onClose={() => {
+            setShowConflicts(false);
+            void loadGitRepoDetails(selectedProject);
+          }}
+        />
       )}
 
       {/* Top Header & Sub-tabs */}

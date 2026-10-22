@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { GitRunner } from './checkpointGit';
+import { hasConflictMarkers } from './conflictMarkers';
 
 /**
  * «Подтянуть основную ветку в свой worktree» (TASK-142.6, decision-141): агент, чья ветка разошлась с основной
@@ -61,10 +62,7 @@ const lines = (out: string) => out.split(/\r?\n/).map((l) => l.trim()).filter(Bo
 const samePath = (a: string, b: string) => path.resolve(a).replace(/[\\/]+$/, '').toLowerCase() === path.resolve(b).replace(/[\\/]+$/, '').toLowerCase();
 const refused = (text: string, target?: BaseSyncTarget): BaseSyncResult => ({ ok: false, status: 'refused', text, ...(target ? { target } : {}) });
 
-/** Маркеры конфликта git в начале строки. */
-export function hasConflictMarkers(content: string): boolean {
-  return /^(<{7}|>{7})(\s|$)/m.test(content) || /^={7}\r?$/m.test(content);
-}
+export { hasConflictMarkers };
 
 /**
  * Куда сливать и что: `workDir` должен быть отдельным worktree на своей ветке, основное дерево — на ветке.

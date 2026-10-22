@@ -8,6 +8,7 @@ import { runWorktreeInit } from '../services/worktreeInitService';
 import { guardedCommit } from '../services/commitSecretGuard';
 import { readBacklogConfig } from '../services/backlogConfigService';
 import type { AddWorktreeOptions, PRCreateOptions } from '../../src/types/electron';
+import type { ConflictResolution } from '../services/mergeConflicts';
 
 export function registerGitIpc() {
   // Git Core & Status
@@ -70,6 +71,35 @@ export function registerGitIpc() {
   ipcMain.handle('git:mergeBranch', async (_event, projectPath: string, branchName: string, options?: { renumber?: unknown }) => {
     // Из рендерера берётся только флаг согласия на перенумерацию (decision-76 п. 6).
     return await gitService.mergeBranch(await assertWorkspaceRoot(projectPath), branchName, { renumber: options?.renumber === true });
+  });
+
+  // Окно конфликтов слияния (TASK-139.3): путь файла проверяется в main — только файлы в конфликте.
+  ipcMain.handle('git:mergeState', async (_event, projectPath: string) => {
+    return await gitService.getMergeState(await assertWorkspaceRoot(projectPath));
+  });
+
+  ipcMain.handle('git:conflictFile', async (_event, projectPath: string, filePath: string) => {
+    return await gitService.getConflictFile(await assertWorkspaceRoot(projectPath), String(filePath));
+  });
+
+  ipcMain.handle('git:resolveConflict', async (_event, projectPath: string, filePath: string, resolution: unknown) => {
+    const r = resolution as { kind?: unknown; content?: unknown } | null;
+    const parsed: ConflictResolution | null =
+      r?.kind === 'content' && typeof r.content === 'string'
+        ? { kind: 'content', content: r.content }
+        : r?.kind === 'ours' || r?.kind === 'theirs'
+          ? { kind: r.kind }
+          : null;
+    if (!parsed) return { success: false, error: 'Неизвестный способ разрешения' };
+    return await gitService.resolveConflict(await assertWorkspaceRoot(projectPath), String(filePath), parsed);
+  });
+
+  ipcMain.handle('git:finishMerge', async (_event, projectPath: string) => {
+    return await gitService.finishMerge(await assertWorkspaceRoot(projectPath));
+  });
+
+  ipcMain.handle('git:abortMerge', async (_event, projectPath: string) => {
+    return await gitService.abortMerge(await assertWorkspaceRoot(projectPath));
   });
 
   ipcMain.handle('git:fetchRemote', async (_event, projectPath: string) => {

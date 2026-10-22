@@ -8,6 +8,20 @@ import type { BacklogRenumbering, BacklogRenumberSummary, GitCommit, GitFileStat
 import { processManager } from './processManager';
 import { dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, summarizeRenumber, type PreparedIncoming } from './backlogMerge';
 import { reindexDocsInBackground } from './docsReindex';
+import { execGit } from './checkpointGit';
+import {
+  abortMerge,
+  finishMergeResolution,
+  readConflictFile,
+  readMergeState,
+  resolveConflictFile,
+  type ConflictFileContent,
+  type ConflictResolution,
+  type FinishMergeResult,
+  type MergeState
+} from './mergeConflicts';
+
+const MERGE_INDEX_TIMEOUT_MS = 15 * 60_000;
 
 /** Базовый дебаунс `git:changed` (аудит 3.3: было 400 мс). */
 export const GIT_CHANGED_DEBOUNCE_MS = 1500;
@@ -338,6 +352,8 @@ class GitService {
       ]);
 
       const branchSummary = await git.branch(['-a']);
+      // Незавершённое слияние (pull или «Слить ветку», вставшие на конфликте) — окно конфликтов (TASK-139.3).
+      const merging = await git.raw(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).then((out) => out.trim().length > 0, () => false);
 
       const localBranches = branches.all;
       const remoteBranches = branchSummary.all.filter((b) => b.startsWith('remotes/'));
@@ -372,7 +388,8 @@ class GitService {
         files: Array.from(fileMap.values()),
         stashes: stashes.all.map((s) => s.message),
         tags: tags.all,
-        isClean: status.isClean()
+        isClean: status.isClean(),
+        ...(merging ? { merging: { conflicted: status.conflicted } } : {})
       };
     } catch (err) {
       console.error(`Failed to get git details for ${projectPath}:`, err);
@@ -509,6 +526,52 @@ class GitService {
       if (prepared?.status === 'renumbered') await dropRenumberedBranch(projectPath, prepared.mergeRef);
       this.broadcastGitChanged(projectPath);
       return { success: false, error: e?.message || String(e) };
+    }
+  }
+
+  // ── Окно конфликтов слияния (TASK-139.3, decision-157) ─────────────────────────────────────────────────────
+
+  async getMergeState(projectPath: string): Promise<MergeState> {
+    return readMergeState(execGit, projectPath);
+  }
+
+  async getConflictFile(projectPath: string, filePath: string): Promise<ConflictFileContent> {
+    return readConflictFile(execGit, projectPath, filePath);
+  }
+
+  async resolveConflict(projectPath: string, filePath: string, resolution: ConflictResolution): Promise<{ success: boolean; error?: string }> {
+    try {
+      await resolveConflictFile(execGit, projectPath, filePath, resolution);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      this.broadcastGitChanged(projectPath);
+    }
+  }
+
+  /** Завершение слияния: сгенерированные файлы пересобираются по слитым документам, затем коммит (decision-149). */
+  async finishMerge(projectPath: string): Promise<FinishMergeResult> {
+    try {
+      return await finishMergeResolution(execGit, projectPath, async (script, cwd) => {
+        const run = await processManager.runOnce(`npm run ${script}`, { cwd, timeoutMs: MERGE_INDEX_TIMEOUT_MS });
+        return run.exitCode === 0 && !run.timedOut;
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      this.broadcastGitChanged(projectPath);
+    }
+  }
+
+  async abortMerge(projectPath: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      await abortMerge(execGit, projectPath);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      this.broadcastGitChanged(projectPath);
     }
   }
 

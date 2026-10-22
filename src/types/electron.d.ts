@@ -785,7 +785,22 @@ export interface GitRepoDetails {
   stashes: string[];
   tags: string[];
   isClean: boolean;
+  /** Незавершённое слияние (есть MERGE_HEAD): файлы в конфликте, в том числе сгенерированные (TASK-139.3). */
+  merging?: { conflicted: string[] };
 }
+
+export type {
+  ConflictChoice,
+  ConflictFileContent,
+  ConflictFileKind,
+  ConflictFileState,
+  ConflictResolution,
+  ConflictSegment,
+  FinishMergeResult,
+  MergeConflictFile,
+  MergeState
+} from '../../electron/services/mergeConflicts';
+import type { ConflictFileContent, ConflictResolution, FinishMergeResult, MergeState } from '../../electron/services/mergeConflicts';
 
 export interface PullRequest {
   id: number | string;
@@ -1238,6 +1253,11 @@ export interface IElectronAPI {
   mergeBranch: (projectPath: string, branchName: string, options?: MergeOptions) => Promise<MergeWorktreeResult>;
   fetchRemote: (projectPath: string) => Promise<boolean>;
   pullRemote: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
+  getMergeState: (projectPath: string) => Promise<MergeState>;
+  getConflictFile: (projectPath: string, filePath: string) => Promise<ConflictFileContent>;
+  resolveConflict: (projectPath: string, filePath: string, resolution: ConflictResolution) => Promise<{ success: boolean; error?: string }>;
+  finishMerge: (projectPath: string) => Promise<FinishMergeResult>;
+  abortMerge: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
   pushRemote: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
   discardFileChanges: (projectPath: string, filePath: string) => Promise<boolean>;
   getDiffBetween: (projectPath: string, targetA: string, targetB?: string, filePath?: string) => Promise<string>;
