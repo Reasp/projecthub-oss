@@ -153,7 +153,7 @@ Every project managed by ProjectHub follows the same template: `backlog/` for ta
 Requirements: **Node.js 18+** (22 recommended), **Git**. For agent features: an installed `claude` (Claude Code CLI) and/or `codex`, or provider API keys.
 
 ```bash
-git clone git@github.com:Reasp/ProjectHub.git
+git clone --recurse-submodules git@github.com:Reasp/ProjectHub.git
 cd ProjectHub
 npm install
 
@@ -183,7 +183,13 @@ Optional:
 npm run remote-relay  # your own relay server for Remote Control
 npm run telegram-bot  # Telegram bot and Mini App
 npm run index-docs    # rebuild the documentation vector index
+npm run site:export   # refresh the product context exported to the website (site/content/product/)
 ```
+
+The public website lives in a separate repository, `projecthub-site`, attached as the `site/` submodule.
+`npm install` turns on `submodule.recurse`, so `git pull` and `git checkout` update it; an existing clone without
+the submodule gets it with `git submodule update --init`. Website work happens in that repository, not in a worktree
+of this one (decision-158).
 
 ---
 
@@ -249,6 +255,7 @@ ProjectHub/
 │   └── decisions/              # ADRs
 ├── tests/unit/                 # Vitest
 ├── .claude/  .agents/          # rules, skills and MCP configs for Claude Code and Antigravity
+├── site/                       # public website: separate repository projecthub-site as a git submodule
 └── infra.config.json           # enabled infrastructure modules
 ```
 

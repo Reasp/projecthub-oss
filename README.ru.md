@@ -153,7 +153,7 @@ flowchart LR
 Требования: **Node.js 18+** (рекомендуется 22), **Git**. Для агентных функций: установленный `claude` (Claude Code CLI) и/или `codex`, либо API-ключи провайдеров.
 
 ```bash
-git clone git@github.com:Reasp/ProjectHub.git
+git clone --recurse-submodules git@github.com:Reasp/ProjectHub.git
 cd ProjectHub
 npm install
 
@@ -183,7 +183,13 @@ npm run build         # всё вышеперечисленное + tsc + vite b
 npm run remote-relay  # свой relay-сервер для Remote Control
 npm run telegram-bot  # Telegram-бот и Mini App
 npm run index-docs    # пересобрать векторный индекс документации
+npm run site:export   # обновить продуктовый контекст, экспортируемый на сайт (site/content/product/)
 ```
+
+Публичный сайт живёт в отдельном репозитории `projecthub-site`, подключённом сабмодулем `site/`. `npm install`
+включает `submodule.recurse`, поэтому `git pull` и `git checkout` обновляют его; в уже существующем клоне без
+сабмодуля его подтягивает `git submodule update --init`. Работа над сайтом ведётся в том репозитории, а не в worktree
+этого (decision-158).
 
 ---
 
@@ -249,6 +255,7 @@ ProjectHub/
 │   └── decisions/              # ADR
 ├── tests/unit/                 # Vitest
 ├── .claude/  .agents/          # правила, скиллы и MCP-конфиги для Claude Code и Antigravity
+├── site/                       # публичный сайт: отдельный репозиторий projecthub-site как git-сабмодуль
 └── infra.config.json           # включённые модули инфраструктуры
 ```
 
