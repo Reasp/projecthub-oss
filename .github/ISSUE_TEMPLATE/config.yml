@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/Reasp/projecthub-oss/security/advisories/new
+    about: Report a vulnerability privately; do not use a public issue.

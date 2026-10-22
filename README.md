@@ -291,4 +291,4 @@ Ideas, bug reports and PRs are welcome.
 
 ## License
 
-[MIT](LICENSE)
+Everything in this repository is licensed under [MIT](LICENSE), except the paid modules of the Team and Enterprise editions in the `ee/` directory, which are distributed under the source-available [ProjectHub Enterprise Edition License](ee/LICENSE). The public mirror of the open edition does not contain `ee/` at all; the open edition is built with `npm run build:open`. How the repositories relate is described in [CONTRIBUTING.md](CONTRIBUTING.md), how to report a vulnerability in [SECURITY.md](SECURITY.md). The website lives in a separate repository, `projecthub-site` (submodule `site/`).

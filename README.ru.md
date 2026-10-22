@@ -289,4 +289,4 @@ ProjectHub — это ставка на то, что следующая сред
 
 ## Лицензия
 
-[MIT](LICENSE)
+Всё в этом репозитории — под лицензией [MIT](LICENSE), кроме платных модулей редакций Team и Enterprise в каталоге `ee/`: они распространяются под source-available [ProjectHub Enterprise Edition License](ee/LICENSE). Публичное зеркало открытой редакции каталога `ee/` не содержит; открытая редакция собирается командой `npm run build:open`. Как связаны репозитории — в [CONTRIBUTING.md](CONTRIBUTING.md), как сообщить об уязвимости — в [SECURITY.md](SECURITY.md). Сайт живёт в отдельном репозитории `projecthub-site` (сабмодуль `site/`).
