@@ -31,9 +31,14 @@ function systemLanguages(): string[] {
   return [process.env.LC_ALL, process.env.LANG, Intl.DateTimeFormat().resolvedOptions().locale].filter((v): v is string => Boolean(v));
 }
 
+/** Файл выбора языка окна. Его читает бот-воркер Telegram, чтобы смена языка доходила без перезапуска (decision-164). */
+export function getHostLanguageFile(): string {
+  return path.join(getUserDataDir(), FILE);
+}
+
 function readStored(): string | null {
   try {
-    const parsed = JSON.parse(readFileSync(path.join(getUserDataDir(), FILE), 'utf8')) as { language?: unknown };
+    const parsed = JSON.parse(readFileSync(getHostLanguageFile(), 'utf8')) as { language?: unknown };
     return typeof parsed.language === 'string' ? parsed.language : null;
   } catch {
     return null;

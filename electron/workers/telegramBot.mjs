@@ -14,10 +14,14 @@
  * Конфигурация приходит окружением. При `PROJECTHUB_BOT_ENV_ONLY=1` (так бот стартует из
  * приложения) файл `.projecthub-telegram.json` не читается вовсе — секреты живут в safeStorage,
  * а не в рабочем каталоге.
+ *
+ * Ответ на команду или нажатие — на языке того, кто написал или нажал (`from.language_code`), без кода — на языке
+ * интерфейса хоста (TASK-206, decision-161 п. 5, decision-164). Тексты — `telegramBotText.mjs`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { isTelegramUserAllowed } from './telegramAccess.mjs';
+import { botText, escapeMarkdown, pickBotLanguage } from './telegramBotText.mjs';
 
 const CONFIG_FILE = path.join(process.cwd(), '.projecthub-telegram.json');
 
@@ -45,11 +49,33 @@ function loadConfig() {
     // Мастер-ключ Remote Control этого хоста (тот же `secretToken` из бейджа Remote Control) —
     // требуется для /api/federation/* и /api/hitl/* (decision-5 п.5: аутентификация на каждом
     // сетевом эндпоинте). Без него доступен только урезанный публичный /api/status.
-    hostToken: pick('PROJECTHUB_HOST_TOKEN', 'hostToken')
+    hostToken: pick('PROJECTHUB_HOST_TOKEN', 'hostToken'),
+    // Язык интерфейса хоста на момент запуска и файл, где main хранит его выбор (decision-164): смена языка в окне
+    // доходит до бота без перезапуска.
+    hostLanguage: pick('PROJECTHUB_HOST_LANGUAGE', 'hostLanguage', 'en'),
+    hostLanguageFile: process.env.PROJECTHUB_HOST_LANGUAGE_FILE || ''
   };
 }
 
 const config = loadConfig();
+
+/** Язык интерфейса хоста: сохранённый выбор окна, иначе язык на момент запуска бота. */
+function hostLanguage() {
+  if (config.hostLanguageFile) {
+    try {
+      const stored = JSON.parse(fs.readFileSync(config.hostLanguageFile, 'utf8')).language;
+      if (stored === 'en' || stored === 'ru') return stored;
+    } catch {
+      // Файла нет, пока язык в окне не меняли.
+    }
+  }
+  return config.hostLanguage;
+}
+
+/** Тексты на языке того, кто написал или нажал (decision-161 п. 5). */
+function textFor(from) {
+  return botText(pickBotLanguage(from?.language_code, hostLanguage()));
+}
 
 if (!config.botToken) {
   console.log(`
@@ -96,55 +122,57 @@ function isUserAllowed(from) {
   return isTelegramUserAllowed(from, config);
 }
 
-async function sendHitlQueue(chatId) {
+async function sendHitlQueue(chatId, tx) {
   try {
-    const res = await fetchHub('/api/hitl/pending');
+    // Заголовки запросов — на языке читателя: хаб собирает их по коду запроса (decision-161).
+    const res = await fetchHub(`/api/hitl/pending?lang=${tx.lang}`);
     if (!res.ok) throw new Error(`hitl/pending HTTP ${res.status}`);
     const { pending } = await res.json();
     if (!pending?.length) {
-      await tgApi('sendMessage', { chat_id: chatId, text: '✅ Запросов, ожидающих решения, нет.' });
+      await tgApi('sendMessage', { chat_id: chatId, text: tx.queue.empty });
       return;
     }
     for (const request of pending.slice(0, 10)) {
       const what = request.command
-        ? `Команда: \`${request.command.slice(0, 160)}\``
+        ? tx.queue.command(request.command.slice(0, 160))
         : request.filePath
-          ? `Файл: \`${request.filePath.slice(0, 160)}\``
+          ? tx.queue.file(request.filePath.slice(0, 160))
           : (request.details || '').slice(0, 160);
       await tgApi('sendMessage', {
         chat_id: chatId,
-        text: `🚨 *${request.title}*\n${request.agentName || 'Агент'}${request.role ? ` (${request.role})` : ''}\n${what}`,
+        text: `🚨 *${request.title}*\n${request.agentName || tx.queue.agent}${request.role ? ` (${request.role})` : ''}\n${what}`,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '✅ Разрешить', callback_data: `hitl:allow:${request.id}` },
-              { text: '⛔ Отклонить', callback_data: `hitl:deny:${request.id}` }
+              { text: tx.queue.allow, callback_data: `hitl:allow:${request.id}` },
+              { text: tx.queue.deny, callback_data: `hitl:deny:${request.id}` }
             ]
           ]
         }
       });
     }
   } catch {
-    await tgApi('sendMessage', {
-      chat_id: chatId,
-      text: '⚠️ Не удалось получить очередь решений. Убедитесь, что ProjectHub запущен и задан токен хоста.'
-    }).catch(() => {});
+    await tgApi('sendMessage', { chat_id: chatId, text: tx.queue.failed }).catch(() => {});
   }
+}
+
+/** Краткий статус этого хоста: запасной ответ `/status`, когда федерация недоступна. */
+function formatHostStatus(status, tx) {
+  const st = tx.status;
+  return `${st.hostTitle}\n\n- ${st.host}: \`${status.machineName || status.hostId}\`\n- ${st.status}: ${status.status === 'ok' ? st.ok : st.error}\n- ${st.mode}: \`${status.mode}\`\n- ${st.tunnel}: \`${status.tunnelUrl || st.local}\``;
 }
 
 async function handleMessage(msg) {
   const chatId = msg.chat?.id;
   const text = (msg.text || '').trim();
   const from = msg.from || {};
+  const tx = textFor(from);
 
   if (!chatId) return;
 
   if (!isUserAllowed(from)) {
-    await tgApi('sendMessage', {
-      chat_id: chatId,
-      text: '⛔ Доступ запрещен. Ваш ID или логин не указан в списке разрешенных пользователей ProjectHub.'
-    }).catch(() => {});
+    await tgApi('sendMessage', { chat_id: chatId, text: tx.accessDenied }).catch(() => {});
     return;
   }
 
@@ -152,19 +180,19 @@ async function handleMessage(msg) {
     const webAppUrl = config.miniAppUrl || `http://${config.hubHost}:${config.hubPort}/telegram`;
     await tgApi('sendMessage', {
       chat_id: chatId,
-      text: `👋 Привет, ${from.first_name || 'пользователь'}!\n\nДобро пожаловать в панель управления **ProjectHub**.\nНажмите кнопку ниже, чтобы открыть Mini App прямо в Telegram.`,
+      text: tx.start.greeting(from.first_name ? escapeMarkdown(from.first_name) : tx.start.anonymous),
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: '🚀 Открыть ProjectHub Mini App',
+              text: tx.start.openMiniApp,
               web_app: { url: webAppUrl }
             }
           ],
           [
-            { text: '📊 Статус хоста', callback_data: 'status' },
-            { text: '🚨 Очередь решений', callback_data: 'hitl:list' }
+            { text: tx.start.hostStatus, callback_data: 'status' },
+            { text: tx.start.queue, callback_data: 'hitl:list' }
           ]
         ]
       }
@@ -173,11 +201,12 @@ async function handleMessage(msg) {
   }
 
   if (text.startsWith('/hitl') || text.startsWith('/approve')) {
-    await sendHitlQueue(chatId);
+    await sendHitlQueue(chatId, tx);
     return;
   }
 
   if (text.startsWith('/status') || text.startsWith('/help')) {
+    const st = tx.status;
     try {
       const res = await fetchHub('/api/federation/hosts');
       if (!res.ok) throw new Error(`federation/hosts HTTP ${res.status}`);
@@ -185,16 +214,15 @@ async function handleMessage(msg) {
       const hosts = fed.hosts || [];
       const onlineHosts = hosts.filter((h) => h.isOnline);
 
-      let statusMsg = `🖥 **ProjectHub Federation — Единый Hub**\n\n`;
-      statusMsg += `В сети: **${onlineHosts.length}** из ${hosts.length} компьютеров\n\n`;
+      let statusMsg = `${st.federationTitle}\n\n`;
+      statusMsg += `${st.online(onlineHosts.length, hosts.length)}\n\n`;
 
       for (const h of hosts) {
         const icon = h.platform === 'darwin' ? '🍏' : h.platform === 'linux' ? '🐧' : '💻';
-        const st = h.isOnline ? '🟢 Онлайн' : '⚪ Офлайн';
-        statusMsg += `${icon} **${h.machineName}** (${st})\n`;
-        statusMsg += `   • Проектов: ${h.projectsCount || 0} • Процессов: ${h.activeProcessesCount || 0}\n`;
+        statusMsg += `${icon} *${escapeMarkdown(h.machineName)}* (${h.isOnline ? st.hostOnline : st.hostOffline})\n`;
+        statusMsg += `   • ${st.counts(h.projectsCount || 0, h.activeProcessesCount || 0)}\n`;
         if (h.tunnelUrl) {
-          statusMsg += `   • Туннель: \`${h.tunnelUrl}\`\n`;
+          statusMsg += `   • ${st.tunnel}: \`${h.tunnelUrl}\`\n`;
         }
       }
 
@@ -207,16 +235,9 @@ async function handleMessage(msg) {
       try {
         const res = await fetchHub('/api/status');
         const status = await res.json();
-        await tgApi('sendMessage', {
-          chat_id: chatId,
-          text: `🖥 **ProjectHub Host Status**\n\n- Хост: \`${status.machineName || status.hostId}\`\n- Статус: ${status.status === 'ok' ? '🟢 Онлайн' : '🔴 Ошибка'}\n- Режим: \`${status.mode}\`\n- Туннель: \`${status.tunnelUrl || 'локальный'}\``,
-          parse_mode: 'Markdown'
-        });
+        await tgApi('sendMessage', { chat_id: chatId, text: formatHostStatus(status, tx), parse_mode: 'Markdown' });
       } catch {
-        await tgApi('sendMessage', {
-          chat_id: chatId,
-          text: '⚠️ Не удалось получить статус ProjectHub хоста. Убедитесь, что приложение запущено.'
-        });
+        await tgApi('sendMessage', { chat_id: chatId, text: st.failed });
       }
     }
   }
@@ -227,8 +248,9 @@ async function handleMessage(msg) {
  * `hitlService.decide`, что и окно приложения: первый ответ выигрывает, повтор получает 409
  * и «уже решено» (decision-10 п.5).
  */
-async function applyHitlDecision(query, decision, requestId) {
+async function applyHitlDecision(query, decision, requestId, tx) {
   const approved = decision === 'allow';
+  const dx = tx.decision;
   try {
     const res = await fetchHub('/api/hitl/decide', {
       method: 'POST',
@@ -239,30 +261,30 @@ async function applyHitlDecision(query, decision, requestId) {
     if (res.ok && data.ok) {
       await tgApi('answerCallbackQuery', {
         callback_query_id: query.id,
-        text: approved ? 'Разрешено' : 'Отклонено'
+        text: approved ? dx.allowed : dx.denied
       });
-      await editDecidedMessage(query, approved ? '✅ Разрешено из Telegram' : '⛔ Отклонено из Telegram');
+      await editDecidedMessage(query, approved ? dx.allowedSuffix : dx.deniedSuffix);
     } else if (res.status === 409 && data.reason === 'confirmation_required') {
       // Высокий риск (decision-112): запрос по-прежнему ждёт — сообщение не закрываем, его можно отклонить здесь.
       await tgApi('answerCallbackQuery', {
         callback_query_id: query.id,
-        text: 'Высокий риск: одобрить можно только в ProjectHub на ПК или в приложении с биометрией. Отклонить можно здесь.',
+        text: dx.highRisk,
         show_alert: true
       });
     } else if (res.status === 409) {
       await tgApi('answerCallbackQuery', {
         callback_query_id: query.id,
-        text: data.reason === 'already_decided' ? 'Запрос уже решён' : 'Запрос не найден',
+        text: data.reason === 'already_decided' ? dx.alreadyDecided : dx.notFound,
         show_alert: true
       });
-      await editDecidedMessage(query, '— запрос уже закрыт другим каналом');
+      await editDecidedMessage(query, dx.closedElsewhere);
     } else {
       throw new Error(`HTTP ${res.status}`);
     }
   } catch (e) {
     await tgApi('answerCallbackQuery', {
       callback_query_id: query.id,
-      text: 'ProjectHub недоступен',
+      text: dx.unavailable,
       show_alert: true
     }).catch(() => {});
     console.warn('[TelegramBot] Не удалось применить решение HITL:', e.message);
@@ -273,7 +295,8 @@ async function applyHitlDecision(query, decision, requestId) {
  * Подтверждение задач агента кнопкой из уведомления `agentTask` (TASK-155, decision-89 п. 11). Билет
  * подтверждает ровно задачи этой пачки; уже подтверждённые в окне или с телефона считаются отдельно.
  */
-async function applyAgentTaskApproval(query, ticket) {
+async function applyAgentTaskApproval(query, ticket, tx) {
+  const kx = tx.tasks;
   try {
     const res = await fetchHub('/api/agent-tasks/approve', {
       method: 'POST',
@@ -284,24 +307,24 @@ async function applyAgentTaskApproval(query, ticket) {
     if (res.ok && data.ok) {
       const approved = Array.isArray(data.approved) ? data.approved : [];
       const notPending = Array.isArray(data.notPending) ? data.notPending : [];
-      const text = approved.length > 0 ? `Подтверждено: ${approved.length}` : 'Задачи уже подтверждены';
+      const text = approved.length > 0 ? kx.confirmed(approved.length) : kx.alreadyConfirmed;
       await tgApi('answerCallbackQuery', { callback_query_id: query.id, text });
       const parts = [];
-      if (approved.length > 0) parts.push(`✅ Подтверждено из Telegram: ${approved.join(', ')}`);
-      if (notPending.length > 0) parts.push(`— уже не ждали подтверждения: ${notPending.join(', ')}`);
+      if (approved.length > 0) parts.push(kx.confirmedSuffix(approved.join(', ')));
+      if (notPending.length > 0) parts.push(kx.notPendingSuffix(notPending.join(', ')));
       await editDecidedMessage(query, parts.join('\n'));
     } else if (res.status === 409) {
       await tgApi('answerCallbackQuery', {
         callback_query_id: query.id,
-        text: 'Кнопка устарела (ProjectHub перезапускался). Подтвердите задачи в окне или с телефона.',
+        text: kx.stale,
         show_alert: true
       });
-      await editDecidedMessage(query, '— кнопка устарела, подтвердите задачи в ProjectHub');
+      await editDecidedMessage(query, kx.staleSuffix);
     } else {
       throw new Error(`HTTP ${res.status}`);
     }
   } catch (e) {
-    await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: 'ProjectHub недоступен', show_alert: true }).catch(() => {});
+    await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: tx.decision.unavailable, show_alert: true }).catch(() => {});
     console.warn('[TelegramBot] Не удалось подтвердить задачи агента:', e.message);
   }
 }
@@ -323,43 +346,45 @@ async function editDecidedMessage(query, suffix) {
 async function handleCallbackQuery(query) {
   const chatId = query.message?.chat?.id;
   const data = query.data || '';
+  const tx = textFor(query.from);
   if (!chatId) return;
 
   if (!isUserAllowed(query.from || {})) {
-    await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: 'Доступ запрещён', show_alert: true }).catch(() => {});
+    await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: tx.accessDeniedShort, show_alert: true }).catch(() => {});
     return;
   }
 
   if (data === 'hitl:list') {
     await tgApi('answerCallbackQuery', { callback_query_id: query.id }).catch(() => {});
-    await sendHitlQueue(chatId);
+    await sendHitlQueue(chatId, tx);
     return;
   }
 
   const hitlMatch = data.match(/^hitl:(allow|deny):(.+)$/);
   if (hitlMatch) {
-    await applyHitlDecision(query, hitlMatch[1], hitlMatch[2]);
+    await applyHitlDecision(query, hitlMatch[1], hitlMatch[2], tx);
     return;
   }
 
   const agentTaskMatch = data.match(/^atask:([A-Za-z0-9_-]{8,32})$/);
   if (agentTaskMatch) {
-    await applyAgentTaskApproval(query, agentTaskMatch[1]);
+    await applyAgentTaskApproval(query, agentTaskMatch[1], tx);
     return;
   }
 
   if (data === 'status') {
+    const st = tx.status;
     try {
       const res = await fetchHub('/api/status');
       const status = await res.json();
-      await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: 'Статус обновлен' });
+      await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: st.refreshed });
       await tgApi('sendMessage', {
         chat_id: chatId,
-        text: `🖥 **ProjectHub Host Status**\n\n- Статус: ${status.status === 'ok' ? '🟢 Онлайн' : '🔴 Ошибка'}\n- Режим: \`${status.mode}\`\n- Порт: \`${status.port}\``,
+        text: `${st.hostTitle}\n\n- ${st.status}: ${status.status === 'ok' ? st.ok : st.error}\n- ${st.mode}: \`${status.mode}\`\n- ${st.port}: \`${status.port}\``,
         parse_mode: 'Markdown'
       });
     } catch {
-      await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: 'Хост недоступен', show_alert: true });
+      await tgApi('answerCallbackQuery', { callback_query_id: query.id, text: st.hostUnavailable, show_alert: true });
     }
   }
 }

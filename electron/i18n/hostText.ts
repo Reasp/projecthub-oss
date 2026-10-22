@@ -6,7 +6,8 @@
  * Чистый модуль без Electron: его импортируют чистые модули правил и unit-тесты.
  */
 import type { Language } from '../../src/i18n/types.js';
-import type { HitlTextLabels } from '../../src/lib/agentStatusText.js';
+import type { ApprovalRequest } from '../../src/types/electron';
+import { describeHitlRequest, type HitlTextLabels } from '../../src/lib/agentStatusText.js';
 import { hitlRequestTextEn, hitlRequestTextRu } from '../../src/i18n/hitlRequestText.js';
 
 function pluralRu(n: number, one: string, few: string, many: string): string {
@@ -293,4 +294,13 @@ const TEXTS: Record<Language, HostText> = { en, ru };
 
 export function hostText(lang: Language = 'en'): HostText {
   return TEXTS[lang] ?? en;
+}
+
+/**
+ * Заголовок запроса HITL на языке читателя, который сам назвал язык (`?lang=` очереди для бота Telegram, decision-164).
+ * Неизвестный язык или запрос без кода — запасной `title` хоста.
+ */
+export function hitlTitleIn(req: Pick<ApprovalRequest, 'title' | 'details' | 'questionData' | 'textKey'>, lang: unknown): string {
+  if (lang !== 'en' && lang !== 'ru') return req.title;
+  return describeHitlRequest(req, TEXTS[lang].hitl).title;
 }

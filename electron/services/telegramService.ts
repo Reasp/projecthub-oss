@@ -6,7 +6,7 @@ import { getUserDataDir, getWorkerScriptCandidates } from './appPaths.js';
 import { formatTelegramMessage } from './notificationRules.js';
 import type { AppNotification } from './notificationTypes.js';
 import { logger } from './logger.js';
-import { getHostLanguage } from './hostLanguage.js';
+import { getHostLanguage, getHostLanguageFile } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
 
 /**
@@ -253,6 +253,9 @@ class TelegramService {
           PROJECTHUB_PORT: String(creds.hubPort || 42050),
           PROJECTHUB_HOST: '127.0.0.1',
           PROJECTHUB_HOST_TOKEN: creds.hostToken || '',
+          // Ответ без кода языка пользователя — на языке интерфейса хоста (decision-161 п. 5, decision-164).
+          PROJECTHUB_HOST_LANGUAGE: getHostLanguage(),
+          PROJECTHUB_HOST_LANGUAGE_FILE: getHostLanguageFile(),
           // Конфиг из текущего каталога бот не читает: секреты приходят только окружением.
           PROJECTHUB_BOT_ENV_ONLY: '1'
         }

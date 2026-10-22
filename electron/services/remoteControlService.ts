@@ -38,6 +38,7 @@ import { projectRegistry } from './projectRegistry.js';
 import { assertRegisteredProject, assertWorkspaceRoot } from './projectPathGuard.js';
 import { studioRemoteBridge } from './studioRemoteBridge.js';
 import { aiSessionStore } from './aiSessionStore.js';
+import { hitlTitleIn } from '../i18n/hostText.js';
 import { llmProfileService } from './llmProfileService.js';
 import { llmModelCatalogService } from './llmModelCatalogService.js';
 import {
@@ -2308,6 +2309,8 @@ class RemoteControlService {
         // Без диффов и содержимого файлов — наружу уходит только то, что нужно для решения. Устройству участника —
         // только адресованные ему запросы (TASK-142.3).
         const listPrincipal = this.apiPrincipal(req, url);
+        // `lang` — заголовок на языке читателя по коду запроса (бот Telegram, decision-164); без него — запасной `title`.
+        const lang = url.searchParams.get('lang');
         const pending = hitlService
           .listPending()
           .filter((r) => listPrincipal?.kind !== 'device' || this.hitlVisibleToRecord(r, listPrincipal.deviceId))
@@ -2316,7 +2319,7 @@ class RemoteControlService {
           sessionId: r.sessionId,
           projectPath: r.projectPath,
           type: r.type,
-          title: r.title,
+          title: hitlTitleIn(r, lang),
           details: r.details,
           command: r.command,
           filePath: r.filePath,
