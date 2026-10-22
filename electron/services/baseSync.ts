@@ -66,9 +66,10 @@ export { hasConflictMarkers };
 
 /**
  * Куда сливать и что: `workDir` должен быть отдельным worktree на своей ветке, основное дерево — на ветке.
- * Ошибка — текст для агента, без исключения.
+ * `base` — подтянуть другую локальную ветку вместо ветки основного дерева: окно завершения worktree сливает в
+ * выбранную человеком ветку (TASK-139.6). Ошибка — текст для агента, без исключения.
  */
-export async function resolveBaseSyncTarget(git: GitRunner, workDir: string): Promise<BaseSyncTarget | string> {
+export async function resolveBaseSyncTarget(git: GitRunner, workDir: string, base?: string): Promise<BaseSyncTarget | string> {
   let top: string;
   let mainPath: string;
   try {
@@ -83,12 +84,19 @@ export async function resolveBaseSyncTarget(git: GitRunner, workDir: string): Pr
     return 'Агент работает в основном дереве проекта, а не в своём worktree: подтягивать основную ветку некуда';
   }
   const branchOf = async (cwd: string) => (await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd }).catch(() => '')).trim();
-  const base = await branchOf(mainPath);
   const branch = await branchOf(top);
-  if (!base || base === 'HEAD') return 'Основное дерево проекта не на ветке: подтягивать нечего';
   if (!branch || branch === 'HEAD') return 'Worktree агента не на ветке (detached HEAD): слияние некуда фиксировать';
-  if (branch === base) return `Worktree агента стоит на основной ветке ${base}`;
-  return { mainPath, base, branch };
+  if (base !== undefined) {
+    // Имя ветки приходит из рендерера: только существующая локальная ветка, не опция git.
+    const exists = !base.startsWith('-') && await git(['rev-parse', '--verify', '--quiet', `refs/heads/${base}^{commit}`], { cwd: workDir }).then(() => true, () => false);
+    if (!exists) return `Ветки ${base} нет в репозитории`;
+    if (base === branch) return `Worktree уже стоит на ветке ${base}`;
+    return { mainPath, base, branch };
+  }
+  const mainBranch = await branchOf(mainPath);
+  if (!mainBranch || mainBranch === 'HEAD') return 'Основное дерево проекта не на ветке: подтягивать нечего';
+  if (branch === mainBranch) return `Worktree агента стоит на основной ветке ${mainBranch}`;
+  return { mainPath, base: mainBranch, branch };
 }
 
 async function mergeInProgress(git: GitRunner, cwd: string): Promise<boolean> {
@@ -117,8 +125,8 @@ function conflictText(target: BaseSyncTarget, conflicts: string[]): string {
  * Выполнить действие в worktree агента. `env` — git-окружение участника (автор), пустое — gitconfig хоста.
  * Никогда не бросает: отказ и ошибка git — результат с текстом для модели.
  */
-export async function runBaseSync(git: GitRunner, input: { workDir: string; action: BaseSyncAction; env?: Record<string, string> }): Promise<BaseSyncResult> {
-  const resolved = await resolveBaseSyncTarget(git, input.workDir);
+export async function runBaseSync(git: GitRunner, input: { workDir: string; action: BaseSyncAction; env?: Record<string, string>; base?: string }): Promise<BaseSyncResult> {
+  const resolved = await resolveBaseSyncTarget(git, input.workDir, input.base);
   if (typeof resolved === 'string') return refused(resolved);
   const target = resolved;
   const cwd = (await git(['rev-parse', '--show-toplevel'], { cwd: input.workDir })).trim();

@@ -801,6 +801,8 @@ export type {
   MergeState
 } from '../../electron/services/mergeConflicts';
 import type { ConflictFileContent, ConflictResolution, FinishMergeResult, MergeState } from '../../electron/services/mergeConflicts';
+export type { BaseSyncResult as PullBaseResult } from '../../electron/services/baseSync';
+import type { BaseSyncResult as PullBaseResult } from '../../electron/services/baseSync';
 
 export interface PullRequest {
   id: number | string;
@@ -1278,6 +1280,8 @@ export interface IElectronAPI {
   pruneWorktrees: (projectPath: string) => Promise<boolean>;
   getWorktreeDiff: (projectPath: string, worktreeBranch: string, baseBranch: string, worktreePath?: string) => Promise<string>;
   mergeWorktree: (projectPath: string, worktreeBranch: string, targetBranch: string, options?: MergeOptions) => Promise<MergeWorktreeResult>;
+  /** Слить `targetBranch` в ветку worktree внутри worktree; при конфликте слияние остаётся незавершённым (TASK-139.6). */
+  pullBaseIntoWorktree: (projectPath: string, worktreePath: string, targetBranch: string) => Promise<PullBaseResult>;
   checkoutWorktreeFiles: (projectPath: string, branch: string, filePaths: string[]) => Promise<{ success: boolean; error?: string; files?: string[] }>;
   findOrphanedWorktrees: (projectPath: string, activeTaskIds: string[], activeSwarmIds: string[]) => Promise<OrphanedWorktreeScan>;
   cleanOrphanedWorktrees: (projectPath: string, worktreePaths: string[], branches: string[]) => Promise<CleanOrphanedResult>;

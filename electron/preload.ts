@@ -282,6 +282,8 @@ const api: IElectronAPI = {
     ipcRenderer.invoke('git:worktree:getDiff', projectPath, worktreeBranch, baseBranch, worktreePath),
   mergeWorktree: (projectPath: string, worktreeBranch: string, targetBranch: string, options?: { renumber?: boolean }) =>
     ipcRenderer.invoke('git:worktree:merge', projectPath, worktreeBranch, targetBranch, options),
+  pullBaseIntoWorktree: (projectPath: string, worktreePath: string, targetBranch: string) =>
+    ipcRenderer.invoke('git:worktree:pullBase', projectPath, worktreePath, targetBranch),
   checkoutWorktreeFiles: (projectPath: string, branch: string, filePaths: string[]) =>
     ipcRenderer.invoke('git:worktree:checkoutFiles', projectPath, branch, filePaths),
   findOrphanedWorktrees: (projectPath: string, activeTaskIds: string[] = [], activeSwarmIds: string[] = []) =>

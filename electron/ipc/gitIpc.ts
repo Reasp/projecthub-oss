@@ -2,7 +2,10 @@ import { ipcMain } from 'electron';
 import { gitService } from '../services/gitService';
 import { worktreeService } from '../services/worktreeService';
 import { prService } from '../services/prServiceInstance';
-import { assertRegisteredProject, assertWorkspaceRoot } from '../services/projectPathGuard';
+import path from 'node:path';
+import { assertRegisteredProject, assertWorkspaceRoot, isProjectWorktreeRoot } from '../services/projectPathGuard';
+import { runBaseSync, type BaseSyncResult } from '../services/baseSync';
+import { execGit } from '../services/checkpointGit';
 import { assertInsideProject } from '../services/pathGuard';
 import { runWorktreeInit } from '../services/worktreeInitService';
 import { guardedCommit } from '../services/commitSecretGuard';
@@ -158,6 +161,15 @@ export function registerGitIpc() {
   ipcMain.handle('git:worktree:merge', async (_event, projectPath: string, worktreeBranch: string, targetBranch: string, options?: { renumber?: unknown }) => {
     const safeProject = await assertRegisteredProject(projectPath);
     return await worktreeService.mergeWorktree(safeProject, worktreeBranch, targetBranch, { renumber: options?.renumber === true });
+  });
+
+  // Слияние worktree встало на конфликте — подтянуть целевую ветку в ветку worktree и разрешить там (TASK-139.6).
+  ipcMain.handle('git:worktree:pullBase', async (_event, projectPath: string, worktreePath: string, targetBranch: string): Promise<BaseSyncResult> => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    if (typeof worktreePath !== 'string' || !isProjectWorktreeRoot(safeProject, worktreePath)) {
+      throw new Error(`Доступ запрещён: "${worktreePath}" не является worktree проекта`);
+    }
+    return await runBaseSync(execGit, { workDir: path.resolve(worktreePath), action: 'start', base: String(targetBranch) });
   });
 
   ipcMain.handle('git:worktree:checkoutFiles', async (_event, projectPath: string, branch: string, filePaths: string[]) => {

@@ -322,10 +322,15 @@ export class WorktreeService {
       if (targetWtPath && existsSync(targetWtPath)) {
         try {
           const wtGit = simpleGit(targetWtPath);
-          try {
-            await wtGit.raw(['add', '-N', '.']);
-          } catch {
-            // Игнорируем если нечего добавлять или временные коллизии
+          // `add -N` на файле в конфликте заменяет его unmerged-записи пустой intent-to-add и тихо «разрешает»
+          // конфликт: пока в worktree идёт слияние (TASK-139.6), индекс не трогаем.
+          const unmerged = await wtGit.raw(['ls-files', '-u']).catch(() => '');
+          if (!unmerged.trim()) {
+            try {
+              await wtGit.raw(['add', '-N', '.']);
+            } catch {
+              // Игнорируем если нечего добавлять или временные коллизии
+            }
           }
           const diffOutput = await wtGit.diff([baseBranch]);
           if (diffOutput && diffOutput.trim()) {

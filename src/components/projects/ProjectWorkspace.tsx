@@ -24,6 +24,8 @@ import { ProcessesView } from '../processes/ProcessesView';
 import { SecurityHealthView } from '../security/SecurityHealthView';
 import { CodeGraphView, DocsGraphView } from '../graph/ProjectGraphViews';
 import { ProjectInitModal, type ProjectInitMode } from './ProjectInitModal';
+import { MergeInProgressBanner } from '../git/MergeInProgressBanner';
+import { MergeConflictsModal } from '../git/MergeConflictsModal';
 
 /**
  * Рабочая область выбранного проекта. Переключение вкладок, их порядок, скрытие и настройка
@@ -41,10 +43,14 @@ export const ProjectWorkspace: React.FC = () => {
     addProjectByPath,
     removedProjectNotice,
     clearRemovedProjectNotice,
-    isProjectDataLoading
+    isProjectDataLoading,
+    gitRepoDetails,
+    workspaceRoot,
+    loadGitRepoDetails
   } = useProjectStore();
 
   const [initTarget, setInitTarget] = useState<{ mode: ProjectInitMode; path?: string } | null>(null);
+  const [showConflicts, setShowConflicts] = useState(false);
 
   if (!selectedProject) {
     const startAction =
@@ -158,6 +164,24 @@ export const ProjectWorkspace: React.FC = () => {
           не переносится с предыдущего проекта.
         */}
         <div key={selectedProject?.path || 'no-project'} className="flex-1 flex flex-col overflow-hidden">
+          {/* Незавершённое слияние видно на любой вкладке, панель Git показывает свой баннер (TASK-139.6). */}
+          {gitRepoDetails?.merging && activeTab !== 'git' && (
+            <MergeInProgressBanner
+              className="mx-4 mt-2 mb-1"
+              count={gitRepoDetails.merging.conflicted.length}
+              onResolve={() => setShowConflicts(true)}
+            />
+          )}
+          {showConflicts && (
+            <MergeConflictsModal
+              root={workspaceRoot || selectedProject.path}
+              projectPath={selectedProject.path}
+              onClose={() => {
+                setShowConflicts(false);
+                void loadGitRepoDetails(selectedProject);
+              }}
+            />
+          )}
           {activeTab === 'kanban' && <KanbanBoard />}
           {activeTab === 'milestones' && <MilestonesRoadmapView />}
           {activeTab === 'git' && <GitInspector />}

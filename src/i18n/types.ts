@@ -2195,6 +2195,11 @@ export interface TranslationDictionary {
     fileAppliedSuccess: string;
     mergeConflictDetected: string;
     mergeAbortedSafe: string;
+    pullAndResolve: string;
+    pullAndResolveHint: string;
+    pulledRetry: string;
+    resolvedRetry: string;
+    worktreeMergeInProgress: string;
     conflictedFilesList: string;
     createPrInstead: string;
     openInEditor: string;

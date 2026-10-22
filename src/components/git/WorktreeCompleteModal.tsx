@@ -11,10 +11,11 @@ import {
   FileDiff,
   FolderOpen
 } from '../common/icons';
-import type { GitWorktreeInfo } from '../../types/electron';
+import type { GitWorktreeInfo, MergeState } from '../../types/electron';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { SplitDiffViewer } from './SplitDiffViewer';
+import { MergeConflictsModal } from './MergeConflictsModal';
 
 interface WorktreeCompleteModalProps {
   worktree: GitWorktreeInfo;
@@ -50,6 +51,12 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
   const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
   const [appliedFileMessage, setAppliedFileMessage] = useState<string | null>(null);
   const [isApplyingFile, setIsApplyingFile] = useState(false);
+  // Слияние целевой ветки в сам worktree (TASK-139.6): его состояние, окно конфликтов и перечитывание диффа.
+  const [worktreeMerge, setWorktreeMerge] = useState<MergeState | null>(null);
+  const [showConflicts, setShowConflicts] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const [diffVersion, setDiffVersion] = useState(0);
 
   const matchingTask = worktree.taskId
     ? tasks.find((t) => t.id.toLowerCase() === worktree.taskId?.toLowerCase())
@@ -74,7 +81,54 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [worktree.branch, targetBranch, worktree.path]);
+  }, [worktree.branch, targetBranch, worktree.path, diffVersion]);
+
+  const loadWorktreeMerge = React.useCallback(async (): Promise<MergeState | null> => {
+    if (worktree.isMain || !window.api?.getMergeState) return null;
+    const state = await window.api.getMergeState(worktree.path).catch(() => null);
+    setWorktreeMerge(state);
+    return state;
+  }, [worktree.path, worktree.isMain]);
+
+  useEffect(() => {
+    void loadWorktreeMerge();
+  }, [loadWorktreeMerge]);
+
+  const worktreeInMerge = worktreeMerge?.inMerge === true;
+
+  const handlePullAndResolve = async () => {
+    if (!selectedProject || !worktree.branch) return;
+    setIsPulling(true);
+    setPullError(null);
+    setAppliedFileMessage(null);
+    try {
+      const res = await window.api.pullBaseIntoWorktree(selectedProject.path, worktree.path, targetBranch);
+      if (res.status === 'conflict') {
+        await loadWorktreeMerge();
+        setShowConflicts(true);
+      } else if (res.ok) {
+        setConflictFiles(null);
+        setAppliedFileMessage(t.worktrees.pulledRetry.replace('{target}', targetBranch).replace('{branch}', worktree.branch));
+        setDiffVersion((v) => v + 1);
+      } else {
+        setPullError(res.text);
+      }
+    } catch (err) {
+      setPullError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  const handleConflictsClosed = async () => {
+    setShowConflicts(false);
+    const state = await loadWorktreeMerge();
+    if (state && !state.inMerge) {
+      setConflictFiles(null);
+      setAppliedFileMessage(t.worktrees.resolvedRetry.replace('{branch}', worktree.branch || ''));
+    }
+    setDiffVersion((v) => v + 1);
+  };
 
   const changedFiles = React.useMemo(() => {
     if (!diffText) return [];
@@ -223,8 +277,25 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
           </div>
         </div>
 
+        {/* Незавершённое слияние в самом worktree: сначала его закончить, потом сливать в целевую ветку */}
+        {worktreeInMerge && (
+          <div data-testid="worktree-merge-in-progress" className="px-6 py-3 bg-amber-950/50 border-b border-amber-800/60 flex items-center gap-3 shrink-0">
+            <GitMerge className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="flex-1 text-xs text-amber-200">
+              {t.worktrees.worktreeMergeInProgress.replace('{count}', String(worktreeMerge?.files.length ?? 0))}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowConflicts(true)}
+              className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-xs text-white font-medium transition"
+            >
+              {t.mergeConflicts.resolveButton}
+            </button>
+          </div>
+        )}
+
         {/* Conflict Resolution Banner if merge failed with conflicts */}
-        {conflictFiles && conflictFiles.length > 0 && (
+        {conflictFiles && conflictFiles.length > 0 && !worktreeInMerge && (
           <div className="p-4 bg-rose-950/50 border-b border-rose-800/60 flex flex-col gap-3 shrink-0">
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
@@ -241,7 +312,27 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
                 </div>
               </div>
             </div>
+            {!worktree.isMain && (
+              <p className="pl-8 text-xs text-rose-200/80">
+                {t.worktrees.pullAndResolveHint.replace('{target}', targetBranch).replace('{branch}', worktree.branch || '')}
+              </p>
+            )}
+            {pullError && (
+              <p className="ml-8 text-xs text-rose-300 font-mono bg-black/40 px-2 py-1 rounded border border-rose-900/60">{pullError}</p>
+            )}
             <div className="flex items-center justify-end gap-2">
+              {!worktree.isMain && (
+                <button
+                  type="button"
+                  data-testid="worktree-pull-and-resolve"
+                  disabled={isPulling}
+                  onClick={handlePullAndResolve}
+                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-xs font-medium text-white transition flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isPulling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <GitMerge className="w-3.5 h-3.5" />}
+                  <span>{t.worktrees.pullAndResolve.replace('{target}', targetBranch)}</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => window.api.openInExplorer(worktree.path)}
@@ -355,7 +446,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
 
             <button
               type="button"
-              disabled={isMerging}
+              disabled={isMerging || worktreeInMerge}
               onClick={handleMerge}
               className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-md transition flex items-center gap-1.5 disabled:opacity-50"
             >
@@ -374,6 +465,9 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
           </div>
         </div>
       </div>
+      {showConflicts && selectedProject && (
+        <MergeConflictsModal root={worktree.path} projectPath={selectedProject.path} onClose={() => void handleConflictsClosed()} />
+      )}
     </div>,
     document.body
   );
