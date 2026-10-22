@@ -14,6 +14,7 @@ import type {
   RemoteQueueView,
   RemoteRoleSummary,
   RemoteTeam,
+  RemoteClaims,
   RemoteStudioOptions,
   RemoteStudioSession,
   RemoteStudioSessionSummary,
@@ -105,6 +106,8 @@ export interface AppState {
   inbox: InboxSnapshot | null;
   /** Общий хост команды (TASK-142.5): кто я и кто что ведёт; `null` — хост без модуля Team или нет проекта. */
   team: RemoteTeam | null;
+  /** Захваты задач на origin (decision-152); `null` — хост без модуля Team, `available: false` — у проекта нет origin. */
+  claims: RemoteClaims | null;
   /** Очередь слияния проекта (TASK-142.4); `null` — хост без очереди. */
   queue: RemoteQueueView | null;
   /** Дерево открытого ПК (`get_overview`); `null` — ещё не загружено или хост старый. */
@@ -180,6 +183,7 @@ export class AppStore {
       push: null,
       inbox: null,
       team: null,
+      claims: null,
       queue: null,
       overview: null,
       overviewUnsupported: false,
@@ -285,6 +289,7 @@ export class AppStore {
       this.refreshGit(),
       this.refreshStudio(),
       this.refreshTeam(),
+      this.refreshClaims(),
       this.refreshQueue()
     ]);
     this.applyPendingNav();
@@ -346,6 +351,7 @@ export class AppStore {
       roles: [],
       gitBranch: null,
       team: null,
+      claims: null,
       queue: null,
       studio: { ...emptyStudio(this.state.studio), sessions: [], sessionsLoaded: false }
     });
@@ -357,6 +363,7 @@ export class AppStore {
       this.refreshGit(),
       this.refreshStudio(),
       this.refreshTeam(),
+      this.refreshClaims(),
       this.refreshQueue()
     ]);
   }
@@ -522,6 +529,30 @@ export class AppStore {
     if (this.state.projectPath === path) this.set({ team });
   }
 
+  /** Кто какую задачу взял на origin. Хост без модуля отвечает «Unknown RPC method» — тогда `null`. */
+  async refreshClaims(refresh = false): Promise<void> {
+    const path = this.state.projectPath;
+    if (!path) return this.set({ claims: null });
+    const claims = await this.call<RemoteClaims>('get_claims', { projectPath: path, ...(refresh ? { refresh: true } : {}) }, true);
+    if (this.state.projectPath === path) this.set({ claims });
+  }
+
+  /** Взять задачу на origin: другие копии репозитория увидят, что она занята (decision-152). */
+  async claimTask(task: RemoteTaskSummary): Promise<boolean> {
+    const res = await this.call<{ alreadyMine?: boolean }>('claim_task', this.withProject({ taskId: task.id }));
+    if (res) this.showToast(res.alreadyMine ? t().tasks.claimAlreadyMine : t().tasks.claimed, 'success');
+    await Promise.all([this.refreshTasks(), this.refreshClaims()]);
+    return Boolean(res);
+  }
+
+  /** Отдать задачу на origin; `force` — снять чужой протухший захват (хост проверит возраст). */
+  async releaseClaim(task: RemoteTaskSummary, force = false): Promise<boolean> {
+    const res = await this.call<{ released?: boolean }>('release_claim', this.withProject({ taskId: task.id, ...(force ? { force: true } : {}) }));
+    if (res) this.showToast(res.released ? t().tasks.claimReleased : t().tasks.claimNone, 'info');
+    await Promise.all([this.refreshTasks(), this.refreshClaims()]);
+    return Boolean(res);
+  }
+
   async refreshQueue(): Promise<void> {
     const path = this.state.projectPath;
     if (!path) return this.set({ queue: null });
@@ -531,9 +562,11 @@ export class AppStore {
 
   /** Взять задачу себе: исполнитель — я, статус «в работе», на хосте — моя ветка и worktree (decision-126 п. 7). */
   async takeTask(task: RemoteTaskSummary): Promise<boolean> {
-    const res = await this.call('take_task', this.withProject({ taskId: task.id }));
-    if (res) this.showToast(t().tasks.taken, 'success');
-    await Promise.all([this.refreshTasks(), this.refreshTeam()]);
+    const res = await this.call<{ claimError?: string }>('take_task', this.withProject({ taskId: task.id }));
+    // Origin недоступен: задача взята только на хосте, другие копии её занятой не увидят (decision-153).
+    if (res?.claimError) this.showToast(t().tasks.takenHostOnly(res.claimError), 'error');
+    else if (res) this.showToast(t().tasks.taken, 'success');
+    await Promise.all([this.refreshTasks(), this.refreshTeam(), this.refreshClaims()]);
     return Boolean(res);
   }
 
@@ -953,6 +986,7 @@ export class AppStore {
         if (!d.projectPath || d.projectPath === this.state.projectPath) {
           this.debounced('tasks', () => void this.refreshTasks());
           this.debounced('team', () => void this.refreshTeam());
+          this.debounced('claims', () => void this.refreshClaims());
         }
         // Задачи агентов и Review во «Входящих» — по всем проектам хоста (TASK-155, TASK-140.5).
         this.debounced('agentTasks', () => void this.refreshAgentTasks());

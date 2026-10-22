@@ -434,6 +434,30 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                   <option value="deny">{t.roles.taskCreateDeny}</option>
                 </select>
               </div>
+              {/* Право захватывать задачу на origin (decision-153): по умолчанию — карточкой, захват — это push */}
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground block mb-1" title={t.roles.taskClaimHint}>
+                  {t.roles.taskClaim}
+                </label>
+                <select
+                  value={draft.permissions?.taskClaim ?? ''}
+                  onChange={(e) => {
+                    const value = e.target.value as '' | 'allow' | 'ask' | 'deny';
+                    const permissions = { ...(draft.permissions ?? {}) };
+                    if (value) permissions.taskClaim = value;
+                    else delete permissions.taskClaim;
+                    setDraft({ ...draft, permissions });
+                  }}
+                  title={t.roles.taskClaimHint}
+                  data-testid="role-task-claim"
+                  className="w-full text-xs rounded-sm border border-border bg-background px-2 py-1.5 text-foreground"
+                >
+                  <option value="">{t.roles.docMergeDefault}</option>
+                  <option value="allow">{t.roles.taskClaimAllow}</option>
+                  <option value="ask">{t.roles.taskCreateAsk}</option>
+                  <option value="deny">{t.roles.taskCreateDeny}</option>
+                </select>
+              </div>
             </div>
 
             <div>

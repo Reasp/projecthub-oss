@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowClockwiseIcon, CheckSquareIcon, GitMergeIcon, KanbanIcon, PlusIcon, SquareIcon, UserIcon } from '@phosphor-icons/react';
+import { ArrowClockwiseIcon, CheckSquareIcon, GitMergeIcon, KanbanIcon, LockSimpleIcon, PlusIcon, SquareIcon, UserIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
-import type { RemoteTaskSummary } from '../../../src/types/remote';
+import type { RemoteClaim, RemoteTaskSummary } from '../../../src/types/remote';
 import { isMyTask, returnReasons, reviewableByMe, taskHolder, taskQueueState } from '../../../src/utils/teamQueue';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, EmptyState, Sheet, Spinner } from '../components/ui';
 import { fieldProps } from '../components/FieldEditor';
 import { useT } from '../i18n/react';
 import { capabilitiesFor, criteriaProgress, groupTasksByStatus, KANBAN_STATUSES } from '../protocol/models';
+import { timeAgo } from '../protocol/inbox';
 import { QueueSheet } from './QueueSheet';
 
 const STATUS_TONE: Record<string, 'neutral' | 'accent' | 'review' | 'success'> = {
@@ -17,6 +18,78 @@ const STATUS_TONE: Record<string, 'neutral' | 'accent' | 'review' | 'success'> =
   Done: 'success'
 };
 
+/** Захват задачи на origin (decision-152): поле стора берётся целиком, поиск — вне селектора. */
+function useClaim(taskId: string | undefined): RemoteClaim | undefined {
+  const claims = useAppState((s) => s.claims);
+  if (!taskId || !claims?.available) return undefined;
+  return claims.claims.find((c) => c.taskId === taskId.toUpperCase());
+}
+
+/**
+ * Кто взял задачу на origin (decision-153). Взять задачу — «Взять себе» общего хоста: она делает и захват на origin.
+ * Здесь — «Отдать» своего захвата, который хост не ведёт (взят в окне или агентом), и снятие протухшего чужого.
+ */
+function ClaimBlock({ task, canWrite }: { task: RemoteTaskSummary; canWrite: boolean }) {
+  const { store } = useServices();
+  const tr = useT();
+  const claims = useAppState((s) => s.claims);
+  const team = useAppState((s) => s.team);
+  const claim = useClaim(task.id);
+  const [busy, setBusy] = useState(false);
+  const [confirmForce, setConfirmForce] = useState(false);
+  if (!claims?.available) return null;
+  const run = async (op: () => Promise<boolean>) => {
+    setBusy(true);
+    await op();
+    setBusy(false);
+    setConfirmForce(false);
+  };
+  const details = claim ? [claim.branch ? tr.tasks.claimBranch(claim.branch) : '', claim.agent ? tr.tasks.claimAgent(claim.agent) : ''].filter(Boolean).join(' · ') : '';
+  // Захват на origin снимает только владелец хоста: участник отдаёт задачу кнопкой «Отказаться».
+  const owner = !team || team.me === 'owner';
+  const heldOnHost = Boolean(team && taskHolder(task));
+  const buttons = canWrite && owner && task.status !== 'Done';
+  return (
+    <div className="mt-3 space-y-2" data-testid="task-claim">
+      {claim && (
+        <div className={clsx('flex items-start gap-1.5 text-[13px]', claim.mine ? 'text-indigo-300' : 'text-slate-300')}>
+          <LockSimpleIcon size={16} className="mt-0.5 shrink-0" />
+          <div>
+            <div>{claim.mine ? tr.tasks.claimMine(timeAgo(claim.at)) : tr.tasks.claimedBy(claim.host ? `${claim.name} (${claim.host})` : claim.name, timeAgo(claim.at))}</div>
+            {details && <div className="text-[12px] text-slate-400">{details}</div>}
+            {claim.stale && <div className="text-[12px] text-amber-300">{tr.tasks.claimStale}</div>}
+          </div>
+        </div>
+      )}
+      {claims.fetchError && <div className="text-[12px] text-amber-300">{tr.tasks.claimFetchError(claims.fetchError)}</div>}
+      {buttons && (
+        <div className="flex flex-wrap gap-2">
+          {!claim && !team && (
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => store.claimTask(task))}>
+              <LockSimpleIcon size={16} /> <span data-testid="task-claim-take">{tr.tasks.claimTake}</span>
+            </Button>
+          )}
+          {claim?.mine && !heldOnHost && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => store.releaseClaim(task))}>
+              <span data-testid="task-claim-release">{tr.tasks.claimRelease}</span>
+            </Button>
+          )}
+          {claim && !claim.mine && claim.stale && (
+            <Button
+              size="sm"
+              variant={confirmForce ? 'danger' : 'ghost'}
+              disabled={busy}
+              onClick={() => (confirmForce ? void run(() => store.releaseClaim(task, true)) : setConfirmForce(true))}
+            >
+              <span data-testid="task-claim-force">{confirmForce ? tr.tasks.claimForceConfirm : tr.tasks.claimForce}</span>
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TaskCard({ task, onOpen }: { task: RemoteTaskSummary; onOpen: () => void }) {
   const { done, total } = criteriaProgress(task);
   const team = useAppState((s) => s.team);
@@ -24,6 +97,8 @@ function TaskCard({ task, onOpen }: { task: RemoteTaskSummary; onOpen: () => voi
   // Общий хост (TASK-142.5): кто ведёт задачу и где она в очереди слияния.
   const holder = team ? taskHolder(task) : undefined;
   const inQueue = taskQueueState(queue, task.id).active;
+  // Захват на origin (decision-152): кто взял задачу в другой копии.
+  const claim = useClaim(task.id);
   return (
     <Card className="mb-2" onClick={onOpen}>
       <div className="flex items-center gap-2 text-[11px] text-slate-400">
@@ -32,6 +107,11 @@ function TaskCard({ task, onOpen }: { task: RemoteTaskSummary; onOpen: () => voi
         {holder && (
           <span className={clsx('ml-auto flex items-center gap-1', holder === team?.me && 'text-indigo-300')}>
             <UserIcon size={12} /> {holder}
+          </span>
+        )}
+        {claim && !holder && (
+          <span className={clsx('ml-auto flex items-center gap-1', claim.mine ? 'text-indigo-300' : claim.stale && 'text-amber-300')} data-testid="task-claim-badge">
+            <LockSimpleIcon size={12} /> {claim.name}
           </span>
         )}
         {inQueue && <Badge tone="review">#{inQueue.n}</Badge>}
@@ -64,6 +144,9 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
   const current = task ? (tasks.find((t) => t.filePath === task.filePath) ?? task) : null;
   const holder = current && team ? taskHolder(current) : undefined;
   const mine = Boolean(current && team && isMyTask(current, team.me));
+  // Задачу уже взял человек в другой копии: «Взять себе» всё равно получит отказ хоста (decision-153).
+  const claim = useClaim(current?.id);
+  const claimedElsewhere = Boolean(claim && !claim.mine);
   const qs = current ? taskQueueState(queue, current.id) : {};
   const reasons = qs.last?.status === 'returned' && !qs.active ? returnReasons(qs.last) : [];
   const run = async (op: () => Promise<boolean>) => {
@@ -77,6 +160,7 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
       {current && (
         <>
           <div className="text-[16px] font-medium leading-snug">{current.title}</div>
+          <ClaimBlock task={current} canWrite={canWrite} />
           {team && (
             <div className="mt-3 space-y-2" data-testid="task-team">
               {holder && <div className="text-[13px] text-slate-300">{tr.tasks.heldBy(holder)}</div>}
@@ -100,7 +184,7 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
               )}
               {canWrite && (
                 <div className="flex flex-wrap gap-2">
-                  {!holder && (
+                  {!holder && !claimedElsewhere && (
                     <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => store.takeTask(current))}>
                       <span data-testid="task-take">{tr.tasks.take}</span>
                     </Button>
@@ -296,7 +380,7 @@ export function TasksScreen({ focusStatus, focusTask, onFocusTaskShown }: { focu
         <button
           type="button"
           aria-label={tr.tasks.refresh}
-          onClick={() => void Promise.all([store.refreshTasks(), store.refreshTeam(), store.refreshQueue()])}
+          onClick={() => void Promise.all([store.refreshTasks(), store.refreshTeam(), store.refreshClaims(true), store.refreshQueue()])}
           className="ml-auto shrink-0 rounded-full p-1.5 text-slate-400 active:bg-ph-hover"
         >
           <ArrowClockwiseIcon size={18} />

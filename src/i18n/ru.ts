@@ -2830,6 +2830,9 @@ export const ru: TranslationDictionary = {
     docMergeHint: 'Может ли агент с этой ролью принять ветку документации в основную инструментом doc_branch_merge (decision-151).',
     docMergeDefault: 'По умолчанию — через карточку',
     docMergeAllow: 'Сразу (ревьюер документации)',
+    taskClaim: 'Захват задачи на origin',
+    taskClaimHint: 'Может ли агент с этой ролью взять или отдать задачу инструментами task_claim/task_release: захват — служебный ref на origin, его видят все копии репозитория (редакция Team, decision-153).',
+    taskClaimAllow: 'Сразу (без карточки)',
     agentTaskLimitsButton: 'Лимиты задач агентов',
     agentTaskLimits: {
       title: 'Лимиты задач, заведённых агентами',

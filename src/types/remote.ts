@@ -286,6 +286,10 @@ export type RemoteRpcMethod =
   | 'take_task'
   | 'release_task'
   | 'get_team'
+  // Захват задачи на origin в отдельных копиях (decision-152, decision-153)
+  | 'get_claims'
+  | 'claim_task'
+  | 'release_claim'
   // Очередь слияния общего хоста (TASK-142.4, decision-136): позиция, ревью не автором, возврат автору
   | 'queue_list'
   | 'queue_enqueue'
@@ -478,6 +482,30 @@ export interface RemoteTeamTask {
   branch: string;
   worktreePath?: string;
   agents: Array<{ swarmId: string; status: string; names: string[] }>;
+}
+
+/** Захват задачи на origin (`get_claims`, decision-152): кто взял, на какой машине, в какой ветке и каким агентом. */
+export interface RemoteClaim {
+  taskId: string;
+  name: string;
+  email: string;
+  host: string;
+  /** Время захвата, мс. */
+  at: number;
+  branch?: string;
+  agent?: string;
+  mine: boolean;
+  /** Старше 7 дней: снять может любой после подтверждения. */
+  stale: boolean;
+}
+
+/** Ответ `get_claims`: без origin `available: false` — захвата в проекте нет. */
+export interface RemoteClaims {
+  available: boolean;
+  me?: { name: string; email: string };
+  claims: RemoteClaim[];
+  fetchedAt?: number;
+  fetchError?: string;
 }
 
 /** Ответ `get_team`: кто я на этом хосте, кто онлайн, кто что ведёт в проекте. */

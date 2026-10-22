@@ -1,3 +1,6 @@
+import type { HitlRequest } from '../services/hitlTypes';
+import type { ProjectToolContext, ProjectToolResult } from '../services/projectAgentTools';
+
 /**
  * Точки расширения для платных модулей `ee/` (TASK-151, decision-123 п. 4). Код открытый (MIT): он не знает ни о
  * бюджетах, ни о командах — только об «ограничениях запуска агента», «итоге запуска» и «методах IPC». В открытой
@@ -229,6 +232,26 @@ export function minRights(a: DeviceRightsName, b: DeviceRightsName): DeviceRight
 }
 export type IpcHandler = (...args: unknown[]) => unknown;
 
+// ── Инструменты агентов проекта от модулей редакции (TASK-139.5, decision-153) ──
+
+/** Вызов инструмента: проект уже проверен по реестру, HITL и аудит — те же, что у встроенных инструментов. */
+export interface EditionToolScope {
+  root: string;
+  ctx: ProjectToolContext;
+  /** Карточка HITL; нет — спросить некого, режим `ask` отказывает. */
+  requestApproval?: (request: Omit<HitlRequest, 'id' | 'createdAt'>) => Promise<boolean>;
+  audit(decision: 'allow' | 'deny', title: string, filePath?: string, detail?: string): string;
+}
+
+export interface EditionAgentTool {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  /** Меняет данные: отказ и ошибка пишутся в аудит. */
+  write: boolean;
+  handler(args: Record<string, unknown>, scope: EditionToolScope): Promise<ProjectToolResult>;
+}
+
 export interface EditionMainApi {
   addLaunchGuard(guard: LaunchGuard): void;
   onAgentRun(listener: (record: AgentRunRecord) => void): void;
@@ -265,6 +288,8 @@ export interface EditionMainApi {
   addOwnershipGuard(guard: (ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => string | null): void;
   /** Событие и push только тем устройствам, которым оно адресовано (очередь слияния: автору, ревьюерам). */
   notifyDevices(notice: DeviceNotice, audience: (device: RemoteDeviceRef) => boolean): void;
+  /** Инструмент агентов во встроенном MCP рядом с `task_*`/`doc_*`. Имя встроенного инструмента не перекрывается. */
+  addAgentTool(tool: EditionAgentTool): void;
 }
 
 export interface SaveTextFileOptions {
@@ -310,6 +335,7 @@ let launcherProvider: LauncherProvider | null = null;
 let hitlRouting: HitlRouting | null = null;
 const ownershipGuards: Array<(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => string | null> = [];
 let deviceNotifier: DeviceNotifier = () => undefined;
+const agentTools = new Map<string, EditionAgentTool>();
 
 export const editionRegistry = {
   api(): EditionMainApi {
@@ -358,8 +384,20 @@ export const editionRegistry = {
         } catch (err) {
           console.warn('[edition] Уведомление устройствам не отправлено:', err);
         }
+      },
+      addAgentTool: (tool) => {
+        agentTools.set(tool.name, tool);
       }
     };
+  },
+
+  /** Инструменты агентов от модулей редакции; встроенные с тем же именем отсекает `projectAgentTools`. */
+  agentTools(): EditionAgentTool[] {
+    return [...agentTools.values()];
+  },
+
+  agentTool(name: string): EditionAgentTool | undefined {
+    return agentTools.get(name);
   },
 
   setDeviceNotifier(notifier: DeviceNotifier): void {
@@ -563,6 +601,7 @@ export const editionRegistry = {
     hitlRouting = null;
     ownershipGuards.length = 0;
     deviceNotifier = () => undefined;
+    agentTools.clear();
   }
 };
 

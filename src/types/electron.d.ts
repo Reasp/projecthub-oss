@@ -1955,6 +1955,8 @@ export interface RolePermissions {
   taskCreate?: 'propose' | 'ask' | 'deny';
   /** Принятие ветки документации агентом (decision-151); не задано — через карточку. */
   docMerge?: 'allow' | 'ask' | 'deny';
+  /** Захват задачи на origin агентом (decision-153); не задано — через карточку. */
+  taskClaim?: 'allow' | 'ask' | 'deny';
 }
 
 // Реестр ролей агентов (decision-9, TASK-60). Зеркало `electron/services/roleTypes.ts`.

@@ -45,6 +45,7 @@ import type { RagSearchResult } from '../../src/types/electron';
 import { createDocInBranch, readDocInBranch, updateDocInBranch, type DocBranchEnv } from './docBranches.js';
 import { callDocBranchTool, isDocBranchToolName, listBranchDocs, type DocBranchChange } from './docBranchTools.js';
 import { keepFrontmatterFormatting } from './docSectionMerge.js';
+import { editionRegistry } from '../extensions/editionRegistry.js';
 
 export const PROJECT_TOOL_NAMES = [
   'task_list',
@@ -68,6 +69,16 @@ export type ProjectToolName = (typeof PROJECT_TOOL_NAMES)[number];
 
 export function isProjectToolName(name: string): name is ProjectToolName {
   return (PROJECT_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+/** Инструмент модуля редакции (decision-153): встроенный с тем же именем важнее. */
+function editionTool(name: string) {
+  return isProjectToolName(name) ? undefined : editionRegistry.agentTool(name);
+}
+
+/** Встроенный инструмент проекта или инструмент модуля редакции: проверки и аудит — внутри `callProjectTool`. */
+export function isAgentProjectTool(name: string): boolean {
+  return isProjectToolName(name) || Boolean(editionTool(name));
 }
 
 /** Правило в аудите для записей задач и документов. */
@@ -509,9 +520,19 @@ const WRITE_TOOLS = new Set<ProjectToolName>([
   'doc_branch_close'
 ]);
 
+/** Описания инструментов для MCP: встроенные и модулей редакции, без перекрытия имён. */
+export function projectToolDefinitions(): Array<{ name: string; description: string; input_schema: Record<string, unknown> }> {
+  const extra = editionRegistry
+    .agentTools()
+    .filter((t) => !isProjectToolName(t.name))
+    .map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+  return [...PROJECT_TOOL_DEFINITIONS, ...extra];
+}
+
 /** Выполняет инструмент. Ошибки не бросает — возвращает текст для модели с `isError`. */
 export async function callProjectTool(name: string, args: Record<string, unknown>, ctx: ProjectToolContext, deps: ProjectToolDeps): Promise<ProjectToolResult> {
-  if (!isProjectToolName(name)) return { text: `Неизвестный инструмент: ${name}`, isError: true };
+  const extra = editionTool(name);
+  if (!isProjectToolName(name) && !extra) return { text: `Неизвестный инструмент: ${name}`, isError: true };
   const root = await resolveProjectToolRoot(ctx.sessionPath, deps);
   const audit = (decision: 'allow' | 'deny', title: string, filePath?: string, detail?: string) =>
     deps.recordAutoDecision(
@@ -533,10 +554,22 @@ export async function callProjectTool(name: string, args: Record<string, unknown
       detail
     );
 
+  const writes = extra ? extra.write : WRITE_TOOLS.has(name as ProjectToolName);
   if (!root) {
-    if (WRITE_TOOLS.has(name)) audit('deny', `${name}: invalid_project`, undefined, 'invalid_project');
+    if (writes) audit('deny', `${name}: invalid_project`, undefined, 'invalid_project');
     return { text: 'Проект недоступен: путь сессии не принадлежит зарегистрированному проекту ProjectHub.', isError: true };
   }
+
+  if (extra) {
+    try {
+      return await extra.handler(args, { root, ctx, audit, ...(deps.requestApproval ? { requestApproval: deps.requestApproval } : {}) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (writes) audit('deny', `${name}: error`, undefined, message);
+      return { text: `Ошибка: ${message}`, isError: true };
+    }
+  }
+  if (!isProjectToolName(name)) return { text: `Неизвестный инструмент: ${name}`, isError: true };
 
   try {
     if (isDocBranchToolName(name)) return await callDocBranchTool(name, args, { root, ctx, deps, audit });

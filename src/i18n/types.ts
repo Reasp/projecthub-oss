@@ -709,6 +709,9 @@ export interface TranslationDictionary {
     docMergeHint: string;
     docMergeDefault: string;
     docMergeAllow: string;
+    taskClaim: string;
+    taskClaimHint: string;
+    taskClaimAllow: string;
     agentTaskLimitsButton: string;
     agentTaskLimits: {
       title: string;

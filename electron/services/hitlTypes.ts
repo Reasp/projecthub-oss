@@ -230,12 +230,22 @@ export interface RolePermissions {
    * `ask` — через карточку HITL, `deny` — запрещено. Не задано — `ask`.
    */
   docMerge?: DocMergeMode;
+  /**
+   * Захват задачи на origin агентом (`task_claim`/`task_release`, decision-153): `allow` — сразу, `ask` — через карточку
+   * HITL, `deny` — запрещено. Не задано — `ask`: захват — push, а push идёт по явному действию человека.
+   */
+  taskClaim?: TaskClaimMode;
 }
 
 export type TaskCreateMode = 'propose' | 'ask' | 'deny';
 export type DocMergeMode = 'allow' | 'ask' | 'deny';
+export type TaskClaimMode = 'allow' | 'ask' | 'deny';
 
 export function isDocMergeMode(value: unknown): value is DocMergeMode {
+  return value === 'allow' || value === 'ask' || value === 'deny';
+}
+
+export function isTaskClaimMode(value: unknown): value is TaskClaimMode {
   return value === 'allow' || value === 'ask' || value === 'deny';
 }
 

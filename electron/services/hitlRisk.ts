@@ -73,6 +73,9 @@ const PROJECTHUB_TOOLS: Record<string, RiskAssessment> = {
   task_create: { risk: 'moderate', reason: 'новая задача' },
   task_update: { risk: 'moderate', reason: 'правка задачи' },
   task_approve: { risk: 'moderate', reason: 'подтверждение задач агента' },
+  // Захват задачи на origin (decision-152, decision-153): push служебного ref.
+  task_claim: { risk: 'moderate', reason: 'захват задачи на origin' },
+  task_release: { risk: 'moderate', reason: 'снятие захвата задачи на origin' },
   tracker_sync_run: { risk: 'moderate', reason: 'запись в трекер' },
   'gh pr comment': { risk: 'moderate', reason: 'комментарий в PR' },
   sync_base_branch: { risk: 'moderate', reason: 'слияние основной ветки в свой worktree' },

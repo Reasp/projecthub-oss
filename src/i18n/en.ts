@@ -2828,6 +2828,9 @@ export const en: TranslationDictionary = {
     docMergeHint: 'Whether an agent with this role may accept a documentation branch into main with doc_branch_merge (decision-151).',
     docMergeDefault: 'Default: via approval card',
     docMergeAllow: 'Immediately (documentation reviewer)',
+    taskClaim: 'Claiming tasks on origin',
+    taskClaimHint: 'Whether an agent with this role may claim or release a task with task_claim/task_release: a claim is a service ref on origin that every clone of the repository sees (Team edition, decision-153).',
+    taskClaimAllow: 'Immediately (no approval card)',
     agentTaskLimitsButton: 'Agent task limits',
     agentTaskLimits: {
       title: 'Limits for tasks created by agents',

@@ -31,7 +31,7 @@ import { memoryToolDeps } from './memoryToolDeps.js';
 import { automationEngine } from './automationService.js';
 import { automationToolList, automationToolRun } from './automationTools.js';
 import { terminalHookService } from './terminalHookService.js';
-import { PROJECT_TOOL_DEFINITIONS, callProjectTool, type ProjectToolContext } from './projectAgentTools.js';
+import { callProjectTool, projectToolDefinitions, type ProjectToolContext } from './projectAgentTools.js';
 import { projectAgentToolDeps } from './projectAgentToolDeps.js';
 import { TRACKER_TOOL_DEFINITIONS, callTrackerTool } from './trackerSyncTools.js';
 import { trackerToolDeps } from './trackerSyncServiceInstance.js';
@@ -829,7 +829,7 @@ class McpServerService {
     withProjectPath: boolean,
     contextFor: (args: Record<string, unknown>) => ProjectToolContext | null
   ): void {
-    for (const def of PROJECT_TOOL_DEFINITIONS) {
+    for (const def of projectToolDefinitions()) {
       const properties = (def.input_schema.properties ?? {}) as Record<string, unknown>;
       const schema = withProjectPath
         ? {
