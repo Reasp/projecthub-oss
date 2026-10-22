@@ -122,6 +122,9 @@ function ensureMerge(squash) {
   if (!branch || !MAIN_BRANCHES.has(branch)) return;
   const parents = (gitOrNull(['rev-list', '--parents', '-n', '1', 'HEAD']) ?? '').trim().split(/\s+/).slice(1);
   if (parents.length < 2) return;
+  // Только свой, только что созданный коммит слияния: fast-forward на чужой коммит слияния тоже даёт два родителя, но
+  // первый из них — не прежний HEAD (TASK-139.4).
+  if (parents[0] !== gitOrNull(['rev-parse', '-q', '--verify', 'ORIG_HEAD'])?.trim()) return;
   const changed = changedPaths([parents[0], 'HEAD']);
   if (!changed.some(isCodePath)) return;
   if (compareVersions(versionAt('HEAD'), versionAt(parents[0])) > 0) return;

@@ -19,16 +19,22 @@ export function findIndexDocsDir(projectPath: string): string | null {
 /**
  * Пересборка индекса RAG в фоне после слияния с перенумерацией (decision-76 п. 4): бинарный индекс входящей ветки
  * не переносится, а собирается заново. Без скрипта `index-docs` — `false`; ошибка сборки только пишется в лог,
- * её поймает `lint:docs` (проверка актуальности индекса).
+ * её поймает `lint:docs` (проверка актуальности индекса). Индекс, который уже пересобрал хук `post-merge`
+ * (decision-156), повторно не собирается: `check-index` говорит, что он актуален.
  */
 export function reindexDocsInBackground(projectPath: string): boolean {
   const cwd = findIndexDocsDir(projectPath);
   if (!cwd) return false;
   // processManager тянет Electron — грузится только здесь, чтобы модули слияния оставались без него.
   void import('./processManager.js')
-    .then(({ processManager }) => processManager.runOnce('npm run index-docs', { cwd, timeoutMs: REINDEX_TIMEOUT_MS }))
+    .then(async ({ processManager }) => {
+      const check = await processManager.runOnce('npm run check-index', { cwd, timeoutMs: REINDEX_TIMEOUT_MS });
+      if (check.exitCode === 0 && !check.timedOut) return null;
+      return processManager.runOnce('npm run index-docs', { cwd, timeoutMs: REINDEX_TIMEOUT_MS });
+    })
     .then((run) => {
-      if (run.exitCode === 0 && !run.timedOut) console.log(`[docsReindex] Индекс документации пересобран: ${cwd}`);
+      if (!run) console.log(`[docsReindex] Индекс документации актуален: ${cwd}`);
+      else if (run.exitCode === 0 && !run.timedOut) console.log(`[docsReindex] Индекс документации пересобран: ${cwd}`);
       else console.warn(`[docsReindex] index-docs не прошёл (${run.timedOut ? 'тайм-аут' : `код ${run.exitCode}`}): ${run.error ?? ''}`);
     })
     .catch((err) => console.warn('[docsReindex] index-docs не запустился:', err instanceof Error ? err.message : String(err)));

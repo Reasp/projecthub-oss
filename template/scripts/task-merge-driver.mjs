@@ -16,11 +16,18 @@ import { mergeTaskText } from './task-merge-rules.mjs';
 // Драйвер и пути задач ставятся вместе и только в эту копию репозитория: `merge.projecthub-task` в .git/config и
 // блок в info/attributes общего каталога git (его видят и worktree). Пути — от корня репозитория, поэтому работает и
 // инфраструктура в подпапке (projectRoot в infra.config.json), а закоммиченные файлы проекта не меняются.
+//
+// Тем же install ставится драйвер `projecthub-generated` (TASK-139.4, decision-156): индекс документации .rag-index/ и
+// backlog/memory/MEMORY.md при слиянии остаются своей стороне (драйвер — `true`), а пересобирает их хук post-merge
+// (scripts/generated-merge.mjs). Свой блок в том же info/attributes.
 
 const DRIVER = 'projecthub-task';
 const TASK_DIRS = ['tasks', 'completed', 'drafts', 'archive/tasks', 'archive/drafts'];
 const BLOCK_START = `# >>> ${DRIVER} (ProjectHub, TASK-139.2)`;
 const BLOCK_END = `# <<< ${DRIVER}`;
+const GENERATED = 'projecthub-generated';
+const GENERATED_START = `# >>> ${GENERATED} (ProjectHub, TASK-139.4)`;
+const GENERATED_END = `# <<< ${GENERATED}`;
 
 const SCRIPT = fileURLToPath(import.meta.url);
 
@@ -42,12 +49,26 @@ function repoPaths() {
 function attributesBlock(repoRoot) {
   const rel = toPosix(path.relative(repoRoot, PROJECT_ROOT));
   const prefix = rel && !rel.startsWith('..') ? `${rel}/` : '';
-  return [BLOCK_START, ...TASK_DIRS.map((d) => `${prefix}backlog/${d}/**/*.md merge=${DRIVER}`), BLOCK_END].join('\n');
+  return [
+    BLOCK_START,
+    ...TASK_DIRS.map((d) => `${prefix}backlog/${d}/**/*.md merge=${DRIVER}`),
+    BLOCK_END,
+    // Без -text: meta.json — текст, и при core.autocrlf его окончания строк должны остаться прежними.
+    GENERATED_START,
+    `${prefix}.rag-index/** -diff merge=${GENERATED}`,
+    `${prefix}backlog/memory/MEMORY.md merge=${GENERATED}`,
+    GENERATED_END
+  ].join('\n');
 }
 
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 function withoutBlock(text) {
-  const re = new RegExp(`\\n?${BLOCK_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${BLOCK_END}\\n?`, 'g');
-  return text.replace(re, '\n').replace(/^\n+/, '');
+  let rest = text;
+  for (const [start, end] of [[BLOCK_START, BLOCK_END], [GENERATED_START, GENERATED_END]]) {
+    rest = rest.replace(new RegExp(`\\n?${escapeRe(start)}[\\s\\S]*?${escapeRe(end)}\\n?`, 'g'), '\n');
+  }
+  return rest.replace(/^\n+/, '');
 }
 
 function install(quiet) {
@@ -66,6 +87,8 @@ function install(quiet) {
     console.error(`${DRIVER}: не удалось записать merge.${DRIVER}.driver: ${set.err}`);
     return 1;
   }
+  git(['config', `merge.${GENERATED}.name`, 'ProjectHub: сгенерированное не сливается, а пересобирается']);
+  git(['config', `merge.${GENERATED}.driver`, 'true']);
   const file = path.join(repo.commonDir, 'info', 'attributes');
   const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '';
   const rest = withoutBlock(current);
@@ -75,6 +98,7 @@ function install(quiet) {
     fs.writeFileSync(file, next);
   }
   log(`${DRIVER}: задачи Backlog.md сливаются по полям frontmatter (merge.${DRIVER}, ${toPosix(path.relative(repo.repoRoot, file))}).`);
+  log(`${GENERATED}: .rag-index/ и MEMORY.md не сливаются, их пересобирает хук post-merge.`);
   return 0;
 }
 
@@ -82,9 +106,10 @@ function uninstall() {
   const repo = repoPaths();
   if (!repo) return 0;
   git(['config', '--remove-section', `merge.${DRIVER}`]);
+  git(['config', '--remove-section', `merge.${GENERATED}`]);
   const file = path.join(repo.commonDir, 'info', 'attributes');
   if (fs.existsSync(file)) fs.writeFileSync(file, withoutBlock(fs.readFileSync(file, 'utf-8')));
-  console.log(`${DRIVER}: драйвер слияния задач снят.`);
+  console.log(`${DRIVER}, ${GENERATED}: драйверы слияния сняты.`);
   return 0;
 }
 

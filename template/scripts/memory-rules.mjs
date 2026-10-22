@@ -111,3 +111,36 @@ export function validateMemoryDir(root) {
   if (files.includes(MEMORY_INDEX_FILE) || indexErrors.length > 0) result.set(`${MEMORY_ROOT}/${MEMORY_INDEX_FILE}`, indexErrors);
   return result;
 }
+
+// ── Индекс MEMORY.md ────────────────────────────────────────────────────────────────────────────────────────────
+// Тот же текст, что строит buildMemoryIndex приложения (electron/services/memoryFormat.ts): хук post-merge шаблона
+// пересобирает индекс после слияния без ProjectHub (TASK-139.4). Совпадение сторожит memoryRules.test.ts.
+
+export const MEMORY_INDEX_HEADER = [
+  '# Память проекта',
+  '',
+  '<!-- Файл генерирует ProjectHub из backlog/memory/mem-*.md — не правьте вручную. -->',
+  ''
+].join('\n');
+
+/**
+ * Содержимое MEMORY.md по файлам фактов проекта: строка на факт в порядке номеров. Факты с ошибками формата в индекс
+ * не попадают — их покажет lint:docs. `null` — каталога памяти нет.
+ */
+export function buildMemoryIndexText(root) {
+  const dir = path.join(root, MEMORY_ROOT);
+  if (!fs.existsSync(dir)) return null;
+  const facts = [];
+  const names = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name).sort();
+  for (const fileName of names) {
+    if (fileName === MEMORY_INDEX_FILE || !fileName.toLowerCase().endsWith('.md')) continue;
+    const content = fs.readFileSync(path.join(dir, fileName), 'utf-8');
+    if (checkMemoryFile(fileName, content).length > 0) continue;
+    const { data } = matter(content, {});
+    facts.push({ n: Number(FILE_RE.exec(fileName)[1].slice(4)), fileName, title: data.title.trim(), description: data.description.trim() });
+  }
+  const lines = facts
+    .sort((a, b) => a.n - b.n)
+    .map((f) => `- [${f.title.replace(/[[\]]/g, '')}](${f.fileName.replace(/ /g, '%20')}) — ${f.description}`);
+  return `${MEMORY_INDEX_HEADER}${lines.length > 0 ? `${lines.join('\n')}\n` : ''}`;
+}

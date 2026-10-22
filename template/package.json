@@ -12,6 +12,7 @@
     "lint:docs": "node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs",
     "check-index": "node scripts/rag/check-index.mjs",
     "index-docs": "node scripts/rag/index-docs.mjs",
+    "merge:generated": "node scripts/generated-merge.mjs resolve",
     "rag-server": "node scripts/rag/rag-server.mjs",
     "rag-search": "node scripts/rag/search-cli.mjs",
     "env-server": "node scripts/env/env-server.mjs",

@@ -1,0 +1,40 @@
+#!/bin/sh
+# Git post-merge hook: пересборка сгенерированных файлов после слияния (git merge, git pull).
+#
+# Индекс документации .rag-index/ и backlog/memory/MEMORY.md не сливаются: драйвер projecthub-generated (ставит
+# `npm install` → scripts/task-merge-driver.mjs install) оставляет их своей стороне, а этот хук пересобирает их по
+# слитым документам (generated-merge.mjs). Свой коммит слияния дополняется пересобранным; после fast-forward
+# пересборка остаётся в рабочем дереве с напоминанием закоммитить. $1 = 1 — squash: пересобранное — в индекс git.
+#
+# Слияние уже состоялось, поэтому хук его не ломает: нет node или пересборка не удалась — только сообщение,
+# устаревший индекс покажет lint:docs. INFRA_HOOKS_SKIP=1 — пропустить.
+
+if [ "$INFRA_HOOKS_SKIP" = "1" ]; then
+  exit 0
+fi
+
+HOOK_DIR=$(cd "$(dirname "$0")" && pwd)
+INFRA_ROOT=$(cd "$HOOK_DIR/../.." && pwd)
+
+NODE_BIN=""
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="node"
+elif [ -f "/c/Program Files/nodejs/node.exe" ]; then
+  NODE_BIN="/c/Program Files/nodejs/node.exe"
+elif [ -f "C:/Program Files/nodejs/node.exe" ]; then
+  NODE_BIN="C:/Program Files/nodejs/node.exe"
+fi
+
+if [ -z "$NODE_BIN" ]; then
+  echo "[post-merge] node не найден — индексы не пересобраны (npm run index-docs и коммит)."
+  exit 0
+fi
+
+if [ ! -f "$INFRA_ROOT/scripts/generated-merge.mjs" ]; then
+  exit 0
+fi
+
+if ! "$NODE_BIN" "$INFRA_ROOT/scripts/generated-merge.mjs" post-merge "$1"; then
+  echo "[post-merge] пересборка индексов не удалась — npm run index-docs и коммит."
+fi
+exit 0

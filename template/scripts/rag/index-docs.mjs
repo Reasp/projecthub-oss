@@ -43,12 +43,11 @@ async function main() {
     console.log(`  ${Math.min(i + BATCH, rows.length)}/${rows.length}`);
   }
 
+  // Индекс собирается с нуля: после слияния драйвер projecthub-generated оставляет в каталоге файлы обеих сторон
+  // (decision-156), а dropTable убирает только таблицу.
+  fs.rmSync(INDEX_DIR, { recursive: true, force: true, maxRetries: 5 });
   fs.mkdirSync(INDEX_DIR, { recursive: true });
   const db = await connect(INDEX_DIR);
-  const existing = await db.tableNames();
-  if (existing.includes(TABLE_NAME)) {
-    await db.dropTable(TABLE_NAME);
-  }
   await db.createTable(TABLE_NAME, rows);
 
   // meta.json читают: rag-server/search-cli (модель и префиксы запроса), check-index

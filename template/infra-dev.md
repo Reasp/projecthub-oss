@@ -66,7 +66,10 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
    Актуальность индекса проверяется автоматически: `npm run check-index` (входит в
    `npm run lint:docs` и в `pre-commit`) падает, если хэш документов в `.rag-index/meta.json`
    не совпадает с текущим содержимым `backlog/docs/`, `backlog/decisions/` и `backlog/memory/`
-   (без генерируемого `MEMORY.md`) или изменилась версия чанкера. Модель эмбеддингов — многоязычная `Xenova/multilingual-e5-small`
+   (без генерируемого `MEMORY.md`) или изменилась версия чанкера. При `git merge`/`pull` индекс и `MEMORY.md` не сливают
+   руками: драйвер `projecthub-generated` (ставит `npm install`) оставляет их своей стороне, хук `post-merge` пересобирает
+   и дополняет коммит слияния. После fast-forward и `pull --rebase` пересборка остаётся в рабочем дереве — закоммить её.
+   Слияние встало на конфликте в `.rag-index/` — `npm run merge:generated`, затем `git commit`. Модель эмбеддингов — многоязычная `Xenova/multilingual-e5-small`
    (документация на русском); запросы кодируются той моделью, что записана в `meta.json`
    индекса, поэтому индекс и поиск не расходятся.
 2. **Перед ответом про архитектуру/устройство подсистемы — вызови `search_docs`** (MCP

@@ -1,0 +1,27 @@
+#!/bin/sh
+# Git post-rewrite hook: после rebase (git pull --rebase) сгенерированные файлы — .rag-index/ и
+# backlog/memory/MEMORY.md — пересобираются в рабочем дереве, хук напоминает их закоммитить. Переписанные коммиты
+# не трогаются. $1 — rebase или amend; amend пропускается. INFRA_HOOKS_SKIP=1 — пропустить.
+
+if [ "$1" != "rebase" ] || [ "$INFRA_HOOKS_SKIP" = "1" ]; then
+  exit 0
+fi
+
+HOOK_DIR=$(cd "$(dirname "$0")" && pwd)
+INFRA_ROOT=$(cd "$HOOK_DIR/../.." && pwd)
+
+NODE_BIN=""
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="node"
+elif [ -f "/c/Program Files/nodejs/node.exe" ]; then
+  NODE_BIN="/c/Program Files/nodejs/node.exe"
+elif [ -f "C:/Program Files/nodejs/node.exe" ]; then
+  NODE_BIN="C:/Program Files/nodejs/node.exe"
+fi
+
+if [ -z "$NODE_BIN" ] || [ ! -f "$INFRA_ROOT/scripts/generated-merge.mjs" ]; then
+  exit 0
+fi
+
+"$NODE_BIN" "$INFRA_ROOT/scripts/generated-merge.mjs" post-rewrite rebase
+exit 0

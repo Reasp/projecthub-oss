@@ -16,7 +16,7 @@ import { CONFIG, INFRA_ROOT, PROJECT_ROOT } from '../config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOOKS_DIR = __dirname;
-const HOOK_NAMES = ['pre-commit', 'commit-msg', 'post-commit'];
+const HOOK_NAMES = ['pre-commit', 'commit-msg', 'post-commit', 'post-merge', 'post-rewrite'];
 
 const args = process.argv.slice(2);
 const quiet = args.includes('--quiet');
