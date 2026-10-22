@@ -1,0 +1,5 @@
+/* Russian permission prompts (TASK-140.18): the client follows the system language, as on Android (values-ru). */
+"NSCameraUsageDescription" = "Камера сканирует QR-код сопряжения, который показывает ProjectHub на компьютере.";
+"NSFaceIDUsageDescription" = "Face ID подтверждает запросы агентов высокого риска, одобренные с телефона.";
+"NSLocalNetworkUsageDescription" = "ProjectHub подключается к вашему компьютеру по локальной сети.";
+"NSMicrophoneUsageDescription" = "Микрофон нужен для голосового ввода промптов и полей.";

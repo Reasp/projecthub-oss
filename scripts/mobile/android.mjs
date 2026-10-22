@@ -9,22 +9,16 @@
  * в стандартных местах Windows/macOS/Linux. Подпись — отладочный ключ Gradle; релизная подпись и
  * сторы — TASK-140.6, ключи только в секретах CI (decision-79 п. 10).
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { checkVersions, fail, mobileDir, root, run } from './common.mjs';
 
-const root = path.resolve(import.meta.dirname, '..', '..');
-const mobileDir = path.join(root, 'mobile');
 const androidDir = path.join(mobileDir, 'android');
 const outDir = path.join(root, 'release', 'mobile');
 const isWin = process.platform === 'win32';
 const mode = process.argv[2] || 'build';
-
-function fail(message) {
-  console.error(`❌ ${message}`);
-  process.exit(1);
-}
 
 function firstExisting(candidates) {
   return candidates.find((p) => p && fs.existsSync(p));
@@ -54,23 +48,6 @@ function findSdk() {
     isWin ? path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk') : null,
     process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Android', 'sdk') : path.join(os.homedir(), 'Android', 'Sdk')
   ]);
-}
-
-/** Capacitor ищет плагины в mobile/package.json, а ставятся они в корне — версии должны совпадать. */
-function checkVersions() {
-  const rootPkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  const mobilePkg = JSON.parse(fs.readFileSync(path.join(mobileDir, 'package.json'), 'utf8'));
-  const rootDeps = { ...rootPkg.dependencies, ...rootPkg.devDependencies };
-  const mismatched = Object.entries(mobilePkg.dependencies || {}).filter(([name, v]) => rootDeps[name] !== v);
-  if (mismatched.length) {
-    fail(`версии в mobile/package.json не совпадают с корневыми: ${mismatched.map(([n, v]) => `${n} ${v} ≠ ${rootDeps[n] ?? 'нет'}`).join(', ')}`);
-  }
-}
-
-function run(cmd, args, cwd, env = process.env) {
-  console.log(`▶ ${cmd} ${args.join(' ')}`);
-  const res = spawnSync(cmd, args, { cwd, env, stdio: 'inherit', shell: isWin });
-  if (res.status !== 0) fail(`${cmd} ${args.join(' ')} завершилась с кодом ${res.status}`);
 }
 
 checkVersions();

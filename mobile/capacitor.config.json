@@ -9,6 +9,9 @@
   "android": {
     "allowMixedContent": false
   },
+  "ios": {
+    "backgroundColor": "#0c1c31"
+  },
   "plugins": {
     "SystemBars": {
       "style": "DARK"
