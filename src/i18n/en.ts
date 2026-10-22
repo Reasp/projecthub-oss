@@ -1,3 +1,4 @@
+import { hitlRequestTextEn } from './hitlRequestText';
 import type { TranslationDictionary } from './types';
 
 export const en: TranslationDictionary = {
@@ -1997,6 +1998,10 @@ export const en: TranslationDictionary = {
     },
     rateLimit: {
       bannerTitle: 'Claude Code Rate Limit & Quota Notice',
+      reached: 'Claude Code rate limit reached',
+      near: 'Approaching the Claude Code rate limit',
+      account: 'account “{name}”',
+      usedPercent: '{percent}% of the available request limit used.',
       switchProvider: 'Switch to OpenRouter / DeepSeek',
       clearContext: 'Clear Context (/clear)',
       dismiss: 'Dismiss Notice'
@@ -3296,33 +3301,7 @@ export const en: TranslationDictionary = {
       completed: 'Agent finished the task',
       failed: 'Error: {detail}'
     },
-    requestText: {
-      titles: {
-        file_write: 'Write file',
-        file_write_excluded: '⚠️ File is on the exclusion list',
-        command: 'Run command',
-        command_denied: '⚠️ Command is on the deny list',
-        process: 'Background process',
-        sync_merge: 'Pull the base branch',
-        sync_continue: 'Finish merging the base branch',
-        sync_abort: 'Abort merging the base branch',
-        read: 'Read',
-        read_outside: 'Read'
-      },
-      details: {
-        file_write: 'Change the file contents',
-        file_write_excluded: 'Change the file contents',
-        command: 'Run the command in the agent working directory',
-        command_denied: 'Run the command in the agent working directory',
-        process: 'Run the command in the agent working directory',
-        sync_merge: 'Merge the base branch into the agent worktree branch; the main tree and the base branch stay unchanged',
-        sync_continue: 'Merge the base branch into the agent worktree branch; the main tree and the base branch stay unchanged',
-        sync_abort: 'Merge the base branch into the agent worktree branch; the main tree and the base branch stay unchanged',
-        read: 'Allow the agent to read {target}?',
-        read_outside: '{target} is outside the agent working directory. Allow reading?'
-      },
-      readQuestion: { title: 'Read file', allow: 'Allow reading', deny: 'Deny reading' }
-    },
+    requestText: hitlRequestTextEn,
     badgeTooltip: 'Decision center: agent requests awaiting approval and decision history',
     badgePending: '{count} awaiting decision',
     title: 'Decision Center (Human-in-the-loop)',

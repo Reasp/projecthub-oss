@@ -15,6 +15,7 @@ import {
   type VoiceHost,
   type VoiceLang
 } from '../protocol/voiceCommands';
+import { hitlFromEvent, hitlText } from '../protocol/models';
 import type { TtsPort } from '../platform/types';
 import { VOICE_ACTIONS, type VoiceActionContext, type VoiceNav, type VoiceWatch } from './voiceActions';
 
@@ -375,7 +376,8 @@ export class VoiceController {
     }
     if (event === 'ai:hitl' && this.active && !this.pending) {
       const host = this.deps.hosts().find((h) => h.id === hostId);
-      const what = typeof d.description === 'string' && d.description ? d.description : typeof d.tool === 'string' ? d.tool : '';
+      const item = hitlFromEvent(d);
+      const what = item ? hitlText(item, dictFor(this.state.lang).models.hitlText).title : typeof d.tool === 'string' ? d.tool : '';
       if (host && what) void this.say(`${this.v.pendingLine(1, spokenHostName(host.name))}. ${this.v.pendingFirst(what)}`);
     }
   }

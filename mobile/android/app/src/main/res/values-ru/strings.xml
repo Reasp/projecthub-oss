@@ -28,6 +28,19 @@
     <string name="risk_moderate">средний риск</string>
     <string name="risk_high">высокий риск</string>
 
+    <!-- Заголовок запроса по коду из push (TASK-205) -->
+    <string name="hitl_code_file_write">Запись файла</string>
+    <string name="hitl_code_file_write_excluded">⚠️ Файл в списке исключений</string>
+    <string name="hitl_code_command">Запуск команды</string>
+    <string name="hitl_code_command_denied">⚠️ Команда из списка запрещённых</string>
+    <string name="hitl_code_process">Фоновый процесс</string>
+    <string name="hitl_code_sync_merge">Подтянуть основную ветку</string>
+    <string name="hitl_code_sync_continue">Завершить слияние основной ветки</string>
+    <string name="hitl_code_sync_abort">Отменить слияние основной ветки</string>
+    <string name="hitl_code_read">Чтение</string>
+    <string name="hitl_code_read_outside">Чтение</string>
+    <string name="hitl_code_question">Вопрос от Claude Code</string>
+
     <!-- Итог нажатия кнопки в уведомлении -->
     <string name="outcome_push_off">Push для этого компьютера выключен — откройте приложение</string>
     <string name="outcome_sign_failed">Не удалось подписать решение — откройте приложение</string>

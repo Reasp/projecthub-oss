@@ -8,6 +8,8 @@
  */
 
 import type { DeviceRights, RemoteHitlRisk } from '../types/remote';
+import type { HitlTextKey } from '../types/electron';
+import { describeHitlRequest, type HitlTextLabels } from '../lib/agentStatusText';
 import { accessActions, owningProject, type ProjectAccess } from './projectAccess';
 
 export type OverviewSessionKind = 'studio' | 'swarm' | 'terminal';
@@ -24,6 +26,8 @@ export type OverviewActions = 'none' | 'hitl' | 'full';
 export interface OverviewPendingRequest {
   requestId: string;
   title: string;
+  /** Заголовок кодом (TASK-205): клиент собирает его на своём языке, `title` — запасной текст. */
+  textKey?: HitlTextKey;
   risk?: RemoteHitlRisk;
   tool?: string;
   createdAt?: number;
@@ -143,6 +147,7 @@ export interface OverviewPendingInput {
   sessionId: string;
   projectPath: string;
   title: string;
+  textKey?: HitlTextKey;
   risk?: RemoteHitlRisk;
   tool?: string;
   origin?: string;
@@ -228,6 +233,22 @@ export function addCounts(into: OverviewSessionCounts, from: OverviewSessionCoun
 export function overviewActions(rights: DeviceRights, hostReadOnly: boolean): OverviewActions {
   if (hostReadOnly || rights === 'readOnly') return 'none';
   return rights;
+}
+
+/** Заголовок запроса в дереве на языке клиента (TASK-205); без кода — `title` хоста. */
+export function overviewRequestTitle(req: Pick<OverviewPendingRequest, 'title' | 'textKey'>, labels: HitlTextLabels): string {
+  return req.textKey ? oneLine(describeHitlRequest(req, labels).title, OVERVIEW_LIMITS.detail) : req.title;
+}
+
+/** Вторая строка сессии: у ждущей — заголовок последнего запроса на языке клиента, иначе `detail` хоста. */
+export function overviewSessionDetail(s: Pick<OverviewSession, 'state' | 'detail' | 'pending'>, labels: HitlTextLabels): string | undefined {
+  const last = s.state === 'waiting' ? s.pending?.[s.pending.length - 1] : undefined;
+  return last ? overviewRequestTitle(last, labels) : s.detail;
+}
+
+/** Цель в коде запроса — одной строкой той же длины, что заголовок: дерево не несёт команд целиком. */
+function overviewTextKey(key: HitlTextKey): HitlTextKey {
+  return key.target ? { ...key, target: oneLine(key.target, OVERVIEW_LIMITS.title) } : key;
 }
 
 export function oneLine(text: string, limit: number = OVERVIEW_LIMITS.detail): string {
@@ -363,7 +384,7 @@ export function buildProjectOverview(p: OverviewProjectInput, pending: OverviewP
     }
     session.pending = [
       ...(session.pending ?? []),
-      { requestId: req.requestId, title: oneLine(req.title), ...(req.risk ? { risk: req.risk } : {}), ...(req.tool ? { tool: req.tool } : {}), ...(req.createdAt ? { createdAt: req.createdAt } : {}) }
+      { requestId: req.requestId, title: oneLine(req.title), ...(req.textKey ? { textKey: overviewTextKey(req.textKey) } : {}), ...(req.risk ? { risk: req.risk } : {}), ...(req.tool ? { tool: req.tool } : {}), ...(req.createdAt ? { createdAt: req.createdAt } : {}) }
     ];
     sessions.set(k, session);
   }

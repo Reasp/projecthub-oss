@@ -22,7 +22,7 @@ import { Badge, Button, Card, EmptyState, SectionTitle } from '../components/ui'
 import { Screen } from '../components/Screen';
 import { checksSummary, criteriaDone, projectName, timeAgo, type FeedSource } from '../protocol/inbox';
 import { inScope } from '../protocol/scope';
-import { canApproveInApp, capabilitiesFor, type AgentTaskGroup, type HitlItem } from '../protocol/models';
+import { canApproveInApp, capabilitiesFor, hitlText, type AgentTaskGroup, type HitlItem } from '../protocol/models';
 import { useT } from '../i18n/react';
 import type { Dict } from '../i18n';
 import type { RemoteInboxEvent, RemoteReviewItem } from '../../../src/types/remote';
@@ -71,13 +71,14 @@ function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem;
     setBusy(false);
   };
   const who = [item.agentName, item.role].filter(Boolean).join(' · ');
+  const text = hitlText(item, tr.models.hitlText);
   const canDecide = canDecideOn(source);
   return (
     <Card className="mb-2 border-amber-900/60">
       <div className="flex items-start gap-2">
         <ShieldCheckIcon size={20} className="mt-0.5 shrink-0 text-amber-400" />
         <div className="min-w-0 flex-1">
-          <div className="text-[15px] font-medium leading-snug">{item.title}</div>
+          <div className="text-[15px] font-medium leading-snug">{text.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
             <HostTag source={source} multi={multi} />
             {who && <span>{who}</span>}
@@ -92,10 +93,10 @@ function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem;
           {item.riskReason && <div className="mt-0.5 text-[12px] text-slate-500">{item.riskReason}</div>}
         </div>
       </div>
-      {(item.command || item.filePath || item.details) && (
+      {(item.command || item.filePath || text.details) && (
         <pre className="selectable mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-ph-base p-2 font-mono text-[12px] text-slate-200">
           {item.command ? `$ ${item.command}` : item.filePath}
-          {item.details && !item.command ? `\n${item.details}` : ''}
+          {text.details && !item.command ? `\n${text.details}` : ''}
         </pre>
       )}
       {canDecide ? (

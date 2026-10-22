@@ -107,7 +107,8 @@ export function summarizeStudioSession(s: AISession, ctx: SummaryContext): Remot
   const modelLabel = selectionLabel(s.lastSelection, ctx.profileNames);
   return {
     id: s.id,
-    title: s.title || 'Без названия',
+    // Пустой заголовок клиент показывает своим текстом по умолчанию (TASK-205).
+    title: s.title || '',
     createdAt: s.createdAt,
     updatedAt: sessionUpdatedAt(s),
     messageCount: s.messages.filter((m) => m.role === 'user' || m.role === 'assistant').length,

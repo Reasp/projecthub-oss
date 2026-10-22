@@ -11,6 +11,8 @@
  */
 
 import type { ChatMessage } from './chatAdapters.js';
+import type { Language } from '../../src/i18n/types.js';
+import { hostText } from '../i18n/hostText.js';
 
 export const SLACK_ALLOW_ACTION = 'ph_hitl_allow';
 export const SLACK_DENY_ACTION = 'ph_hitl_deny';
@@ -44,22 +46,20 @@ function text(v: unknown): string {
  * Блоки сообщения HITL с кнопками; `text` сообщения остаётся для уведомлений и старых клиентов. У запроса `high`
  * кнопки «Разрешить» нет: из чата его можно только отклонить (decision-112).
  */
-export function slackHitlBlocks(mrkdwn: string, requestId: string, allow = true): unknown[] {
+export function slackHitlBlocks(mrkdwn: string, requestId: string, allow = true, lang: Language = 'en'): unknown[] {
+  const tx = hostText(lang).decision;
   return [
     { type: 'section', text: { type: 'mrkdwn', text: mrkdwn } },
     {
       type: 'actions',
       block_id: 'ph_hitl',
       elements: [
-        ...(allow ? [{ type: 'button', action_id: SLACK_ALLOW_ACTION, style: 'primary', value: requestId, text: { type: 'plain_text', text: 'Разрешить' } }] : []),
-        { type: 'button', action_id: SLACK_DENY_ACTION, style: 'danger', value: requestId, text: { type: 'plain_text', text: 'Отклонить' } }
+        ...(allow ? [{ type: 'button', action_id: SLACK_ALLOW_ACTION, style: 'primary', value: requestId, text: { type: 'plain_text', text: tx.allow } }] : []),
+        { type: 'button', action_id: SLACK_DENY_ACTION, style: 'danger', value: requestId, text: { type: 'plain_text', text: tx.deny } }
       ]
     }
   ];
 }
-
-/** Строка о высоком риске в сообщении с кнопками. */
-export const HIGH_RISK_LINE = 'Высокий риск: одобрить можно только в ProjectHub на ПК или в приложении с биометрией; отклонить — здесь.';
 
 /** После решения кнопки убираются: остаётся текст с исходом. */
 export function slackResolvedBlocks(mrkdwn: string): unknown[] {
@@ -120,10 +120,9 @@ export function slackSocketUrl(json: unknown): string {
 // ─────────────────────────── Mattermost ───────────────────────────
 
 /** Строка-подсказка в сообщении HITL: как решить реакцией. */
-export const MATTERMOST_HINT = 'Решение: реакция :white_check_mark: — разрешить, :x: — отклонить.';
-
-export function mattermostHitlMessage(message: ChatMessage, allow = true): ChatMessage {
-  return { ...message, lines: [...message.lines, allow ? MATTERMOST_HINT : 'Решение: реакция :x: — отклонить.'] };
+export function mattermostHitlMessage(message: ChatMessage, allow = true, lang: Language = 'en'): ChatMessage {
+  const tx = hostText(lang).decision;
+  return { ...message, lines: [...message.lines, allow ? tx.mattermostHint : tx.mattermostDenyHint] };
 }
 
 /** Событие WebSocket API Mattermost → решение, если это реакция-решение. Своих реакций бота не бывает решением. */

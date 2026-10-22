@@ -89,6 +89,8 @@ export interface HitlPushPayload {
   did: string;
   rid: string;
   title: string;
+  /** Заголовок кодом (TASK-205): телефон собирает его на языке устройства, `title` — запасной английский текст. */
+  tk?: HitlPushTextKey;
   cmd?: string;
   file?: string;
   risk: HitlRisk;
@@ -99,6 +101,13 @@ export interface HitlPushPayload {
   dec: boolean;
   ep: PushHostEndpoint[];
   ts: number;
+}
+
+/** Код заголовка в push — короткие поля, как весь пакет: код, цель, агент. */
+export interface HitlPushTextKey {
+  c: string;
+  t?: string;
+  a?: string;
 }
 
 export interface HitlDonePushPayload {
@@ -166,6 +175,9 @@ export function hitlPushPayload(
     did: ctx.deviceId,
     rid: request.id,
     title: request.title,
+    ...(request.textKey
+      ? { tk: { c: request.textKey.code, ...(request.textKey.target ? { t: request.textKey.target } : {}), ...(request.textKey.agent ? { a: request.textKey.agent } : {}) } }
+      : {}),
     ...(request.command ? { cmd: request.command } : {}),
     ...(request.filePath ? { file: request.filePath } : {}),
     risk: request.risk ?? 'high',
@@ -186,6 +198,7 @@ export function encodePushPayload(payload: PushPayload, limit = WEB_PUSH_MAX_PLA
   const fits = (p: PushPayload) => Buffer.byteLength(JSON.stringify(p), 'utf8') <= limit;
   if (fits(payload)) return Buffer.from(JSON.stringify(payload), 'utf8');
   const cut = (s: string | undefined, n: number) => (s && s.length > n ? `${s.slice(0, n)}…` : s);
+  const cutKey = (tk: HitlPushTextKey | undefined, n: number) => (tk ? { tk: { ...tk, ...(tk.t ? { t: cut(tk.t, n) } : {}) } } : {});
   if (payload.t === 'prog') {
     const p: ProgressPushPayload = { ...payload, title: cut(payload.title, 120)!, step: cut(payload.step, 160)!, proj: cut(payload.proj, 60) };
     if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');
@@ -200,10 +213,10 @@ export function encodePushPayload(payload: PushPayload, limit = WEB_PUSH_MAX_PLA
   }
   if (payload.t !== 'hitl') throw new Error('Push слишком большой');
   for (const n of [1200, 600, 300, 160, 80]) {
-    const p: HitlPushPayload = { ...payload, title: cut(payload.title, n)!, cmd: cut(payload.cmd, n), file: cut(payload.file, n), why: cut(payload.why, 120) };
+    const p: HitlPushPayload = { ...payload, title: cut(payload.title, n)!, ...cutKey(payload.tk, n), cmd: cut(payload.cmd, n), file: cut(payload.file, n), why: cut(payload.why, 120) };
     if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');
   }
-  const bare: HitlPushPayload = { ...payload, title: cut(payload.title, 80)!, cmd: cut(payload.cmd, 80), file: cut(payload.file, 80), why: undefined, ep: [] };
+  const bare: HitlPushPayload = { ...payload, title: cut(payload.title, 80)!, ...cutKey(payload.tk, 80), cmd: cut(payload.cmd, 80), file: cut(payload.file, 80), why: undefined, ep: [] };
   if (fits(bare)) return Buffer.from(JSON.stringify(bare), 'utf8');
   throw new Error('Push слишком большой');
 }

@@ -4,6 +4,7 @@ import { telegramService, getServiceProcessesRoot, TELEGRAM_BOT_PROCESS_NAME } f
 import { processManager } from '../services/processManager';
 import { trayService } from '../services/trayService';
 import type { NotificationAction } from '../services/notificationTypes';
+import { setHostLanguage } from '../services/hostLanguage';
 
 /**
  * IPC подсистемы уведомлений (TASK-63): матрица доставки «событие × канал», тихие часы,
@@ -23,6 +24,9 @@ export function registerNotificationsIpc() {
   ipcMain.handle('notifications:updateSettings', async (_event, patch: unknown) => {
     return await notificationService.updateSettings(patch);
   });
+
+  /** Язык интерфейса окна — язык текстов, которые рисует хост: уведомления, Telegram, трей (TASK-205). */
+  ipcMain.handle('notifications:setHostLanguage', async (_event, language: unknown) => setHostLanguage(language));
 
   ipcMain.handle('notifications:test', async () => {
     return await notificationService.sendTest();

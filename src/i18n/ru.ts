@@ -1,3 +1,4 @@
+import { hitlRequestTextRu } from './hitlRequestText';
 import type { TranslationDictionary } from './types';
 import { STUDIO_QUICK_PROMPTS_RU } from '../utils/studioQuickPrompts';
 
@@ -1999,6 +2000,10 @@ export const ru: TranslationDictionary = {
     },
     rateLimit: {
       bannerTitle: 'Уведомление о лимитах и квоте Claude Code',
+      reached: 'Достигнут лимит запросов Claude Code',
+      near: 'Приближение к лимиту запросов Claude Code',
+      account: 'аккаунт «{name}»',
+      usedPercent: 'Использовано {percent}% доступного лимита запросов.',
       switchProvider: 'Переключить на OpenRouter / DeepSeek',
       clearContext: 'Очистить контекст (/clear)',
       dismiss: 'Закрыть уведомление'
@@ -3298,33 +3303,7 @@ export const ru: TranslationDictionary = {
       completed: 'Агент завершил задачу',
       failed: 'Ошибка: {detail}'
     },
-    requestText: {
-      titles: {
-        file_write: 'Запись файла',
-        file_write_excluded: '⚠️ Файл в списке исключений',
-        command: 'Запуск команды',
-        command_denied: '⚠️ Команда из списка запрещённых',
-        process: 'Фоновый процесс',
-        sync_merge: 'Подтянуть основную ветку',
-        sync_continue: 'Завершить слияние основной ветки',
-        sync_abort: 'Отменить слияние основной ветки',
-        read: 'Чтение',
-        read_outside: 'Чтение'
-      },
-      details: {
-        file_write: 'Изменение содержимого файла',
-        file_write_excluded: 'Изменение содержимого файла',
-        command: 'Выполнение команды в рабочем каталоге агента',
-        command_denied: 'Выполнение команды в рабочем каталоге агента',
-        process: 'Выполнение команды в рабочем каталоге агента',
-        sync_merge: 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются',
-        sync_continue: 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются',
-        sync_abort: 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются',
-        read: 'Разрешить агенту прочитать {target}?',
-        read_outside: 'Путь {target} вне рабочего каталога агента. Разрешить чтение?'
-      },
-      readQuestion: { title: 'Чтение файла', allow: 'Разрешить чтение', deny: 'Запретить чтение' }
-    },
+    requestText: hitlRequestTextRu,
     badgeTooltip: 'Центр решений: запросы агентов, ожидающие подтверждения, и история решений',
     badgePending: '{count} ожидают решения',
     title: 'Центр решений (Human-in-the-loop)',

@@ -50,7 +50,9 @@ export type HitlTextCode =
   | 'sync_continue'
   | 'sync_abort'
   | 'read'
-  | 'read_outside';
+  | 'read_outside'
+  /** Вопрос Claude CLI без своего заголовка (TASK-205): заголовок и заголовок вопроса — из словаря. */
+  | 'question';
 
 export interface HitlTextKey {
   code: HitlTextCode;

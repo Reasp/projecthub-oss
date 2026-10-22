@@ -4,6 +4,9 @@ import { getTrayIcon } from './trayIcons.js';
 import type { NotificationAction, TrayState } from './notificationTypes.js';
 import type { HitlRequest } from './hitlTypes.js';
 import { logger } from './logger.js';
+import { getHostLanguage, onHostLanguageChange } from './hostLanguage.js';
+import { hostText } from '../i18n/hostText.js';
+import { describeHitlRequest } from '../../src/lib/agentStatusText.js';
 
 /**
  * Системный трей (TASK-63, decision-13 п.2, п.4).
@@ -40,13 +43,6 @@ export interface TrayHandlers {
 /** Сколько строк очереди и сессий показывать в меню, чтобы оно не уезжало за экран. */
 const MENU_LIST_LIMIT = 5;
 
-const STATE_LABEL: Record<TrayState, string> = {
-  idle: 'Простой: активных агентов нет',
-  working: 'Агенты работают',
-  attention: 'Требуется решение человека',
-  recording: 'Идёт запись голоса'
-};
-
 class TrayService {
   private tray: Tray | null = null;
   private handlers: TrayHandlers | null = null;
@@ -76,6 +72,8 @@ class TrayService {
       this.tray.setToolTip('ProjectHub');
       this.tray.on('click', () => this.handlers?.showWindow());
       this.tray.on('double-click', () => this.handlers?.showWindow());
+      // Меню — на языке окна (TASK-205): сменили язык — пересобрать.
+      onHostLanguageChange(() => this.refresh());
       this.refresh();
       logger.info('[Tray] System tray initialised');
     } catch (err) {
@@ -124,10 +122,12 @@ class TrayService {
     if (!this.tray || this.tray.isDestroyed() || !this.handlers) return;
     const pending = safeCall(this.handlers.getPendingHitl, []);
     const sessions = safeCall(this.handlers.getActiveSessions, []);
+    const tx = hostText(getHostLanguage());
+    const stateLabel = tx.tray.states[this.effectiveState()];
 
-    const tooltipParts = ['ProjectHub', STATE_LABEL[this.effectiveState()]];
-    if (pending.length) tooltipParts.push(`Ожидают решения: ${pending.length}`);
-    if (sessions.length) tooltipParts.push(`Активных сессий: ${sessions.length}`);
+    const tooltipParts = ['ProjectHub', stateLabel];
+    if (pending.length) tooltipParts.push(tx.tray.pendingTooltip(pending.length));
+    if (sessions.length) tooltipParts.push(tx.tray.sessionsTooltip(sessions.length));
     try {
       this.tray.setToolTip(tooltipParts.join(' — '));
     } catch {
@@ -135,51 +135,51 @@ class TrayService {
     }
 
     const template: MenuItemConstructorOptions[] = [
-      { label: `ProjectHub — ${STATE_LABEL[this.effectiveState()]}`, enabled: false },
+      { label: `ProjectHub — ${stateLabel}`, enabled: false },
       { type: 'separator' },
-      { label: 'Открыть ProjectHub', click: () => this.handlers?.showWindow() }
+      { label: tx.tray.open, click: () => this.handlers?.showWindow() }
     ];
 
     template.push({ type: 'separator' });
     if (pending.length) {
-      template.push({ label: `Ожидают решения (${pending.length})`, enabled: false });
+      template.push({ label: tx.tray.pendingHeader(pending.length), enabled: false });
       for (const request of pending.slice(0, MENU_LIST_LIMIT)) {
         template.push({
-          label: `  ${truncate(request.title, 48)} — ${projectLabel(request.projectPath)}`,
+          label: `  ${truncate(describeHitlRequest(request, tx.hitl).title, 48)} — ${projectLabel(request.projectPath)}`,
           click: () => this.handlers?.navigate({ type: 'openHitl', requestId: request.id })
         });
       }
       if (pending.length > MENU_LIST_LIMIT) {
-        template.push({ label: `  …и ещё ${pending.length - MENU_LIST_LIMIT}`, enabled: false });
+        template.push({ label: `  ${tx.tray.more(pending.length - MENU_LIST_LIMIT)}`, enabled: false });
       }
-      template.push({ label: 'Центр решений…', click: () => this.handlers?.navigate({ type: 'openHitl' }) });
+      template.push({ label: tx.tray.decisionCenter, click: () => this.handlers?.navigate({ type: 'openHitl' }) });
     } else {
-      template.push({ label: 'Запросов на решение нет', enabled: false });
+      template.push({ label: tx.tray.noPending, enabled: false });
     }
 
     template.push({ type: 'separator' });
     if (sessions.length) {
-      template.push({ label: `Активные сессии (${sessions.length})`, enabled: false });
+      template.push({ label: tx.tray.sessionsHeader(sessions.length), enabled: false });
       for (const session of sessions.slice(0, MENU_LIST_LIMIT)) {
         template.push({
-          label: `  ${truncate(session.title, 40)} — ${session.activeAgents} агент(ов)`,
+          label: `  ${truncate(session.title, 40)} — ${tx.tray.agents(session.activeAgents)}`,
           click: () =>
             this.handlers?.navigate({ type: 'openSwarm', projectPath: session.projectPath, sessionId: session.id })
         });
       }
       if (sessions.length > MENU_LIST_LIMIT) {
-        template.push({ label: `  …и ещё ${sessions.length - MENU_LIST_LIMIT}`, enabled: false });
+        template.push({ label: `  ${tx.tray.more(sessions.length - MENU_LIST_LIMIT)}`, enabled: false });
       }
     } else {
-      template.push({ label: 'Активных сессий нет', enabled: false });
+      template.push({ label: tx.tray.noSessions, enabled: false });
     }
 
     template.push(
       { type: 'separator' },
-      { label: 'Процессы', click: () => this.handlers?.navigate({ type: 'openProcesses' }) },
-      { label: 'Удалённый доступ', click: () => this.handlers?.navigate({ type: 'openRemote' }) },
+      { label: tx.tray.processes, click: () => this.handlers?.navigate({ type: 'openProcesses' }) },
+      { label: tx.tray.remote, click: () => this.handlers?.navigate({ type: 'openRemote' }) },
       { type: 'separator' },
-      { label: 'Выход', click: () => void this.requestQuit() }
+      { label: tx.tray.quit, click: () => void this.requestQuit() }
     );
 
     try {

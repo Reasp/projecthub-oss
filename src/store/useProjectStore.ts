@@ -613,6 +613,8 @@ const saveActiveProjects = (paths: string[]) => {
 /** Атрибут `lang` у `<html>` — по языку интерфейса (TASK-59). */
 const applyDocumentLanguage = (language: Language) => {
   if (typeof document !== 'undefined') document.documentElement.lang = language;
+  // Тот же язык у текстов, которые рисует хост: уведомления, Telegram, трей (TASK-205).
+  if (typeof window !== 'undefined') window.api?.setHostLanguage?.(language)?.catch(() => {});
 };
 
 /** Выбранный язык, иначе язык системы, иначе английский (TASK-59). */

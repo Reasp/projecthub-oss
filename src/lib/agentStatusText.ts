@@ -38,6 +38,7 @@ export function describeHitlRequest(
   const target = key.target ?? '';
   const title = `${key.agent ? `${key.agent}: ` : ''}${labels.titles[key.code]}${target ? `: ${target}` : ''}`;
   const details = key.ownDetails ? req.details : fill(labels.details[key.code], { target });
+  if (key.code === 'question') return { title, details, questionData: req.questionData && { ...req.questionData, title: labels.titles.question } };
   if ((key.code !== 'read' && key.code !== 'read_outside') || !req.questionData) return { title, details, questionData: req.questionData };
   const optionLabel: Record<string, string> = { allow: labels.readQuestion.allow, deny: labels.readQuestion.deny };
   return {

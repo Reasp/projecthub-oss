@@ -28,6 +28,7 @@ export function hitlDetailForPhone(request: HitlRequest): RemoteHitlDetail {
   const out: RemoteHitlDetail = {
     requestId: request.id,
     title: request.title,
+    ...(request.textKey ? { textKey: request.textKey } : {}),
     ...(request.tool || request.type ? { tool: request.tool || request.type } : {}),
     ...(request.risk ? { risk: request.risk } : {}),
     ...(request.riskReason ? { riskReason: request.riskReason } : {}),

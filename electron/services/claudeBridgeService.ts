@@ -29,6 +29,8 @@ import { getApiToolExecutor } from './apiToolExecutorDeps.js';
 import { createStudioToolCallbacks, type AgentStatusKey } from './studioToolAdapter.js';
 import { claudeCliEffortArgs, normalizeReasoningEffort } from './reasoningEffort.js';
 import { usesClaudeCli } from './modelTarget.js';
+import { getHostLanguage } from './hostLanguage.js';
+import { hostText } from '../i18n/hostText.js';
 import { editionRegistry, launcherGitEnv } from '../extensions/editionRegistry.js';
 import {
   applyRolePermissions,
@@ -191,6 +193,8 @@ const CLAUDE_CLI_CHECK_TIMEOUT_MS = 10_000;
 export const SUBPROCESS_DEFAULT_TIMEOUT_MS = 5 * 60_000;
 /** Лимит накопленного вывода команды агента: хранится только «хвост» этого размера. */
 export const SUBPROCESS_MAX_OUTPUT_BYTES = 1024 * 1024;
+/** Запасной заголовок вопроса без своего заголовка: интерфейс показывает текст по коду `question` (TASK-205). */
+const QUESTION_FALLBACK_TITLE = 'Question from Claude Code';
 /**
  * Сколько ждать 'close' после выхода оболочки (TASK-97, decision-37): stdio может держать
  * пережившийся потомок, тогда потоки уничтожаются и промис завершается без 'close'.
@@ -625,14 +629,16 @@ class ClaudeBridgeService extends EventEmitter {
         const qData = this.parseQuestionData(input);
         const res = await ask({
           id: newId(), sessionId, projectPath, type: 'question',
-          title: qData.title || 'Вопрос от Claude Code', details: qData.subtitle, questionData: qData, createdAt: Date.now()
+          title: qData.title || QUESTION_FALLBACK_TITLE, details: qData.subtitle, questionData: qData,
+          ...(qData.title ? {} : { textKey: { code: 'question', ownDetails: true } }), createdAt: Date.now()
         });
         if (!res || !res.approved) return deny(res ? 'Пользователь закрыл вопрос без ответа' : 'Сессия прервана пользователем');
         answers[qData.subtitle || qData.title] = this.normalizeQuestionAnswer(res.text);
         return allow({ ...input, answers });
       }
       for (const q of questions) {
-        const questionText = String(q?.question || q?.header || 'Вопрос');
+        const questionText = String(q?.question || q?.header || 'Question');
+        const header = q?.header ? String(q.header) : '';
         const options: QuestionOption[] = (Array.isArray(q?.options) ? q.options : []).map((opt: any, idx: number) => ({
           id: `opt-${idx}`,
           label: String(opt?.label ?? opt),
@@ -640,9 +646,10 @@ class ClaudeBridgeService extends EventEmitter {
         }));
         const res = await ask({
           id: newId(), sessionId, projectPath, type: 'question',
-          title: String(q?.header || 'Вопрос от Claude Code'),
+          title: header || QUESTION_FALLBACK_TITLE,
           details: questionText,
-          questionData: { title: String(q?.header || 'Вопрос от Claude Code'), subtitle: questionText, options, isMultiSelect: Boolean(q?.multiSelect), allowOther: true },
+          questionData: { title: header || QUESTION_FALLBACK_TITLE, subtitle: questionText, options, isMultiSelect: Boolean(q?.multiSelect), allowOther: true },
+          ...(header ? {} : { textKey: { code: 'question', ownDetails: true } }),
           createdAt: Date.now()
         });
         if (!res || !res.approved) return deny(res ? 'Пользователь закрыл вопрос без ответа' : 'Сессия прервана пользователем');
@@ -1421,7 +1428,7 @@ class ClaudeBridgeService extends EventEmitter {
     if (this.abortedSessions.has(sessionId)) {
       // Пользователь прервал сессию, пока шла проверка CLI.
       this.finishSession(sessionId, projectPath, 'aborted', 'Сессия прервана пользователем');
-      onComplete({ id: `msg-${Date.now()}`, role: 'assistant', content: '*(Отменено пользователем)*', timestamp: new Date().toISOString() });
+      onComplete({ id: `msg-${Date.now()}`, role: 'assistant', content: hostText(getHostLanguage()).studio.cancelledByUser, timestamp: new Date().toISOString() });
       return;
     }
 
@@ -1613,9 +1620,10 @@ class ClaudeBridgeService extends EventEmitter {
             const warning: RateLimitWarning = {
               id: `rl-${Date.now()}`,
               type: info.status === 'throttled' ? 'throttled' : 'rate_limit',
-              title: `${info.status === 'throttled' ? 'Достигнут лимит запросов Claude Code' : 'Приближение к лимиту запросов Claude Code'} — аккаунт «${account.name}»`,
+              // Английский запасной текст: баннер собирает заголовок и текст по типу и проценту (TASK-205).
+              title: `${info.status === 'throttled' ? 'Claude Code rate limit reached' : 'Approaching the Claude Code rate limit'} — account “${account.name}”`,
               accountName: account.name,
-              message: info.message || `Использовано ${utilization ? Math.round(utilization * 100) : 85}% доступного лимита запросов.`,
+              message: info.message || '',
               utilization: utilization ? Math.round(utilization * 100) : 85,
               resetsAt: resetsAt ? new Date(resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
               timestamp: Date.now()
@@ -1637,7 +1645,7 @@ class ClaudeBridgeService extends EventEmitter {
                   const warning: RateLimitWarning = {
                     id: `rl-${Date.now()}`,
                     type: percent >= 100 ? 'throttled' : 'rate_limit',
-                    title: `${percent >= 100 ? 'Достигнут лимит запросов Claude Code' : `Приближение к лимиту запросов (${percent}%)`} — аккаунт «${account.name}»`,
+                    title: `${percent >= 100 ? 'Claude Code rate limit reached' : 'Approaching the Claude Code rate limit'} — account “${account.name}”`,
                     accountName: account.name,
                     message: item.text,
                     utilization: percent,
@@ -1684,7 +1692,7 @@ class ClaudeBridgeService extends EventEmitter {
             const warning: RateLimitWarning = {
               id: `rl-${Date.now()}`,
               type: 'rate_limit',
-              title: 'Предупреждение о лимитах Claude Code',
+              title: 'Claude Code rate limit notice',
               message: trimmed,
               timestamp: Date.now()
             };
@@ -1703,7 +1711,7 @@ class ClaudeBridgeService extends EventEmitter {
         const warning: RateLimitWarning = {
           id: `rl-${Date.now()}`,
           type: 'rate_limit',
-          title: 'Предупреждение о лимитах Claude Code',
+          title: 'Claude Code rate limit notice',
           message: chunkStr.trim(),
           timestamp: Date.now()
         };
@@ -1721,7 +1729,7 @@ class ClaudeBridgeService extends EventEmitter {
         const completeMsg: AIMessage = {
           id: `msg-${Date.now()}`,
           role: 'assistant',
-          content: aborted ? `${accumulatedText}\n\n*(Отменено пользователем)*`.trim() : accumulatedText,
+          content: aborted ? `${accumulatedText}\n\n${hostText(getHostLanguage()).studio.cancelledByUser}`.trim() : accumulatedText,
           thought: accumulatedThought,
           toolCalls: toolCalls.map((tc) => ({
             ...tc,

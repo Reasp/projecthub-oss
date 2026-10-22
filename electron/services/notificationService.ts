@@ -7,6 +7,8 @@ import { trayService } from './trayService.js';
 import { telegramService } from './telegramService.js';
 import { getUserDataDir } from './appPaths.js';
 import { logger } from './logger.js';
+import { getHostLanguage } from './hostLanguage.js';
+import { hostText } from '../i18n/hostText.js';
 import { stateFields, withVersion } from './stateFiles.js';
 import {
   NotificationDeduper,
@@ -125,12 +127,13 @@ class NotificationService {
 
   /** Отправить пробное уведомление во все настроенные для этого типа каналы. */
   public async sendTest(): Promise<NotificationDelivery> {
+    const tx = hostText(getHostLanguage());
     const notification: AppNotification = {
       id: `test-${Date.now()}`,
       kind: 'hitl',
       severity: 'critical',
-      title: 'Проверка уведомлений ProjectHub',
-      body: 'Если вы это видите, канал доставки работает',
+      title: tx.notify.testTitle,
+      body: tx.notify.testBody,
       at: Date.now(),
       dedupKey: `test:${Date.now()}`,
       action: { type: 'openApp' }
@@ -148,14 +151,15 @@ class NotificationService {
       const requestId = event.request.id;
       this.deduper.forget(`hitl:${requestId}`);
       this.closeOsNotification(`hitl-${requestId}`);
+      const tx = hostText(getHostLanguage()).decision;
       const outcome =
         event.type === 'hitl:decided'
           ? event.approved
-            ? `Разрешено (${event.source.kind})`
-            : `Отклонено (${event.source.kind})`
+            ? tx.allowed(event.source.kind)
+            : tx.denied(event.source.kind)
           : event.type === 'hitl:expired'
-            ? 'Истёк срок ожидания — отклонено'
-            : 'Запрос отменён';
+            ? tx.expired
+            : tx.cancelled;
       void telegramService.resolveRequest(requestId, outcome);
       void this.teamChats?.resolve(requestId, outcome).catch(() => undefined);
       this.refreshTray();
@@ -169,7 +173,7 @@ class NotificationService {
       return;
     }
 
-    const notification = describeBusEvent(event);
+    const notification = describeBusEvent(event, getHostLanguage());
     this.refreshTray();
     if (!notification) return;
     void this.teamChats?.deliver(notification).catch(() => undefined);
@@ -239,7 +243,7 @@ class NotificationService {
       // Звук ОС не используем: свой сигнал управляется каналом `sound` и «тихими часами».
       silent: true,
       ...(actionable
-        ? { actions: [{ type: 'button' as const, text: 'Разрешить' }, { type: 'button' as const, text: 'Отклонить' }] }
+        ? { actions: [{ type: 'button' as const, text: hostText(getHostLanguage()).decision.allow }, { type: 'button' as const, text: hostText(getHostLanguage()).decision.deny }] }
         : {})
     });
 
@@ -254,7 +258,7 @@ class NotificationService {
         hitlService.decide(
           notification.requestId!,
           { approved },
-          { kind: 'local', deviceName: 'Системное уведомление' }
+          { kind: 'local', deviceName: 'System notification' }
         );
       });
     }

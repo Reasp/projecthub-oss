@@ -1,5 +1,7 @@
 /** Раздел словаря «models» (TASK-140.15): тексты чистых моделей `protocol/models.ts` — права, ошибки, статусы агентов.
  * Подписи классов риска HITL — в разделе `inbox`. */
+import { hitlRequestTextEn, hitlRequestTextRu } from '../../../../src/i18n/hitlRequestText';
+
 export const en = {
   rights: {
     hostReadOnly: 'Read only (host)',
@@ -19,6 +21,8 @@ export const en = {
     failed: 'Could not confirm with biometrics — approve on the computer'
   },
   hitlDefaultTitle: 'The agent needs a decision',
+  /** Заголовки и пояснения запросов по коду — общий словарь с окном ProjectHub (TASK-205). */
+  hitlText: hitlRequestTextEn,
   reject: {
     alreadyDecided: 'The request has already been decided',
     notFound: 'Request not found — it may have expired',
@@ -58,6 +62,7 @@ export const ru: typeof en = {
     failed: 'Не удалось подтвердить биометрией — одобрите на ПК'
   },
   hitlDefaultTitle: 'Агенту нужно решение',
+  hitlText: hitlRequestTextRu,
   reject: {
     alreadyDecided: 'Запрос уже решён',
     notFound: 'Запрос не найден — возможно, истёк',

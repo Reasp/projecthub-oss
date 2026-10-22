@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { NOTIFICATION_KINDS, type AppNotification, type NotificationKind } from './notificationTypes.js';
 import type { ChatMessage } from './chatAdapters.js';
-import { HIGH_RISK_LINE } from './chatButtons.js';
+import type { Language } from '../../src/i18n/types.js';
+import { hostText } from '../i18n/hostText.js';
 
 /**
  * Подписки рабочих чатов (TASK-138.4, decision-110): какие события, в какой канал, для каких проектов. Чистый модуль:
@@ -100,21 +101,22 @@ export function matchesSubscription(sub: ChatSubscription, notification: AppNoti
  * строка «решение — в ProjectHub». Остальные тела (заголовок PR, задачи, итог роя) идут как есть. Всё — через
  * маскировку секретов.
  */
-export function chatMessageFor(notification: AppNotification, details: boolean, mask: (text: string) => string, buttons = false): ChatMessage {
+export function chatMessageFor(notification: AppNotification, details: boolean, mask: (text: string) => string, buttons = false, lang: Language = 'en'): ChatMessage {
+  const tx = hostText(lang).decision;
   const lines: string[] = [];
   // С кнопками решения команда видит, что решает: тело запроса (команда, путь) идёт всегда, через маскировку секретов.
   if (notification.kind === 'hitl' && !details && !buttons) {
-    if (notification.projectName) lines.push(`Проект: ${notification.projectName}`);
-    lines.push('Решение — в ProjectHub, на телефоне или кнопками Telegram.');
+    if (notification.projectName) lines.push(tx.project(notification.projectName));
+    lines.push(tx.decideElsewhere);
   } else if (notification.body) {
-    if (notification.kind === 'hitl' && buttons && notification.projectName) lines.push(`Проект: ${notification.projectName}`);
+    if (notification.kind === 'hitl' && buttons && notification.projectName) lines.push(tx.project(notification.projectName));
     lines.push(mask(notification.body));
-    if (notification.kind === 'hitl' && buttons && notification.risk === 'high') lines.push(HIGH_RISK_LINE);
+    if (notification.kind === 'hitl' && buttons && notification.risk === 'high') lines.push(tx.highRiskLine);
   }
   const url = notification.action && 'url' in notification.action ? notification.action.url : undefined;
   return {
     title: mask(notification.title),
     lines,
-    ...(url && /^https?:\/\//.test(url) ? { url, urlLabel: 'Открыть' } : {})
+    ...(url && /^https?:\/\//.test(url) ? { url, urlLabel: tx.open } : {})
   };
 }

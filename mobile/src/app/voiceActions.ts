@@ -7,10 +7,10 @@ import type {
   RemoteStudioUsage,
   RemoteTaskSummary
 } from '../../../src/types/remote';
-import type { OverviewProject, OverviewSession } from '../../../src/utils/fleetOverview';
+import { overviewRequestTitle, type OverviewProject, type OverviewSession } from '../../../src/utils/fleetOverview';
 import type { PhoneVoiceCommand, PhoneVoiceIntent, PhoneVoiceScreen } from '../../../src/utils/phoneVoice';
 import { summarizeForSpeech } from '../../../src/services/ttsSummary';
-import type { Dict } from '../i18n';
+import { dictFor, type Dict } from '../i18n';
 import type { RpcMethod } from '../protocol/remoteClient';
 import {
   describePending,
@@ -148,7 +148,8 @@ const decide = (approve: boolean): VoiceAction => async (c) => {
   // Опасное одобряется только на экране с биометрией (decision-112); отклонить можно и голосом.
   if (approve && first.request.risk === 'high') return c.say(c.v.needScreen);
   const pc = spokenHostName(first.host.name);
-  return c.ask(approve ? c.v.confirmApprove(first.request.title, pc) : c.v.confirmReject(first.request.title, pc), async () => {
+  const title = overviewRequestTitle(first.request, dictFor(c.lang).models.hitlText);
+  return c.ask(approve ? c.v.confirmApprove(title, pc) : c.v.confirmReject(title, pc), async () => {
     const res = await c.rpc<{ ok: boolean; reason?: string }>(first.host.id, 'hitl_decision', {
       requestId: first.request.requestId,
       decision: approve ? 'allow' : 'deny',
@@ -180,7 +181,7 @@ export const VOICE_ACTIONS: Record<PhoneVoiceIntent, VoiceAction> = {
   },
   pending: async (c) => {
     const scope = scopeOf(c);
-    return c.say(typeof scope === 'string' ? scope : describePending(pendingRequests(c.hosts, scope), c.v));
+    return c.say(typeof scope === 'string' ? scope : describePending(pendingRequests(c.hosts, scope), c.v, dictFor(c.lang).models.hitlText));
   },
   select: async (c) => {
     const t = c.target(c.cmd.project || c.cmd.unknownProject ? 'project' : 'computer');

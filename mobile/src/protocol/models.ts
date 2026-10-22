@@ -1,4 +1,6 @@
 import type { DeviceRights, RemotePendingAgentTask, RemoteHitlRisk, RemotePendingApproval, RemoteTaskSummary } from '../../../src/types/remote';
+import type { HitlTextKey } from '../../../src/types/electron';
+import { describeHitlRequest, type HitlText, type HitlTextLabels } from '../../../src/lib/agentStatusText';
 import { t } from '../i18n';
 
 /**
@@ -124,8 +126,11 @@ export interface HitlItem {
   agentName?: string;
   role?: string;
   tool?: string;
+  /** Запасной текст хоста; на экран — через `hitlText` по `textKey`. */
   title: string;
   details?: string;
+  /** Заголовок и пояснение кодом (TASK-205). */
+  textKey?: HitlTextKey;
   command?: string;
   filePath?: string;
   expiresAt?: number;
@@ -192,12 +197,31 @@ export function hitlFromEvent(data: unknown): HitlItem | null {
     tool: str('tool'),
     title: str('description') ?? str('title') ?? t().models.hitlDefaultTitle,
     details: str('details'),
+    ...(parseTextKey(d.textKey) ? { textKey: parseTextKey(d.textKey) } : {}),
     command: str('command'),
     filePath: str('filePath'),
     expiresAt: typeof d.expiresAt === 'number' ? d.expiresAt : undefined,
     risk: d.risk === 'low' || d.risk === 'moderate' || d.risk === 'high' ? d.risk : undefined,
     riskReason: str('riskReason')
   };
+}
+
+/** Код заголовка с хоста: неизвестный вид остаётся — словарь его не найдёт и покажет `title`. */
+function parseTextKey(raw: unknown): HitlTextKey | undefined {
+  const k = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  if (typeof k.code !== 'string' || !k.code) return undefined;
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  return {
+    code: k.code as HitlTextKey['code'],
+    ...(str(k.target) ? { target: str(k.target) } : {}),
+    ...(str(k.agent) ? { agent: str(k.agent) } : {}),
+    ...(k.ownDetails === true ? { ownDetails: true } : {})
+  };
+}
+
+/** Заголовок и пояснение запроса на языке телефона (TASK-205): по коду, без кода — текст хоста. */
+export function hitlText(item: Pick<HitlItem, 'title' | 'details' | 'textKey'>, labels: HitlTextLabels = t().models.hitlText): HitlText {
+  return describeHitlRequest(item, labels);
 }
 
 export function hitlFromPending(p: RemotePendingApproval): HitlItem {

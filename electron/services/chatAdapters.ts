@@ -1,5 +1,6 @@
 import { PrHostingError, describeHttpError, type PrHttp } from './prHosting.js';
 import { MATTERMOST_ALLOW_EMOJI, MATTERMOST_DENY_EMOJI, mattermostHitlMessage, slackHitlBlocks, slackResolvedBlocks } from './chatButtons.js';
+import type { Language } from '../../src/i18n/types.js';
 
 /**
  * Адаптеры рабочих чатов (TASK-138.4, decision-110): отправка уведомления в канал, правка сообщения после решения,
@@ -17,6 +18,8 @@ export interface ChatSendOptions {
   /** Запрос `high`: кнопки и реакции только «отклонить». */
   hitlDenyOnly?: boolean;
   botUserId?: string;
+  /** Язык кнопок и подсказки решения — язык интерфейса хоста (TASK-205). */
+  lang?: Language;
 }
 
 /** Сообщение без разметки конкретного чата: заголовок, строки текста и ссылка. */
@@ -86,7 +89,7 @@ export function slackEscape(value: string): string {
 }
 
 export function slackText(message: ChatMessage, extra?: string): string {
-  const link = message.url && /^https?:\/\//.test(message.url) ? `\n<${message.url}|${slackEscape(message.urlLabel || 'Открыть')}>` : '';
+  const link = message.url && /^https?:\/\//.test(message.url) ? `\n<${message.url}|${slackEscape(message.urlLabel || 'Open')}>` : '';
   return [`*${slackEscape(message.title)}*`, ...message.lines.map(slackEscape), ...(extra ? [slackEscape(extra)] : [])].join('\n') + link;
 }
 
@@ -107,7 +110,7 @@ export const slackChatAdapter: ChatAdapter = {
     const json = await slackCall(http, 'chat.postMessage', {
       channel,
       text: mrkdwn,
-      ...(options?.hitlRequestId ? { blocks: slackHitlBlocks(mrkdwn, options.hitlRequestId, !options.hitlDenyOnly) } : {}),
+      ...(options?.hitlRequestId ? { blocks: slackHitlBlocks(mrkdwn, options.hitlRequestId, !options.hitlDenyOnly, options.lang) } : {}),
       unfurl_links: false,
       unfurl_media: false
     });
@@ -133,7 +136,7 @@ export const slackChatAdapter: ChatAdapter = {
 // ─────────────────────────── Mattermost ───────────────────────────
 
 export function mattermostText(message: ChatMessage, extra?: string): string {
-  const link = message.url && /^https?:\/\//.test(message.url) ? `\n[${message.urlLabel || 'Открыть'}](${message.url})` : '';
+  const link = message.url && /^https?:\/\//.test(message.url) ? `\n[${message.urlLabel || 'Open'}](${message.url})` : '';
   return [`**${message.title}**`, ...message.lines, ...(extra ? [extra] : [])].join('\n') + link;
 }
 
@@ -143,7 +146,7 @@ export const mattermostChatAdapter: ChatAdapter = {
   serviceId: 'mattermost',
   decisions: true,
   async send(http, channel, message, options) {
-    const body = options?.hitlRequestId ? mattermostHitlMessage(message, !options.hitlDenyOnly) : message;
+    const body = options?.hitlRequestId ? mattermostHitlMessage(message, !options.hitlDenyOnly, options.lang) : message;
     const json = obj(await callJson(http, '/posts', jsonInit('POST', { channel_id: channel, message: mattermostText(body) })));
     const id = text(json.id);
     // Бот сам ставит реакции-решения: человеку остаётся нажать. Не вышло — решение реакцией всё равно работает.
@@ -194,7 +197,7 @@ export function teamsCard(message: ChatMessage): Record<string, unknown> {
             { type: 'TextBlock', text: message.title, weight: 'Bolder', wrap: true },
             ...message.lines.map((line) => ({ type: 'TextBlock', text: line, wrap: true }))
           ],
-          ...(url ? { actions: [{ type: 'Action.OpenUrl', title: message.urlLabel || 'Открыть', url }] } : {})
+          ...(url ? { actions: [{ type: 'Action.OpenUrl', title: message.urlLabel || 'Open', url }] } : {})
         }
       }
     ]

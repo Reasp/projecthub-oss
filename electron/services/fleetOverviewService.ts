@@ -117,6 +117,7 @@ export function pendingInput(r: HitlRequest): OverviewPendingInput {
     sessionId: r.sessionId,
     projectPath: r.projectPath,
     title: r.title,
+    ...(r.textKey ? { textKey: r.textKey } : {}),
     ...(r.risk ? { risk: r.risk } : {}),
     ...(r.tool ? { tool: r.tool } : {}),
     ...(r.origin ? { origin: r.origin } : {}),

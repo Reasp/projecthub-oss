@@ -567,7 +567,7 @@ function SessionRow({ s, active, onOpen }: { s: RemoteStudioSessionSummary; acti
       <span className="mt-0.5 shrink-0 text-slate-400">{s.origin === 'phone' ? <DeviceMobileIcon size={16} /> : <DesktopIcon size={16} />}</span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="truncate text-[14px] font-medium">{s.title}</span>
+          <span className="truncate text-[14px] font-medium">{s.title || tr.studio.session}</span>
           {s.running && <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-400" aria-label={tr.studio.responding} />}
         </span>
         {s.preview && <span className="block truncate text-[12px] text-slate-400">{s.preview}</span>}

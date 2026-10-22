@@ -33,6 +33,19 @@
     <string name="risk_moderate">medium risk</string>
     <string name="risk_high">high risk</string>
 
+    <!-- Заголовок запроса по коду из push (TASK-205): те же тексты, что в src/i18n/hitlRequestText.ts -->
+    <string name="hitl_code_file_write">Write file</string>
+    <string name="hitl_code_file_write_excluded">⚠️ File is on the exclusion list</string>
+    <string name="hitl_code_command">Run command</string>
+    <string name="hitl_code_command_denied">⚠️ Command is on the deny list</string>
+    <string name="hitl_code_process">Background process</string>
+    <string name="hitl_code_sync_merge">Pull the base branch</string>
+    <string name="hitl_code_sync_continue">Finish merging the base branch</string>
+    <string name="hitl_code_sync_abort">Abort merging the base branch</string>
+    <string name="hitl_code_read">Read</string>
+    <string name="hitl_code_read_outside">Read</string>
+    <string name="hitl_code_question">Question from Claude Code</string>
+
     <!-- Итог нажатия кнопки в уведомлении -->
     <string name="outcome_push_off">Push is off for this computer — open the app</string>
     <string name="outcome_sign_failed">Could not sign the decision — open the app</string>

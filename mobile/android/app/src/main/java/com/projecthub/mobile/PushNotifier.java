@@ -126,8 +126,13 @@ final class PushNotifier {
         String rid = p.optString("rid");
         String risk = p.optString("risk", "high");
         int id = notificationId(hid, rid);
-        String what = p.optString("cmd", "").isEmpty() ? p.optString("title") : "$ " + p.optString("cmd");
-        StringBuilder big = new StringBuilder(p.optString("title"));
+        // Заголовок по коду — на языке телефона (TASK-205); без кода — текст хоста.
+        JSONObject tk = p.optJSONObject("tk");
+        String title = tk == null
+            ? p.optString("title")
+            : HitlPushTitle.of(Texts.of(ctx), tk.optString("c"), tk.optString("t"), tk.optString("a"), p.optString("title"));
+        String what = p.optString("cmd", "").isEmpty() ? title : "$ " + p.optString("cmd");
+        StringBuilder big = new StringBuilder(title);
         if (!p.optString("cmd", "").isEmpty()) big.append("\n$ ").append(p.optString("cmd"));
         else if (!p.optString("file", "").isEmpty()) big.append("\n").append(p.optString("file"));
         String why = p.optString("why", "");

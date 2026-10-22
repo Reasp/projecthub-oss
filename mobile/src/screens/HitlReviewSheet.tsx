@@ -3,7 +3,7 @@ import { FingerprintIcon, XIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { useServices } from '../app/context';
 import { Badge, Button, Sheet, Spinner } from '../components/ui';
-import { diffLineKind, type HitlItem } from '../protocol/models';
+import { diffLineKind, hitlText, type HitlItem } from '../protocol/models';
 import { useT } from '../i18n/react';
 import type { RemoteHitlDetail } from '../../../src/types/remote';
 
@@ -41,6 +41,7 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
   }, [open, item.requestId, store]);
 
   const truncated = Boolean(detail?.diff?.truncated || detail?.detailsTruncated);
+  const text = hitlText(detail ? { title: detail.title, details: detail.details, textKey: detail.textKey ?? item.textKey } : item, tr.models.hitlText);
   const decide = async (approve: boolean) => {
     setBusy(true);
     platform.haptic(approve ? 'heavy' : 'warning');
@@ -71,7 +72,7 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
         </div>
       }
     >
-      <div className="text-[15px] font-medium leading-snug">{item.title}</div>
+      <div className="text-[15px] font-medium leading-snug">{text.title}</div>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
         {(detail?.tool || item.tool) && <Badge tone="warning">{detail?.tool || item.tool}</Badge>}
         <Badge tone="danger">{tr.inbox.risk[detail?.risk ?? item.risk ?? 'high']}</Badge>
@@ -93,8 +94,8 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
           </pre>
         </>
       )}
-      {detail?.details && !detail.command && (
-        <pre className="selectable mt-3 whitespace-pre-wrap break-words rounded-lg bg-ph-base p-2 font-mono text-[12px] text-slate-200">{detail.details}</pre>
+      {detail && text.details && !detail.command && (
+        <pre className="selectable mt-3 whitespace-pre-wrap break-words rounded-lg bg-ph-base p-2 font-mono text-[12px] text-slate-200">{text.details}</pre>
       )}
       {detail?.diff && (
         <>

@@ -29,6 +29,8 @@ import { updaterService } from './services/updaterService';
 import { notificationService } from './services/notificationService';
 import { trayService } from './services/trayService';
 import { telegramService, agentTaskTrackKey } from './services/telegramService';
+import { getHostLanguage } from './services/hostLanguage';
+import { hostText } from './i18n/hostText';
 import { agentTaskApproval } from './services/agentTaskApprovalInstance';
 import { computerUseService, type ComputerOverlayState } from './services/computerUseService';
 import { projectGraphService } from './services/projectGraphService';
@@ -547,14 +549,15 @@ function setupTrayAndNotifications(): void {
       app.quit();
     },
     confirmQuit: async (activeAgents) => {
+      const tx = hostText(getHostLanguage()).tray.quitConfirm;
       const options = {
         type: 'warning' as const,
-        buttons: ['Отмена', 'Выйти'],
+        buttons: [tx.cancel, tx.quit],
         defaultId: 0,
         cancelId: 0,
-        title: 'Выход из ProjectHub',
-        message: `Сейчас работают агенты: ${activeAgents}`,
-        detail: 'При выходе их работа будет прервана, а незавершённые запросы на решение отменены. Продолжить?'
+        title: tx.title,
+        message: tx.message(activeAgents),
+        detail: tx.detail
       };
       const result =
         win && !win.isDestroyed()
@@ -590,9 +593,10 @@ function setupTrayAndNotifications(): void {
     // Телефон убирает подтверждённое из «Входящих», даже если подтвердили в окне.
     if (channel === 'window') remoteControlService.broadcastEvent('backlog:changed', { projectPath });
     if (channel === 'telegram') return;
-    const where = channel === 'phone' ? 'с телефона' : 'в окне ProjectHub';
+    const tx = hostText(getHostLanguage()).decision;
+    const outcome = channel === 'phone' ? tx.tasksConfirmedPhone : tx.tasksConfirmedWindow;
     for (const ticket of resolvedTickets) {
-      void telegramService.resolveRequest(agentTaskTrackKey(ticket.id), `✅ Подтверждено ${where}`);
+      void telegramService.resolveRequest(agentTaskTrackKey(ticket.id), `✅ ${outcome}`);
     }
   });
 

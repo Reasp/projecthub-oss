@@ -6,6 +6,7 @@ import { getStatePath } from './appPaths';
 import { redactSecrets } from './hitlAudit';
 import { maskDetectedSecrets } from './secretPatterns';
 import { logger } from './logger';
+import { getHostLanguage } from './hostLanguage';
 
 /** Боевой экземпляр рабочих чатов (TASK-138.4, decision-110): подключения Slack и Mattermost, бот Telegram. */
 export const chatService = new ChatService({
@@ -36,6 +37,7 @@ export const chatService = new ChatService({
   },
   mask: (text) => maskDetectedSecrets(redactSecrets(text)),
   now: () => Date.now(),
+  language: () => getHostLanguage(),
   log: (level, message) => (level === 'warn' ? logger.warn(message) : logger.info(message))
 });
 

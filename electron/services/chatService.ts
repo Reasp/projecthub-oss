@@ -6,6 +6,8 @@ import { canDecide, parseMattermostEvent, parseSlackEnvelope, slackSocketUrl, so
 import { chatMessageFor, hasDecisionButtons, matchesSubscription, normalizeSubscription, type ChatKind, type ChatSubscription } from './chatSubscriptions.js';
 import { stateFields, withVersion } from './stateFiles.js';
 import type { AppNotification } from './notificationTypes.js';
+import type { Language } from '../../src/i18n/types.js';
+import { hostText } from '../i18n/hostText.js';
 import type { ConnectionUsage } from './connectionTypes.js';
 
 /**
@@ -65,6 +67,8 @@ export interface ChatServiceDeps {
   decide?(requestId: string, approved: boolean, who: ChatDecider): ChatDecideResult;
   setTimer?(fn: () => void, ms: number): unknown;
   clearTimer?(handle: unknown): void;
+  /** Язык сообщений и кнопок — язык интерфейса хоста (TASK-205); без него — английский. */
+  language?(): Language;
 }
 
 interface SocketEntry {
@@ -79,11 +83,12 @@ interface SocketEntry {
 }
 
 /** Причина отказа хоста — человеку в чате. */
-function decisionRejectText(reason: string): string {
-  if (reason === 'confirmation_required') return 'Высокий риск: такой запрос одобряется только в ProjectHub на ПК или в приложении с биометрией. Отклонить можно и здесь.';
-  if (reason === 'already_decided') return 'Запрос уже решён.';
-  if (reason === 'not_found') return 'Запрос не найден — возможно, истёк.';
-  return `ProjectHub не принял решение: ${reason}`;
+function decisionRejectText(reason: string, lang: Language): string {
+  const tx = hostText(lang).decision;
+  if (reason === 'confirmation_required') return tx.rejectHighRisk;
+  if (reason === 'already_decided') return tx.rejectAlreadyDecided;
+  if (reason === 'not_found') return tx.rejectNotFound;
+  return tx.rejectOther(reason);
 }
 
 export const CHAT_STATE_VERSION = 1;
@@ -103,7 +108,7 @@ function errorText(err: unknown): string {
 /** Текст для Telegram: Markdown бота, поэтому без разметки — только экранирование символов Markdown. */
 function telegramText(message: ChatMessage): string {
   const esc = (s: string) => s.replace(/([_*`[\]])/g, '\\$1');
-  const link = message.url ? `\n[${esc(message.urlLabel || 'Открыть')}](${message.url})` : '';
+  const link = message.url ? `\n[${esc(message.urlLabel || 'Open')}](${message.url})` : '';
   return [`*${esc(message.title)}*`, ...message.lines.map(esc)].join('\n') + link;
 }
 
@@ -297,6 +302,10 @@ export class ChatService {
    * Нажатие в чате → решение HITL. Сообщение должно быть отправлено этой подпиской, человек — из её списка решающих;
    * иначе решение не применяется, а человек получает объяснение только для себя.
    */
+  private lang(): Language {
+    return this.deps.language?.() ?? 'en';
+  }
+
   async applyDecision(kind: 'slack' | 'mattermost', socketConnectionId: string, d: ChatDecision): Promise<ChatDecisionOutcome> {
     let found: { requestId: string; sub: ChatSubscription; ref: ChatMessageRef } | null = null;
     for (const [requestId, list] of this.hitlMessages) {
@@ -316,12 +325,12 @@ export class ChatService {
     const chat = kind === 'slack' ? 'Slack' : 'Mattermost';
     if (!canDecide(found.sub.deciders, d.userId)) {
       this.deps.log('warn', `[Chat] ${chat}: нажатие ${d.userId} не применено — нет в списке решающих подписки`);
-      await this.notifyUser(found.sub, found.ref.channel, d.userId, 'Решать запросы ProjectHub в этом канале могут только люди из списка подписки. Ваше нажатие не применено.');
+      await this.notifyUser(found.sub, found.ref.channel, d.userId, hostText(this.lang()).decision.notInList);
       return 'not_allowed';
     }
     const res = this.deps.decide!(found.requestId, d.approved, { chat, userId: d.userId, userName: d.userName });
     if (!res.ok) {
-      await this.notifyUser(found.sub, found.ref.channel, d.userId, decisionRejectText(res.reason));
+      await this.notifyUser(found.sub, found.ref.channel, d.userId, decisionRejectText(res.reason, this.lang()));
       return 'rejected';
     }
     this.deps.log('info', `[Chat] ${chat}: запрос ${found.requestId} ${d.approved ? 'одобрен' : 'отклонён'} (${d.userName})`);
@@ -353,7 +362,7 @@ export class ChatService {
 
   private async sendTo(sub: ChatSubscription, notification: AppNotification): Promise<void> {
     const buttons = Boolean(notification.kind === 'hitl' && notification.requestId && hasDecisionButtons(sub) && this.deps.decide && this.deps.sockets);
-    const message = chatMessageFor(notification, sub.details, this.deps.mask, buttons);
+    const message = chatMessageFor(notification, sub.details, this.deps.mask, buttons, this.lang());
     if (sub.kind === 'telegram') {
       if (!this.deps.telegram?.configured()) throw new Error('Бот Telegram не настроен: токен бота — в настройках Remote Control');
       const ok = await this.deps.telegram.send(notification, sub.channel, telegramText(message));
@@ -364,7 +373,7 @@ export class ChatService {
     const connectionId = sub.connectionId!;
     const botUserId = buttons && sub.kind === 'mattermost' ? (await this.deps.connections.list()).find((c) => c.id === connectionId)?.accountId : undefined;
     const ref = await adapter.send((target, init) => this.deps.connections.authorizedFetch(connectionId, target, init), sub.channel, message, {
-      ...(buttons ? { hitlRequestId: notification.requestId, hitlDenyOnly: notification.risk === 'high' } : {}),
+      ...(buttons ? { hitlRequestId: notification.requestId, hitlDenyOnly: notification.risk === 'high', lang: this.lang() } : {}),
       ...(botUserId ? { botUserId } : {})
     });
     if (notification.requestId && ref.id) {

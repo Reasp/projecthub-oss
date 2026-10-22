@@ -10,6 +10,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import {
   fleetTotals,
+  overviewSessionDetail,
   splitQuietProjects,
   type FleetHostEntry,
   type OverviewActions,
@@ -171,6 +172,7 @@ export const ComputersSection: React.FC = () => {
   const renderSession = (host: FleetHostEntry, actions: OverviewActions, project: OverviewProject, s: OverviewSession) => {
     const Icon = sessionIcon(s.kind);
     const active = fleet.remoteSession && fleet.remoteSession.hostId === host.hostId && fleet.remoteSession.session.id === s.id;
+    const detail = overviewSessionDetail(s, t.hitl.requestText);
     return (
       <div
         key={`${s.kind}:${s.id}`}
@@ -187,7 +189,7 @@ export const ComputersSection: React.FC = () => {
           <span className="truncate text-xs text-slate-200 flex-1">{s.title}</span>
           <span className={`shrink-0 text-[10px] ${STATE_TEXT[s.state]}`}>{t.fleet.states[s.state]}</span>
         </div>
-        {s.detail && <div className={`pl-[18px] truncate text-[11px] ${s.state === 'waiting' ? 'text-amber-200/90' : 'text-slate-500'}`}>{s.detail}</div>}
+        {detail && <div className={`pl-[18px] truncate text-[11px] ${s.state === 'waiting' ? 'text-amber-200/90' : 'text-slate-500'}`}>{detail}</div>}
         {s.pending && <div className="pl-[18px]">{s.pending.map((req) => renderPending(host, actions, req))}</div>}
       </div>
     );

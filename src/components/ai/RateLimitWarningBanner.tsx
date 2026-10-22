@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AlertTriangle, Clock, ChevronDown, ChevronUp, X, Zap, Trash2 } from '../common/icons';
 import type { RateLimitWarning, AIProviderConfig } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { rateLimitMessage, rateLimitTitle } from '../../lib/rateLimitText';
 
 interface RateLimitWarningBannerProps {
   warning: RateLimitWarning;
@@ -54,7 +55,7 @@ export const RateLimitWarningBanner: React.FC<RateLimitWarningBannerProps> = ({
 
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <span className="font-semibold text-xs text-white tracking-wide">
-              {warning.title || t.aiStudio.rateLimit.bannerTitle}
+              {rateLimitTitle(warning, t.aiStudio.rateLimit)}
             </span>
             <span
               className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-bold border ${
@@ -117,7 +118,7 @@ export const RateLimitWarningBanner: React.FC<RateLimitWarningBannerProps> = ({
           </div>
 
           <p className="text-xs text-slate-300 leading-relaxed font-sans">
-            {warning.message}
+            {rateLimitMessage(warning, t.aiStudio.rateLimit)}
           </p>
 
           {/* Quick Recommendations & Action Buttons */}

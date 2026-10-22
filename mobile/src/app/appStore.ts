@@ -32,6 +32,7 @@ import {
   dropHitl,
   pushErrorText,
   hitlFromEvent,
+  hitlText,
   hitlConfirmPayload,
   hitlFromPending,
   hitlRejectReason,
@@ -417,7 +418,7 @@ export class AppStore {
     try {
       proof = await this.confirm.sign(this.state.conn.deviceId, hitlConfirmPayload(hostId, requestId, 'allow', item.risk), {
         title: t().store.biometricTitle,
-        subtitle: item.title.slice(0, 120),
+        subtitle: hitlText(item).title.slice(0, 120),
         description: item.command ? item.command.slice(0, 300) : (item.filePath ?? '')
       });
     } catch (err) {

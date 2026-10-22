@@ -963,6 +963,7 @@ const api: IElectronAPI = {
   updateNotificationSettings: (patch: Partial<NotificationSettings>) =>
     ipcRenderer.invoke('notifications:updateSettings', patch),
   testNotification: () => ipcRenderer.invoke('notifications:test'),
+  setHostLanguage: (language: 'en' | 'ru') => ipcRenderer.invoke('notifications:setHostLanguage', language),
   notificationNavigate: (action: NotificationAction) => ipcRenderer.invoke('notifications:navigate', action),
   startTelegramBot: () => ipcRenderer.invoke('notifications:startBot'),
   stopTelegramBot: () => ipcRenderer.invoke('notifications:stopBot'),

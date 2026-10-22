@@ -4,7 +4,8 @@
  * снимкам `get_overview`. Без React и сети.
  */
 import type { PhoneVoiceCommand, PhoneVoiceComputer } from '../../../src/utils/phoneVoice';
-import type { OverviewPendingRequest, OverviewProject, RemoteOverview } from '../../../src/utils/fleetOverview';
+import { overviewRequestTitle, type OverviewPendingRequest, type OverviewProject, type RemoteOverview } from '../../../src/utils/fleetOverview';
+import type { HitlTextLabels } from '../../../src/lib/agentStatusText';
 import type { Dict } from '../i18n';
 
 export type VoiceLang = 'ru' | 'en';
@@ -153,12 +154,12 @@ export function pendingRequests(hosts: readonly VoiceHost[], scope: { host?: Voi
   return out.sort((a, b) => (a.request.createdAt ?? 0) - (b.request.createdAt ?? 0));
 }
 
-export function describePending(items: readonly PendingItem[], v: VoiceDict): string {
+export function describePending(items: readonly PendingItem[], v: VoiceDict, hitl: HitlTextLabels): string {
   if (items.length === 0) return v.nothingPending;
   const byHost = new Map<string, number>();
   for (const i of items) byHost.set(spokenHostName(i.host.name), (byHost.get(spokenHostName(i.host.name)) ?? 0) + 1);
   const lines = [...byHost].map(([pc, n]) => v.pendingLine(n, pc)).join(', ');
-  return `${lines}. ${v.pendingFirst(items[0].request.title)}`;
+  return `${lines}. ${v.pendingFirst(overviewRequestTitle(items[0].request, hitl))}`;
 }
 
 /** Имя компьютера для голоса: без `.local` — так его и произносят. */

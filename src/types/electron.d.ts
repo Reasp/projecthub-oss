@@ -1741,6 +1741,8 @@ export interface IElectronAPI {
   getNotificationSettings: () => Promise<NotificationSettingsState>;
   updateNotificationSettings: (patch: Partial<NotificationSettings>) => Promise<NotificationSettings>;
   testNotification: () => Promise<NotificationDelivery>;
+  /** Язык окна для текстов хоста: уведомления, Telegram, трей (TASK-205). */
+  setHostLanguage?: (language: 'en' | 'ru') => Promise<'en' | 'ru'>;
   notificationNavigate: (action: NotificationAction) => Promise<boolean>;
   startTelegramBot: () => Promise<{ ok: boolean; error?: string; running: boolean; processId: string | null }>;
   stopTelegramBot: () => Promise<{ ok: boolean; running: boolean; processId: string | null }>;
@@ -1839,7 +1841,8 @@ export type HitlTextCode =
   | 'sync_continue'
   | 'sync_abort'
   | 'read'
-  | 'read_outside';
+  | 'read_outside'
+  | 'question';
 
 export interface HitlTextKey {
   code: HitlTextCode;

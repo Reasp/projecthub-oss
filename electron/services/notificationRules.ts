@@ -1,5 +1,8 @@
 import path from 'node:path';
 import type { AppBusEvent } from './hitlTypes.js';
+import type { Language } from '../../src/i18n/types.js';
+import { describeHitlRequest } from '../../src/lib/agentStatusText.js';
+import { hostText, type HostText } from '../i18n/hostText.js';
 import {
   NOTIFICATION_CHANNELS,
   NOTIFICATION_KINDS,
@@ -193,18 +196,18 @@ function projectName(projectPath?: string): string {
   return path.win32.basename(projectPath.replace(/[\\/]+$/, '')) || projectPath;
 }
 
-function agentLabel(event: { agentName?: string; role?: string }): string {
+function agentLabel(event: { agentName?: string; role?: string }, tx: HostText): string {
   if (event.agentName && event.role) return `${event.agentName} (${event.role})`;
-  return event.agentName || event.role || 'Агент';
+  return event.agentName || event.role || tx.agent;
 }
 
-function formatDuration(ms?: number): string {
+function formatDuration(tx: HostText, ms?: number): string {
   if (!ms || ms < 0) return '';
   const sec = Math.round(ms / 1000);
-  if (sec < 60) return `${sec} с`;
+  if (sec < 60) return tx.duration.sec(sec);
   const min = Math.floor(sec / 60);
   const rest = sec % 60;
-  return rest ? `${min} мин ${rest} с` : `${min} мин`;
+  return rest ? tx.duration.minSec(min, rest) : tx.duration.min(min);
 }
 
 function trim(text: string, limit = 180): string {
@@ -216,24 +219,26 @@ function trim(text: string, limit = 180): string {
  * Событие шины → уведомление. `null` означает «этот тип не уведомляет» (старт агента,
  * решения и отмены HITL — они только снимают уже показанное уведомление).
  *
- * Тексты на русском (правило 11 infra-dev): main-процесс не знает языка рендерера, а канал
- * доставки (ОС, Telegram) живёт вне окна приложения.
+ * Тексты — на языке интерфейса хоста (TASK-205, [[decision-161]]): канал доставки (ОС, Telegram, чаты) живёт вне
+ * окна приложения, язык передаёт `notificationService`. Заголовок HITL — по коду запроса, как в окне.
  */
-export function describeBusEvent(event: AppBusEvent): AppNotification | null {
+export function describeBusEvent(event: AppBusEvent, lang: Language = 'en'): AppNotification | null {
+  const tx = hostText(lang);
   switch (event.type) {
     case 'hitl:requested': {
       const r = event.request;
+      const text = describeHitlRequest(r, tx.hitl);
       const what = r.command
-        ? `Команда: ${trim(r.command, 120)}`
+        ? tx.notify.hitlCommand(trim(r.command, 120))
         : r.filePath
-          ? `Файл: ${trim(r.filePath, 120)}`
-          : trim(r.details || r.title, 160);
+          ? tx.notify.hitlFile(trim(r.filePath, 120))
+          : trim(text.details || text.title, 160);
       return {
         id: `hitl-${r.id}`,
         kind: 'hitl',
         severity: 'critical',
-        title: `Нужно решение: ${trim(r.title, 80)}`,
-        body: [projectName(r.projectPath), agentLabel(r), what].filter(Boolean).join(' · '),
+        title: tx.notify.hitlTitle(trim(text.title, 80)),
+        body: [projectName(r.projectPath), agentLabel(r, tx), what].filter(Boolean).join(' · '),
         at: r.createdAt || Date.now(),
         dedupKey: `hitl:${r.id}`,
         projectPath: r.projectPath,
@@ -246,13 +251,13 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
       };
     }
     case 'agent:finished': {
-      const duration = formatDuration(event.durationMs);
+      const duration = formatDuration(tx, event.durationMs);
       return {
         id: `agent-finished-${event.sessionId}-${event.at}`,
         kind: 'agentFinished',
         severity: event.outcome === 'done' ? 'success' : 'warning',
-        title: event.outcome === 'done' ? 'Агент завершил работу' : 'Агент прерван',
-        body: [projectName(event.projectPath), agentLabel(event), duration].filter(Boolean).join(' · '),
+        title: event.outcome === 'done' ? tx.notify.agentDone : tx.notify.agentAborted,
+        body: [projectName(event.projectPath), agentLabel(event, tx), duration].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `agent:finished:${event.sessionId}`,
         projectPath: event.projectPath,
@@ -267,8 +272,8 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `agent-failed-${event.sessionId}-${event.at}`,
         kind: 'agentFailed',
         severity: 'critical',
-        title: 'Агент завершился с ошибкой',
-        body: [projectName(event.projectPath), agentLabel(event), trim(event.error, 140)].filter(Boolean).join(' · '),
+        title: tx.notify.agentFailed,
+        body: [projectName(event.projectPath), agentLabel(event, tx), trim(event.error, 140)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `agent:failed:${event.sessionId}`,
         projectPath: event.projectPath,
@@ -282,8 +287,8 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `agent-model-fallback-${event.sessionId}-${event.at}`,
         kind: 'modelFallback',
         severity: 'warning',
-        title: 'Агент переключил модель',
-        body: [projectName(event.projectPath), agentLabel(event), trim(`${event.fromModel} → ${event.toModel} (${event.errorKind}${event.errorReason ? `/${event.errorReason}` : ''})`, 160)]
+        title: tx.notify.modelFallback,
+        body: [projectName(event.projectPath), agentLabel(event, tx), trim(`${event.fromModel} → ${event.toModel} (${event.errorKind}${event.errorReason ? `/${event.errorReason}` : ''})`, 160)]
           .filter(Boolean)
           .join(' · '),
         at: event.at,
@@ -298,16 +303,14 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
       const failed = event.agentsFailed > 0;
       const parts = [
         projectName(event.projectPath),
-        `${event.agentsTotal - event.agentsFailed}/${event.agentsTotal} агентов успешно`,
-        formatDuration(event.durationMs)
+        tx.notify.swarmAgentsOk(event.agentsTotal - event.agentsFailed, event.agentsTotal),
+        formatDuration(tx, event.durationMs)
       ].filter(Boolean);
       return {
         id: `swarm-${event.swarmId}-${event.at}`,
         kind: 'swarmFinished',
         severity: failed || event.outcome !== 'completed' ? 'warning' : 'success',
-        title: `${event.mode === 'handoff' ? 'Handoff' : 'Swarm'} «${trim(event.name, 60)}»: ${
-          event.outcome === 'completed' ? 'завершён' : event.outcome === 'failed' ? 'с ошибками' : 'остановлен'
-        }`,
+        title: tx.notify.swarmTitle(event.mode === 'handoff' ? 'Handoff' : 'Swarm', trim(event.name, 60), event.outcome),
         body: parts.join(' · '),
         at: event.at,
         dedupKey: `swarm:${event.swarmId}:${event.outcome}`,
@@ -323,8 +326,8 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `process-${event.processId}-${event.at}`,
         kind: 'processCrashed',
         severity: 'critical',
-        title: `Процесс «${trim(event.name, 60)}» аварийно завершился`,
-        body: [projectName(event.projectPath), `код выхода ${event.exitCode ?? '?'}`].filter(Boolean).join(' · '),
+        title: tx.notify.processCrashed(trim(event.name, 60)),
+        body: [projectName(event.projectPath), tx.notify.exitCode(String(event.exitCode ?? '?'))].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `process:${event.processId}`,
         projectPath: event.projectPath,
@@ -337,7 +340,7 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `pr-created-${event.projectPath}-${event.number}`,
         kind: 'prCreated',
         severity: 'success',
-        title: `Pull Request #${event.number} создан`,
+        title: tx.notify.prCreated(event.number),
         body: [projectName(event.projectPath), trim(event.title, 120)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `pr:created:${event.projectPath}:${event.number}`,
@@ -352,7 +355,7 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `pr-merged-${event.projectPath}-${event.number}`,
         kind: 'prMerged',
         severity: 'success',
-        title: `Pull Request #${event.number} слит`,
+        title: tx.notify.prMerged(event.number),
         body: [projectName(event.projectPath), trim(event.title, 120), moved].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `pr:merged:${event.projectPath}:${event.number}`,
@@ -368,7 +371,7 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `pr-checks-${event.projectPath}-${event.number}`,
         kind: 'prChecksFailed',
         severity: 'warning',
-        title: `Проверки Pull Request #${event.number} упали`,
+        title: tx.notify.prChecksFailed(event.number),
         body: [projectName(event.projectPath), trim(event.title, 120)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `pr:checks:${event.projectPath}:${event.number}`,
@@ -382,8 +385,8 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `peer-introduced-${event.peerHostId}-${event.at}`,
         kind: 'deviceConnected',
         severity: 'info',
-        title: 'Компьютер добавлен',
-        body: [trim(event.peerName, 60), `знакомство с устройства ${trim(event.byDevice, 60)}`].join(' · '),
+        title: tx.notify.peerIntroduced,
+        body: [trim(event.peerName, 60), tx.notify.peerIntroducedBy(trim(event.byDevice, 60))].join(' · '),
         at: event.at,
         dedupKey: `peer-introduced:${event.peerHostId}`,
         hostId: event.hostId,
@@ -395,8 +398,8 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `device-${event.deviceId}-${event.at}`,
         kind: 'deviceConnected',
         severity: 'info',
-        title: 'Подключено устройство',
-        body: [trim(event.deviceName, 60), event.mode, event.isApproved ? 'одобрено' : 'ожидает одобрения']
+        title: tx.notify.deviceConnected,
+        body: [trim(event.deviceName, 60), event.mode, event.isApproved ? tx.notify.deviceApproved : tx.notify.deviceAwaitingApproval]
           .filter(Boolean)
           .join(' · '),
         at: event.at,
@@ -411,8 +414,8 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: deviceApprovalNotificationId(event.deviceId),
         kind: 'deviceApproval',
         severity: 'warning',
-        title: 'Устройство ждёт подтверждения',
-        body: [trim(event.deviceName, 60), event.mode, 'разрешите доступ в Remote Control → Устройства'].filter(Boolean).join(' · '),
+        title: tx.notify.deviceApprovalTitle,
+        body: [trim(event.deviceName, 60), event.mode, tx.notify.deviceApprovalHint].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: deviceApprovalDedupKey(event.deviceId),
         hostId: event.hostId,
@@ -463,13 +466,13 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
     case 'automation:suspended': {
       const why =
         event.reason === 'budget'
-          ? `исчерпан дневной бюджет${event.limitUsd ? ` ($${(event.spentUsd ?? event.limitUsd).toFixed(2)} из $${event.limitUsd.toFixed(2)})` : ''}`
-          : 'исчерпано число запусков за день';
+          ? tx.notify.automationBudget((event.spentUsd ?? event.limitUsd)?.toFixed(2), event.limitUsd?.toFixed(2))
+          : tx.notify.automationRuns;
       return {
         id: `automation-suspended-${event.ruleId}-${event.until}`,
         kind: 'automation',
         severity: 'warning',
-        title: 'Автоматизация приостановлена до полуночи',
+        title: tx.notify.automationSuspended,
         body: [trim(event.ruleName, 80), why, projectName(event.projectPath)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `automation:suspended:${event.ruleId}:${event.until}`,
@@ -484,7 +487,7 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `automation-failed-${event.runId}`,
         kind: 'automation',
         severity: 'warning',
-        title: `Автоматизация «${trim(event.ruleName, 60)}» не выполнена`,
+        title: tx.notify.automationFailed(trim(event.ruleName, 60)),
         body: [trim(event.detail || event.action, 160), projectName(event.projectPath)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `automation:failed:${event.runId}`,
@@ -496,14 +499,14 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
     case 'pr:reviewFinished': {
       const body =
         event.status === 'failed'
-          ? `не выполнено: ${trim(event.error || 'ошибка', 140)}`
-          : `подтверждено ${event.confirmed}, отброшено ${event.refuted}${event.unverified ? `, не проверено ${event.unverified}` : ''}${event.costUsd !== undefined ? ` · $${event.costUsd.toFixed(2)}` : ''}`;
+          ? tx.notify.reviewFailed(trim(event.error || tx.notify.reviewError, 140))
+          : `${tx.notify.reviewDone(event.confirmed, event.refuted, event.unverified)}${event.costUsd !== undefined ? ` · $${event.costUsd.toFixed(2)}` : ''}`;
       return {
         id: `pr-review-${event.reviewId}`,
         kind: 'prReview',
         severity: event.status === 'failed' ? 'warning' : event.confirmed > 0 ? 'warning' : 'success',
-        title: `Ревью PR #${event.number} «${trim(event.title, 60)}»`,
-        body: [body, event.publish === 'pending' ? 'публикация ждёт решения' : '', projectName(event.projectPath)].filter(Boolean).join(' · '),
+        title: tx.notify.reviewTitle(event.number, trim(event.title, 60)),
+        body: [body, event.publish === 'pending' ? tx.notify.reviewPublishPending : '', projectName(event.projectPath)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `pr:review:${event.reviewId}`,
         projectPath: event.projectPath,
@@ -540,12 +543,12 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         kind: 'agentTask',
         severity: 'warning',
         title: single
-          ? trim(`Агент завёл задачу: ${single.id} «${single.title}»`, 120)
-          : `Агент завёл задачи (${event.tasks.length}), ждут подтверждения`,
+          ? trim(tx.notify.agentTaskOne(single.id, single.title), 120)
+          : tx.notify.agentTaskMany(event.tasks.length),
         body: [
           projectName(event.projectPath),
           event.reporter,
-          single ? 'ждёт подтверждения' : trim(event.tasks.map((t) => `${t.id} ${t.title}`).join(', '), 200)
+          single ? tx.notify.agentTaskPending : trim(event.tasks.map((t) => `${t.id} ${t.title}`).join(', '), 200)
         ]
           .filter(Boolean)
           .join(' · '),
@@ -565,7 +568,7 @@ export function describeBusEvent(event: AppBusEvent): AppNotification | null {
         id: `doc-branch-${event.branchId}-${event.at}`,
         kind: 'docBranch',
         severity: 'warning',
-        title: trim(`Правки документации ждут принятия: ${event.branchId}${event.title ? ` «${event.title}»` : ''}`, 120),
+        title: trim(tx.notify.docBranchProposed(event.branchId, event.title), 120),
         body: [projectName(event.projectPath), event.author].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `docBranch:${event.projectPath}:${event.branchId}:${event.at}`,

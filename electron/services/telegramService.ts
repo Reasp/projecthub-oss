@@ -6,6 +6,8 @@ import { getUserDataDir, getWorkerScriptCandidates } from './appPaths.js';
 import { formatTelegramMessage } from './notificationRules.js';
 import type { AppNotification } from './notificationTypes.js';
 import { logger } from './logger.js';
+import { getHostLanguage } from './hostLanguage.js';
+import { hostText } from '../i18n/hostText.js';
 
 /**
  * Telegram-канал уведомлений и жизненный цикл бота (TASK-63, decision-13 п.5).
@@ -131,14 +133,15 @@ class TelegramService {
     };
 
     // Ключ, по которому позже снимаются кнопки: запрос HITL или билет пачки задач агента.
+    const tx = hostText(getHostLanguage()).decision;
     let trackKey: string | null = null;
     if (notification.requestId) {
       trackKey = notification.requestId;
       body.reply_markup = {
         inline_keyboard: [
           [
-            { text: '✅ Разрешить', callback_data: `hitl:allow:${notification.requestId}` },
-            { text: '⛔ Отклонить', callback_data: `hitl:deny:${notification.requestId}` }
+            { text: `✅ ${tx.allow}`, callback_data: `hitl:allow:${notification.requestId}` },
+            { text: `⛔ ${tx.deny}`, callback_data: `hitl:deny:${notification.requestId}` }
           ]
         ]
       };
@@ -147,7 +150,7 @@ class TelegramService {
       const { ticket, count } = notification.agentTaskApproval;
       trackKey = agentTaskTrackKey(ticket);
       body.reply_markup = {
-        inline_keyboard: [[{ text: count > 1 ? `✅ Подтвердить все (${count})` : '✅ Подтвердить', callback_data: `atask:${ticket}` }]]
+        inline_keyboard: [[{ text: `✅ ${count > 1 ? tx.confirmTasksAll(count) : tx.confirmTasks}`, callback_data: `atask:${ticket}` }]]
       };
     }
 

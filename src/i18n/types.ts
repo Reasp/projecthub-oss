@@ -1879,6 +1879,10 @@ export interface TranslationDictionary {
     };
     rateLimit: {
       bannerTitle: string;
+      reached: string;
+      near: string;
+      account: string;
+      usedPercent: string;
       switchProvider: string;
       clearContext: string;
       dismiss: string;

@@ -30,6 +30,7 @@ import { activeProfile, catalogEntries } from '../protocol/profiles';
 import { samePath, type Scope } from '../protocol/scope';
 import {
   fleetTotals,
+  overviewSessionDetail,
   splitQuietProjects,
   type OverviewAttention,
   type OverviewPendingRequest,
@@ -94,7 +95,7 @@ export function SessionRow({ session: s, onOpen, children }: { session: Overview
             <span className={clsx('shrink-0 text-[12px]', STATE_TONE[s.state])}>{tr.fleet.states[s.state]}</span>
           </span>
           <span className={clsx('block truncate text-[13px]', s.state === 'waiting' ? 'text-amber-200' : 'text-slate-400')}>
-            {s.detail || (s.kind === 'terminal' ? tr.fleet.terminalHint : tr.fleet.kinds[s.kind])}
+            {overviewSessionDetail(s, tr.models.hitlText) || (s.kind === 'terminal' ? tr.fleet.terminalHint : tr.fleet.kinds[s.kind])}
           </span>
         </span>
       </button>
@@ -142,7 +143,7 @@ export function ComputersScreen({ onOpenInbox, onOpenProcesses }: ComputersScree
 
   const decide = async (host: PhoneFleetHost, s: OverviewSession, req: OverviewPendingRequest, approve: boolean) => {
     const source = { profileId: host.profileId, machineName: host.machineName, online: host.online, active: host.active, hitl: [], agentTasks: [], review: [], events: [] };
-    const item = { requestId: req.requestId, sessionId: s.id, title: req.title } as HitlItem;
+    const item = { requestId: req.requestId, sessionId: s.id, title: req.title, ...(req.textKey ? { textKey: req.textKey } : {}) } as HitlItem;
     // Решение уходит тому ПК, с которого строка, его соединением; дерево обновит событие `overview:changed`.
     if ((await inbox.decideHitl(source, item, approve)) && host.active) void store.refreshOverview();
   };
