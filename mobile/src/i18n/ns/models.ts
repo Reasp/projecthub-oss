@@ -1,6 +1,7 @@
 /** Раздел словаря «models» (TASK-140.15): тексты чистых моделей `protocol/models.ts` — права, ошибки, статусы агентов.
  * Подписи классов риска HITL — в разделе `inbox`. */
 import { hitlRequestTextEn, hitlRequestTextRu } from '../../../../src/i18n/hitlRequestText';
+import { appErrorTextEn, appErrorTextRu } from '../../../../src/i18n/appErrorText';
 
 export const en = {
   rights: {
@@ -23,6 +24,8 @@ export const en = {
   hitlDefaultTitle: 'The agent needs a decision',
   /** Заголовки и пояснения запросов по коду — общий словарь с окном ProjectHub (TASK-205). */
   hitlText: hitlRequestTextEn,
+  /** Ошибки хоста по коду — общий словарь с окном и main (TASK-202, decision-165). */
+  appErrors: appErrorTextEn,
   reject: {
     alreadyDecided: 'The request has already been decided',
     notFound: 'Request not found — it may have expired',
@@ -63,6 +66,7 @@ export const ru: typeof en = {
   },
   hitlDefaultTitle: 'Агенту нужно решение',
   hitlText: hitlRequestTextRu,
+  appErrors: appErrorTextRu,
   reject: {
     alreadyDecided: 'Запрос уже решён',
     notFound: 'Запрос не найден — возможно, истёк',

@@ -6,6 +6,7 @@ import { collapseUnchanged, lineDiff } from '../../../src/lib/lineDiff';
 import { useServices } from '../app/context';
 import { useT } from '../i18n/react';
 import { Badge, Button, Card, Confirm, Sheet, Spinner } from '../components/ui';
+import { errorText } from '../app/errorText';
 
 /**
  * Ветки документации на телефоне (TASK-194, decision-151): правки агентов, которые ждут принятия. Лист ветки
@@ -17,7 +18,6 @@ type Resolution = 'ours' | 'theirs' | 'both';
 type Resolutions = Record<string, Record<string, Resolution>>;
 type DiffFile = RemoteDocBranchDiff['files'][number];
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function ResultDiff({ before, after }: { before: string; after: string }) {
   const ops = useMemo(() => lineDiff(before, after, 4000), [before, after]);

@@ -6,6 +6,8 @@
  *
  * Чистый модуль без Electron и сети — покрыт unit-тестами.
  */
+import type { AppErrorKey } from '../../src/lib/appError.js';
+import type { ProviderErrorInfo } from './providerErrors.js';
 
 /** Сколько каталог считается свежим без ручного обновления. */
 export const MODEL_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -23,8 +25,16 @@ export interface ModelCatalogResult {
   fetchedAt: number | null;
   /** Список взят из кэша, а не с сервера. */
   cached: boolean;
-  /** Почему не удалось обновить список (при этом `models` может содержать прежний кэш). */
+  /** Почему не удалось обновить список (при этом `models` может содержать прежний кэш). Английский запасной текст. */
   error?: string;
+  /** Код заголовка ошибки для окна (decision-165): профиль и адрес. */
+  errorKey?: AppErrorKey;
+  /** Причина — ошибка с кодом ProjectHub (например, нет ключа в профиле). */
+  errorCauseKey?: AppErrorKey;
+  /** Причина — ошибка провайдера (decision-43): окно собирает текст по виду и причине. */
+  errorInfo?: ProviderErrorInfo;
+  /** Причина без кода и вида — текст как есть. */
+  errorDetail?: string;
 }
 
 /**

@@ -2,6 +2,8 @@
  * Типы слоя подключений к внешним сервисам (TASK-138.1, decision-102). Без зависимостей от Electron:
  * модуль импортируют main-процесс и тесты, рендерер видит зеркало в `src/types/electron.d.ts`.
  */
+import { AppError } from '../../src/lib/appError.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 
 /** Способ входа (decision-102 п. 3). */
 export type ConnectionAuthMethod = 'oauth-browser' | 'oauth-device' | 'token' | 'basic';
@@ -145,13 +147,13 @@ export interface ConnectionRemoveResult {
   manualRevokeUrl?: string;
 }
 
-/** Ошибка авторизации для интеграций: подключение нужно переподключить. */
-export class ConnectionAuthError extends Error {
+/** Ошибка авторизации для интеграций: подключение нужно переподключить. Текст — по коду (decision-165). */
+export class ConnectionAuthError extends AppError {
   constructor(
     public readonly connectionId: string,
-    message: string
+    code: AppErrorCode
   ) {
-    super(message);
+    super(code);
     this.name = 'ConnectionAuthError';
   }
 }

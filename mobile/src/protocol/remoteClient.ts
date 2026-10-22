@@ -23,6 +23,7 @@ import {
 } from '../../../src/utils/remoteSessionV2';
 import { buildWsTarget, connectionCandidates, isValidHostKey, isValidKeyHex, profileProblemText, profileProblems, type HostProfile } from './pairing';
 import { t } from '../i18n';
+import { withAppErrorKey } from '../../../src/lib/appError';
 
 /**
  * Клиент Remote Control для телефона (TASK-140.1): соединение, сопряжение, RPC и события. Протокол v2
@@ -762,7 +763,7 @@ export class RemoteClient {
       if (!entry) return;
       this.pending.delete(packet.id);
       this.opts.timers.clearTimeout(entry.timer);
-      if (packet.error) entry.reject(new Error(packet.error));
+      if (packet.error) entry.reject(withAppErrorKey(new Error(packet.error), packet.errorKey));
       else entry.resolve(packet.result);
       return;
     }

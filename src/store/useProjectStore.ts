@@ -55,6 +55,7 @@ export function isProcessOfAction(p: ManagedProcess, workspaceRoot: string, def:
 }
 import { getDictionary, type Language } from '../i18n';
 import { LANGUAGE_STORAGE_KEY, resolveInitialLanguage } from '../i18n/initialLanguage';
+import { appErrorText } from '../lib/appErrorText';
 import { fallbackStatusConfig, type BacklogProjectConfig } from '../utils/taskStatus';
 import { buildRenumberMessage } from '../utils/renumberMessage';
 import { useDialogStore } from './useDialogStore';
@@ -2208,7 +2209,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (e) {
       console.error('Failed to fetch PRs:', e);
       if (!samePath(get().selectedProject?.path, projectPath)) return;
-      const message = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e);
+      const message = appErrorText(e, getDictionary(get().language).appErrors);
       set({ prs: [], prError: message, selectedPR: null, prDiffContent: '' });
     } finally {
       set({ isLoadingPRs: false });

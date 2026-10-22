@@ -39,6 +39,7 @@ import { assertRegisteredProject, assertWorkspaceRoot } from './projectPathGuard
 import { studioRemoteBridge } from './studioRemoteBridge.js';
 import { aiSessionStore } from './aiSessionStore.js';
 import { hitlTitleIn } from '../i18n/hostText.js';
+import { appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import { llmProfileService } from './llmProfileService.js';
 import { llmModelCatalogService } from './llmModelCatalogService.js';
 import {
@@ -537,7 +538,7 @@ class RemoteControlService {
   private eventLogNextId = 1;
   /** Идемпотентность RPC по `requestId` (decision-11 п.6): повтор в течение TTL возвращает
    *  закэшированный ответ вместо повторного выполнения. */
-  private recentRpcResponses = new Map<string, { result?: any; error?: string; expiresAt: number }>();
+  private recentRpcResponses = new Map<string, { result?: any; error?: string; errorKey?: AppErrorKey; expiresAt: number }>();
   /** Значения `secretKey`/`pairingPin`/`telegramBotToken`, найденные в legacy-plaintext конфиге при
    *  первом запуске после TASK-65 — переносятся в secretStorageService и никогда больше не
    *  пишутся в `remote-control.json` (decision-5 п.4). */
@@ -3180,7 +3181,7 @@ class RemoteControlService {
       const cached = idemKey ? this.recentRpcResponses.get(idemKey) : undefined;
 
       if (cached && cached.expiresAt > Date.now()) {
-        const resPayload: any = { type: isReqType ? 'response' : 'rpc_res', id: req.id, result: cached.result, error: cached.error };
+        const resPayload: any = { type: isReqType ? 'response' : 'rpc_res', id: req.id, result: cached.result, error: cached.error, errorKey: cached.errorKey };
         reply(seal(resPayload));
         return;
       }
@@ -3195,13 +3196,16 @@ class RemoteControlService {
         };
         reply(seal(resPayload));
       } catch (err: any) {
+        // Код ошибки — телефону, он соберёт текст на своём языке; `error` — английский запасной (decision-165).
+        const errorKey = appErrorKeyOf(err);
         if (idemKey) {
-          this.recentRpcResponses.set(idemKey, { error: err?.message || String(err), expiresAt: Date.now() + RPC_IDEMPOTENCY_TTL_MS });
+          this.recentRpcResponses.set(idemKey, { error: err?.message || String(err), errorKey, expiresAt: Date.now() + RPC_IDEMPOTENCY_TTL_MS });
         }
         const errPayload: any = {
           type: isReqType ? 'response' : 'rpc_res',
           id: req.id,
-          error: err?.message || String(err)
+          error: err?.message || String(err),
+          ...(errorKey ? { errorKey } : {})
         };
         reply(seal(errPayload));
       }

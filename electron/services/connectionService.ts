@@ -40,6 +40,7 @@ import {
   type TokenSet
 } from './oauthFlow.js';
 import { LoopbackError, startLoopbackServer } from './oauthLoopback.js';
+import { AppError } from '../../src/lib/appError.js';
 import { registerSensitiveValue, unregisterSensitiveValue } from './sensitiveValues.js';
 
 /**
@@ -244,7 +245,7 @@ export class ConnectionService {
     return this.serialize(async () => {
       const data = await this.load();
       const record = data.connections.find((c) => c.id === id);
-      if (!record) throw new Error(`Подключение ${id} не найдено`);
+      if (!record) throw new AppError('connections.notFound', { id });
       Object.assign(record, patch, { updatedAt: this.now() });
       await this.persist();
       return { ...record };
@@ -254,13 +255,13 @@ export class ConnectionService {
   private async getRecord(id: string): Promise<ConnectionRecord> {
     const data = await this.load();
     const record = data.connections.find((c) => c.id === id);
-    if (!record) throw new Error(`Подключение ${id} не найдено`);
+    if (!record) throw new AppError('connections.notFound', { id });
     return record;
   }
 
   private serviceOf(record: { serviceId: string }): ConnectionServiceDef {
     const service = findConnectionService(record.serviceId);
-    if (!service) throw new Error(`Неизвестный сервис: ${record.serviceId}`);
+    if (!service) throw new AppError('connections.unknownService', { service: record.serviceId });
     return service;
   }
 
@@ -410,20 +411,16 @@ export class ConnectionService {
 
   private prepareInput(input: ConnectionInput): { service: ConnectionServiceDef; baseUrl: string } {
     const service = findConnectionService(String(input?.serviceId ?? ''));
-    if (!service) throw new Error('Неизвестный сервис');
-    if (!service.methods.includes(input.method)) throw new Error(`${service.label} не поддерживает этот способ входа`);
+    if (!service) throw new AppError('connections.unknownService', { service: String(input?.serviceId ?? '') });
+    if (!service.methods.includes(input.method)) throw new AppError('connections.methodUnsupported', { service: service.label });
     const base = normalizeBaseUrl(input.baseUrl, service.defaultBaseUrl);
     if (!base.ok) {
-      throw new Error(
-        base.error === 'insecure'
-          ? 'Адрес по http разрешён только для локальной сети; укажите https://'
-          : base.error === 'required'
-            ? 'Укажите адрес сервиса'
-            : 'Неверный адрес сервиса'
+      throw new AppError(
+        base.error === 'insecure' ? 'connections.httpLocalOnly' : base.error === 'required' ? 'connections.urlRequired' : 'connections.urlInvalid'
       );
     }
     if (!service.selfHosted && service.defaultBaseUrl && base.baseUrl !== service.defaultBaseUrl) {
-      throw new Error(`${service.label} работает только в облаке`);
+      throw new AppError('connections.cloudOnly', { service: service.label });
     }
     return { service, baseUrl: base.baseUrl };
   }
@@ -466,23 +463,23 @@ export class ConnectionService {
 
   /** Подключение по личному токену, API-ключу или Basic: токен проверяется до сохранения. */
   async addWithToken(input: ConnectionInput, reconnectId?: string): Promise<ConnectionView> {
-    if (input.method !== 'token' && input.method !== 'basic') throw new Error('Неверный способ входа');
+    if (input.method !== 'token' && input.method !== 'basic') throw new AppError('connections.invalidMethod');
     const { service, baseUrl } = this.prepareInput(input);
     const token = String(input.token ?? '').trim();
-    if (!token) throw new Error('Укажите токен');
+    if (!token) throw new AppError('connections.tokenRequired');
     const username = input.method === 'basic' ? String(input.username ?? '').trim() : undefined;
-    if (input.method === 'basic' && !username) throw new Error('Укажите имя пользователя');
+    if (input.method === 'basic' && !username) throw new AppError('connections.usernameRequired');
     if (reconnectId) await this.getRecord(reconnectId);
     const secret: ConnectionSecret = { token };
     registerSensitiveValue(token);
     try {
       // Вебхук (Teams Workflows) проверяется по форме адреса: пробный запрос опубликовал бы сообщение в канал.
       const hook = service.webhookHosts ? webhookTarget(service, token) : undefined;
-      if (hook === null) throw new Error(`${service.label}: вставьте адрес вебхука https://… из Workflows`);
+      if (hook === null) throw new AppError('connections.webhookRequired', { service: service.label });
       const verified = hook
         ? { rejected: false, account: { login: hook.hostname.split('.')[0] } }
         : await this.fetchAccount(service, baseUrl, authorizationHeader(service, input.method, secret, username));
-      if (verified.rejected) throw new Error('Сервис отклонил токен: проверьте значение и права');
+      if (verified.rejected) throw new AppError('connections.tokenRejected');
       const record = await this.store(
         reconnectId,
         {
@@ -506,22 +503,22 @@ export class ConnectionService {
 
   private async viewOf(id: string): Promise<ConnectionView> {
     const view = (await this.list()).find((v) => v.id === id);
-    if (!view) throw new Error(`Подключение ${id} не найдено`);
+    if (!view) throw new AppError('connections.notFound', { id });
     return view;
   }
 
   /** Начать вход через OAuth: браузер с возвратом на loopback или код устройства. */
   async startOAuth(input: ConnectionInput, reconnectId?: string): Promise<ConnectionFlowView> {
-    if (input.method !== 'oauth-browser' && input.method !== 'oauth-device') throw new Error('Неверный способ входа');
+    if (input.method !== 'oauth-browser' && input.method !== 'oauth-device') throw new AppError('connections.invalidMethod');
     const { service, baseUrl } = this.prepareInput(input);
     const spec = service.oauth;
-    if (!spec) throw new Error(`${service.label} не поддерживает OAuth`);
+    if (!spec) throw new AppError('connections.oauthUnsupported', { service: service.label });
     const existing = reconnectId ? await this.getRecord(reconnectId) : undefined;
     const existingSecret = reconnectId ? await this.readSecret(reconnectId) : null;
     const clientId = String(input.clientId ?? '').trim() || existing?.oauthClientId || service.builtinClientId || '';
-    if (!clientId) throw new Error('Укажите client_id OAuth-приложения');
+    if (!clientId) throw new AppError('connections.clientIdRequired');
     const clientSecret = String(input.clientSecret ?? '').trim() || existingSecret?.clientSecret || undefined;
-    if (service.clientSecretRequired[input.method] && !clientSecret) throw new Error(`${service.label} требует client_secret своего приложения`);
+    if (service.clientSecretRequired[input.method] && !clientSecret) throw new AppError('connections.clientSecretRequired', { service: service.label });
     if (clientSecret) registerSensitiveValue(clientSecret);
     const scopes = resolveScopes(service, input.scopes ?? existing?.scopes);
     const ctx: OAuthContext = {
@@ -671,7 +668,7 @@ export class ConnectionService {
         // Сеть или 5xx при проверке: токен получен, подключение сохраняется непроверенным.
         status = 'unchecked';
       }
-      if (rejected) throw new Error('Сервис выдал токен, но отклонил его при проверке');
+      if (rejected) throw new AppError('connections.issuedTokenRejected');
       const record = await this.store(
         ctx.reconnectId,
         {
@@ -731,7 +728,7 @@ export class ConnectionService {
 
   async rename(id: string, label: string): Promise<ConnectionView> {
     const trimmed = String(label ?? '').trim();
-    if (!trimmed) throw new Error('Название не может быть пустым');
+    if (!trimmed) throw new AppError('connections.nameEmpty');
     await this.update(id, { label: trimmed.slice(0, 120) });
     return this.viewOf(id);
   }
@@ -744,7 +741,7 @@ export class ConnectionService {
       const service = this.serviceOf(record);
       if (!service.oauth || !secret.refreshToken || !record.oauthClientId) {
         await this.markNeedsReauth(record.id, 'token_expired');
-        throw new ConnectionAuthError(record.id, 'Срок действия доступа истёк, нужно войти заново');
+        throw new ConnectionAuthError(record.id, 'connections.authExpired');
       }
       const res = await this.send(
         buildRefreshRequest({
@@ -760,10 +757,10 @@ export class ConnectionService {
         const detail = describeOAuthError(parsed.error, parsed.description);
         if (parsed.error === 'invalid_grant' || parsed.error === 'unauthorized_client' || parsed.status === 400 || parsed.status === 401) {
           await this.markNeedsReauth(record.id, detail);
-          throw new ConnectionAuthError(record.id, 'Сервис отозвал доступ, нужно войти заново');
+          throw new ConnectionAuthError(record.id, 'connections.authRevoked');
         }
         await this.update(record.id, { status: 'error', statusDetail: detail });
-        throw new Error(`Не удалось обновить токен: ${detail}`);
+        throw new AppError('connections.tokenRefreshFailed', { detail });
       }
       const next: ConnectionSecret = {
         token: parsed.token.accessToken,
@@ -789,7 +786,7 @@ export class ConnectionService {
     const secret = await this.readSecret(record.id);
     if (!secret) {
       await this.markNeedsReauth(record.id, 'secret_missing');
-      throw new ConnectionAuthError(record.id, 'Токен подключения не найден, нужно войти заново');
+      throw new ConnectionAuthError(record.id, 'connections.tokenMissing');
     }
     if (record.expiresAt && this.now() >= record.expiresAt - REFRESH_SKEW_MS) return this.refresh(record, secret);
     return secret;
@@ -802,13 +799,13 @@ export class ConnectionService {
    */
   async authorizedFetch(id: string, target: string, init: RequestInit = {}): Promise<Response> {
     const record = await this.getRecord(id);
-    if (record.status === 'needsReauth') throw new ConnectionAuthError(id, 'Подключение требует повторного входа');
+    if (record.status === 'needsReauth') throw new ConnectionAuthError(id, 'connections.needsReauth');
     const service = this.serviceOf(record);
     if (service.webhookHosts) return this.webhookFetch(record, service, target, init);
     const apiBase = service.apiBase(record.baseUrl);
     const apiOrigin = new URL(apiBase).origin;
     const url = /^https?:\/\//i.test(target) ? new URL(target) : new URL(`${apiBase}${target.startsWith('/') ? '' : '/'}${target}`);
-    if (url.origin !== apiOrigin) throw new Error('Запрос подключения разрешён только к API его сервиса');
+    if (url.origin !== apiOrigin) throw new AppError('connections.apiOriginOnly');
 
     const attempt = async (secret: ConnectionSecret): Promise<Response> => {
       const headers = new Headers(init.headers);
@@ -840,15 +837,15 @@ export class ConnectionService {
       if (res.status !== 401) return res;
     }
     await this.markNeedsReauth(id, 'http_401');
-    throw new ConnectionAuthError(id, 'Сервис отклонил токен, нужно войти заново');
+    throw new ConnectionAuthError(id, 'connections.authRejected');
   }
 
   /** Запрос на вебхук (секрет — адрес целиком): только на сам адрес, без `Authorization`, без перехода по редиректу. */
   private async webhookFetch(record: ConnectionRecord, service: ConnectionServiceDef, target: string, init: RequestInit): Promise<Response> {
-    if (target && target !== '/') throw new Error('У вебхука один адрес: путь запроса не указывается');
+    if (target && target !== '/') throw new AppError('connections.webhookPathNotAllowed');
     const secret = await this.freshSecret(record);
     const url = webhookTarget(service, secret.token);
-    if (!url) throw new Error(`${service.label}: адрес вебхука не прошёл проверку — переподключите`);
+    if (!url) throw new AppError('connections.webhookInvalid', { service: service.label });
     try {
       return await this.deps.fetch(url.toString(), { ...init, redirect: 'manual' });
     } catch (err) {
@@ -862,14 +859,14 @@ export class ConnectionService {
    * Slack Socket Mode выдаёт адрес с одноразовым билетом через `apps.connections.open`.
    */
   async openWebSocket(id: string, target: string): Promise<ConnectionSocket> {
-    if (!this.deps.openSocket) throw new Error('WebSocket недоступен');
+    if (!this.deps.openSocket) throw new AppError('connections.socketUnavailable');
     const record = await this.getRecord(id);
-    if (record.status === 'needsReauth') throw new ConnectionAuthError(id, 'Подключение требует повторного входа');
+    if (record.status === 'needsReauth') throw new ConnectionAuthError(id, 'connections.needsReauth');
     const service = this.serviceOf(record);
     if (/^wss?:\/\//i.test(target)) {
       const url = new URL(target);
       if (url.protocol !== 'wss:' || !service.socketHosts?.some((re) => re.test(url.hostname))) {
-        throw new Error('Сокет подключения разрешён только к адресам его сервиса');
+        throw new AppError('connections.socketOriginOnly');
       }
       return this.deps.openSocket(url.toString(), {});
     }

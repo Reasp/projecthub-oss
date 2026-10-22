@@ -5,6 +5,7 @@ import { hitlRejectReason, type HitlItem } from '../protocol/models';
 import type { RpcMethod } from '../protocol/remoteClient';
 import type { AppStore } from './appStore';
 import type { HostPool } from './hostPool';
+import { errorText } from './errorText';
 
 /**
  * Действия «Входящих» над записью любого ПК телефона (TASK-140.5, [[decision-117]] п. 7). Открытый ПК — через
@@ -16,10 +17,6 @@ export type ReviewAction = 'done' | 'return';
 
 type StorePort = Pick<AppStore, 'request' | 'decideHitl' | 'approveAgentTasks' | 'dismissInbox' | 'refreshInbox' | 'refreshTasks' | 'refreshSwarms' | 'showToast'>;
 type PoolPort = Pick<HostPool, 'rpc' | 'refreshInbox'>;
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 export class InboxActions {
   constructor(

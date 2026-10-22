@@ -1,8 +1,10 @@
 import { hitlRequestTextRu } from './hitlRequestText';
+import { appErrorTextRu } from './appErrorText';
 import type { TranslationDictionary } from './types';
 import { STUDIO_QUICK_PROMPTS_RU } from '../utils/studioQuickPrompts';
 
 export const ru: TranslationDictionary = {
+  appErrors: appErrorTextRu,
   common: {
     loading: 'Загрузка...',
     cancel: 'Отмена',

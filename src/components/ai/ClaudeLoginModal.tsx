@@ -5,7 +5,7 @@ import { ClaudeLogo } from '../common/BrandLogo';
 import { PtyTabTerminal } from '../terminal/PtyTabTerminal';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import type { ClaudeAccountAuthStatus, PtySession } from '../../types/electron';
 
 /**
@@ -58,7 +58,7 @@ export const ClaudeLoginModal: React.FC = () => {
         setSession(created);
       })
       .catch((err: unknown) => {
-        if (!disposed) setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err));
+        if (!disposed) setError(ipcErrorText(err));
       });
 
     return () => {

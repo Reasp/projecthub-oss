@@ -1,6 +1,6 @@
 {
   "name": "project-hub",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "private": true,
   "description": "ProjectHub — Единая десктопная панель управления проектами с обвязкой ProjectTemplate (Backlog.md, Git, RAG, MCP, Dev-окружение)",
   "main": "dist-electron/main.js",
@@ -54,7 +54,7 @@
     "remote-relay": "node scripts/remote-relay-server.mjs",
     "federation-smoke": "node scripts/federation-smoke.mjs",
     "telegram-bot": "node scripts/telegram-bot.mjs",
-    "lint": "eslint .",
+    "lint": "eslint . && node scripts/lint-main-errors.mjs",
     "lint:fix": "eslint . --fix",
     "check-bundle": "node scripts/check-bundle.mjs",
     "version:check": "node scripts/version.mjs check",

@@ -2,6 +2,7 @@ import { shell } from 'electron';
 import { WebSocket } from 'ws';
 import { ConnectionService, type ConnectionSocket } from './connectionService';
 import { getUserDataDir } from './appPaths';
+import { AppError } from '../../src/lib/appError';
 import { secretStorageService } from './secretStorageService';
 
 /** Боевой экземпляр слоя подключений (TASK-138.1, decision-102): `userData`, `safeStorage`, системный браузер. */
@@ -32,7 +33,7 @@ export const connectionService = new ConnectionService({
   },
   openExternal: async (url) => {
     // Только http(s), как и `shell:openExternal` в mcpIpc.
-    if (!/^https?:\/\//i.test(url)) throw new Error('Разрешены только адреса http(s)');
+    if (!/^https?:\/\//i.test(url)) throw new AppError('connections.httpOnly');
     await shell.openExternal(url);
   }
 });

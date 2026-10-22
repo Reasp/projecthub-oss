@@ -1,4 +1,6 @@
+import { ipcMain } from 'electron';
 import type { IpcContext } from './types';
+import { installAppErrorEnvelope } from './appErrorIpc';
 import { registerProjectsIpc } from './projectsIpc';
 import { registerBacklogIpc } from './backlogIpc';
 import { registerGitIpc } from './gitIpc';
@@ -31,6 +33,8 @@ import { registerEditionIpc } from './editionIpc';
 export type { IpcContext } from './types';
 
 export function registerAllIpc(ctx: IpcContext) {
+  // До первого обработчика: ошибки с кодом уходят в окно с конвертом (decision-165).
+  installAppErrorEnvelope(ipcMain);
   registerProjectsIpc(ctx);
   registerBacklogIpc(ctx);
   registerGitIpc();

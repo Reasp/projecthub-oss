@@ -1,7 +1,9 @@
 import { hitlRequestTextEn } from './hitlRequestText';
+import { appErrorTextEn } from './appErrorText';
 import type { TranslationDictionary } from './types';
 
 export const en: TranslationDictionary = {
+  appErrors: appErrorTextEn,
   common: {
     loading: 'Loading...',
     cancel: 'Cancel',

@@ -17,6 +17,8 @@
  * Как сервер принимает усилие рассуждений (TASK-70.3, [[decision-41]]): `reasoning_effort` (OpenAI, xAI),
  * `reasoning: { effort }` (OpenRouter), `ollama_think` — Ollama `/v1`, который читает `reasoning_effort`.
  */
+import { AppError } from '../../src/lib/appError.js';
+
 export type LlmReasoningStyle = 'none' | 'reasoning_effort' | 'reasoning_object' | 'ollama_think';
 
 export interface LlmCompatFlags {
@@ -235,10 +237,10 @@ export function normalizeBaseUrl(raw: string): string {
   try {
     url = new URL(trimmed);
   } catch {
-    throw new Error(`Некорректный адрес сервера: «${raw}». Нужен http(s)-адрес вида https://api.example.com/v1.`);
+    throw new AppError('llm.baseUrlInvalid', { url: raw });
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error(`Некорректный адрес сервера: «${raw}». Поддерживаются только http и https.`);
+    throw new AppError('llm.baseUrlScheme', { url: raw });
   }
   return trimmed;
 }
@@ -294,7 +296,7 @@ export function normalizeProfile(raw: unknown): LlmProfile {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const id = typeof r.id === 'string' ? r.id.trim() : '';
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
-    throw new Error('Некорректный идентификатор профиля.');
+    throw new AppError('llm.profileIdInvalid');
   }
   const preset = getPreset(typeof r.presetId === 'string' ? r.presetId : undefined);
   const name = (typeof r.name === 'string' ? r.name.trim() : '').slice(0, MAX_PROFILE_NAME) || preset.name;
@@ -333,7 +335,7 @@ export function profileFromPreset(presetId: string, id: string, name?: string): 
 export function buildProfileHeaders(profile: LlmProfile, apiKey: string | undefined): Record<string, string> {
   const key = apiKey?.trim();
   if (!key && getPreset(profile.presetId).requiresApiKey) {
-    throw new Error(`API ключ не указан в профиле «${profile.name}».`);
+    throw new AppError('llm.apiKeyMissing', { name: profile.name });
   }
   return {
     ...(profile.headers ?? {}),
@@ -381,17 +383,14 @@ export function profileFromLegacyConfig(config: { provider: string; baseUrl?: st
     custom: () => {
       const endpoint = (config.baseUrl?.trim() || 'http://localhost:8000/v1/chat/completions').replace(/\/+$/, '');
       if (!/\/chat\/completions$/i.test(endpoint)) {
-        throw new Error(
-          `Адрес custom-провайдера «${endpoint}» не оканчивается на /chat/completions: профиль добавил бы этот путь сам ` +
-            'и запросы ушли бы по другому адресу. Создайте профиль вручную.'
-        );
+        throw new AppError('llm.endpointNotChatCompletions', { url: endpoint });
       }
       return endpoint;
     }
   };
   const base = legacyBase[config.provider];
   if (!base) {
-    throw new Error(`Провайдер «${config.provider}» не переносится в профиль OpenAI-совместимого провайдера.`);
+    throw new AppError('llm.providerNotMigratable', { provider: config.provider });
   }
   const profile = profileFromPreset(config.provider, id);
   const baseUrl = normalizeBaseUrl(base());

@@ -1,6 +1,7 @@
 import type { RemoteDocContent, RemoteDocEntry, RemoteDocsList } from '../../../src/types/remote';
 import { DocsCache, LIST_PATH } from '../protocol/docsCache';
 import type { RpcMethod } from '../protocol/remoteClient';
+import { errorText } from './errorText';
 
 /**
  * Документация проекта на телефоне (TASK-140.17): список с ПК без текстов, текст — при открытии, кэш со сверкой хэша.
@@ -69,10 +70,6 @@ export interface DocsState {
   stack: DocView[];
   /** Ссылка вела на документ, которого нет в списке. */
   missingRef: string | null;
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 function scopeOf(ctx: DocsContext): string {

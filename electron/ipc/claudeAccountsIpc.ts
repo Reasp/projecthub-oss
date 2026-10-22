@@ -3,6 +3,7 @@ import { claudeAccountService } from '../services/claudeAccountService';
 import { CLI_ACCOUNT_ENV_VAR, isOtherCliAccountEngine, type CliAccountEngine } from '../services/claudeAccounts';
 import { assertRegisteredProject } from '../services/projectPathGuard';
 import type { IpcContext } from './types';
+import { AppError } from '../../src/lib/appError';
 
 /** Движок из рендерера: неизвестное значение — Claude Code, как до decision-163. */
 function engineOf(value: unknown): CliAccountEngine {
@@ -32,9 +33,9 @@ export function registerClaudeAccountsIpc(ctx: IpcContext) {
     const name = String(input?.name ?? '');
     const engine = engineOf(input?.engine);
     if (input?.source === 'processEnv') {
-      if (engine !== 'claude-cli') throw new Error('Из переменной процесса подключается только каталог Claude Code.');
+      if (engine !== 'claude-cli') throw new AppError('accounts.processEnvClaudeOnly');
       const { processConfigDir } = await claudeAccountService.overview();
-      if (!processConfigDir) throw new Error('ProjectHub запущен без переменной CLAUDE_CONFIG_DIR.');
+      if (!processConfigDir) throw new AppError('accounts.processEnvMissing');
       return claudeAccountService.connectExternal(name, processConfigDir);
     }
     const win = ctx.getMainWindow();

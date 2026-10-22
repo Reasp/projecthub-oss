@@ -15,7 +15,7 @@ import {
   Unplug
 } from '../common/icons';
 import { useConnectionsStore } from '../../store/useConnectionsStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import type {
   ConnectionAuthMethod,
@@ -350,7 +350,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ services, reconnect, on
         onDone();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err));
+      setError(ipcErrorText(err));
     } finally {
       setSubmitting(false);
     }

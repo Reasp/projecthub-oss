@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Unplug } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { useConnectionsStore } from '../../store/useConnectionsStore';
 import type {
   RemoteStatus,
@@ -26,9 +26,7 @@ interface Props {
 const inputClass =
   'bg-ph-panel border border-ph-line rounded-lg px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500';
 
-function errorMessage(err: unknown): string {
-  return (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
-}
+const errorMessage = ipcErrorText;
 
 export const TrackerSyncModal: React.FC<Props> = ({ projectPath, isOpen, onClose }) => {
   const { t } = useTranslation();

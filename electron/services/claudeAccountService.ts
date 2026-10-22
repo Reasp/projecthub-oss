@@ -5,11 +5,13 @@ import { spawn } from 'node:child_process';
 import { getHomeDir, getUserDataDir } from './appPaths.js';
 import { projectRegistry } from './projectRegistry.js';
 import { findOwningProject } from './pathGuard.js';
+import { AppError } from '../../src/lib/appError.js';
 import {
   DEFAULT_CLAUDE_ACCOUNT_ID,
   OTHER_CLI_ACCOUNT_ENGINES,
   accountEngine,
   addClaudeAccount,
+  authStatusFailure,
   claudeAccountEnv,
   cliAccountEnv,
   defaultClaudeConfigDir,
@@ -316,7 +318,7 @@ class ClaudeAccountService {
   async connectExternal(name: string, configDir: string, engine: CliAccountEngine = 'claude-cli'): Promise<ClaudeAccountProfile> {
     const dir = path.resolve(configDir.trim());
     const stat = await fs.stat(dir).catch(() => null);
-    if (!stat?.isDirectory()) throw new Error(`Каталог не найден: ${dir}`);
+    if (!stat?.isDirectory()) throw new AppError('accounts.dirNotFound', { path: dir });
     return this.add({ name, kind: 'external', configDir: dir, engine });
   }
 
@@ -345,7 +347,7 @@ class ClaudeAccountService {
 
   async setProjectAccount(projectPath: string, accountId: string | null): Promise<boolean> {
     if (accountId && accountId !== DEFAULT_CLAUDE_ACCOUNT_ID && !(await this.getAccount(accountId))) {
-      throw new Error('Профиль аккаунта не найден.');
+      throw new AppError('accounts.profileNotFound');
     }
     // Профиль по умолчанию — это отсутствие привязки: так проект переживает переименование профилей.
     return projectRegistry.setClaudeAccountId(projectPath, accountId === DEFAULT_CLAUDE_ACCOUNT_ID ? null : accountId);
@@ -354,7 +356,7 @@ class ClaudeAccountService {
   /** Привязка проекта к аккаунту Codex CLI или Gemini CLI; `null` — обычный каталог CLI. */
   async setProjectEngineAccount(projectPath: string, engine: OtherCliAccountEngine, accountId: string | null): Promise<boolean> {
     if (accountId && !(await this.listEngineAccounts(engine)).some((a) => a.id === accountId)) {
-      throw new Error('Профиль аккаунта не найден.');
+      throw new AppError('accounts.profileNotFound');
     }
     return projectRegistry.setEngineAccountId(projectPath, engine, accountId);
   }
@@ -366,7 +368,7 @@ class ClaudeAccountService {
   /** `claude auth status --json` профиля; кэш на 30 с, параллельные запросы делят один запуск. */
   async authStatus(id: string, force = false): Promise<ClaudeAccountAuthStatus> {
     const account = await this.getAnyAccount(id);
-    if (!account) return { loggedIn: false, error: 'Профиль не найден.', checkedAt: Date.now() };
+    if (!account) return authStatusFailure(new AppError('accounts.profileNotFound'));
     const engine = accountEngine(account);
     // Gemini CLI не сообщает вход без запуска сессии, а файлы входа ProjectHub не читает (decision-87 п. 8).
     if (engine === 'gemini-cli') return { loggedIn: false, unsupported: true, checkedAt: Date.now() };
@@ -381,9 +383,9 @@ class ClaudeAccountService {
         : await runClaudeCliWithAccount(['auth', 'status', '--json'], account.configDir, AUTH_STATUS_TIMEOUT_MS);
       const cli = engine === 'codex-cli' ? 'Codex CLI' : 'Claude CLI';
       const status = result.timedOut
-        ? { loggedIn: false, error: `${cli}: статус входа не получен вовремя.`, checkedAt: Date.now() }
+        ? authStatusFailure(new AppError('accounts.statusTimeout', { cli }))
         : result.spawnError
-          ? { loggedIn: false, error: `Не удалось запустить ${cli}: ${result.spawnError}`, checkedAt: Date.now() }
+          ? authStatusFailure(new AppError('accounts.cliStartFailed', { cli, detail: result.spawnError }))
           : engine === 'codex-cli'
             ? parseCodexLoginStatus(`${result.stdout}\n${result.stderr}`, result.code)
             : parseClaudeAuthStatus(result.stdout || result.stderr, result.code);
@@ -418,14 +420,14 @@ class ClaudeAccountService {
    */
   async logout(id: string): Promise<ClaudeAccountAuthStatus> {
     const account = await this.getAnyAccount(id);
-    if (!account) throw new Error('Профиль не найден.');
+    if (!account) throw new AppError('accounts.profileNotFound');
     const engine = accountEngine(account);
     // Gemini CLI выходит только командой /auth внутри сессии — во встроенном терминале профиля.
-    if (engine === 'gemini-cli') throw new Error('Gemini CLI не умеет выходить из командной строки: выйдите командой /auth в терминале профиля.');
+    if (engine === 'gemini-cli') throw new AppError('accounts.geminiLogoutUnsupported');
     const result = engine === 'codex-cli'
       ? await runCliWithEnv('codex', ['logout'], cliAccountEnv(engine, account), LOGOUT_TIMEOUT_MS)
       : await runClaudeCliWithAccount(['auth', 'logout'], account.configDir, LOGOUT_TIMEOUT_MS);
-    if (result.spawnError) throw new Error(`Не удалось запустить ${engine === 'codex-cli' ? 'Codex CLI' : 'Claude CLI'}: ${result.spawnError}`);
+    if (result.spawnError) throw new AppError('accounts.cliStartFailed', { cli: engine === 'codex-cli' ? 'Codex CLI' : 'Claude CLI', detail: result.spawnError });
     this.authCache.delete(id);
     return this.authStatus(id, true);
   }

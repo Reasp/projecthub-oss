@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { OAuthSpec } from './connectionCatalog.js';
 import { redactSensitiveValues } from './sensitiveValues.js';
 import { REDACTION_PATTERNS } from './secretPatterns.js';
+import { AppError } from '../../src/lib/appError.js';
 
 /**
  * Протокольная часть OAuth 2.0 для слоя подключений (decision-102 п. 3): PKCE (RFC 7636), адрес входа,
@@ -124,7 +125,7 @@ export function buildRefreshRequest(p: {
 }
 
 export function buildDeviceCodeRequest(p: { spec: OAuthSpec; baseUrl: string; clientId: string; scopes: string[] }): HttpRequest {
-  if (!p.spec.deviceCodeUrl) throw new Error('Сервис не поддерживает вход по коду устройства');
+  if (!p.spec.deviceCodeUrl) throw new AppError('connections.deviceCodeUnsupported');
   return tokenEndpointRequest({ ...p.spec, tokenRequest: 'form' }, p.spec.deviceCodeUrl(p.baseUrl), {
     client_id: p.clientId,
     scope: p.scopes.length > 0 ? p.scopes.join(p.spec.scopeSeparator) : undefined

@@ -242,6 +242,8 @@ export interface PlainPacket {
   params?: any;
   result?: any;
   error?: string;
+  /** Код ошибки RPC (decision-165): клиент собирает текст по словарю на своём языке, `error` — английский запасной. */
+  errorKey?: { code: string; params?: Record<string, string | number> };
   event?: string;
   data?: any;
   /**

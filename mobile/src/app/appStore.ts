@@ -48,6 +48,7 @@ import { sendVoice } from '../protocol/voice';
 import type { OverviewSessionKind, RemoteOverview } from '../../../src/utils/fleetOverview';
 import { t } from '../i18n';
 import { parseScope, SCOPE_PREF, serializeScope, type Scope } from '../protocol/scope';
+import { errorText } from './errorText';
 
 /**
  * Состояние экранов и действия мобильного клиента (TASK-140.1). Без React: экраны читают его
@@ -127,10 +128,6 @@ export interface PrefsPort {
 }
 
 const noopPrefs: PrefsPort = { get: () => null, set: () => undefined };
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 export class AppStore {
   private state: AppState;

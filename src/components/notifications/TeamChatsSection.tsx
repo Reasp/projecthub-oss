@@ -1,15 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Play, Trash2, Plus } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { useProjectStore } from '../../store/useProjectStore';
 import type { ChatKind, ChatSubscription, ConnectionView, NotificationKind } from '../../types/electron';
 
 const CHAT_LABELS: Record<ChatKind, string> = { slack: 'Slack', mattermost: 'Mattermost', telegram: 'Telegram', teams: 'Microsoft Teams' };
 const DEFAULT_KINDS: NotificationKind[] = ['hitl', 'prMerged', 'prChecksFailed', 'agentFailed', 'swarmFinished'];
 
-function cleanIpcError(err: unknown): string {
-  return err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err);
-}
+const cleanIpcError = ipcErrorText;
 
 type Draft = Omit<ChatSubscription, 'id'> & { id?: string };
 

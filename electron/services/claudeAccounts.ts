@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
 
 /**
  * Профили аккаунтов Claude Code (TASK-152, decision-87). Чистый модуль без Electron: формат файла
@@ -224,7 +225,7 @@ export function resolveClaudeAccount(input: {
 }): ClaudeAccountResolution {
   const byId = new Map(input.accounts.map((account) => [account.id, account]));
   const fallback = byId.get(DEFAULT_CLAUDE_ACCOUNT_ID) ?? input.accounts[0];
-  if (!fallback) throw new Error('Список аккаунтов Claude Code пуст: нет даже профиля по умолчанию.');
+  if (!fallback) throw new AppError('accounts.listEmpty');
 
   const missing: ClaudeAccountResolution['missing'] = [];
   const levels: Array<[Exclude<ClaudeAccountSource, 'default'>, string | undefined]> = [
@@ -293,16 +294,16 @@ export function newClaudeAccountId(existingIds: Iterable<string>, now = Date.now
     const id = `a-${now.toString(36)}${Math.floor(random() * 36 ** 4).toString(36).padStart(4, '0')}`;
     if (!taken.has(id) && isValidClaudeAccountId(id)) return id;
   }
-  throw new Error('Не удалось подобрать свободный id профиля аккаунта.');
+  throw new AppError('accounts.noFreeId');
 }
 
 /** Ошибка проверки имени профиля или `null`. Имена уникальны без учёта регистра. */
-export function validateClaudeAccountName(name: unknown, accounts: ClaudeAccountProfile[], selfId?: string): string | null {
+export function validateClaudeAccountName(name: unknown, accounts: ClaudeAccountProfile[], selfId?: string): AppError | null {
   const clean = cleanName(name);
-  if (!clean) return 'Имя профиля не задано.';
+  if (!clean) return new AppError('accounts.nameEmpty');
   const lower = clean.toLowerCase();
   if (accounts.some((account) => account.id !== selfId && account.name.toLowerCase() === lower)) {
-    return `Профиль с именем «${clean}» уже есть.`;
+    return new AppError('accounts.nameTaken', { name: clean });
   }
   return null;
 }
@@ -332,22 +333,22 @@ export function addClaudeAccount(
   const engine = input.engine ?? 'claude-cli';
   // Имена уникальны внутри движка, id и каталоги — среди всех профилей.
   const nameError = validateClaudeAccountName(input.name, sameEngineAccounts(settings, engine, ctx.homeDir));
-  if (nameError) throw new Error(nameError);
+  if (nameError) throw nameError;
   const accounts = listAllAccounts(settings, ctx.homeDir);
 
   const id = ctx.id ?? newClaudeAccountId(accounts.map((a) => a.id));
-  if (!isValidClaudeAccountId(id) || accounts.some((a) => a.id === id)) throw new Error(`Некорректный id профиля: ${id}`);
+  if (!isValidClaudeAccountId(id) || accounts.some((a) => a.id === id)) throw new AppError('accounts.invalidId', { id });
 
   let configDir: string;
   if (input.kind === 'external') {
     const dir = input.configDir?.trim();
-    if (!dir || !path.isAbsolute(dir)) throw new Error('Укажите абсолютный путь к каталогу конфигурации CLI.');
+    if (!dir || !path.isAbsolute(dir)) throw new AppError('accounts.dirNotAbsolute');
     configDir = path.normalize(dir);
   } else {
     configDir = managedCliAccountDir(ctx.homeDir, engine, id);
   }
   const duplicate = accounts.find((a) => sameDir(a.configDir, configDir, ctx.platform));
-  if (duplicate) throw new Error(`Этот каталог уже подключён как профиль «${duplicate.name}».`);
+  if (duplicate) throw new AppError('accounts.dirAlreadyConnected', { name: duplicate.name });
 
   const account: ClaudeAccountProfile = {
     id,
@@ -368,9 +369,9 @@ export function renameClaudeAccount(
   homeDir: string
 ): ClaudeAccountsSettings {
   const target = listAllAccounts(settings, homeDir).find((a) => a.id === id);
-  if (!target) throw new Error('Профиль не найден.');
+  if (!target) throw new AppError('accounts.profileNotFound');
   const nameError = validateClaudeAccountName(name, sameEngineAccounts(settings, accountEngine(target), homeDir), id);
-  if (nameError) throw new Error(nameError);
+  if (nameError) throw nameError;
   const clean = cleanName(name) as string;
   if (id === DEFAULT_CLAUDE_ACCOUNT_ID) return { ...settings, defaultName: clean };
   const rename = (p: ClaudeAccountProfile) => (p.id === id ? { ...p, name: clean } : p);
@@ -383,9 +384,9 @@ export function removeClaudeAccount(
   settings: ClaudeAccountsSettings,
   id: string
 ): { settings: ClaudeAccountsSettings; removed: ClaudeAccountProfile } {
-  if (id === DEFAULT_CLAUDE_ACCOUNT_ID) throw new Error('Профиль по умолчанию удалить нельзя.');
+  if (id === DEFAULT_CLAUDE_ACCOUNT_ID) throw new AppError('accounts.defaultNotRemovable');
   const removed = [...settings.profiles, ...(settings.engineProfiles ?? [])].find((p) => p.id === id);
-  if (!removed) throw new Error('Профиль не найден.');
+  if (!removed) throw new AppError('accounts.profileNotFound');
   const roleAccounts = Object.fromEntries(Object.entries(settings.roleAccounts).filter(([, accountId]) => accountId !== id));
   const next = withEngineProfiles(settings, (settings.engineProfiles ?? []).filter((p) => p.id !== id));
   return { settings: { ...next, profiles: settings.profiles.filter((p) => p.id !== id), roleAccounts }, removed };
@@ -399,12 +400,12 @@ export function setRoleClaudeAccount(
   homeDir: string
 ): ClaudeAccountsSettings {
   const slug = roleSlug.trim();
-  if (!slug) throw new Error('Роль не задана.');
+  if (!slug) throw new AppError('accounts.roleEmpty');
   const roleAccounts = { ...settings.roleAccounts };
   if (!accountId) {
     delete roleAccounts[slug];
   } else {
-    if (!listAllAccounts(settings, homeDir).some((a) => a.id === accountId)) throw new Error('Профиль не найден.');
+    if (!listAllAccounts(settings, homeDir).some((a) => a.id === accountId)) throw new AppError('accounts.profileNotFound');
     roleAccounts[slug] = accountId;
   }
   return { ...settings, roleAccounts };
@@ -420,8 +421,10 @@ export interface ClaudeAccountAuthStatus {
   subscriptionType?: string;
   /** Каталог, который CLI считает своим: должен совпасть с каталогом профиля. */
   configDirectory?: string;
-  /** Статус не получен (CLI не запустился, не ответил, ответ не JSON). */
+  /** Статус не получен (CLI не запустился, не ответил, ответ не JSON). Английский текст или текст самого CLI. */
   error?: string;
+  /** Код ошибки статуса для окна (decision-165); без него `error` — первая строка ответа CLI. */
+  errorKey?: AppErrorKey;
   /** CLI не умеет сообщать статус входа без запуска сессии (Gemini CLI): вход проверяется в терминале. */
   unsupported?: boolean;
   checkedAt: number;
@@ -456,11 +459,13 @@ export function parseClaudeAuthStatus(stdout: string, code: number | null, check
     }
   }
   const firstLine = text.split(/\r?\n/).find((line) => line.trim())?.trim();
-  return {
-    loggedIn: false,
-    error: firstLine ? firstLine.slice(0, 200) : `claude auth status: код выхода ${code ?? 'нет'}`,
-    checkedAt
-  };
+  if (firstLine) return { loggedIn: false, error: firstLine.slice(0, 200), checkedAt };
+  return authStatusFailure(new AppError('accounts.statusExitCode', { command: 'claude auth status', code: code ?? '?' }), checkedAt);
+}
+
+/** Статус не получен по причине ProjectHub, а не по ответу CLI: английский текст и код для окна. */
+export function authStatusFailure(err: AppError, checkedAt = Date.now()): ClaudeAccountAuthStatus {
+  return { loggedIn: false, error: err.message, errorKey: err.appErrorKey, checkedAt };
 }
 
 /**
@@ -474,7 +479,8 @@ export function parseCodexLoginStatus(output: string, code: number | null, check
   if (loggedIn) return { loggedIn: true, authMethod: /chatgpt/i.test(loggedIn[1]) ? 'chatgpt' : 'api-key', checkedAt };
   if (/not logged in/i.test(text)) return { loggedIn: false, checkedAt };
   const firstLine = text.split(/\r?\n/).find((line) => line.trim())?.trim();
-  return { loggedIn: false, error: firstLine ? firstLine.slice(0, 200) : `codex login status: код выхода ${code ?? 'нет'}`, checkedAt };
+  if (firstLine) return { loggedIn: false, error: firstLine.slice(0, 200), checkedAt };
+  return authStatusFailure(new AppError('accounts.statusExitCode', { command: 'codex login status', code: code ?? '?' }), checkedAt);
 }
 
 /**

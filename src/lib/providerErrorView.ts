@@ -5,8 +5,10 @@
  * сервера). Заголовок и совет берутся из словаря по виду и причине — так они локализованы ru/en.
  * Ответ сервера показывается как есть: это текст провайдера, переводить его нельзя.
  */
-import type { AIMessage, ProviderErrorInfo } from '../types/electron';
+import type { AIMessage, ModelCatalogResult, ProviderErrorInfo } from '../types/electron';
 import type { TranslationDictionary } from '../i18n/types';
+import { asAppErrorKey, formatAppError } from './appError';
+import { appFailureText } from './appErrorText';
 
 type ProviderErrorsDict = TranslationDictionary['providerErrors'];
 
@@ -99,6 +101,29 @@ export function providerErrorView(info: ProviderErrorInfo, t: ProviderErrorsDict
     ...(info.serverMessage ? { serverMessage: info.serverMessage } : {}),
     retryHint: info.retryable ? t.retryable : t.notRetryable
   };
+}
+
+/**
+ * Ошибка каталога моделей профиля (TASK-70.2, decision-165): заголовок по коду, причина — по коду ProjectHub, по снимку
+ * провайдера или текстом как есть. Без кода (main старее окна) — `error` как есть.
+ */
+export function modelCatalogErrorText(res: ModelCatalogResult, t: Pick<TranslationDictionary, 'appErrors' | 'providerErrors'>): string | undefined {
+  if (!res.error) return undefined;
+  const head = appFailureText(res, t.appErrors);
+  if (!res.errorKey) return head;
+  const causeKey = asAppErrorKey(res.errorCauseKey);
+  let cause: string | null | undefined;
+  if (causeKey) {
+    cause = formatAppError(causeKey, t.appErrors);
+  } else if (res.errorInfo) {
+    const info = res.errorInfo;
+    const tech = info.status !== undefined ? `HTTP ${info.status}` : info.code ?? '';
+    const advice = providerErrorAdvice(info, t.providerErrors);
+    cause = `${providerErrorTitle(info, t.providerErrors)}${tech ? ` (${tech})` : ''}${info.serverMessage ? `: ${info.serverMessage}` : ''}${advice ? `. ${advice}` : ''}`;
+  } else {
+    cause = res.errorDetail;
+  }
+  return cause ? `${head}: ${cause}` : head;
 }
 
 /**

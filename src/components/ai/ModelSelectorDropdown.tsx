@@ -5,6 +5,8 @@ import { ChevronDown, Check, Sparkles, Zap, Cpu, Flame, Layers, Search, HardDriv
 import { ClaudeLogo } from '../common/BrandLogo';
 import { useI18n } from '../../i18n';
 import { filterModelGroups, sortProfilesForMenu, type ModelGroup } from '../../lib/providerSelect';
+import { modelCatalogErrorText } from '../../lib/providerErrorView';
+import { appErrorText } from '../../lib/appErrorText';
 import type { ClaudeModelOption, AIProviderConfig, LlmProfileView } from '../../types/electron';
 
 /** Выбор в меню: модель Claude Code CLI (провайдер `anthropic`) или модель профиля (decision-40). */
@@ -170,11 +172,11 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
           .listLlmProfileModels(profile.id)
           .then((res) => {
             if (cancelled) return;
-            setCatalogs((prev) => ({ ...prev, [profile.id]: { models: res.models, loading: false, error: res.error } }));
+            setCatalogs((prev) => ({ ...prev, [profile.id]: { models: res.models, loading: false, error: modelCatalogErrorText(res, t) } }));
           })
           .catch((err: unknown) => {
             if (cancelled) return;
-            const message = err instanceof Error ? err.message : String(err);
+            const message = appErrorText(err, t.appErrors);
             setCatalogs((prev) => ({
               ...prev,
               [profile.id]: { models: prev[profile.id]?.models ?? [], loading: false, error: message }
@@ -185,7 +187,7 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
     return () => {
       cancelled = true;
     };
-  }, [isOpen, loadProfiles]);
+  }, [isOpen, loadProfiles, t]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

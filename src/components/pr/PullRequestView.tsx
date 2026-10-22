@@ -19,7 +19,7 @@ import {
   Workflow
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { useConnectionsStore } from '../../store/useConnectionsStore';
 import { CreatePRModal } from './CreatePRModal';
 import { PrReviewPanel } from './PrReviewPanel';
@@ -34,9 +34,7 @@ const HOSTING_LABELS: Record<PRProviderInfo['provider'], string> = {
   none: ''
 };
 
-function cleanIpcError(err: unknown): string {
-  return err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err);
-}
+const cleanIpcError = ipcErrorText;
 
 export const PullRequestView: React.FC = () => {
   const { t } = useTranslation();

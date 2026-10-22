@@ -20,6 +20,7 @@ import {
   type VoiceHost,
   type VoiceTarget
 } from '../protocol/voiceCommands';
+import { errorText } from './errorText';
 
 /**
  * Действия голосового режима ([[decision-137]] п. 4–7): обработчик на каждый интент каталога `phoneVoice.ts`. Новая
@@ -68,10 +69,6 @@ export interface VoiceActionContext {
 }
 
 export type VoiceAction = (c: VoiceActionContext) => Promise<void>;
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /** Действие над проектом: найти цель, запомнить её, выполнить; ошибка RPC — сказать, а не упасть. */
 function inProject(fn: (c: VoiceActionContext, host: VoiceHost, project: OverviewProject) => Promise<void>): VoiceAction {

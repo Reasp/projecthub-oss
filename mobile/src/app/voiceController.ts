@@ -18,6 +18,7 @@ import {
 import { hitlFromEvent, hitlText } from '../protocol/models';
 import type { TtsPort } from '../platform/types';
 import { VOICE_ACTIONS, type VoiceActionContext, type VoiceNav, type VoiceWatch } from './voiceActions';
+import { errorText } from './errorText';
 
 /**
  * Голосовой режим телефона (TASK-179, [[decision-137]]): фраза → распознавание и разбор на ПК → исполнение на нужном
@@ -61,10 +62,6 @@ interface Pending {
 }
 
 const LOG_MAX = 40;
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 export class VoiceController {
   private state: VoiceState;

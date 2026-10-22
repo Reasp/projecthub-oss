@@ -3,14 +3,14 @@ import { AlertTriangle, LogOut, Pencil, Trash2 } from '../common/icons';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useDialogStore } from '../../store/useDialogStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
+import { appFailureText } from '../../lib/appErrorText';
 import type { ClaudeAccountView, CliAccountEngine } from '../../types/electron';
 import { CLI_ENGINE_NAME, CLI_ENGINE_ENV, accountEngineOf } from '../../lib/cliAccountEngines';
 import { ConnectionRow, connectionBadge } from './ConnectionRow';
 
-export function cleanIpcError(err: unknown): string {
-  return err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err);
-}
+/** Текст ошибки main на языке окна (decision-165); имя сохранено для соседних компонентов. */
+export const cleanIpcError = ipcErrorText;
 
 /**
  * Действия над профилями аккаунтов Claude Code (TASK-152.2, decision-87): создать и войти, подключить каталог,
@@ -160,7 +160,7 @@ export const ClaudeAccountRow: React.FC<{ account: ClaudeAccountView; actions: C
   ) : status.unsupported ? (
     <span className="text-slate-400">{t.claudeAccounts.cliStatusUnsupported}</span>
   ) : status.error ? (
-    <span className="text-rose-300">{t.claudeAccounts.statusError.replace('{error}', status.error)}</span>
+    <span className="text-rose-300">{t.claudeAccounts.statusError.replace('{error}', appFailureText(status, t.appErrors))}</span>
   ) : status.loggedIn && engine !== 'claude-cli' ? (
     <span className="text-emerald-300">{t.claudeAccounts.cliLoggedIn.replace('{method}', status.authMethod ?? '—')}</span>
   ) : status.loggedIn ? (

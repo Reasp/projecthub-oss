@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, CheckCircle2, Layers, Loader2, Plus, RefreshCw, Trash2, Wand2 } from '../common/icons';
 import type { ModelTier, ModelTierSettings, ModelTierState, TierEngine, TierModelEntry } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { modelCatalogErrorText } from '../../lib/providerErrorView';
+import { appErrorText } from '../../lib/appErrorText';
 import { ProviderProfileSelect, useLlmProfiles } from './ProviderProfileSelect';
 import {
   TIERS_TOP_DOWN,
@@ -47,7 +49,8 @@ export const ModelTiersSection: React.FC = () => {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<'save' | 'seed' | 'refresh' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Ошибка хранится как есть, текст собирается при показе на текущем языке (decision-165).
+  const [error, setError] = useState<unknown>(null);
   const [catalogs, setCatalogs] = useState<Record<string, TierCatalogState>>({});
 
   useEffect(() => {
@@ -59,7 +62,7 @@ export const ModelTiersSection: React.FC = () => {
         setState(s);
         setDraft(s.settings);
       })
-      .catch((err: unknown) => !cancelled && setError(String((err as Error)?.message ?? err)));
+      .catch((err: unknown) => !cancelled && setError(err));
     return () => {
       cancelled = true;
     };
@@ -74,15 +77,16 @@ export const ModelTiersSection: React.FC = () => {
         ids.map(async (id) => {
           try {
             const res = await window.api.listLlmProfileModels(id, refresh);
-            return [id, { models: res.models, fetchedAt: res.fetchedAt, ...(res.error ? { error: res.error } : {}) }] as const;
+            const error = modelCatalogErrorText(res, t);
+            return [id, { models: res.models, fetchedAt: res.fetchedAt, ...(error ? { error } : {}) }] as const;
           } catch (err) {
-            return [id, { models: [], fetchedAt: null, error: String((err as Error)?.message ?? err) }] as const;
+            return [id, { models: [], fetchedAt: null, error: appErrorText(err, t.appErrors) }] as const;
           }
         })
       );
       setCatalogs((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
     },
-    []
+    [t]
   );
 
   // Каталоги профилей из кэша main-процесса — для подсказок и подсветки; сеть только по кнопке «Обновить».
@@ -100,7 +104,7 @@ export const ModelTiersSection: React.FC = () => {
   if (!state || !draft) {
     return (
       <div className="flex items-center gap-2 text-slate-400 text-xs py-6 justify-center">
-        {error ? <span className="text-rose-300">{error}</span> : <Loader2 className="w-4 h-4 animate-spin" />}
+        {error != null ? <span className="text-rose-300">{appErrorText(error, t.appErrors)}</span> : <Loader2 className="w-4 h-4 animate-spin" />}
       </div>
     );
   }
@@ -118,7 +122,7 @@ export const ModelTiersSection: React.FC = () => {
       setDirty(false);
       setNotice(l.saved);
     } catch (err) {
-      setError(String((err as Error)?.message ?? err));
+      setError(err);
     } finally {
       setBusy(null);
     }
@@ -137,7 +141,7 @@ export const ModelTiersSection: React.FC = () => {
         setNotice(l.seedNothing);
       }
     } catch (err) {
-      setError(String((err as Error)?.message ?? err));
+      setError(err);
     } finally {
       setBusy(null);
     }
@@ -371,7 +375,7 @@ export const ModelTiersSection: React.FC = () => {
         );
       })}
 
-      {error && <div className="text-[11px] text-rose-300">{error}</div>}
+      {error != null && <div className="text-[11px] text-rose-300">{appErrorText(error, t.appErrors)}</div>}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <span className="text-[11px] text-slate-500 font-mono truncate" title={state.filePath}>
           {l.filePath}: {state.filePath}

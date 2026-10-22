@@ -1,9 +1,12 @@
 import type { BaseSyncLabels, MergeFailureLabels } from '../lib/gitFailureText';
 import type { AgentStatusLabels, HitlTextLabels } from '../lib/agentStatusText';
+import type { AppErrorLabels } from './appErrorText';
 
 export type Language = 'en' | 'ru';
 
 export interface TranslationDictionary {
+  /** Ошибки main-процесса по коду (decision-165) — общий словарь с телефоном и main. */
+  appErrors: AppErrorLabels;
   common: {
     loading: string;
     cancel: string;

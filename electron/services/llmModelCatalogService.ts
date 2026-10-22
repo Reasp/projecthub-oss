@@ -7,12 +7,11 @@ import { isCatalogFresh, parseModelList, type ModelCatalogEntry, type ModelCatal
 import {
   ProviderError,
   classifyHttpError,
-  providerErrorAdviceRu,
-  providerErrorWhatRu,
   secretsFromHeaders,
   toProviderErrorInfo,
   type ProviderErrorContext
 } from './providerErrors.js';
+import { AppError, appErrorKeyOf } from '../../src/lib/appError.js';
 
 /** Сколько ждать ответа `/models`: локальный сервер отвечает мгновенно, облачный — за секунды. */
 const CATALOG_FETCH_TIMEOUT_MS = 15_000;
@@ -92,23 +91,25 @@ export class LlmModelCatalogService {
     } catch (err) {
       // Вид ошибки — тем же классификатором, что и запросы к модели (decision-43): «fetch failed»
       // превращается в «сервер не принимает подключения (ECONNREFUSED)» с советом.
+      // Текст для окна собирается по коду и снимку на языке интерфейса (decision-165); `error` — английский запасной.
       const info = toProviderErrorInfo(err, errorContext);
-      let reason: string;
-      if (!info) {
-        reason = String(err);
-      } else if (info.kind === 'unknown') {
-        reason = info.message;
-      } else {
-        const tech = info.status !== undefined ? `HTTP ${info.status}` : info.code ?? '';
-        const detail = info.reason === 'timeout' ? `нет ответа за ${CATALOG_FETCH_TIMEOUT_MS / 1000} с` : info.serverMessage;
-        const advice = providerErrorAdviceRu(info);
-        reason = `${providerErrorWhatRu(info)}${tech ? ` (${tech})` : ''}${detail ? `: ${detail}` : ''}.${advice ? ` ${advice}` : ''}`;
-      }
+      const causeKey = appErrorKeyOf(err);
+      const head = new AppError('llm.modelListFailed', { name: profile.name, url: profile.baseUrl });
+      const tech = info && info.status !== undefined ? `HTTP ${info.status}` : info?.code ?? '';
+      const detail = !info
+        ? String(err)
+        : info.kind === 'unknown'
+          ? info.message
+          : [info.reason ?? info.kind, tech, info.reason === 'timeout' ? `no response in ${CATALOG_FETCH_TIMEOUT_MS / 1000} s` : info.serverMessage]
+              .filter(Boolean)
+              .join(', ');
       return {
         models: fallback?.models ?? [],
         fetchedAt: fallback?.fetchedAt ?? null,
         cached: Boolean(fallback),
-        error: `Не удалось получить список моделей профиля «${profile.name}» (${profile.baseUrl}): ${reason}`
+        error: `${head.message}: ${detail}`,
+        errorKey: head.appErrorKey,
+        ...(causeKey ? { errorCauseKey: causeKey } : info && info.kind !== 'unknown' ? { errorInfo: info } : { errorDetail: detail })
       };
     }
   }

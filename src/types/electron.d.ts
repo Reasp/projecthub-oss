@@ -1965,6 +1965,8 @@ export interface ClaudeAccountAuthStatus {
   subscriptionType?: string;
   configDirectory?: string;
   error?: string;
+  /** Код ошибки статуса для текста на языке окна (decision-165); без него `error` — текст самого CLI. */
+  errorKey?: import('../lib/appError').AppErrorKey;
   /** CLI не сообщает статус входа (Gemini CLI): вход проверяется в терминале. */
   unsupported?: boolean;
   checkedAt: number;
@@ -2942,7 +2944,12 @@ export interface ModelCatalogResult {
   models: string[];
   fetchedAt: number | null;
   cached: boolean;
+  /** Английский запасной текст ошибки; окно собирает свой по полям ниже (`modelCatalogErrorText`, decision-165). */
   error?: string;
+  errorKey?: import('../lib/appError').AppErrorKey;
+  errorCauseKey?: import('../lib/appError').AppErrorKey;
+  errorInfo?: ProviderErrorInfo;
+  errorDetail?: string;
 }
 
 export interface AIProviderConfig {

@@ -1,12 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, XCircle, Clock, Loader2, PlayCircle, RotateCw, ExternalLink, ChevronDown, ChevronRight, RefreshCw, Workflow } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { useDialogStore } from '../../store/useDialogStore';
 import type { CiJobLog, CiProviderId, CiRun, CiRunDetail, CiRunsResult, CiStatus, ConnectionView, JenkinsSetting } from '../../types/electron';
 
-function cleanIpcError(err: unknown): string {
-  return err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err);
-}
+const cleanIpcError = ipcErrorText;
 
 const STATUS_CLASS: Record<CiStatus, string> = {
   success: 'text-emerald-400',
