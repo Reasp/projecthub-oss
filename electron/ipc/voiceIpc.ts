@@ -32,6 +32,7 @@ import {
   type VoiceResultCard
 } from '../../src/utils/voiceResultCard.js';
 import type { IpcContext } from './types';
+import { appErrorFields } from '../../src/lib/appError';
 
 /**
  * Кэш частых фраз классификатора (TASK-83 п. 2): живёт на процесс, а не на окно — одни и те же
@@ -132,11 +133,11 @@ const DICTATION_PUNCTUATION_TIMEOUT_MS = 8_000;
  * только то, что специфично для голоса: один ход, короткий разговорный итог.
  */
 const COMPUTER_TASK_SYSTEM = [
-  'Ты выполняешь одну короткую команду пользователя на его компьютере, отданную голосом.',
-  'Сделай ровно то, что попросили, и ничего сверх этого. Не задавай уточняющих вопросов —',
-  'если команду выполнить нельзя, просто скажи почему.',
-  'Ответь одной короткой фразой, которую не стыдно прочитать вслух: «Готово» или, например,',
-  '«Не нашёл кнопку Сохранить». Без кода, без списков и без markdown-разметки.'
+  'You carry out one short voice command from the user on their computer.',
+  'Do exactly what was asked and nothing more. Do not ask clarifying questions:',
+  'if the command cannot be done, just say why.',
+  'Reply with one short phrase that reads well aloud, such as "Done" or',
+  '"Could not find the Save button", in the language of the command. No code, no lists and no markdown.'
 ].join(' ');
 
 function computerResultToText(content: Array<{ type: string; text?: string }>): string {
@@ -375,7 +376,7 @@ export function registerVoiceIpc(ctx: IpcContext) {
       return {
         ok: false,
         result: null,
-        error: err instanceof Error ? err.message : String(err),
+        ...appErrorFields(err),
         ...(err instanceof ModelRouteError ? { modelProblem: true } : {})
       };
     }
@@ -405,7 +406,7 @@ export function registerVoiceIpc(ctx: IpcContext) {
     try {
       assertModelUsable(resolved);
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err), modelProblem: true };
+      return { ok: false, ...appErrorFields(err), modelProblem: true };
     }
     const config = resolved.config!;
     const sessionId = `voice-computer-${Date.now()}`;
@@ -465,7 +466,7 @@ export function registerVoiceIpc(ctx: IpcContext) {
           maxSteps: COMPUTER_TASK_MAX_STEPS,
           executeTool: async (tc): Promise<ToolExecutionResult> => {
             if (!tc.name.startsWith('computer_')) {
-              return { content: 'Этот инструмент недоступен в голосовой команде.', isError: true };
+              return { content: 'This tool is not available in a voice command.', isError: true };
             }
             const res = await computerUseService.callTool(tc.name, tc.args, {
               sessionId,
@@ -505,8 +506,8 @@ export function registerVoiceIpc(ctx: IpcContext) {
           purpose: 'voice.punctuate',
           ...(projectPath ? { projectPath } : {}),
           prompt:
-            'Расставь в тексте знаки препинания и заглавные буквы. Слова, их порядок и язык не меняй, ' +
-            'ничего не добавляй и не убирай, не комментируй. Верни только исправленный текст.\n\n' +
+            'Add punctuation and capital letters to the text. Do not change the words, their order or the language, ' +
+            'do not add or remove anything, do not comment. Return only the corrected text.\n\n' +
             raw,
           maxTokens: Math.min(1024, Math.ceil(raw.length / 2) + 64),
           temperature: 0,
@@ -528,7 +529,7 @@ export function registerVoiceIpc(ctx: IpcContext) {
     });
 
     const detail = computerResultToText(res.content);
-    if (res.isError) return { ok: false, error: detail || 'type_failed' };
+    if (res.isError) return { ok: false, error: detail || 'type_failed', ...(res.errorKey ? { errorKey: res.errorKey } : {}) };
     return { ok: true, typed: text, detail };
   });
 }

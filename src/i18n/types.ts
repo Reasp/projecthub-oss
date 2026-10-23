@@ -3011,6 +3011,8 @@ export interface TranslationDictionary {
     runDiagnostics: string;
     diagnosticsSummary: string;
     testScreenshot: string;
+    screenshotSize: string;
+    screenshotApprox: string;
     runtimeUnavailable: string;
     overlayTitle: string;
     overlayHint: string;

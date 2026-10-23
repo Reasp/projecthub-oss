@@ -7,6 +7,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useSwarmStore } from '../../store/useSwarmStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { hostLabelText } from '../../i18n/hostLabels';
 import { appFailureText } from '../../lib/appErrorText';
 import { useDialog } from '../../hooks/useDialog';
 import {
@@ -187,7 +188,7 @@ export const ComputersSection: React.FC = () => {
       >
         <div className="flex items-center gap-1.5 min-w-0">
           <Icon className={`w-3 h-3 shrink-0 ${STATE_TEXT[s.state]}`} />
-          <span className="truncate text-xs text-slate-200 flex-1">{s.title}</span>
+          <span className="truncate text-xs text-slate-200 flex-1">{hostLabelText(s.title, language)}</span>
           <span className={`shrink-0 text-[10px] ${STATE_TEXT[s.state]}`}>{t.fleet.states[s.state]}</span>
         </div>
         {detail && <div className={`pl-[18px] truncate text-[11px] ${s.state === 'waiting' ? 'text-amber-200/90' : 'text-slate-500'}`}>{detail}</div>}

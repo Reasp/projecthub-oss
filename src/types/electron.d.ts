@@ -232,6 +232,8 @@ export interface ComputerUseStatus {
   enabled: boolean;
   runtimeState: ComputerRuntimeState;
   runtimeError: string | null;
+  /** Та же причина кодом словаря (decision-165): текст — по словарю `appErrors`. */
+  runtimeErrorKey?: import('../lib/appError').AppErrorKey;
   runtimePackage: string;
   tools: { exported: number; hidden: number; unknown: string[]; missing: string[] } | null;
   killSwitch: { engaged: boolean; reason?: ComputerKillSwitchReason; at?: number };
@@ -528,6 +530,8 @@ export interface VoiceClassifyResponse {
   model?: string;
   provider?: string;
   error?: string;
+  /** Код ошибки (decision-165): текст — по словарю `appErrors`. */
+  errorKey?: import('../lib/appError').AppErrorKey;
   /** Цель назначения «Голос: разбор команды» непригодна: `error` называет назначение (TASK-134.4). */
   modelProblem?: boolean;
 }
@@ -544,6 +548,8 @@ export interface VoiceComputerTaskResponse {
   text?: string;
   /** Код причины (`computer_use_disabled`, `timeout`, …) либо сообщение об ошибке. */
   error?: string;
+  /** Код ошибки (decision-165): текст — по словарю `appErrors`. */
+  errorKey?: import('../lib/appError').AppErrorKey;
   /** Цель назначения «Голос: команда компьютеру» непригодна: `error` называет назначение (TASK-134.4). */
   modelProblem?: boolean;
 }
@@ -562,6 +568,8 @@ export interface VoiceDictateResponse {
   typed?: string;
   detail?: string;
   error?: string;
+  /** Код причины отказа (decision-165): текст — по словарю `appErrors`. */
+  errorKey?: import('../lib/appError').AppErrorKey;
 }
 
 // ─── Локальный TTS на голосах Piper (TASK-69, decision-25) ───
@@ -1684,7 +1692,14 @@ export interface IElectronAPI {
   releaseComputerKillSwitch: () => Promise<ComputerUseStatus>;
   startComputerUseRuntime: () => Promise<ComputerUseStatus>;
   runComputerUseDiagnostics: () => Promise<ComputerUseDiagnostics>;
-  takeComputerTestScreenshot: () => Promise<{ ok: boolean; dataUrl?: string; text?: string; error?: string; errorKey?: unknown }>;
+  takeComputerTestScreenshot: () => Promise<{
+    ok: boolean;
+    dataUrl?: string;
+    text?: string;
+    size?: { imageWidth: number; imageHeight: number; screenWidth: number; screenHeight: number; exact: boolean };
+    error?: string;
+    errorKey?: unknown;
+  }>;
   onComputerUseStatusChanged: (callback: (status: ComputerUseStatus) => void) => () => void;
   onComputerOverlayState: (callback: (state: ComputerOverlayState) => void) => () => void;
   onRemoteAction: (callback: (action: { type: string; payload: any }) => void) => () => void;

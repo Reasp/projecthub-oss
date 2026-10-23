@@ -22,7 +22,8 @@ import { IntroduceCard } from '../components/IntroduceCard';
 import { RouteBadge } from '../components/RouteBadge';
 import { Screen } from '../components/Screen';
 import { Badge, Button, SectionTitle, Spinner } from '../components/ui';
-import { useT } from '../i18n/react';
+import { useLanguage, useT } from '../i18n/react';
+import { hostLabelText } from '../../../src/i18n/hostLabels';
 import { timeAgo } from '../protocol/inbox';
 import type { HitlItem } from '../protocol/models';
 import { projectKey, type PhoneFleetHost } from '../protocol/fleet';
@@ -85,13 +86,14 @@ export function Pill({ tone, children }: { tone: 'amber' | 'emerald' | 'red' | '
 /** Строка сессии: на «Обзоре» внутри проекта, в Studio вне проекта — списком по области. */
 export function SessionRow({ session: s, onOpen, children }: { session: OverviewSession; onOpen: () => void; children?: ReactNode }) {
   const tr = useT();
+  const language = useLanguage();
   return (
     <li className="border-t border-ph-line/60 first:border-t-0">
       <button type="button" data-testid={`fleet-session-${s.id}`} onClick={onOpen} className="flex w-full items-start gap-2.5 py-2.5 pl-2 pr-1 text-left active:bg-ph-hover">
         <KindIcon kind={s.kind} className={clsx('mt-0.5 shrink-0', STATE_TONE[s.state])} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-[15px]">{s.title}</span>
+            <span className="min-w-0 flex-1 truncate text-[15px]">{hostLabelText(s.title, language)}</span>
             <span className={clsx('shrink-0 text-[12px]', STATE_TONE[s.state])}>{tr.fleet.states[s.state]}</span>
           </span>
           <span className={clsx('block truncate text-[13px]', s.state === 'waiting' ? 'text-amber-200' : 'text-slate-400')}>

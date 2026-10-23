@@ -3276,6 +3276,8 @@ export const en: TranslationDictionary = {
     runDiagnostics: 'Check permissions and runtime',
     diagnosticsSummary: 'Passed: {passed}, warnings: {warned}, failed: {failed}',
     testScreenshot: 'Test screenshot',
+    screenshotSize: 'Screenshot {image} (screen {screen}), scaled by ProjectHub.',
+    screenshotApprox: 'Window capture: the mapping is approximate (window shadow).',
     runtimeUnavailable: 'Runtime unavailable: {error}',
     overlayTitle: 'An agent is controlling the computer',
     overlayHint: 'Stop — {hotkey}',

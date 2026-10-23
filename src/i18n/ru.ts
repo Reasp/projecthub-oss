@@ -3278,6 +3278,8 @@ export const ru: TranslationDictionary = {
     runDiagnostics: 'Проверить права и рантайм',
     diagnosticsSummary: 'Пройдено: {passed}, предупреждений: {warned}, ошибок: {failed}',
     testScreenshot: 'Тестовый скриншот',
+    screenshotSize: 'Скриншот {image} (экран {screen}), масштабирован ProjectHub.',
+    screenshotApprox: 'Снимок окна: соответствие приблизительное (тень окна).',
     runtimeUnavailable: 'Рантайм недоступен: {error}',
     overlayTitle: 'Агент управляет компьютером',
     overlayHint: 'Стоп — {hotkey}',

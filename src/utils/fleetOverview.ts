@@ -376,12 +376,15 @@ function terminalSession(t: OverviewTerminalInput): OverviewSession {
   };
 }
 
-/** Запрос HITL без найденной сессии всё равно виден: «ждёт» не теряется, даже если сессия ушла из окна снимка. */
+/**
+ * Запрос HITL без найденной сессии всё равно виден: «ждёт» не теряется, даже если сессия ушла из окна снимка.
+ * Запасное имя — английская подпись хоста, клиент показывает её через `hostLabelText`.
+ */
 function orphanSession(p: OverviewPendingInput, kind: OverviewSessionKind): OverviewSession {
   return {
     kind,
     id: p.sessionId,
-    title: oneLine(p.agentName || p.origin || 'Агент', OVERVIEW_LIMITS.title),
+    title: oneLine(p.agentName || p.origin || 'Agent', OVERVIEW_LIMITS.title),
     state: 'waiting',
     updatedAt: p.createdAt ?? 0,
     ...(p.agentName ? { agentName: p.agentName } : {}),

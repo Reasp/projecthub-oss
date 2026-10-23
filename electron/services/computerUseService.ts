@@ -8,7 +8,8 @@ import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotoc
 import treeKill from 'tree-kill';
 import { ApprovalCancelledError, hitlService } from './hitlService.js';
 import { keyedHitlText } from './hitlText.js';
-import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
+import { AppError, appErrorFields, keyedText, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 import type { HitlEngine, HitlOrigin, HitlRequest } from './hitlTypes.js';
 import {
   buildProxyInputSchema,
@@ -34,6 +35,7 @@ import {
   summarizeComputerAction,
   type ComputerOrigin,
   type ComputerUseSettings,
+  type ComputerVerdict,
   type RuntimeWindowInfo
 } from './computerPolicy.js';
 import {
@@ -92,6 +94,8 @@ export interface ComputerUseStatus {
   enabled: boolean;
   runtimeState: ComputerRuntimeState;
   runtimeError: string | null;
+  /** Та же причина кодом словаря — окно показывает её на своём языке (TASK-202.9). */
+  runtimeErrorKey?: AppErrorKey;
   runtimePackage: string;
   tools: { exported: number; hidden: number; unknown: string[]; missing: string[] } | null;
   killSwitch: { engaged: boolean; reason?: KillSwitchReason; at?: number };
@@ -130,6 +134,8 @@ export type ComputerContent = { type: 'text'; text: string } | { type: 'image'; 
 export interface ComputerToolResult {
   content: ComputerContent[];
   isError: boolean;
+  /** Причина ошибки кодом словаря для человека (диктовка); модель получает английский текст из `content`. */
+  errorKey?: AppErrorKey;
 }
 
 export interface ComputerOverlayState {
@@ -155,8 +161,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function errorResult(text: string): ComputerToolResult {
-  return { content: [{ type: 'text', text }], isError: true };
+function errorResult(text: string, errorKey?: AppErrorKey): ComputerToolResult {
+  return { content: [{ type: 'text', text }], isError: true, ...(errorKey ? { errorKey } : {}) };
+}
+
+/** Ошибка кодом: английский текст словаря модели (с подсказкой `hint`, если она есть), код — человеку. */
+function keyedErrorResult(code: AppErrorCode, params?: AppErrorParams, hint?: string): ComputerToolResult {
+  const { text, key } = keyedText(code, params);
+  return errorResult(hint ? `${text} ${hint}` : text, key);
 }
 
 function firstText(res: { content: unknown[] }): string {
@@ -213,6 +225,7 @@ class ComputerUseService extends EventEmitter {
   private startPromise: Promise<boolean> | null = null;
   private runtimeState: ComputerRuntimeState = 'stopped';
   private runtimeError: string | null = null;
+  private runtimeErrorKey: AppErrorKey | null = null;
   /** Последние строки stderr рантайма — в них причина неудачного старта. */
   private lastRuntimeStderr = '';
   private runtimeTools: RuntimeTool[] = [];
@@ -327,6 +340,7 @@ class ComputerUseService extends EventEmitter {
       enabled: this.settings.enabled,
       runtimeState: this.runtimeState,
       runtimeError: this.runtimeError,
+      ...(this.runtimeErrorKey ? { runtimeErrorKey: this.runtimeErrorKey } : {}),
       runtimePackage: `${COMPUTER_USE_RUNTIME_PACKAGE}@${COMPUTER_USE_RUNTIME_VERSION}`,
       tools: r ? { exported: r.exported.length, hidden: r.hidden.length, unknown: r.unknown, missing: r.missing } : null,
       killSwitch: { ...this.killSwitch },
@@ -358,6 +372,7 @@ class ComputerUseService extends EventEmitter {
   private async startRuntime(): Promise<boolean> {
     this.runtimeState = 'starting';
     this.runtimeError = null;
+    this.runtimeErrorKey = null;
     this.lastRuntimeStderr = '';
     this.broadcastStatus();
 
@@ -389,9 +404,9 @@ class ComputerUseService extends EventEmitter {
 
     try {
       this.transport = transport;
-      await withTimeout(client.connect(transport), RUNTIME_START_TIMEOUT_MS, 'Рантайм не ответил на initialize');
+      await withTimeout(client.connect(transport), RUNTIME_START_TIMEOUT_MS, 'The runtime did not answer initialize');
       this.client = client;
-      const list = await withTimeout(client.listTools(), 30_000, 'Рантайм не вернул список инструментов');
+      const list = await withTimeout(client.listTools(), 30_000, 'The runtime did not return the tool list');
       this.runtimeTools = (list.tools ?? []).map((t) => ({
         name: t.name,
         description: t.description,
@@ -414,9 +429,12 @@ class ComputerUseService extends EventEmitter {
       const message = err instanceof Error ? err.message : String(err);
       const details = [message, this.lastRuntimeStderr].filter(Boolean).join(' | ');
       this.runtimeState = 'error';
-      this.runtimeError = /ENOENT|not recognized|не является|not found/i.test(details)
-        ? `Не найден npx (нужен Node.js ≥ 20 в PATH): ${details}`
-        : details;
+      const failure = keyedText(
+        /ENOENT|not recognized|не является|not found/i.test(details) ? 'computer.npxNotFound' : 'computer.runtimeStartFailed',
+        { details }
+      );
+      this.runtimeError = failure.text;
+      this.runtimeErrorKey = failure.key;
       console.error('[ComputerUse] Не удалось запустить рантайм:', message);
       await this.killTransport(transport);
       if (this.transport === transport) this.transport = null;
@@ -506,7 +524,7 @@ class ComputerUseService extends EventEmitter {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[ComputerUse] ${proxyName} failed:`, message);
-      return errorResult(`Ошибка инструмента ${proxyName}: ${message}`);
+      return keyedErrorResult('computer.toolFailed', { tool: proxyName, message });
     }
   }
 
@@ -545,14 +563,14 @@ class ComputerUseService extends EventEmitter {
         pre.rule,
         pre.reason
       );
-      return errorResult(pre.reason || `Действие отклонено политикой ProjectHub (${pre.rule}).`);
+      return this.denyResult(pre);
     }
 
     if (!(await this.ensureRuntime())) {
-      return errorResult(`Рантайм управления компьютером недоступен: ${this.runtimeError ?? 'неизвестная ошибка'}`);
+      return keyedErrorResult('computer.runtimeUnavailableReason', { reason: this.runtimeErrorKey ?? this.runtimeError ?? 'unknown error' });
     }
     if (!this.runtimeTools.some((t) => t.name === runtimeName)) {
-      return errorResult(`Инструмента ${runtimeName} нет в рантайме ${COMPUTER_USE_RUNTIME_VERSION} на этой ОС.`);
+      return keyedErrorResult('computer.toolMissing', { tool: runtimeName, version: COMPUTER_USE_RUNTIME_VERSION });
     }
 
     const mapped = mapCoordinateArgs(args, spec!.coords, this.mappings.get(ctx.sessionId) ?? null);
@@ -611,7 +629,7 @@ class ComputerUseService extends EventEmitter {
 
     if (verdict.verdict === 'deny') {
       hitlService.recordAutoDecision(info, 'deny', verdict.rule, verdict.reason);
-      return errorResult(verdict.reason || `Действие отклонено политикой ProjectHub (${verdict.rule}).`);
+      return this.denyResult(verdict);
     }
 
     let requestId: string;
@@ -641,15 +659,19 @@ class ComputerUseService extends EventEmitter {
       try {
         response = await hitlService.request(request, { timeoutMs: ctx.approvalTimeoutMs });
       } catch (err) {
-        if (err instanceof ApprovalCancelledError) return errorResult(`Ожидание подтверждения отменено: ${err.message}`);
+        if (err instanceof ApprovalCancelledError) return keyedErrorResult('computer.approvalCancelled', { reason: err.message });
         throw err;
       }
       if (!response.approved) {
-        return errorResult(`Пользователь отклонил действие${response.text ? `: ${response.text}` : ''}. Не повторяй его другим способом без согласия пользователя.`);
+        return keyedErrorResult(
+          response.text ? 'computer.userDeclinedComment' : 'computer.userDeclined',
+          response.text ? { comment: response.text } : undefined,
+          "Do not retry it another way without the user's consent."
+        );
       }
       if (this.killSwitch.engaged) {
         hitlService.recordOutcome(request.id, 'not_executed', 'kill-switch');
-        return errorResult('Сработал kill-switch: действие не выполнено, управление компьютером заблокировано.');
+        return keyedErrorResult('computer.killSwitchNotExecuted');
       }
       requestId = request.id;
     }
@@ -680,7 +702,7 @@ class ComputerUseService extends EventEmitter {
           && !(await this.listWindows()).some((w) => normalizeAppName(w.bundleId || w.displayName) === normalizeAppName(app))
         ) {
           const launched = this.launchWindowsApp(app);
-          result.content = [{ type: 'text', text: launched ? `ProjectHub запустил ${app}.` : `Не удалось запустить ${app}.` }];
+          result.content = [{ type: 'text', text: launched ? `ProjectHub launched ${app}.` : `Could not launch ${app}.` }];
           if (!launched) result.isError = true;
         }
         // Модели часто выдают «открыть приложение → ввести текст» одним ответом: без ожидания окна ввод
@@ -691,9 +713,7 @@ class ComputerUseService extends EventEmitter {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       hitlService.recordOutcome(requestId, 'failed', message, { screenshots: { before, after } });
-      return errorResult(
-        this.killSwitch.engaged ? 'Сработал kill-switch: действие прервано, управление компьютером заблокировано.' : `Ошибка рантайма: ${message}`
-      );
+      return this.killSwitch.engaged ? keyedErrorResult('computer.killSwitchInterrupted') : keyedErrorResult('computer.runtimeFailed', { message });
     } finally {
       this.inflightActions--;
       if (this.activeSession) this.activeSession.lastActionAt = Date.now();
@@ -704,7 +724,7 @@ class ComputerUseService extends EventEmitter {
     });
     const processed = this.postProcess(runtimeName, result, ctx.sessionId);
     if (mapped.mapped) {
-      processed.content.unshift({ type: 'text', text: 'Координаты со скриншота пересчитаны в экранные ProjectHub.' });
+      processed.content.unshift({ type: 'text', text: 'ProjectHub converted the screenshot coordinates to screen coordinates.' });
     }
     return processed;
   }
@@ -758,11 +778,11 @@ class ComputerUseService extends EventEmitter {
             /* best effort: модель получит window_id и сможет активировать сама */
           }
         }
-        return `Окно ${app} готово: window_id ${win.windowId}${win.title ? `, заголовок «${win.title}»` : ''}. Для ввода используй target_window_id ${win.windowId}.`;
+        return `Window of ${app} is ready: window_id ${win.windowId}${win.title ? `, title "${win.title}"` : ''}. Use target_window_id ${win.windowId} for input.`;
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
-    return `Окно ${app} не появилось за ${Math.round(APP_WINDOW_WAIT_MS / 1000)} с — проверь computer_list_windows, прежде чем вводить текст.`;
+    return `No window of ${app} appeared within ${Math.round(APP_WINDOW_WAIT_MS / 1000)} s. Check computer_list_windows before typing.`;
   }
 
   private async displaySize(): Promise<{ width: number; height: number } | null> {
@@ -847,7 +867,7 @@ class ComputerUseService extends EventEmitter {
   private markActive(ctx: ComputerCallContext): void {
     const now = Date.now();
     this.recentSessions.add(ctx.sessionId);
-    const label = ctx.agentName || ctx.role || (ctx.origin === 'external' ? 'Внешний MCP-клиент' : ctx.engine === 'api' ? 'API-агент' : 'Агент');
+    const label = ctx.agentName || ctx.role || (ctx.origin === 'external' ? 'External MCP client' : ctx.engine === 'api' ? 'API agent' : 'Agent');
     if (!this.activeSession || this.activeSession.sessionId !== ctx.sessionId) {
       this.activeSession = { sessionId: ctx.sessionId, label, since: now, lastActionAt: now };
       this.broadcastStatus();
@@ -969,10 +989,23 @@ class ComputerUseService extends EventEmitter {
 
   // ─────────────────────────────── Диагностика ───────────────────────────────
 
+  /** Почему рантайм недоступен: текст и код для результата `{ ok: false }`. */
+  private runtimeFailure(): { error: string; errorKey: AppErrorKey } {
+    if (this.runtimeError && this.runtimeErrorKey) return { error: this.runtimeError, errorKey: this.runtimeErrorKey };
+    const { text, key } = keyedText('computer.runtimeUnavailable');
+    return { error: text, errorKey: key };
+  }
+
+  /** Отказ политики: английская причина модели, её код — человеку. */
+  private denyResult(verdict: ComputerVerdict): ComputerToolResult {
+    if (verdict.reason) return errorResult(verdict.reason, verdict.reasonKey);
+    return keyedErrorResult('computer.policyDenied', { rule: verdict.rule });
+  }
+
   /** `doctor` рантайма + состояние прокси (AC #8). */
   public async diagnostics(): Promise<{ ok: boolean; runtime: unknown; status: ComputerUseStatus; error?: string; errorKey?: AppErrorKey }> {
     if (!(await this.ensureRuntime())) {
-      return { ok: false, runtime: null, status: this.getStatus(), error: this.runtimeError ?? 'Рантайм недоступен' };
+      return { ok: false, runtime: null, status: this.getStatus(), ...this.runtimeFailure() };
     }
     try {
       const res = await this.callRuntime('doctor', { include_remediation: true });
@@ -984,19 +1017,42 @@ class ComputerUseService extends EventEmitter {
   }
 
   /** Тестовый скриншот из настроек: проверка захвата экрана без агента и без аудита. */
-  public async testScreenshot(): Promise<{ ok: boolean; dataUrl?: string; text?: string; error?: string; errorKey?: AppErrorKey }> {
-    if (this.killSwitch.engaged) return { ok: false, error: 'Kill-switch активен — снимите блокировку.' };
-    if (!(await this.ensureRuntime())) return { ok: false, error: this.runtimeError ?? 'Рантайм недоступен' };
+  public async testScreenshot(): Promise<{
+    ok: boolean;
+    dataUrl?: string;
+    /** Текст, который получила бы модель (английский). */
+    text?: string;
+    /** Размеры снимка и экрана — окно пишет строку о них на своём языке. */
+    size?: { imageWidth: number; imageHeight: number; screenWidth: number; screenHeight: number; exact: boolean };
+    error?: string;
+    errorKey?: AppErrorKey;
+  }> {
+    if (this.killSwitch.engaged) return { ok: false, ...appErrorFields(new AppError('computer.killSwitchActive')) };
+    if (!(await this.ensureRuntime())) return { ok: false, ...this.runtimeFailure() };
     try {
       const args = await this.withScreenshotDefaults('screenshot', {});
       const res = await this.callRuntime('screenshot', args);
       const image = firstImage(res);
       const mapping = parseScreenshotMapping(firstText(res));
-      if (!image) return { ok: false, error: firstText(res) || 'Рантайм не вернул изображение' };
+      if (!image) {
+        const details = firstText(res);
+        return { ok: false, ...appErrorFields(details ? new AppError('computer.noImageDetails', { details }) : new AppError('computer.noImage')) };
+      }
       return {
         ok: true,
         dataUrl: `data:${image.mimeType || 'image/jpeg'};base64,${image.data}`,
-        text: mapping ? describeScreenshotForModel(mapping) : firstText(res)
+        text: mapping ? describeScreenshotForModel(mapping) : firstText(res),
+        ...(mapping
+          ? {
+              size: {
+                imageWidth: mapping.imageWidth,
+                imageHeight: mapping.imageHeight,
+                screenWidth: Math.round(mapping.imageWidth * mapping.scaleX),
+                screenHeight: Math.round(mapping.imageHeight * mapping.scaleY),
+                exact: mapping.exact
+              }
+            }
+          : {})
       };
     } catch (err) {
       return { ok: false, ...appErrorFields(err) };

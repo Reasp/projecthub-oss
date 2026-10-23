@@ -160,7 +160,7 @@ export function mapCoordinateArgs(
       args: rest,
       mapped: false,
       space,
-      error: 'coordinate_space "screenshot": в этой сессии ещё не было computer_screenshot — сначала сделай скриншот или передай экранные координаты.'
+      error: 'coordinate_space "screenshot": there was no computer_screenshot in this session yet. Take a screenshot first or pass screen coordinates.'
     };
   }
   const out: Record<string, unknown> = { ...rest };
@@ -182,11 +182,11 @@ export function describeScreenshotForModel(mapping: ScreenshotMapping): string {
   const screenW = Math.round(mapping.imageWidth * mapping.scaleX);
   const screenH = Math.round(mapping.imageHeight * mapping.scaleY);
   const lines = [
-    `Скриншот ${mapping.imageWidth}×${mapping.imageHeight} (экран ${screenW}×${screenH}, масштабирован ProjectHub).`,
-    'Координаты, взятые с этого изображения, передавай как есть с coordinate_space: "screenshot" — ProjectHub пересчитает их в экранные.',
-    'Не пересчитывай координаты сам. Bounds из get_ui_tree/find_element уже экранные — для них coordinate_space не указывай.'
+    `Screenshot ${mapping.imageWidth}×${mapping.imageHeight} (screen ${screenW}×${screenH}, scaled by ProjectHub).`,
+    'Pass coordinates taken from this image as is with coordinate_space: "screenshot"; ProjectHub converts them to screen coordinates.',
+    'Do not convert coordinates yourself. Bounds from get_ui_tree/find_element are already screen coordinates; do not set coordinate_space for them.'
   ];
-  if (!mapping.exact) lines.push('Снимок окна: соответствие приблизительное (тень окна) — после клика проверь результат новым скриншотом.');
+  if (!mapping.exact) lines.push('Window capture: the mapping is approximate (window shadow). After a click, check the result with a new screenshot.');
   return lines.join('\n');
 }
 

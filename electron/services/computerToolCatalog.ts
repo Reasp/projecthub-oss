@@ -83,7 +83,7 @@ export const COMPUTER_TOOL_CATALOG: Readonly<Record<string, ComputerToolSpec>> =
   multi_edit: { class: 'act', exported: true, coords: { locs: 'locs' }, movesCursor: true },
   type: { class: 'act', exported: true },
   key: { class: 'act', exported: true },
-  read_clipboard: { class: 'act', exported: true, note: 'Буфер может содержать секреты — чтение приравнено к действию' },
+  read_clipboard: { class: 'act', exported: true, note: 'The clipboard may hold secrets, so reading counts as an action' },
   write_clipboard: { class: 'act', exported: true },
   open_application: { class: 'act', exported: true, launchesApp: true },
   activate_app: { class: 'act', exported: true, launchesApp: true },
@@ -96,32 +96,32 @@ export const COMPUTER_TOOL_CATALOG: Readonly<Record<string, ComputerToolSpec>> =
   press_button: { class: 'act', exported: true },
   fill_form: { class: 'act', exported: true },
   select_menu_item: { class: 'act', exported: true },
-  agent_pointer: { class: 'act', exported: true, coords: POINT, targetless: true, note: 'Виртуальный указатель, физический курсор не двигает' },
+  agent_pointer: { class: 'act', exported: true, coords: POINT, targetless: true, note: 'Virtual pointer, does not move the physical cursor' },
   notification: { class: 'act', exported: true, targetless: true },
   create_agent_space: { class: 'act', exported: true, targetless: true },
   move_window_to_space: { class: 'act', exported: true },
   remove_window_from_space: { class: 'act', exported: true },
 
   // ─────────────── dangerous: всегда запрос человеку ───────────────
-  hold_key: { class: 'dangerous', exported: true, note: 'Удержание клавиш оставляет ввод в изменённом состоянии' },
-  left_mouse_down: { class: 'dangerous', exported: true, coords: POINT, movesCursor: true, note: 'Нажатие без отпускания' },
+  hold_key: { class: 'dangerous', exported: true, note: 'Holding keys leaves input in a modified state' },
+  left_mouse_down: { class: 'dangerous', exported: true, coords: POINT, movesCursor: true, note: 'Press without release' },
   left_mouse_up: { class: 'dangerous', exported: true, coords: POINT, movesCursor: true },
-  run_script: { class: 'dangerous', exported: true, targetless: true, note: 'PowerShell/AppleScript — произвольный код' },
+  run_script: { class: 'dangerous', exported: true, targetless: true, note: 'PowerShell/AppleScript: arbitrary code' },
   filesystem: { class: 'dangerous', exported: true, targetless: true },
   process_kill: { class: 'dangerous', exported: true, targetless: true },
   registry: { class: 'dangerous', exported: true, targetless: true },
   destroy_space: { class: 'dangerous', exported: true, targetless: true },
 
   // ─────────────── не экспортируются ───────────────
-  doctor: { class: 'observe', exported: false, note: 'Диагностика — только в настройках ProjectHub' },
-  policy_status: { class: 'observe', exported: false, note: 'Политика рантайма не источник истины — политика в прокси' },
-  get_tool_guide: { class: 'observe', exported: false, note: 'Советует скриптинг раньше дерева доступности — противоречит accessibility-first' },
-  openai_computer: { class: 'act', exported: false, note: 'Пакет действий обходит поштучную классификацию и allowlist' },
-  scrape: { class: 'observe', exported: false, note: 'Сеть, а не рабочий стол' },
-  web_search: { class: 'observe', exported: false, note: 'Сеть, а не рабочий стол' },
-  browser_tabs: { class: 'observe', exported: false, note: 'Браузер — TASK-78' },
-  browser_page_text: { class: 'observe', exported: false, note: 'Браузер — TASK-78' },
-  browser_find: { class: 'observe', exported: false, note: 'Браузер — TASK-78' }
+  doctor: { class: 'observe', exported: false, note: 'Diagnostics: ProjectHub settings only' },
+  policy_status: { class: 'observe', exported: false, note: 'The runtime policy is not the source of truth; the policy lives in the proxy' },
+  get_tool_guide: { class: 'observe', exported: false, note: 'Recommends scripting before the accessibility tree, contradicting accessibility-first' },
+  openai_computer: { class: 'act', exported: false, note: 'An action batch bypasses per-action classification and the allowlist' },
+  scrape: { class: 'observe', exported: false, note: 'Network, not the desktop' },
+  web_search: { class: 'observe', exported: false, note: 'Network, not the desktop' },
+  browser_tabs: { class: 'observe', exported: false, note: 'Browser: TASK-78' },
+  browser_page_text: { class: 'observe', exported: false, note: 'Browser: TASK-78' },
+  browser_find: { class: 'observe', exported: false, note: 'Browser: TASK-78' }
 };
 
 export function getComputerToolSpec(runtimeName: string): ComputerToolSpec | undefined {
@@ -138,15 +138,15 @@ export function fromProxyToolName(proxyName: string): string | null {
 }
 
 const CLASS_LABEL: Record<ComputerActionClass, string> = {
-  observe: '[observe — без подтверждения]',
-  act: '[act — автоматически только в разрешённых приложениях, иначе подтверждение человека]',
-  dangerous: '[dangerous — всегда подтверждение человека]'
+  observe: '[observe: no approval]',
+  act: '[act: automatic only in allowed apps, otherwise human approval]',
+  dangerous: '[dangerous: always human approval]'
 };
 
 /** Описание инструмента прокси: класс действия (модель заранее знает, что потребует подтверждения) + описание рантайма. */
 export function buildProxyToolDescription(runtimeName: string, spec: ComputerToolSpec, runtimeDescription?: string): string {
   const parts = [CLASS_LABEL[spec.class], runtimeDescription?.trim() || runtimeName];
-  if (runtimeName === 'screenshot') parts.push('ProjectHub вписывает скриншот в 1366×768 (JPEG).');
+  if (runtimeName === 'screenshot') parts.push('ProjectHub fits the screenshot into 1366×768 (JPEG).');
   return parts.join(' ');
 }
 
@@ -177,8 +177,8 @@ export function buildProxyInputSchema(inputSchema: Record<string, unknown> | und
       type: 'string',
       enum: ['screen', 'screenshot'],
       description:
-        'Пространство координат: "screen" (по умолчанию) — логические пиксели экрана, как bounds из get_ui_tree; '
-        + '"screenshot" — пиксели последнего computer_screenshot этой сессии, ProjectHub пересчитает их в экранные.'
+        'Coordinate space: "screen" (default) is logical screen pixels, like bounds from get_ui_tree; '
+        + '"screenshot" is pixels of the last computer_screenshot in this session, ProjectHub converts them to screen coordinates.'
     };
   }
   const req = Array.isArray(required) ? required.filter((r): r is string => typeof r === 'string' && !HIDDEN_RUNTIME_ARGS.has(r)) : [];

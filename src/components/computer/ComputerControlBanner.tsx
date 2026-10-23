@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Monitor, OctagonX, Settings, Unlock } from '../common/icons';
 import type { ComputerUseStatus } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { hostLabelText } from '../../i18n/hostLabels';
 import { ComputerUseSettingsModal } from './ComputerUseSettingsModal';
 
 /**
@@ -11,7 +12,7 @@ import { ComputerUseSettingsModal } from './ComputerUseSettingsModal';
  * оверлей поверх всех окон рисует отдельное окно `ComputerOverlay`.
  */
 export const ComputerControlBanner: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [status, setStatus] = useState<ComputerUseStatus | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -40,7 +41,7 @@ export const ComputerControlBanner: React.FC = () => {
             <span className="font-semibold">
               {engaged
                 ? t.computerUse.killSwitchEngaged.replace('{reason}', status?.killSwitch.reason ? t.computerUse.reason[status.killSwitch.reason] : '?')
-                : t.computerUse.bannerActive.replace('{agent}', status?.activeSession?.label || '')}
+                : t.computerUse.bannerActive.replace('{agent}', hostLabelText(status?.activeSession?.label || '', language))}
             </span>
             {engaged ? (
               <button

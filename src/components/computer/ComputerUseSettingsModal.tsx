@@ -29,7 +29,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
   const [hotkeyDraft, setHotkeyDraft] = useState('');
   const [diagnostics, setDiagnostics] = useState<ComputerUseDiagnostics | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
-  const [screenshot, setScreenshot] = useState<{ dataUrl?: string; text?: string; error?: string; errorKey?: unknown } | null>(null);
+  const [screenshot, setScreenshot] = useState<Awaited<ReturnType<typeof window.api.takeComputerTestScreenshot>> | null>(null);
   const [isShooting, setIsShooting] = useState(false);
 
   useEffect(() => {
@@ -166,7 +166,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
                   <div className="text-[11px] text-amber-300">{t.computerUse.unknownTools.replace('{list}', status.tools.unknown.join(', '))}</div>
                 )}
                 {status?.runtimeError && (
-                  <div className="text-[11px] text-rose-300 break-words">{t.computerUse.runtimeUnavailable.replace('{error}', status.runtimeError)}</div>
+                  <div className="text-[11px] text-rose-300 break-words">{t.computerUse.runtimeUnavailable.replace('{error}', appFailureText({ error: status.runtimeError, errorKey: status.runtimeErrorKey }, t.appErrors))}</div>
                 )}
               </div>
               {settings.enabled && runtimeState !== 'ready' && runtimeState !== 'starting' && (
@@ -357,7 +357,16 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
                 <div className="space-y-1">
                   {screenshot.error && <div className="text-rose-300 break-words">{appFailureText(screenshot, t.appErrors)}</div>}
                   {screenshot.dataUrl && <img src={screenshot.dataUrl} alt={t.computerUse.testScreenshot} className="w-full rounded-lg border border-slate-800" />}
-                  {screenshot.text && <pre className="text-[11px] text-slate-500 whitespace-pre-wrap">{screenshot.text}</pre>}
+                  {screenshot.size ? (
+                    <div className="text-[11px] text-slate-500">
+                      {t.computerUse.screenshotSize
+                        .replace('{image}', `${screenshot.size.imageWidth}×${screenshot.size.imageHeight}`)
+                        .replace('{screen}', `${screenshot.size.screenWidth}×${screenshot.size.screenHeight}`)}
+                      {screenshot.size.exact ? null : <div>{t.computerUse.screenshotApprox}</div>}
+                    </div>
+                  ) : (
+                    screenshot.text && <pre className="text-[11px] text-slate-500 whitespace-pre-wrap">{screenshot.text}</pre>
+                  )}
                 </div>
               )}
             </div>

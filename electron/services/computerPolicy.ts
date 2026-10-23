@@ -1,4 +1,6 @@
 import type { ComputerActionClass, ComputerToolSpec } from './computerToolCatalog.js';
+import { keyedText, type AppErrorKey } from '../../src/lib/appError.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 
 /**
  * Политика управления компьютером (TASK-82, decision-27 п. 3–4, п. 6): чистые функции без
@@ -58,7 +60,16 @@ export interface ComputerVerdict {
   rule: string;
   /** Итоговый класс (файловый диалог повышает `act` до `dangerous`). */
   actionClass?: ComputerActionClass;
+  /** Причина по-английски: для модели и аудита. */
   reason?: string;
+  /** Та же причина кодом словаря — для человека (диктовка, TASK-202.9). */
+  reasonKey?: AppErrorKey;
+}
+
+/** `reason` и `reasonKey` из одного кода. */
+function because(code: AppErrorCode, params?: Record<string, string>): { reason: string; reasonKey: AppErrorKey } {
+  const { text, key } = keyedText(code, params);
+  return { reason: text, reasonKey: key };
 }
 
 export const DEFAULT_FILE_DIALOG_TITLES = [
@@ -158,17 +169,17 @@ export function evaluateComputerHardLimits(
   const { tool, spec, context } = input;
 
   if (!context.enabled) {
-    return { verdict: 'deny', rule: 'computer-disabled', reason: 'Управление компьютером выключено в настройках ProjectHub.' };
+    return { verdict: 'deny', rule: 'computer-disabled', ...because('computer.disabled') };
   }
   if (!spec || !spec.exported) {
-    return { verdict: 'deny', rule: 'computer-tool-unknown', reason: `Инструмент ${tool} не классифицирован и не экспортируется прокси.` };
+    return { verdict: 'deny', rule: 'computer-tool-unknown', ...because('computer.toolUnknown', { tool }) };
   }
   if (context.killSwitchEngaged) {
     return {
       verdict: 'deny',
       rule: 'kill-switch',
       actionClass: spec.class,
-      reason: 'Сработал kill-switch: управление компьютером заблокировано до ручного снятия пользователем.'
+      ...because('computer.killSwitchBlocked')
     };
   }
   if (context.origin === 'automation' || context.origin === 'assigned') {
@@ -176,7 +187,8 @@ export function evaluateComputerHardLimits(
       verdict: 'deny',
       rule: 'computer-autonomous-forbidden',
       actionClass: spec.class,
-      reason: 'Управление компьютером недоступно в Automations и автозапуске назначенных задач (decision-27 п. 6).'
+      // decision-27 п. 6.
+      ...because('computer.autonomousForbidden')
     };
   }
   if (context.doneLoop && !context.taskAllowsComputerUse) {
@@ -184,7 +196,7 @@ export function evaluateComputerHardLimits(
       verdict: 'deny',
       rule: 'computer-task-not-allowed',
       actionClass: spec.class,
-      reason: `В цикле «до готовности» управление компьютером разрешено только задачам с label «${COMPUTER_USE_TASK_LABEL}».`
+      ...because('computer.taskNotAllowed', { label: COMPUTER_USE_TASK_LABEL })
     };
   }
   return null;
@@ -217,7 +229,7 @@ export function evaluateComputerAction(input: EvaluateComputerActionInput): Comp
         verdict: 'deny',
         rule: 'computer-only-window',
         actionClass: spec.class,
-        reason: `Режим «только разрешённые окна»: ${describeTarget(offender)} не входит в allowlist.`
+        ...because('computer.onlyAllowedWindows', { target: describeTarget(offender) })
       };
     }
   }
@@ -236,7 +248,7 @@ export function evaluateComputerAction(input: EvaluateComputerActionInput): Comp
     return { verdict: 'ask', rule: 'computer-no-target', actionClass: 'act' };
   }
   if (!target) {
-    return { verdict: 'ask', rule: 'computer-no-target', actionClass: 'act', reason: 'Не удалось определить целевое окно.' };
+    return { verdict: 'ask', rule: 'computer-no-target', actionClass: 'act', reason: 'Could not determine the target window.' };
   }
   if (isTargetAllowlisted(target, allowlist)) {
     if (context.autoApprove === false) return { verdict: 'ask', rule: 'computer-manual', actionClass: 'act' };
@@ -247,7 +259,7 @@ export function evaluateComputerAction(input: EvaluateComputerActionInput): Comp
       verdict: 'deny',
       rule: 'computer-outside-allowlist',
       actionClass: 'act',
-      reason: `${describeTarget(target)} не входит в allowlist приложений, действия вне списка отклоняются.`
+      ...because('computer.outsideAllowlist', { target: describeTarget(target) })
     };
   }
   return { verdict: 'ask', rule: 'computer-outside-allowlist', actionClass: 'act' };

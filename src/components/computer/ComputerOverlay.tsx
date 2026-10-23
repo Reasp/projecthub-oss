@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Monitor, OctagonX } from '../common/icons';
 import type { ComputerOverlayState } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { hostLabelText } from '../../i18n/hostLabels';
 
 /**
  * Содержимое окна-оверлея «Агент управляет компьютером» (TASK-82, AC #4). Окно создаёт main-процесс
  * поверх всех окон системы (`#/computer-overlay`); кнопка «Стоп» включает kill-switch.
  */
 export const ComputerOverlay: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [state, setState] = useState<ComputerOverlayState | null>(null);
 
   useEffect(() => {
@@ -58,7 +59,7 @@ export const ComputerOverlay: React.FC = () => {
         <div className="min-w-0 flex-1">
           <div className="text-xs font-bold truncate">
             {t.computerUse.overlayTitle}
-            {state.label ? <span className="font-normal text-orange-300"> · {state.label}</span> : null}
+            {state.label ? <span className="font-normal text-orange-300"> · {hostLabelText(state.label, language)}</span> : null}
           </div>
           <div className="text-[11px] text-orange-300/80 truncate">{t.computerUse.overlayHint.replace('{hotkey}', state.hotkey)}</div>
         </div>

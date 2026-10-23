@@ -24,6 +24,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useHitlStore } from '../../store/useHitlStore';
 import { getDictionary } from '../../i18n';
+import { appFailureText } from '../../lib/appErrorText';
 import { describeHitlRequest } from '../../lib/agentStatusText';
 import { toExecutableVoiceCommand } from '../../services/voiceClassifiedCommand';
 import { useDialog } from '../../hooks/useDialog';
@@ -599,7 +600,9 @@ export const VoiceControlWidget: React.FC = () => {
         const reason =
           typedResponse?.error === 'computer_use_disabled'
             ? dict.voice.feedback.computerUseDisabled
-            : typedResponse?.error || dict.voice.feedback.computerTaskFailed;
+            : typedResponse?.error
+              ? appFailureText(typedResponse, dict.appErrors)
+              : dict.voice.feedback.computerTaskFailed;
         setLastFeedback(dict.voice.feedback.dictationFailed.replace('{error}', reason));
         return;
       }
@@ -653,7 +656,7 @@ export const VoiceControlWidget: React.FC = () => {
     if (!response?.ok || !response.result) {
       setLastFeedback(
         response?.modelProblem && response.error
-          ? dict.voice.feedback.modelProblem.replace('{error}', response.error)
+          ? dict.voice.feedback.modelProblem.replace('{error}', appFailureText(response, dict.appErrors))
           : dict.voice.feedback.modelUnavailable
       );
       return;
@@ -699,7 +702,7 @@ export const VoiceControlWidget: React.FC = () => {
       // Текст про назначение длинный — на экран, а голосом только короткая причина.
       setLastFeedback(
         taskResponse?.modelProblem && taskResponse.error
-          ? dict.voice.feedback.modelProblem.replace('{error}', taskResponse.error)
+          ? dict.voice.feedback.modelProblem.replace('{error}', appFailureText(taskResponse, dict.appErrors))
           : spoken
       );
       // Ответ агента читается голосом его языка, строка интерфейса — языком интерфейса
