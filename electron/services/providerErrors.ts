@@ -11,6 +11,9 @@
  * значения заголовков авторизации и шаблоны ключей вырезаются из ответа сервера.
  */
 import { appErrorKeyOf, type AppError, type AppErrorKey } from '../../src/lib/appError';
+import { appErrorTextEn } from '../../src/i18n/appErrorText';
+import { providerErrorTextEn } from '../../src/i18n/providerErrorText';
+import { providerErrorAdvice, providerErrorTitle } from '../../src/lib/providerErrorView';
 
 export type ProviderErrorKind =
   | 'auth'
@@ -255,7 +258,7 @@ export function parseErrorBody(body: string | undefined): ParsedBody {
   }
   if (/^<!doctype html|^<html/i.test(text)) {
     const title = /<title>([^<]*)<\/title>/i.exec(text)?.[1]?.trim();
-    return { message: title || 'HTML-страница вместо ответа API' };
+    return { message: title || 'An HTML page instead of an API response' };
   }
   return { message: text.replace(/\s+/g, ' ') };
 }
@@ -559,7 +562,7 @@ export function timeoutError(timeoutMs: number, ctx: ProviderErrorContext = {}):
     kind: 'unavailable',
     reason: 'timeout',
     ...baseInfo(ctx),
-    serverMessage: `нет ответа за ${Math.round(timeoutMs / 100) / 10} с`
+    serverMessage: `no response within ${Math.round(timeoutMs / 100) / 10} s`
   });
 }
 
@@ -596,132 +599,43 @@ export function toProviderErrorInfo(err: unknown, ctx: ProviderErrorContext = {}
 
 // ─────────────────────────────── Сообщение ───────────────────────────────
 
-const WHAT_RU: Record<ProviderErrorKind, string> = {
-  auth: 'нет доступа: ключ не принят',
-  quota: 'исчерпан баланс или квота',
-  model_not_found: 'модель не найдена',
-  rate_limit: 'превышен лимит запросов',
-  unavailable: 'сервер недоступен',
-  bad_request: 'сервер отклонил запрос',
-  config: 'ошибка настройки',
-  unknown: 'ошибка запроса'
-};
-
-const REASON_WHAT_RU: Partial<Record<ProviderErrorReason, string>> = {
-  forbidden: 'доступ запрещён',
-  tools: 'модель не поддерживает вызов инструментов',
-  reasoning: 'модель не приняла усилие рассуждений',
-  context: 'запрос не помещается в контекст модели',
-  unsupported: 'модель не поддерживает этот режим',
-  moderation: 'запрос отклонён модерацией',
-  refused: 'сервер не принимает подключения',
-  dns: 'адрес сервера не найден',
-  timeout: 'сервер не ответил вовремя',
-  tls: 'ошибка TLS-сертификата',
-  network: 'обрыв сетевого соединения',
-  overloaded: 'сервис перегружен',
-  endpoint: 'адрес API не найден'
-};
-
 function seconds(ms: number): string {
-  const s = ms / 1000;
-  return s >= 10 ? `${Math.round(s)} с` : `${Math.round(s * 10) / 10} с`;
+  const s = Math.max(0, ms) / 1000;
+  return s >= 10 ? `${Math.round(s)} s` : `${Math.round(s * 10) / 10} s`;
 }
 
-/** Совет «что сделать» (ru) — тот же набор, что в i18n renderer (`providerErrors.advice`). */
-export function providerErrorAdviceRu(info: ProviderErrorInfo): string {
-  const profile = info.provider ? `«${info.provider}»` : '';
-  const model = info.model ? `«${info.model}»` : '';
-  switch (info.kind) {
-    case 'auth':
-      return info.reason === 'forbidden'
-        ? `У ключа нет доступа к этой модели или сервису: проверьте права ключа и регион у провайдера ${profile}.`.replace(/\s+:/, ':')
-        : info.profileId
-          ? `Проверьте API-ключ профиля ${profile} в настройках Agents Studio → «Профили провайдеров».`.replace(/\s{2,}/g, ' ')
-          : `Проверьте API-ключ провайдера ${profile} в настройках Agents Studio.`.replace(/\s{2,}/g, ' ');
-    case 'quota':
-      return 'Пополните баланс или проверьте лимиты тарифа у провайдера. Другая модель того же провайдера, скорее всего, не поможет.';
-    case 'model_not_found':
-      return info.local
-        ? `Загрузите модель (\`ollama pull ${info.model ?? '<модель>'}\`) или выберите установленную; обновите каталог моделей профиля.`
-        : `Обновите каталог моделей профиля и выберите модель из списка; проверьте id модели ${model}.`.replace(/\s+;/, ';').replace(/\s+\./, '.');
-    case 'rate_limit':
-      return `${info.retryAfterMs !== undefined ? `Подождите ${seconds(info.retryAfterMs)} и повторите` : 'Подождите и повторите'}; при частых отказах уменьшите число параллельных слотов или выберите другую модель.`;
-    case 'unavailable':
-      switch (info.reason) {
-        case 'refused':
-          return info.local
-            ? 'Запустите локальный сервер (Ollama, LM Studio…) и проверьте порт в адресе профиля.'
-            : 'Проверьте адрес и порт в профиле: сервер не принимает подключения.';
-        case 'dns':
-          return 'Проверьте адрес профиля и подключение к сети.';
-        case 'timeout':
-          return info.local
-            ? 'Проверьте, что сервер запущен; большая модель может долго загружаться в память — повторите запрос.'
-            : 'Проверьте подключение к сети и повторите запрос.';
-        case 'tls':
-          return 'Проверьте схему адреса (http/https) и сертификат сервера.';
-        default:
-          return 'Сервис временно недоступен — повторите позже или выберите другую модель.';
-      }
-    case 'bad_request':
-      switch (info.reason) {
-        case 'tools':
-          return 'Для режима агента выберите модель с tool calling или выключите флаг tools в профиле.';
-        case 'reasoning':
-          return (
-            `Выберите другой уровень${info.reasoningEffort ? ` вместо «${info.reasoningEffort}»` : ''} или «по умолчанию модели» в настройках ` +
-            'Agents Studio или слота, либо поменяйте формат усилия в профиле провайдера.'
-          );
-        case 'context':
-          return 'Начните новый чат, сократите контекст задачи или выберите модель с большим окном контекста.';
-        case 'unsupported':
-          return 'Выберите модель для чата (например, не эмбеддинг-модель).';
-        case 'moderation':
-          return 'Переформулируйте запрос или выберите другую модель.';
-        default:
-          return 'Проверьте параметры запроса и флаги совместимости профиля.';
-      }
-    case 'config':
-      return info.reason === 'endpoint'
-        ? 'Проверьте адрес профиля: у OpenAI-совместимых серверов он обычно заканчивается на /v1.'
-        : '';
-    default:
-      return '';
-  }
-}
-
-/** Заголовок «что случилось» (ru). */
-export function providerErrorWhatRu(info: ProviderErrorInfo): string {
-  return (info.reason && REASON_WHAT_RU[info.reason]) || WHAT_RU[info.kind];
+/** Что случилось — английский текст общего словаря (окно и телефон берут тот же словарь на своём языке). */
+export function providerErrorWhat(info: ProviderErrorInfo): string {
+  return providerErrorTitle(info, providerErrorTextEn);
 }
 
 /**
- * Сообщение для пользователя, логов и экспорта: «Провайдер «X» (адрес), модель «m»: что случилось (HTTP s).
- * Что сделать: … Ответ сервера: …». Ошибка настройки — текст вызывающего кода как есть.
+ * Английское сообщение для журнала, экспорта, модели и старых клиентов: «Provider “X” (address), model “m”: what
+ * happened (HTTP s). What to do: … Server response: …». Ошибка настройки — текст вызывающего кода как есть. Окно и
+ * телефон собирают свой текст по снимку (`providerErrorView`), а не по этой строке.
  */
 export function formatProviderErrorMessage(info: ProviderErrorInfo): string {
   if (info.kind === 'config' && info.message && info.reason !== 'endpoint') return info.message;
   const where = [
-    info.provider ? `Провайдер «${info.provider}»` : 'Провайдер',
+    info.provider ? `Provider “${info.provider}”` : 'Provider',
     info.endpoint ? ` (${info.endpoint})` : '',
-    info.model ? `, модель «${info.model}»` : ''
+    info.model ? `, model “${info.model}”` : ''
   ].join('');
   const tech = info.status !== undefined ? `HTTP ${info.status}` : info.code ?? '';
-  const advice = providerErrorAdviceRu(info);
+  const advice = providerErrorAdvice({ ...info, message: '' }, providerErrorTextEn, appErrorTextEn);
   return [
-    `${where}: ${providerErrorWhatRu(info)}${tech ? ` (${tech})` : ''}.`,
-    advice ? ` Что сделать: ${advice}` : '',
-    info.serverMessage ? ` Ответ сервера: ${info.serverMessage}` : ''
+    `${where}: ${providerErrorWhat(info)}${tech ? ` (${tech})` : ''}.`,
+    advice ? ` What to do: ${advice}` : '',
+    info.serverMessage ? ` Server response: ${info.serverMessage}` : ''
   ].join('');
 }
 
-/** Короткая строка для экспорта и логов: `rate_limit (HTTP 429, повтор через 20 с, можно повторить)`. */
+/** Короткая строка для экспорта и логов: `rate_limit (HTTP 429, retry in 20 s, retryable)`. */
 export function describeProviderErrorBrief(info: ProviderErrorInfo): string {
   const parts: string[] = [];
   if (info.status !== undefined) parts.push(`HTTP ${info.status}`);
-  if (info.code) parts.push(`код ${info.code}`);
-  if (info.retryAfterMs !== undefined) parts.push(`повтор через ${seconds(info.retryAfterMs)}`);
-  parts.push(info.retryable ? 'можно повторить' : 'повтор без изменения настроек не поможет');
+  if (info.code) parts.push(`code ${info.code}`);
+  if (info.retryAfterMs !== undefined) parts.push(`retry in ${seconds(info.retryAfterMs)}`);
+  parts.push(info.retryable ? 'retryable' : 'retrying without changing settings will not help');
   return `${info.kind}${info.reason ? `/${info.reason}` : ''} (${parts.join(', ')})`;
 }

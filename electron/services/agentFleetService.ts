@@ -119,7 +119,7 @@ import { AGENT_TRACE_FORMAT, AGENT_TRACE_VERSION, type AgentCheckpoint, type Age
 import { redactSecrets } from './hitlAudit.js';
 import type { HitlRequest, RolePermissions } from './hitlTypes.js';
 import { superviseChildExit, type ChildExitSupervisor } from './processSweep.js';
-import { capSessionBudget, editionRegistry, launcherGitEnv, AGENT_COMMITTER, type AgentLaunchContext, type AgentLaunchVerdict, type AgentOutcomeRecord, type LiveAgentRun } from '../extensions/editionRegistry.js';
+import { capSessionBudget, editionRegistry, launchRefusal, launcherGitEnv, AGENT_COMMITTER, type AgentLaunchContext, type AgentLaunchVerdict, type AgentOutcomeRecord, type LiveAgentRun } from '../extensions/editionRegistry.js';
 import type { ComposeResult, ComposeSelection, JudgeState } from './arenaTypes.js';
 import type { BacklogRenumberSummary } from '../../src/types/electron';
 import type {
@@ -1044,7 +1044,7 @@ export class AgentFleetService extends EventEmitter {
       this.log(session, agentState, `[Swarm] Модель не переключена: ${why}.`);
       // Цепочка была, но не помогла — причина остановки входит в текст ошибки слота.
       if (decision.reason === 'not_switchable') return { error: err };
-      const wrapped: ProviderErrorInfo = { ...info, message: `${formatProviderErrorMessage(info)} Цепочка моделей: ${why}.` };
+      const wrapped: ProviderErrorInfo = { ...info, message: `${formatProviderErrorMessage(info)} Model chain: ${why}.` };
       return { error: new ProviderError(wrapped) };
     }
 
@@ -1515,7 +1515,7 @@ export class AgentFleetService extends EventEmitter {
       verdicts.push(await editionRegistry.checkAgentLaunch(this.launchContext(projectPath, taskId, origin, cfg, agents.length, memberId)));
     }
     const blocked = verdicts.find((v) => !v.allowed);
-    if (blocked) throw blocked.reason ? new Error(blocked.reason) : new AppError('swarm.launchBlocked');
+    if (blocked) throw blocked.reason ? launchRefusal(blocked) : new AppError('swarm.launchBlocked');
     const caps = verdicts.map((v) => v.capUsd).filter((c): c is number => typeof c === 'number');
     return {
       allowed: true,

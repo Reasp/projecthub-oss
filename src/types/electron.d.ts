@@ -1795,8 +1795,9 @@ export interface AgentLaunchCheckInput {
 export interface AgentLaunchVerdictView {
   allowed: boolean;
   reason?: string;
+  reasonKey?: unknown;
   capUsd?: number;
-  notices: Array<{ level: 'info' | 'warn' | 'block'; text: string }>;
+  notices: Array<{ level: 'info' | 'warn' | 'block'; text: string; textKey?: unknown }>;
 }
 
 export interface FileTreeNode {
@@ -1817,6 +1818,7 @@ export type AgentStatusCode = 'analyzing' | 'continuing' | 'processing' | 'execu
 export interface AgentStatusKey {
   code: AgentStatusCode;
   detail?: string;
+  detailKey?: unknown;
 }
 
 export interface ProjectAgentStatus {
@@ -3560,6 +3562,7 @@ export interface ReviewerVerdict {
   costUsd?: number;
   durationMs?: number;
   error?: string;
+  errorKey?: unknown;
   providerError?: ProviderErrorInfo;
   raw?: string;
 }
@@ -3910,6 +3913,8 @@ export interface ModelTierState {
   filePath: string;
   loadError?: string;
   problems: string[];
+  /** Коды проблем по порядку `problems` (decision-165). */
+  problemKeys?: unknown[];
 }
 
 export interface ModelTierSeedResult extends ModelTierState {
@@ -4170,7 +4175,9 @@ export interface ModelRouteView {
   subscription: boolean;
   local?: boolean;
   notes: string[];
-  problem?: { code: 'engine_unsupported' | 'no_key' | 'no_profile' | 'no_model' | 'provider'; message: string };
+  /** Коды пояснений по порядку `notes` (decision-165). */
+  noteKeys?: unknown[];
+  problem?: { code: 'engine_unsupported' | 'no_key' | 'no_profile' | 'no_model' | 'provider'; message: string; messageKey?: unknown };
 }
 
 /** Цель назначения — зеркало `ModelTarget` (`electron/services/modelTarget.ts`, decision-74 п. 1). */
@@ -4202,6 +4209,8 @@ export interface ModelAssignmentState {
   filePath: string;
   loadError?: string;
   problems: string[];
+  /** Коды проблем по порядку `problems` (decision-165). */
+  problemKeys?: unknown[];
 }
 
 /** Чем план будет построен и исполнен при текущих настройках (decision-75). */

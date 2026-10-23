@@ -19,6 +19,7 @@ import { hitlFromEvent, hitlText } from '../protocol/models';
 import type { TtsPort } from '../platform/types';
 import { VOICE_ACTIONS, type VoiceActionContext, type VoiceNav, type VoiceWatch } from './voiceActions';
 import { errorText } from './errorText';
+import { appFailureText } from '../../../src/lib/appErrorText';
 
 /**
  * Голосовой режим телефона (TASK-179, [[decision-137]]): фраза → распознавание и разбор на ПК → исполнение на нужном
@@ -380,7 +381,7 @@ export class VoiceController {
   }
 
   private async finishWatch(w: VoiceWatch, sessionId: string, event: string, d: Record<string, unknown>): Promise<void> {
-    if (event === 'studio:error') return this.say(this.v.agentFailed(w.project, String(d.error ?? '')));
+    if (event === 'studio:error') return this.say(this.v.agentFailed(w.project, appFailureText({ error: String(d.error ?? ''), errorKey: d.errorKey }, dictFor(this.state.lang).models.appErrors)));
     // Окно записывает сессию на диск после события — даём ему мгновение.
     await new Promise((r) => setTimeout(r, 800));
     try {

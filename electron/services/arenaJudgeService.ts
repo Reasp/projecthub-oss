@@ -374,7 +374,7 @@ export class ArenaJudgeService {
     const reviewerModel = resolved.model ?? describeResolvedModel(resolved);
     if (resolved.problem) {
       for (const agent of candidates) {
-        agent.review = { agentId: agent.id, status: 'failed', model: reviewerModel, error: resolved.problem.message };
+        agent.review = { agentId: agent.id, status: 'failed', model: reviewerModel, error: resolved.problem.message, errorKey: resolved.problem.messageKey };
         hooks.log(agent, `[Судья] Ревьюер недоступен: ${resolved.problem.message}`);
         hooks.onUpdate(agent.id);
       }

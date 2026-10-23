@@ -41,6 +41,9 @@ import { buildTaskDraftPrompt, parseTaskDraft } from '../services/taskDraftPromp
 import { providerErrorInfoOf, toProviderErrorInfo } from '../services/providerErrors';
 import { AppError, appErrorFields, appErrorKeyOf } from '../../src/lib/appError';
 import { toIpcFailure } from './appErrorIpc';
+import { launchRefusal } from '../extensions/editionRegistry';
+import { hostText } from '../i18n/hostText';
+import { getHostLanguage } from '../services/hostLanguage';
 import { usesClaudeCli } from '../services/modelTarget';
 import { hitlService } from '../services/hitlService';
 import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
@@ -285,18 +288,20 @@ export function registerAiIpc(ctx: IpcContext) {
     // Ограничения запуска (бюджеты Team, decision-124): исчерпанный бюджет не пускает новый промпт.
     const launchCtx = studioLaunchContext(req);
     const launch = await editionRegistry.checkAgentLaunch(launchCtx);
+    // Отказ до запуска — снимком с кодом (decision-165): карточка Studio и телефон показывают его на своём языке.
+    const refuse = (err: Error) => {
+      const info = appErrorKeyOf(err) ? toProviderErrorInfo(err) : undefined;
+      send(`ai:error:${req.sessionId}`, err.message, info);
+      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, err.message, info?.messageKey);
+    };
     if (!launch.allowed) {
-      const message = launch.reason || 'Запуск агента запрещён ограничениями';
-      send(`ai:error:${req.sessionId}`, message);
-      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message);
+      refuse(launchRefusal(launch));
       return;
     }
     try {
       req = await applyStudioMember(req);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      send(`ai:error:${req.sessionId}`, message);
-      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message);
+      refuse(err instanceof Error ? err : new Error(String(err)));
       return;
     }
     // Запросы HITL сессии участника уходят его устройствам (decision-84 п. 5). Сессия принадлежит ему навсегда.
@@ -334,7 +339,7 @@ export function registerAiIpc(ctx: IpcContext) {
         (err, info) => {
           studioLiveRuns.finish(req.sessionId);
           send(`ai:error:${req.sessionId}`, err, info);
-          studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, info?.message || err);
+          studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, info?.message || err, info?.messageKey);
         }
       );
     } catch (err: any) {
@@ -345,7 +350,7 @@ export function registerAiIpc(ctx: IpcContext) {
       console.error(`[Main] ai:streamChat failed for session ${req.sessionId}: ${message}`);
       claudeBridgeService.setProjectStatus(req.projectPath, 'error', { code: 'failed', detail: message });
       send(`ai:error:${req.sessionId}`, message, info);
-      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message);
+      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message, info?.messageKey);
     }
     // `finally` здесь нельзя: путь Claude CLI возвращается сразу после запуска процесса, конец ответа —
     // только `onComplete`/`onError` (они же срабатывают при отмене).
@@ -636,7 +641,7 @@ export function registerAiIpc(ctx: IpcContext) {
     if (content === null) return { success: false, ...appErrorFields(new AppError('swarm.traceNotFound', { id: swarmId })) };
     const win = ctx.getMainWindow();
     const dialogOptions = {
-      title: 'Экспорт трассы агента',
+      title: hostText(getHostLanguage()).dialogs.exportTrace,
       defaultPath: `${swarmId}${typeof agentId === 'string' ? `-${agentId}` : ''}.trace.jsonl`,
       filters: [{ name: 'JSON Lines', extensions: ['jsonl'] }]
     };
@@ -663,7 +668,7 @@ export function registerAiIpc(ctx: IpcContext) {
     const win = ctx.getMainWindow();
     const ext = fmt === 'json' ? 'json' : 'md';
     const dialogOptions = {
-      title: 'Экспорт swarm-сессии',
+      title: hostText(getHostLanguage()).dialogs.exportSwarm,
       defaultPath: `${swarmId}.${ext}`,
       filters: fmt === 'json' ? [{ name: 'JSON', extensions: ['json'] }] : [{ name: 'Markdown', extensions: ['md'] }]
     };

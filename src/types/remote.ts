@@ -435,8 +435,9 @@ export type RemoteDocContent =
 export interface RemoteLaunchCheck {
   allowed: boolean;
   reason?: string;
+  reasonKey?: AppErrorKey;
   capUsd?: number;
-  notices: Array<{ level: 'info' | 'warn' | 'block'; text: string }>;
+  notices: Array<{ level: 'info' | 'warn' | 'block'; text: string; textKey?: AppErrorKey }>;
 }
 
 /** Ответ `federation_enroll` / `enroll_device`: всё, что нужно телефону для отдельного профиля соседнего хоста. */
@@ -588,6 +589,8 @@ export interface RemoteSwarmAgentSummary {
   error?: string;
   /** Код ошибки агента (decision-165): телефон собирает текст на своём языке. */
   errorKey?: import('../lib/appError').AppErrorKey;
+  /** Снимок ошибки провайдера (decision-43): телефон собирает заголовок и совет по общему словарю. */
+  providerError?: import('./electron').ProviderErrorInfo;
 }
 
 export interface RemoteSwarmSummary {

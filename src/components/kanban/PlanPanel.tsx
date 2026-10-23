@@ -188,7 +188,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
 
   const modelLine = (label: string, view: ModelRouteView | undefined) => {
     if (!view) return null;
-    const text = describeModelRoute(view, t.modelRouting);
+    const text = describeModelRoute(view, t.modelRouting, t.appErrors);
     return (
       <div className="flex flex-wrap items-baseline gap-x-1.5" title={text.details}>
         <span className="text-muted-foreground/70">{label}:</span>

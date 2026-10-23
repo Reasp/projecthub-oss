@@ -9,6 +9,8 @@
  * Чистый модуль без Electron — импортируется unit-тестами напрямую.
  */
 import type { ProviderErrorInfo, ProviderErrorKind, ProviderErrorReason } from './providerErrors.js';
+import { formatAppError, type AppErrorKey } from '../../src/lib/appError.js';
+import { appErrorTextEn } from '../../src/i18n/appErrorText.js';
 
 export type ModelTier = 'cheap' | 'balanced' | 'frontier';
 
@@ -89,13 +91,19 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   return Math.min(max, Math.max(min, Math.round(n)));
 }
 
-/** Нормализует одну запись; `string` — причина, по которой запись отброшена. */
-export function normalizeTierEntry(raw: unknown): TierModelEntry | string {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return 'запись не объект';
+/** Проблема чтения файла: английский текст для журнала и код для окна. */
+function pushProblem(problems: string[], problemKeys: AppErrorKey[], key: AppErrorKey): void {
+  problems.push(formatAppError(key, appErrorTextEn) ?? key.code);
+  problemKeys.push(key);
+}
+
+/** Нормализует одну запись; ключ ошибки — причина, по которой запись отброшена. */
+export function normalizeTierEntry(raw: unknown): TierModelEntry | AppErrorKey {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { code: 'models.entryNotObject' };
   const r = raw as Record<string, unknown>;
-  if (!isTierEngine(r.engine)) return `неизвестный движок «${String(r.engine)}»`;
+  if (!isTierEngine(r.engine)) return { code: 'models.unknownEngine', params: { engine: String(r.engine) } };
   const model = clean(r.model);
-  if (!model) return 'не указана модель';
+  if (!model) return { code: 'models.entryNoModel' };
   const entry: TierModelEntry = { engine: r.engine, model };
   // Цель имеет смысл только у API-движка: CLI сам знает, куда ходить.
   if (r.engine === 'api') {
@@ -112,12 +120,13 @@ export function normalizeTierEntry(raw: unknown): TierModelEntry | string {
  * Таблица из файла: битые записи пропускаются, повторы в пределах всей таблицы убираются (запись
  * остаётся в первом тире, где встретилась). `problems` — что отброшено, для UI.
  */
-export function normalizeModelTierSettings(raw: unknown): { settings: ModelTierSettings; problems: string[] } {
+export function normalizeModelTierSettings(raw: unknown): { settings: ModelTierSettings; problems: string[]; problemKeys: AppErrorKey[] } {
   const settings = emptyModelTierSettings();
   const problems: string[] = [];
+  const problemKeys: AppErrorKey[] = [];
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    if (raw !== undefined && raw !== null) problems.push('файл тиров не содержит объект');
-    return { settings, problems };
+    if (raw !== undefined && raw !== null) pushProblem(problems, problemKeys, { code: 'models.tiersFileNotObject' });
+    return { settings, problems, problemKeys };
   }
   const r = raw as Record<string, unknown>;
   if (typeof r.fallbackToLowerTier === 'boolean') settings.fallbackToLowerTier = r.fallbackToLowerTier;
@@ -132,25 +141,25 @@ export function normalizeModelTierSettings(raw: unknown): { settings: ModelTierS
     const list = tiers[tier];
     if (list === undefined) continue;
     if (!Array.isArray(list)) {
-      problems.push(`тир ${tier}: ожидается список`);
+      pushProblem(problems, problemKeys, { code: 'models.tierNotList', params: { tier } });
       continue;
     }
     list.forEach((item, index) => {
       const entry = normalizeTierEntry(item);
-      if (typeof entry === 'string') {
-        problems.push(`тир ${tier}, запись ${index + 1}: ${entry}`);
+      if (!('model' in entry)) {
+        pushProblem(problems, problemKeys, { code: 'models.tierEntryProblem', params: { tier, n: index + 1, reason: entry } });
         return;
       }
       const key = entryKey(entry);
       if (seen.has(key)) {
-        problems.push(`тир ${tier}, запись ${index + 1}: повтор «${entry.model}»`);
+        pushProblem(problems, problemKeys, { code: 'models.tierEntryDuplicate', params: { tier, n: index + 1, model: entry.model } });
         return;
       }
       seen.add(key);
       settings.tiers[tier].push(entry);
     });
   }
-  return { settings, problems };
+  return { settings, problems, problemKeys };
 }
 
 /** Цель звена: движок и профиль или провайдер (без регистра). Одна цель — один сервер и один счёт. */
@@ -323,19 +332,19 @@ export function decideFallback(input: FallbackInput): FallbackDecision {
   return { action: 'stop', reason: 'exhausted', rule };
 }
 
-/** Текст причины остановки цепочки (ru) — для лога, ошибки слота и экспорта. */
+/** Причина остановки цепочки по-английски — для журнала и запасного текста ошибки слота; окно показывает код `stopped`. */
 export function describeFallbackStop(reason: FallbackStopReason, maxSwitches: number): string {
   switch (reason) {
     case 'not_switchable':
-      return 'переключение модели не поможет при такой ошибке';
+      return 'switching the model will not help with this error';
     case 'exhausted':
-      return 'в цепочке тира не осталось подходящих моделей';
+      return 'no suitable models are left in the tier chain';
     case 'limit':
-      return `исчерпан лимит переключений модели (${maxSwitches})`;
+      return `the model switch limit is used up (${maxSwitches})`;
     case 'disabled':
-      return 'переключение модели выключено в настройках тиров';
+      return 'model switching is turned off in the tier settings';
     case 'side_effects':
-      return 'агент уже вызывал инструменты, повтор хода другой моделью повторил бы их действия';
+      return 'the agent has already called tools, repeating the turn with another model would repeat their actions';
   }
 }
 

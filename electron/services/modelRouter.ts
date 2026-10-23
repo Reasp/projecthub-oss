@@ -31,7 +31,7 @@ import {
   MODEL_PURPOSE_SPECS,
   normalizeModelAssignments,
   purposeEngines,
-  purposeLabel,
+  purposeKey,
   type ModelAssignments,
   type ModelCallKind,
   type ModelPurpose
@@ -54,8 +54,8 @@ import {
   type ResolvedProviderInfo
 } from './slotProvider.js';
 import { ProviderError, providerErrorInfoOf, type ProviderErrorReason } from './providerErrors.js';
-import { appErrorKeyOf, formatAppError } from '../../src/lib/appError.js';
-import { appErrorTextRu } from '../../src/i18n/appErrorText.js';
+import { appErrorKeyOf, formatAppError, type AppErrorKey, type AppErrorParam } from '../../src/lib/appError.js';
+import { appErrorTextEn } from '../../src/i18n/appErrorText.js';
 import type { ReasoningEffort } from './reasoningEffort.js';
 
 /** Что настроено у пользователя на момент вызова. */
@@ -93,8 +93,10 @@ export type ModelRouteProblemCode =
 
 export interface ModelRouteProblem {
   code: ModelRouteProblemCode;
-  /** Готовый текст (ru): называет назначение и говорит, что сделать. */
+  /** Английский текст для журнала и модели: называет назначение и говорит, что сделать. */
   message: string;
+  /** Тот же текст кодом (decision-165): окно и телефон показывают его на своём языке. */
+  messageKey: AppErrorKey;
 }
 
 export interface ResolvedModel {
@@ -117,8 +119,10 @@ export interface ResolvedModel {
   info?: ResolvedProviderInfo;
   /** Цепочка моделей ([[decision-44]] п. 5): первое звено — выбранная модель. Пусто — запасных нет. */
   chain: ChainLink[];
-  /** Пояснения к решению: пустой тир, пропущенные звенья. */
+  /** Пояснения к решению: пустой тир, пропущенные звенья — английский текст для журнала. */
   notes: string[];
+  /** Те же пояснения кодом, по порядку `notes`. */
+  noteKeys: AppErrorKey[];
   problem?: ModelRouteProblem;
 }
 
@@ -132,18 +136,21 @@ interface Draft {
   config?: AIProviderConfig;
   info?: ResolvedProviderInfo;
   chain: ChainLink[];
-  problem?: { code: ModelRouteProblemCode; text: string };
+  problem?: { code: ModelRouteProblemCode; key: AppErrorParam };
 }
 
 type Addressee = Pick<ModelTarget, 'profile' | 'provider'>;
 
-const SETTINGS_HINT = 'Настройки Agents Studio → Назначения';
-
-const KIND_WHAT: Readonly<Record<ModelCallKind, string>> = {
-  complete: 'одноразовый запрос к модели',
-  turn: 'один ход без рабочего дерева',
-  agent: 'этот вид агента'
+const KIND_WHAT: Readonly<Record<ModelCallKind, AppErrorKey>> = {
+  complete: { code: 'models.kindComplete' },
+  turn: { code: 'models.kindTurn' },
+  agent: { code: 'models.kindAgent' }
 };
+
+/** Текст по коду: английский для журнала и ключ рядом. */
+function keyedText(key: AppErrorKey): { text: string; key: AppErrorKey } {
+  return { text: formatAppError(key, appErrorTextEn) ?? key.code, key };
+}
 
 const PROBLEM_REASON: Readonly<Record<ModelRouteProblemCode, ProviderErrorReason>> = {
   engine_unsupported: 'engine',
@@ -158,17 +165,17 @@ function problemCodeOf(reason: ProviderErrorReason | undefined): ModelRouteProbl
   return 'provider';
 }
 
-/** Убирает точку в конце, чтобы текст встал в середину предложения. */
-function sentencePart(text: string): string {
-  return text.trim().replace(/[.\s]+$/, '');
-}
-
 export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): ResolvedModel {
   const spec = MODEL_PURPOSE_SPECS[input.purpose];
   const main = ctx.main;
   const mainEngine: MainEngine = mainEngineOf(main);
   const engines = purposeEngines(input.purpose);
   const notes: string[] = [];
+  const noteKeys: AppErrorKey[] = [];
+  const note = (key: AppErrorKey) => {
+    notes.push(keyedText(key).text);
+    noteKeys.push(key);
+  };
 
   /** Адресат — счёт основной модели: без профиля и с тем же провайдером (или без него). */
   const addressesMain = (a: Addressee): boolean => !a.profile && (!a.provider || a.provider === main.provider);
@@ -204,21 +211,19 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
       if (config.provider === 'anthropic' && !config.apiKey?.trim()) {
         problem = {
           code: 'no_key',
-          text: 'у Anthropic нет API-ключа: укажите ключ в настройках Agents Studio или выберите движок «Claude Code (подписка)»'
+          key: { code: 'models.anthropicNoKey' }
         };
       } else if (config.provider === PROFILE_PROVIDER && !config.profileId) {
-        problem = { code: 'no_profile', text: 'у OpenAI-совместимого провайдера не выбран профиль' };
+        problem = { code: 'no_profile', key: { code: 'models.noProfile' } };
       } else if (!model) {
-        problem = { code: 'no_model', text: `не выбрана модель (${where})` };
+        problem = { code: 'no_model', key: { code: 'models.noModel', params: { where } } };
       }
       return { config, info: resolved.info, ...(model ? { model } : {}), ...(problem ? { problem } : {}) };
     } catch (err) {
       const info = providerErrorInfoOf(err);
-      // Тексты проблем резолвера пока русские (перевод — TASK-202.5): ошибку слота с кодом берём из русского словаря,
-      // чтобы не смешать языки в одной фразе.
+      // Ошибка слота с кодом входит в текст проблемы вложенным ключом — фраза собирается на одном языке.
       const key = appErrorKeyOf(err) ?? info?.messageKey;
-      const text = sentencePart((key && formatAppError(key, appErrorTextRu)) || (err instanceof Error ? err.message : String(err)));
-      return { problem: { code: problemCodeOf(info?.reason), text } };
+      return { problem: { code: problemCodeOf(info?.reason), key: key ?? (err instanceof Error ? err.message : String(err)) } };
     }
   };
 
@@ -293,7 +298,7 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
     // Мёртвые звенья тира отбрасываются; явную модель цели не трогаем — её проблему надо показать.
     chain = chain.filter((link) => link.origin === 'explicit' || !isDeadApiLink(link));
     const usedTier = tier && chain.some((link) => link.origin === 'tier');
-    if (tier && !usedTier) notes.push(`тир «${tier}» для движка ${engineLabel(engine)} не настроен`);
+    if (tier && !usedTier) note({ code: 'models.tierNotConfigured', params: { tier, engine: engineLabel(engine) } });
     return {
       source,
       engine,
@@ -307,11 +312,7 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
     const entries = tiersForChain(tier, ctx.tiers.fallbackToLowerTier).flatMap((t) => ctx.tiers.tiers[t]);
     const first = entries.find((entry) => engines.includes(entry.engine) && !isDeadApiLink(entry));
     if (!first) {
-      notes.push(
-        entries.length === 0
-          ? `тир «${tier}» пуст — работает основная модель`
-          : `в тире «${tier}» нет моделей, которыми назначение умеет работать, — работает основная модель`
-      );
+      note({ code: entries.length === 0 ? 'models.tierEmpty' : 'models.tierNoUsable', params: { tier } });
       return undefined;
     }
     const chain = buildModelChain(ctx.tiers, { engine: first.engine, tier }).filter((link) => !isDeadApiLink(link));
@@ -356,23 +357,19 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
   };
 
   const draft = decide();
-  const label = purposeLabel(input.purpose);
+  const purpose = purposeKey(input.purpose);
+  const problemOf = (code: ModelRouteProblemCode, key: AppErrorKey): ModelRouteProblem => ({ code, message: keyedText(key).text, messageKey: key });
   let problem: ModelRouteProblem | undefined;
   if (!engines.includes(draft.engine)) {
-    problem = {
-      code: 'engine_unsupported',
-      message:
-        `Назначение «${label}»: движок ${engineLabel(draft.engine)} не умеет ${KIND_WHAT[spec.kind]}. ` +
-        `Выберите для назначения ${engines.map(engineLabel).join(' или ')} (${SETTINGS_HINT}).`
-    };
+    problem = problemOf('engine_unsupported', {
+      code: 'models.engineUnsupported',
+      params: { purpose, engine: engineLabel(draft.engine), what: KIND_WHAT[spec.kind], engines: engines.map(engineLabel).join(' / ') }
+    });
   } else if (draft.problem) {
-    problem = { code: draft.problem.code, message: `Назначение «${label}»: ${draft.problem.text}. ${SETTINGS_HINT}.` };
+    problem = problemOf(draft.problem.code, { code: 'models.assignmentProblem', params: { purpose, problem: draft.problem.key } });
   } else if (spec.kind === 'complete' && draft.engine === 'claude-cli' && !draft.model) {
     // Одноразовый запрос через CLI идёт только с моделью из настроек пользователя ([[decision-35]] п. 2).
-    problem = {
-      code: 'no_model',
-      message: `Назначение «${label}»: для одноразового запроса через Claude Code не выбрана модель. ${SETTINGS_HINT}.`
-    };
+    problem = problemOf('no_model', { code: 'models.cliNoModel', params: { purpose } });
   }
 
   return {
@@ -388,6 +385,7 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
     ...(draft.info ? { info: draft.info } : {}),
     chain: draft.chain,
     notes,
+    noteKeys,
     ...(problem ? { problem } : {})
   };
 }
@@ -396,6 +394,7 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
 export class ModelRouteError extends ProviderError {
   readonly purpose: ModelPurpose;
   readonly code: ModelRouteProblemCode;
+  readonly appErrorKey: AppErrorKey;
 
   constructor(resolved: ResolvedModel, problem: ModelRouteProblem) {
     super({
@@ -405,11 +404,14 @@ export class ModelRouteError extends ProviderError {
       ...(resolved.info ? { provider: describeProviderInfo(resolved.info) } : { provider: engineLabel(resolved.engine) }),
       ...(resolved.model ? { model: resolved.model } : {}),
       message: problem.message,
+      messageKey: problem.messageKey,
       purpose: resolved.purpose
     });
     this.name = 'ModelRouteError';
     this.purpose = resolved.purpose;
     this.code = problem.code;
+    // Код текста проблемы — и у самой ошибки: причины плана, узла и слота берут его через appErrorFields (decision-165).
+    this.appErrorKey = problem.messageKey;
   }
 }
 
@@ -420,7 +422,7 @@ export function assertModelUsable(resolved: ResolvedModel): void {
 
 /** Подпись решения для строки «Сейчас: …» и логов: «sonnet · Claude Code», «qwen3 · профиль «Ollama»». */
 export function describeResolvedModel(resolved: ResolvedModel): string {
-  const model = resolved.model ?? 'модель по умолчанию';
+  const model = resolved.model ?? 'default model';
   const where = resolved.engine === 'api' ? describeProviderInfo(resolved.info) : engineLabel(resolved.engine);
   return `${model} · ${where}`;
 }
@@ -439,12 +441,13 @@ export interface ModelRouteView {
   tierSource?: ModelTierSource;
   /** Адресат API-пути: имя профиля или прежний провайдер. У CLI-движков его нет. */
   provider?: string;
-  /** Готовая подпись (ru): «sonnet · Claude Code» — для логов; интерфейс собирает свою по полям. */
+  /** Готовая подпись: «sonnet · Claude Code» — для логов; интерфейс собирает свою по полям. */
   label: string;
   /** Вызов идёт через Claude Code по подписке: цены в USD у него нет, расход ограничен окнами лимитов. */
   subscription: boolean;
   local?: boolean;
   notes: string[];
+  noteKeys?: AppErrorKey[];
   problem?: ModelRouteProblem;
 }
 
@@ -464,6 +467,7 @@ export function modelRouteView(resolved: ResolvedModel): ModelRouteView {
     subscription: resolved.engine === 'claude-cli',
     ...(resolved.info?.local !== undefined ? { local: resolved.info.local } : {}),
     notes: [...resolved.notes],
+    noteKeys: [...resolved.noteKeys],
     ...(resolved.problem ? { problem: resolved.problem } : {})
   };
 }

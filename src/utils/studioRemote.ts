@@ -92,8 +92,10 @@ export interface SummaryContext {
   profileNames?: ReadonlyMap<string, string>;
 }
 
-/** Отказ при записи в чужую сессию участника общего хоста (TASK-142.3). */
-export const STUDIO_READ_ONLY_ERROR = 'Это сессия другого участника: её можно читать, но писать в неё может только он';
+/** Отказ при записи в чужую сессию участника общего хоста (TASK-142.3): код — телефон показывает его на своём языке. */
+export function studioReadOnlyError(): AppError {
+  return new AppError('studio.readOnlySession');
+}
 
 /**
  * Можно ли писать в сессию Agents Studio (decision-84 п. 5): только её владелец. Сессия владельца хоста (без

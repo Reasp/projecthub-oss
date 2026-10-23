@@ -728,7 +728,7 @@ export const SwarmArenaView: React.FC = () => {
                               return badge ? (
                                 <span
                                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}
-                                  title={agent.error ? ipcFailureText(agent) : badge.label}
+                                  title={agent.error ? (agent.providerError ? providerErrorTitle(agent.providerError, t.providerErrors) : ipcFailureText(agent)) : badge.label}
                                 >
                                   {badge.label}
                                 </span>
@@ -1093,7 +1093,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                 ) : agent.status === 'failed' && agent.error ? (
                                   // Упавший агент без вывода: полный текст ошибки, а не «Ожидание старта» (TASK-70.6).
                                   <div className="max-w-full px-2 text-[11px] text-rose-300/90 whitespace-pre-wrap break-words select-text">
-                                    {ipcFailureText(agent)}
+                                    {agent.providerError ? providerErrorTitle(agent.providerError, t.providerErrors) : ipcFailureText(agent)}
                                   </div>
                                 ) : (
                                   t.swarm.waitingStart
@@ -1304,7 +1304,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                         {t.providerErrors.reviewerFailed.replace('{kind}', providerErrorTitle(agent.review.providerError, t.providerErrors))}
                                       </div>
                                     )}
-                                    {t.judge.reviewFailed.replace('{error}', agent.review.error || '')}
+                                    {t.judge.reviewFailed.replace('{error}', ipcFailureText(agent.review))}
                                   </div>
                                 )}
                                 {agent.review.summary && (

@@ -5,6 +5,8 @@
  * Чистый модуль без React — покрыт unit-тестами.
  */
 import type { ModelRouteView } from '../types/electron';
+import type { AppErrorLabels } from '../i18n/appErrorText';
+import { appFailureText } from './appErrorText';
 
 export interface ModelRouteLabels {
   defaultModel: string;
@@ -35,7 +37,8 @@ export interface ModelRouteText {
   details?: string;
 }
 
-export function describeModelRoute(view: ModelRouteView, labels: ModelRouteLabels): ModelRouteText {
+/** Пояснения и проблема резолвера — по кодам на языке окна, без кода — английский текст main. */
+export function describeModelRoute(view: ModelRouteView, labels: ModelRouteLabels, appErrors?: AppErrorLabels): ModelRouteText {
   const where = view.engine === 'api' ? view.provider ?? 'API' : ENGINE_NAMES[view.engine];
   const marks = [view.subscription ? labels.subscription : '', view.local ? labels.local : ''].filter(Boolean);
   const target = [view.model ?? labels.defaultModel, where, ...marks].join(' · ');
@@ -45,7 +48,10 @@ export function describeModelRoute(view: ModelRouteView, labels: ModelRouteLabel
       ? labels.tier.replace('{tier}', view.tier).replace('{source}', labels.tierSources[view.tierSource])
       : labels.sources[view.source];
 
-  const details = [view.problem?.message, ...view.notes].filter(Boolean).join('\n');
+  const text = (error: string, errorKey: unknown) => (appErrors ? appFailureText({ error, errorKey }, appErrors) : error);
+  const problemText = view.problem ? text(view.problem.message, view.problem.messageKey) : undefined;
+  const notes = view.notes.map((note, i) => text(note, view.noteKeys?.[i]));
+  const details = [problemText, ...notes].filter(Boolean).join('\n');
   return {
     target,
     origin,

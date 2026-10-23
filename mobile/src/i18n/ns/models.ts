@@ -2,6 +2,7 @@
  * Подписи классов риска HITL — в разделе `inbox`. */
 import { hitlRequestTextEn, hitlRequestTextRu } from '../../../../src/i18n/hitlRequestText';
 import { appErrorTextEn, appErrorTextRu } from '../../../../src/i18n/appErrorText';
+import { providerErrorTextEn, providerErrorTextRu } from '../../../../src/i18n/providerErrorText';
 
 export const en = {
   rights: {
@@ -26,6 +27,8 @@ export const en = {
   hitlText: hitlRequestTextEn,
   /** Ошибки хоста по коду — общий словарь с окном и main (TASK-202, decision-165). */
   appErrors: appErrorTextEn,
+  /** Ошибки провайдеров моделей по снимку — общий словарь с окном и main (TASK-202.6). */
+  providerErrors: providerErrorTextEn,
   reject: {
     alreadyDecided: 'The request has already been decided',
     notFound: 'Request not found — it may have expired',
@@ -67,6 +70,7 @@ export const ru: typeof en = {
   hitlDefaultTitle: 'Агенту нужно решение',
   hitlText: hitlRequestTextRu,
   appErrors: appErrorTextRu,
+  providerErrors: providerErrorTextRu,
   reject: {
     alreadyDecided: 'Запрос уже решён',
     notFound: 'Запрос не найден — возможно, истёк',

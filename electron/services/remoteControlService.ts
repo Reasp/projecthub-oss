@@ -48,7 +48,7 @@ import {
   canWriteStudioSession,
   parseStudioMode,
   parseStudioSelection,
-  STUDIO_READ_ONLY_ERROR,
+  studioReadOnlyError,
   selectionLabel,
   selectionOf,
   studioSessionForPhone,
@@ -1430,7 +1430,7 @@ class RemoteControlService {
     const session = await aiSessionStore.get(projectPath, sessionId).catch(() => null);
     if (!session || canWriteStudioSession(session, device.memberId)) return;
     if (action === 'abort' && !editionRegistry.checkOwnership(session.memberId, device.memberId, 'session')) return;
-    throw new Error(STUDIO_READ_ONLY_ERROR);
+    throw studioReadOnlyError();
   }
 
   private pendingApprovals(filter: { projectPath?: string } = {}, device?: RemoteDevice) {
@@ -3892,7 +3892,7 @@ class RemoteControlService {
         await assertRegisteredProject(projectPath);
         await this.assertStudioWriter(projectPath, params.sessionId, device);
         const reply = await studioRemoteBridge.request({ kind: 'clear', projectPath, sessionId: String(params.sessionId || '') });
-        if (!reply.ok) throw reply.error ? new Error(reply.error) : new AppError('remote.sessionClearFailed');
+        if (!reply.ok) throw reply.error ? withAppErrorKey(new Error(reply.error), reply.errorKey) : new AppError('remote.sessionClearFailed');
         return { ok: true };
       }
 
@@ -3937,7 +3937,7 @@ class RemoteControlService {
           // Новая сессия участника общего хоста — его (TASK-142.3): worktree, HITL и стоимость по нему.
           ...(device.memberId ? { memberId: device.memberId } : {})
         });
-        if (!reply.ok || !reply.sessionId) throw reply.error ? new Error(reply.error) : new AppError('remote.studioPromptRejected');
+        if (!reply.ok || !reply.sessionId) throw reply.error ? withAppErrorKey(new Error(reply.error), reply.errorKey) : new AppError('remote.studioPromptRejected');
         this.phoneStudioSessions.add(reply.sessionId);
         this.refreshKeepAwake();
         return { sessionId: reply.sessionId, accepted: true };
@@ -3954,7 +3954,7 @@ class RemoteControlService {
         await assertRegisteredProject(projectPath);
         await this.assertStudioWriter(projectPath, params.sessionId, device, 'abort');
         const reply = await studioRemoteBridge.request({ kind: 'abort', projectPath, sessionId: String(params.sessionId || '') });
-        if (!reply.ok) throw reply.error ? new Error(reply.error) : new AppError('remote.studioStopFailed');
+        if (!reply.ok) throw reply.error ? withAppErrorKey(new Error(reply.error), reply.errorKey) : new AppError('remote.studioStopFailed');
         return { ok: true };
       }
 
@@ -3990,7 +3990,8 @@ class RemoteControlService {
             engine: a.config.engine,
             status: a.status,
             error: a.error,
-            ...(a.errorKey ? { errorKey: a.errorKey } : {})
+            ...(a.errorKey ? { errorKey: a.errorKey } : {}),
+            ...(a.providerError ? { providerError: a.providerError } : {})
           }))
         }));
       }

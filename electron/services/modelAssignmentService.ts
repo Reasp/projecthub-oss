@@ -3,6 +3,7 @@ import path from 'path';
 import { getUserDataDir } from './appPaths.js';
 import { emptyModelAssignments, normalizeModelAssignments, type ModelAssignments } from './modelPurposes.js';
 import { stateFields, withVersion } from './stateFiles.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
 
 export const MODEL_ASSIGNMENTS_FILE = 'model-assignments.json';
 /** Версия формата файла (decision-104). */
@@ -13,8 +14,10 @@ export interface ModelAssignmentState {
   filePath: string;
   /** Файл есть, но не прочитан (битый JSON): действуют назначения по каталогу, сохранение перезапишет файл. */
   loadError?: string;
-  /** Записи, отброшенные при чтении (неизвестное назначение, пустая цель). */
+  /** Записи, отброшенные при чтении (неизвестное назначение, пустая цель), — английский текст. */
   problems: string[];
+  /** Те же записи кодом (decision-165), по порядку `problems`. */
+  problemKeys?: AppErrorKey[];
 }
 
 /**
@@ -56,9 +59,9 @@ export class ModelAssignmentService {
 
   /** Сохраняет назначения целиком (ввод из UI нормализуется) и сразу применяет их. */
   async save(raw: unknown): Promise<ModelAssignmentState> {
-    const { settings, problems } = normalizeModelAssignments(raw);
+    const { settings, problems, problemKeys } = normalizeModelAssignments(raw);
     await this.write(settings);
-    this.state = { settings, filePath: this.filePath, problems };
+    this.state = { settings, filePath: this.filePath, problems, problemKeys };
     console.log(`[ModelAssignmentService] Сохранены назначения моделей: ${Object.keys(settings.assignments).length}`);
     return this.state;
   }
@@ -79,9 +82,9 @@ export class ModelAssignmentService {
       return this.state;
     }
     try {
-      const { settings, problems } = normalizeModelAssignments(stateFields(JSON.parse(raw), MODEL_ASSIGNMENTS_VERSION));
-      if (problems.length > 0) console.warn(`[ModelAssignmentService] Пропущены назначения: ${problems.join('; ')}`);
-      this.state = { settings, filePath: this.filePath, problems };
+      const { settings, problems, problemKeys } = normalizeModelAssignments(stateFields(JSON.parse(raw), MODEL_ASSIGNMENTS_VERSION));
+      if (problems.length > 0) console.warn(`[ModelAssignmentService] Skipped assignments: ${problems.join('; ')}`);
+      this.state = { settings, filePath: this.filePath, problems, problemKeys };
     } catch (err) {
       console.warn('[ModelAssignmentService] model-assignments.json не разобран, действуют назначения по каталогу:', err);
       this.state = { settings: emptyModelAssignments(), filePath: this.filePath, problems: [], loadError: errorText(err) };

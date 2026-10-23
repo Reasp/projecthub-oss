@@ -170,7 +170,7 @@ async function writeTurnSystemPrompt(req: ModelTurnRequest): Promise<string | un
 /** Ход через Claude Code CLI по подписке: рабочий каталог — проект, инструменты — только чтение. */
 async function runCliTurn(req: ModelTurnRequest, resolved: ResolvedModel): Promise<TurnOutput> {
   const cli = await claudeBridgeService.ensureClaudeCliAvailable();
-  if (!cli.available) throw providerConfigError(cli.message || new AppError('studio.cliUnavailable'));
+  if (!cli.available) throw providerConfigError(cli.error ?? new AppError('studio.cliUnavailable'));
   if (req.signal?.aborted) throw abortError();
 
   const effort = claudeCliEffortArgs(resolved.reasoningEffort);

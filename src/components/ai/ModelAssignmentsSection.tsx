@@ -14,6 +14,7 @@ import { ModelTierSelect } from './ModelTierSelect';
 import { ProviderProfileSelect, useLlmProfiles } from './ProviderProfileSelect';
 import { ReasoningEffortSelect } from './ReasoningEffortSelect';
 import { describeModelRoute } from '../../lib/modelRouteText';
+import { appFailureText } from '../../lib/appErrorText';
 import { effortTargetKind } from '../../lib/reasoningEffort';
 import {
   ASSIGNMENT_MODES,
@@ -216,7 +217,7 @@ export const ModelAssignmentsSection: React.FC<ModelAssignmentsSectionProps> = (
   const renderNow = (purpose: ModelPurpose) => {
     const view = preview?.[purpose];
     if (!view) return <span className="text-slate-500">{l.nowLoading}</span>;
-    const text = describeModelRoute(view, t.modelRouting);
+    const text = describeModelRoute(view, t.modelRouting, t.appErrors);
     return (
       <div className="flex flex-wrap items-baseline gap-x-1.5" title={text.details} data-testid={`assignment-now-${purpose}`}>
         <span className="text-slate-500">{l.columnNow}:</span>
@@ -249,7 +250,7 @@ export const ModelAssignmentsSection: React.FC<ModelAssignmentsSectionProps> = (
       )}
       {state.problems.length > 0 && (
         <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/50 text-amber-200 text-[11px]">
-          {l.problems.replace('{list}', state.problems.join('; '))}
+          {l.problems.replace('{list}', state.problems.map((p, i) => appFailureText({ error: p, errorKey: state.problemKeys?.[i] }, t.appErrors)).join('; '))}
         </div>
       )}
       {previewError && (

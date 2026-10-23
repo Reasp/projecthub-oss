@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, CheckCircle2, Layers, Loader2, Plus, RefreshCw, Tra
 import type { ModelTier, ModelTierSettings, ModelTierState, TierEngine, TierModelEntry } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { modelCatalogErrorText } from '../../lib/providerErrorView';
-import { appErrorText } from '../../lib/appErrorText';
+import { appErrorText, appFailureText } from '../../lib/appErrorText';
 import { ProviderProfileSelect, useLlmProfiles } from './ProviderProfileSelect';
 import {
   TIERS_TOP_DOWN,
@@ -302,7 +302,7 @@ export const ModelTiersSection: React.FC = () => {
       )}
       {state.problems.length > 0 && (
         <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/50 text-amber-200 text-[11px]">
-          {l.problems.replace('{list}', state.problems.join('; '))}
+          {l.problems.replace('{list}', state.problems.map((p, i) => appFailureText({ error: p, errorKey: state.problemKeys?.[i] }, t.appErrors)).join('; '))}
         </div>
       )}
       {catalogErrors.map((msg) => (

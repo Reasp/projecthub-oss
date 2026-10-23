@@ -468,7 +468,7 @@ export const Sidebar: React.FC = () => {
                 {agentStatus?.status === 'running' && (
                   <div className="flex items-center gap-1.5 pl-[42px] mt-1 text-[11px] text-slate-400 min-w-0">
                     <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
-                    <span className="truncate">{describeAgentStatus(agentStatus, t.hitl.statusMessages, t.hitl.requestText) || t.sidebar.agentWorking}</span>
+                    <span className="truncate">{describeAgentStatus(agentStatus, t.hitl.statusMessages, t.hitl.requestText, t.appErrors) || t.sidebar.agentWorking}</span>
                   </div>
                 )}
                 {agentStatus?.status === 'done' && (
@@ -480,7 +480,7 @@ export const Sidebar: React.FC = () => {
                 {agentStatus?.status === 'error' && (
                   <div
                     className="flex items-center gap-1.5 pl-[42px] mt-1 text-[11px] text-red-400 min-w-0"
-                    title={describeAgentStatus(agentStatus, t.hitl.statusMessages, t.hitl.requestText) || undefined}
+                    title={describeAgentStatus(agentStatus, t.hitl.statusMessages, t.hitl.requestText, t.appErrors) || undefined}
                   >
                     <AlertCircle className="w-3 h-3 shrink-0" />
                     <span className="truncate">{t.sidebar.agentFailedTask}</span>

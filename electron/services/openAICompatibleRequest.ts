@@ -17,6 +17,7 @@
 import { isUnsetModelId } from './anthropicRequest.js';
 import type { LlmCompatFlags } from './llmProfiles.js';
 import { openAICompatibleReasoningFields, type ReasoningEffort } from './reasoningEffort.js';
+import { AppError } from '../../src/lib/appError.js';
 import { providerConfigError } from './providerErrors.js';
 
 export interface OpenAICompatibleBodyInput {
@@ -45,7 +46,7 @@ export interface OpenAICompatibleBodyInput {
 export function resolveOpenAICompatibleModelId(model: string | undefined | null, provider: string): string {
   if (isUnsetModelId(model)) {
     throw providerConfigError(
-      `Модель не выбрана: укажите идентификатор модели провайдера ${provider} в настройках Agents Studio или в слоте агента.`,
+      new AppError('llm.modelNotSelected', { provider }),
       'no_model',
       { provider }
     );

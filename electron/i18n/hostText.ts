@@ -101,7 +101,9 @@ export interface HostText {
     quit: string;
     quitConfirm: { cancel: string; quit: string; title: string; message: (n: number) => string; detail: string };
   };
-  studio: { cancelledByUser: string };
+  studio: { cancelledByUser: string; emptyPrompt: string; mcpUnavailableWarning: string; stepLimit: (max: number) => string };
+  /** Заголовки системных диалогов сохранения. */
+  dialogs: { exportTrace: string; exportSwarm: string };
   /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
   chat: { testTitle: string; testBody: string; usageLabel: string };
   /** Имя устройства, которое привёл соседний ПК федерации (decision-111): сохраняется в записи токена. */
@@ -198,7 +200,13 @@ const en: HostText = {
       detail: 'Quitting will interrupt their work and cancel pending decision requests. Continue?'
     }
   },
-  studio: { cancelledByUser: '*(Cancelled by the user)*' },
+  studio: {
+    cancelledByUser: '*(Cancelled by the user)*',
+    stepLimit: (max) => `*(Stopped: the limit of tool steps is reached — ${max})*`,
+    emptyPrompt: 'Please enter a message.',
+    mcpUnavailableWarning: 'The built-in ProjectHub MCP server is unavailable: Claude Code was started without permission checks, the exclusion and deny lists do not apply to this answer.'
+  },
+  dialogs: { exportTrace: 'Export agent trace', exportSwarm: 'Export swarm session' },
   chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' },
   remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}` }
 };
@@ -293,7 +301,13 @@ const ru: HostText = {
       detail: 'При выходе их работа будет прервана, а незавершённые запросы на решение отменены. Продолжить?'
     }
   },
-  studio: { cancelledByUser: '*(Отменено пользователем)*' },
+  studio: {
+    cancelledByUser: '*(Отменено пользователем)*',
+    stepLimit: (max) => `*(Остановлено: достигнут лимит шагов с инструментами — ${max})*`,
+    emptyPrompt: 'Пожалуйста, введите сообщение.',
+    mcpUnavailableWarning: 'Встроенный MCP-сервер ProjectHub недоступен: Claude Code запущен без проверки разрешений, списки исключений и запрещённых команд в этом ответе не применяются.'
+  },
+  dialogs: { exportTrace: 'Экспорт трассы агента', exportSwarm: 'Экспорт swarm-сессии' },
   chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' },
   remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}` }
 };

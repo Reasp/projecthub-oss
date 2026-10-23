@@ -1,6 +1,7 @@
 import type { AIToolCall } from './aiAgentService.js';
 import type { ApiToolContext } from './apiToolExecutor.js';
 import type { HitlRequest } from './hitlTypes.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
 
 /**
  * Адаптер чата Agents Studio для общего исполнителя API-инструментов (TASK-103, decision-47 п. 1). Переводит
@@ -26,6 +27,8 @@ export type AgentStatusCode = 'analyzing' | 'continuing' | 'processing' | 'execu
 export interface AgentStatusKey {
   code: AgentStatusCode;
   detail?: string;
+  /** Код текста `detail` (decision-165): окно показывает причину на своём языке. */
+  detailKey?: AppErrorKey;
 }
 
 export interface StudioToolAdapterDeps {

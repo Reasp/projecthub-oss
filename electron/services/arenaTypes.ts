@@ -170,6 +170,8 @@ export interface ReviewerVerdict {
   costUsd?: number;
   durationMs?: number;
   error?: string;
+  /** Код ошибки (decision-165): окно показывает её на своём языке. */
+  errorKey?: AppErrorKey;
   /** Снимок ошибки провайдера ревьюера (decision-43): вид, статус, retryable. */
   providerError?: ProviderErrorInfo;
   /** Сырой ответ модели — показывается, если распарсить структуру не удалось. */

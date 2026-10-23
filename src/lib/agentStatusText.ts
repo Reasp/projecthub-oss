@@ -6,6 +6,8 @@
  * Чистый модуль без React — покрыт unit-тестами.
  */
 import type { AgentStatusCode, ApprovalRequest, HitlTextCode, ProjectAgentStatus, QuestionData } from '../types/electron';
+import type { AppErrorLabels } from '../i18n/appErrorText';
+import { appFailureText } from './appErrorText';
 
 /** Шаблоны с подстановкой {detail}: команда для `executing`, текст ошибки для `failed`. */
 export type AgentStatusLabels = Record<AgentStatusCode, string>;
@@ -60,10 +62,14 @@ export function describeHitlRequest(
 export function describeAgentStatus(
   status: Pick<ProjectAgentStatus, 'status' | 'lastMessage' | 'messageKey' | 'pendingApproval'>,
   labels: AgentStatusLabels,
-  hitlLabels: HitlTextLabels
+  hitlLabels: HitlTextLabels,
+  appErrors?: AppErrorLabels
 ): string {
   if (status.status === 'waiting_approval' && status.pendingApproval) return describeHitlRequest(status.pendingApproval, hitlLabels).title;
   const key = status.messageKey;
-  if (key && labels[key.code]) return fill(labels[key.code], { detail: key.detail ?? '' }).trim();
+  if (key && labels[key.code]) {
+    const detail = appErrors && key.detail ? appFailureText({ error: key.detail, errorKey: key.detailKey }, appErrors) : key.detail ?? '';
+    return fill(labels[key.code], { detail }).trim();
+  }
   return status.lastMessage ?? '';
 }

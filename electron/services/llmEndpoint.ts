@@ -13,6 +13,7 @@
  *
  * Чистый модуль без Electron и сети — покрыт unit-тестами.
  */
+import { AppError } from '../../src/lib/appError.js';
 import { providerConfigError } from './providerErrors.js';
 
 export interface LlmEndpointConfig {
@@ -44,14 +45,14 @@ export function resolveOpenAICompatibleEndpoint(config: LlmEndpointConfig): Reso
 
   if (config.provider === 'openrouter') {
     if (!apiKey) {
-      throw providerConfigError('API ключ OpenRouter не указан в настройках.', 'no_key', { provider: 'openrouter' });
+      throw providerConfigError(new AppError('llm.providerKeyMissing', { provider: 'OpenRouter' }), 'no_key', { provider: 'openrouter' });
     }
     headers['Authorization'] = `Bearer ${apiKey}`;
     headers['HTTP-Referer'] = 'https://projecthub.local';
     headers['X-Title'] = 'ProjectHub Agents Studio';
   } else if (config.provider === 'deepseek') {
     if (!apiKey) {
-      throw providerConfigError('API ключ DeepSeek не указан в настройках.', 'no_key', { provider: 'deepseek' });
+      throw providerConfigError(new AppError('llm.providerKeyMissing', { provider: 'DeepSeek' }), 'no_key', { provider: 'deepseek' });
     }
     endpoint = 'https://api.deepseek.com/chat/completions';
     headers['Authorization'] = `Bearer ${apiKey}`;

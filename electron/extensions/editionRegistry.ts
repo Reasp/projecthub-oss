@@ -1,4 +1,5 @@
 import type { HitlRequest } from '../services/hitlTypes';
+import { AppError, withAppErrorKey, type AppErrorKey } from '../../src/lib/appError';
 import type { ProjectToolContext, ProjectToolResult } from '../services/projectAgentTools';
 
 /**
@@ -29,13 +30,28 @@ export interface AgentLaunchContext {
 
 export interface LaunchNotice {
   level: 'info' | 'warn' | 'block';
+  /** Английский текст — журнал и старые клиенты. */
   text: string;
+  /** Код текста (decision-165): окно и телефон показывают примечание на своём языке. */
+  textKey?: AppErrorKey;
+}
+
+/** Примечание с кодом: английский текст и ключ рядом. */
+function keyedNotice(level: LaunchNotice['level'], err: AppError): LaunchNotice {
+  return { level, text: err.message, textKey: err.appErrorKey };
+}
+
+/** Отказ в запуске исключением: английская причина и её код, если он есть. */
+export function launchRefusal(verdict: Pick<AgentLaunchVerdict, 'reason' | 'reasonKey'>): Error {
+  if (!verdict.reason) return new AppError('edition.launchBlocked');
+  return withAppErrorKey(new Error(verdict.reason), verdict.reasonKey);
 }
 
 export interface AgentLaunchVerdict {
   allowed: boolean;
   /** Почему запуск запрещён — первое блокирующее примечание. */
   reason?: string;
+  reasonKey?: AppErrorKey;
   /** Потолок расхода запуска в USD: станет бюджетом сессии, если он ниже своего. */
   capUsd?: number;
   notices: LaunchNotice[];
@@ -321,7 +337,7 @@ const runListeners: Array<(record: AgentRunRecord) => void> = [];
 const outcomeListeners: Array<(record: AgentOutcomeRecord) => void> = [];
 let liveRunsProvider: () => LiveAgentRun[] = () => [];
 let ipcRegistrar: (channel: string, handler: IpcHandler) => void = () => undefined;
-const noWindowSave = async (): Promise<SaveTextFileResult> => ({ success: false, error: 'Нет окна для диалога сохранения' });
+const noWindowSave = async (): Promise<SaveTextFileResult> => ({ success: false, error: 'No window for the save dialog' });
 let textFileSaver: (options: SaveTextFileOptions) => Promise<SaveTextFileResult> = noWindowSave;
 let pdfSaver: (options: SaveHtmlAsPdfOptions) => Promise<SaveTextFileResult> = noWindowSave;
 const rightsLimits: Array<(device: RemoteDeviceRef) => DeviceRightsName> = [];
@@ -451,7 +467,7 @@ export const editionRegistry = {
         const reason = guard(ownerMemberId, actorMemberId, action);
         if (reason) return reason;
       } catch (err) {
-        return `Проверка владельца не удалась: ${err instanceof Error ? err.message : String(err)}`;
+        return `Ownership check failed: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
     return null;
@@ -495,7 +511,7 @@ export const editionRegistry = {
         const reason = guard(method, device);
         if (reason) return reason;
       } catch (err) {
-        return `Проверка прав не удалась: ${err instanceof Error ? err.message : String(err)}`;
+        return `Rights check failed: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
     return null;
@@ -529,18 +545,18 @@ export const editionRegistry = {
         verdict = await guard(ctx);
       } catch (err) {
         // Сломанное ограничение не должно молча открывать запуск: денег это касается напрямую.
-        verdict = { allowed: false, notices: [{ level: 'block', text: `Проверка перед запуском не удалась: ${err instanceof Error ? err.message : String(err)}` }] };
+        verdict = { allowed: false, notices: [keyedNotice('block', new AppError('edition.launchCheckFailed', { detail: err instanceof Error ? err.message : String(err) }))] };
       }
       notices.push(...verdict.notices);
       if (!verdict.allowed && !verdict.notices.some((n) => n.level === 'block')) {
-        notices.push({ level: 'block', text: verdict.reason || 'Запуск запрещён' });
+        notices.push(verdict.reason ? { level: 'block', text: verdict.reason, ...(verdict.reasonKey ? { textKey: verdict.reasonKey } : {}) } : keyedNotice('block', new AppError('edition.launchBlocked')));
       }
       if (typeof verdict.capUsd === 'number' && verdict.capUsd >= 0) capUsd = capUsd === undefined ? verdict.capUsd : Math.min(capUsd, verdict.capUsd);
     }
     const block = notices.find((n) => n.level === 'block');
     return {
       allowed: !block,
-      ...(block ? { reason: block.text } : {}),
+      ...(block ? { reason: block.text, ...(block.textKey ? { reasonKey: block.textKey } : {}) } : {}),
       ...(capUsd !== undefined ? { capUsd } : {}),
       notices
     };

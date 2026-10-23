@@ -254,7 +254,7 @@ export function describeProviderInfo(info: ResolvedProviderInfo | undefined): st
   if (!info) return '—';
   if (info.provider === PROFILE_PROVIDER) {
     const name = info.profileName ?? info.profileId ?? '?';
-    return `профиль «${name}»${info.local ? ' (локальная)' : ''}`;
+    return `profile “${name}”${info.local ? ' (local)' : ''}`;
   }
-  return `${info.provider}${info.local ? ' (локальная)' : ''}`;
+  return `${info.provider}${info.local ? ' (local)' : ''}`;
 }

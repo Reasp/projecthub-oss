@@ -14,6 +14,7 @@ import {
   type TierSeedInput
 } from './modelTiers.js';
 import { stateFields, withVersion } from './stateFiles.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
 
 export const MODEL_TIERS_FILE = 'model-tiers.json';
 /** Версия формата файла (decision-104). */
@@ -24,8 +25,10 @@ export interface ModelTierState {
   filePath: string;
   /** Файл есть, но не прочитан (битый JSON): тиры пусты, сохранение перезапишет файл. */
   loadError?: string;
-  /** Записи, отброшенные при чтении (неизвестный движок, пустая модель, повтор). */
+  /** Записи, отброшенные при чтении (неизвестный движок, пустая модель, повтор), — английский текст. */
   problems: string[];
+  /** Те же записи кодом (decision-165), по порядку `problems`. */
+  problemKeys?: AppErrorKey[];
 }
 
 export interface ModelTierSeedResult extends ModelTierState {
@@ -96,9 +99,9 @@ export class ModelTierService {
 
   /** Сохраняет таблицу целиком (ввод из UI нормализуется) и сразу применяет её. */
   async save(raw: unknown): Promise<ModelTierState> {
-    const { settings, problems } = normalizeModelTierSettings(raw);
+    const { settings, problems, problemKeys } = normalizeModelTierSettings(raw);
     await this.write(settings);
-    this.state = { settings, filePath: this.filePath, problems };
+    this.state = { settings, filePath: this.filePath, problems, problemKeys };
     console.log(`[ModelTierService] Сохранены тиры моделей: ${countEntries(settings)} звеньев`);
     return this.state;
   }
@@ -126,9 +129,9 @@ export class ModelTierService {
       return this.firstRun();
     }
     try {
-      const { settings, problems } = normalizeModelTierSettings(stateFields(JSON.parse(raw), MODEL_TIERS_VERSION));
-      if (problems.length > 0) console.warn(`[ModelTierService] Пропущены записи тиров: ${problems.join('; ')}`);
-      this.state = { settings, filePath: this.filePath, problems };
+      const { settings, problems, problemKeys } = normalizeModelTierSettings(stateFields(JSON.parse(raw), MODEL_TIERS_VERSION));
+      if (problems.length > 0) console.warn(`[ModelTierService] Skipped tier entries: ${problems.join('; ')}`);
+      this.state = { settings, filePath: this.filePath, problems, problemKeys };
     } catch (err) {
       console.warn('[ModelTierService] model-tiers.json не разобран, тиры пусты:', err);
       this.state = { settings: emptyModelTierSettings(), filePath: this.filePath, problems: [], loadError: errorText(err) };

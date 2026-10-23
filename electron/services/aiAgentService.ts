@@ -1,3 +1,5 @@
+import { hostText } from '../i18n/hostText.js';
+import { getHostLanguage } from './hostLanguage.js';
 import fs from 'node:fs/promises';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -827,12 +829,13 @@ class AIAgentService {
       });
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        onChunk({ text: '\n\n*(Отменено пользователем)*' });
+        const cancelled = hostText(getHostLanguage()).studio.cancelledByUser;
+        onChunk({ text: `\n\n${cancelled}` });
         // Вызовы инструментов не передаются: окно оставляет те, что уже пришли чанками.
         options.onAborted?.({
           id: `msg-${Date.now()}`,
           role: 'assistant',
-          content: `${shown.text}\n\n*(Отменено пользователем)*`.trim(),
+          content: `${shown.text}\n\n${cancelled}`.trim(),
           thought: shown.thought || undefined,
           timestamp: new Date().toISOString(),
           ...(loop.usage ? { usage: loop.usage } : {})
@@ -879,7 +882,7 @@ class AIAgentService {
   ): Promise<Array<{ call: LoopToolCall; result: ToolExecutionResult }> | null> {
     if (!executeTool || calls.length === 0) return null;
     if (step + 1 >= maxSteps) {
-      const note = `\n\n*(Остановлено: достигнут лимит шагов с инструментами — ${maxSteps})*`;
+      const note = `\n\n${hostText(getHostLanguage()).studio.stepLimit(maxSteps)}`;
       loop.fullText += note;
       onChunk({ text: note });
       await onToolBoundary?.({ kind: 'step_limit', step, maxSteps, pendingCalls: calls.length });
@@ -1445,86 +1448,86 @@ Answer directly, clearly, and concisely as Claude Code. If the user addresses yo
     const all = [
       {
         name: 'read_file',
-        description: 'Прочитать содержимое файла проекта',
+        description: 'Read the contents of a project file',
         input_schema: {
           type: 'object',
           properties: {
-            filePath: { type: 'string', description: 'Относительный или абсолютный путь к файлу' }
+            filePath: { type: 'string', description: 'Relative or absolute file path' }
           },
           required: ['filePath']
         }
       },
       {
         name: 'write_file',
-        description: 'Создать или изменить файл проекта (показывает интерактивный Diff пользователю)',
+        description: 'Create or change a project file (shows an interactive diff to the user)',
         input_schema: {
           type: 'object',
           properties: {
-            filePath: { type: 'string', description: 'Относительный или абсолютный путь к файлу' },
-            content: { type: 'string', description: 'Полное новое содержимое файла' },
-            explanation: { type: 'string', description: 'Краткое объяснение внесенных изменений' }
+            filePath: { type: 'string', description: 'Relative or absolute file path' },
+            content: { type: 'string', description: 'The full new file contents' },
+            explanation: { type: 'string', description: 'A short explanation of the changes' }
           },
           required: ['filePath', 'content']
         }
       },
       {
         name: 'list_dir',
-        description: 'Получить список файлов и подкаталогов в директории проекта',
+        description: 'List files and subdirectories in a project directory',
         input_schema: {
           type: 'object',
           properties: {
-            subDir: { type: 'string', description: 'Относительный путь подкаталога (пустая строка для корня)' }
+            subDir: { type: 'string', description: 'Relative subdirectory path (empty string for the root)' }
           }
         }
       },
       {
         name: 'run_command',
         description:
-          'Выполнить команду оболочки в корне проекта и получить её вывод (ожидание ограничено таймаутом, по умолчанию 5 минут). '
-          + 'Долгоживущие процессы (dev-серверы, вотчеры, `npm run dev`) запускай с background: true — они уходят в менеджер процессов ProjectHub и не блокируют работу.',
+          'Run a shell command in the project root and get its output (the wait is limited by a timeout, 5 minutes by default). '
+          + 'Start long-lived processes (dev servers, watchers, `npm run dev`) with background: true — they go to the ProjectHub process manager and do not block the work.',
         input_schema: {
           type: 'object',
           properties: {
-            command: { type: 'string', description: 'Команда оболочки (PowerShell на Windows, bash на macOS/Linux)' },
-            explanation: { type: 'string', description: 'Зачем нужна команда (показывается пользователю при запросе одобрения)' },
-            background: { type: 'boolean', description: 'true — запустить в фоне через менеджер процессов и сразу вернуть управление' },
-            name: { type: 'string', description: 'Имя фонового процесса (только с background: true), например "dev-server"' }
+            command: { type: 'string', description: 'Shell command (PowerShell on Windows, bash on macOS/Linux)' },
+            explanation: { type: 'string', description: 'Why the command is needed (shown to the user in the approval request)' },
+            background: { type: 'boolean', description: 'true — start in the background through the process manager and return immediately' },
+            name: { type: 'string', description: 'Background process name (only with background: true), for example "dev-server"' }
           },
           required: ['command']
         }
       },
       {
         name: 'search_rag',
-        description: 'Семантический поиск по документации и ADR проекта через LanceDB',
+        description: 'Semantic search over the project documentation and ADRs via LanceDB',
         input_schema: {
           type: 'object',
           properties: {
-            query: { type: 'string', description: 'Поисковый запрос на естественном языке' }
+            query: { type: 'string', description: 'A natural-language search query' }
           },
           required: ['query']
         }
       },
       {
         name: 'ask_question',
-        description: 'Задать интерактивный вопрос пользователю с выбором вариантов (радиокнопки, чекбоксы, свой вариант)',
+        description: 'Ask the user an interactive question with choices (radio buttons, checkboxes, a custom answer)',
         input_schema: {
           type: 'object',
           properties: {
-            title: { type: 'string', description: 'Краткий заголовок вопроса (например, "Что делаем?")' },
-            question: { type: 'string', description: 'Развернутый текст вопроса пользователю' },
+            title: { type: 'string', description: 'A short question title (for example, "What do we do?")' },
+            question: { type: 'string', description: 'The full question text for the user' },
             options: {
               type: 'array',
               items: {
                 type: 'object',
                 properties: {
-                  label: { type: 'string', description: 'Название варианта ответа' },
-                  description: { type: 'string', description: 'Подробное описание или действие для этого варианта' }
+                  label: { type: 'string', description: 'Answer option name' },
+                  description: { type: 'string', description: 'A detailed description or action for this option' }
                 },
                 required: ['label']
               },
-              description: 'Список вариантов ответа (от 2 до 10 вариантов)'
+              description: 'Answer options (from 2 to 10)'
             },
-            is_multi_select: { type: 'boolean', description: 'Если true — множественный выбор (чекбоксы), если false — одиночный (радиокнопки)' }
+            is_multi_select: { type: 'boolean', description: 'true — multiple choice (checkboxes), false — single choice (radio buttons)' }
           },
           required: ['question', 'options']
         }

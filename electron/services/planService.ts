@@ -679,7 +679,7 @@ export class PlanService extends EventEmitter {
     node.model = modelRouteView(resolved);
     if (resolved.problem) {
       node.state = 'failed';
-      setReason(node, resolved.problem.message);
+      setReason(node, { error: resolved.problem.message, errorKey: resolved.problem.messageKey });
       node.reasonPurpose = resolved.purpose;
       node.finishedAt = Date.now();
       blockDependents(plan.nodes, node.taskId, new AppError('plans.blockedNotStarted', { id: node.taskId }));

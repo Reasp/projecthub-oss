@@ -936,7 +936,7 @@ export class AppStore {
     if (current) {
       const messages =
         event === 'studio:error'
-          ? [...this.state.studio.messages, { id: `e${Date.now()}`, role: 'error' as const, text: String(d.error || t().store.agentError) }]
+          ? [...this.state.studio.messages, { id: `e${Date.now()}`, role: 'error' as const, text: d.error ? failureText({ error: String(d.error), errorKey: d.errorKey }) : t().store.agentError }]
           : this.state.studio.messages;
       this.setStudio({ sessions, busy: false, messages });
       this.debounced('studioReload', () => {

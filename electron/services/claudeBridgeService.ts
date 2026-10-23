@@ -10,7 +10,8 @@ import {
   type AIMessage,
   type AIToolCall
 } from './aiAgentService.js';
-import type { ProviderErrorInfo } from './providerErrors.js';
+import { toProviderErrorInfo, type ProviderErrorInfo } from './providerErrors.js';
+import { AppError, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import { CHILD_CLOSE_GRACE_MS, superviseChildExit } from './processSweep.js';
 import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountService.js';
@@ -182,7 +183,10 @@ export interface ClaudeBridgeMessageChunk {
 export interface ClaudeCliAvailability {
   available: boolean;
   version?: string;
+  /** Английский текст причины — журнал и модель. */
   message?: string;
+  /** Та же причина с кодом (decision-165): Studio показывает её на языке окна и телефона. */
+  error?: AppError;
 }
 
 /** Через сколько повторять проверку CLI после неудачи (чтобы после установки не требовался перезапуск приложения). */
@@ -910,16 +914,17 @@ class ClaudeBridgeService extends EventEmitter {
     sessionId: string,
     projectPath: string,
     outcome: 'done' | 'error' | 'aborted',
-    message: string
+    message: string,
+    detailKey?: AppErrorKey
   ): void {
     this.activeSessions.delete(sessionId);
     this.abortedSessions.delete(sessionId);
     this.finishSessionSubagents(sessionId, outcome === 'done' ? 'completed' : 'failed');
-    hitlService.cancelSession(sessionId, outcome === 'done' ? 'Сессия завершена' : message);
+    hitlService.cancelSession(sessionId, outcome === 'done' ? 'Session finished' : message);
     // Другая вкладка проекта ещё отвечает (TASK-171): проект остаётся «в работе».
     if (this.hasOtherActiveSession(projectPath, sessionId)) this.setProjectStatus(projectPath, 'running', { code: 'continuing' });
     else if (outcome === 'done') this.setProjectStatus(projectPath, 'done', { code: 'completed' });
-    else if (outcome === 'error') this.setProjectStatus(projectPath, 'error', { code: 'failed', detail: message });
+    else if (outcome === 'error') this.setProjectStatus(projectPath, 'error', { code: 'failed', detail: message, ...(detailKey ? { detailKey } : {}) });
     else this.setProjectStatus(projectPath, 'idle', { code: 'aborted' });
 
     const engine = this.sessionEngines.get(sessionId) ?? 'api';
@@ -967,7 +972,7 @@ class ClaudeBridgeService extends EventEmitter {
       }
       for (const sub of own) {
         const final: SubagentInfo = sub.status === 'running'
-          ? { ...sub, status, completedAt: Date.now(), progress: status === 'completed' ? 'Родительская сессия завершена' : 'Родительская сессия прервана' }
+          ? { ...sub, status, completedAt: Date.now(), progress: status === 'completed' ? 'Parent session finished' : 'Parent session aborted' }
           : sub;
         finished.push(final);
         this.emit('subagentUpdated', final);
@@ -976,14 +981,18 @@ class ClaudeBridgeService extends EventEmitter {
     return finished;
   }
 
-  private buildCliMissingMessage(detail: string): string {
-    const reason = detail.trim() ? ` (${detail.trim()})` : '';
-    return [
-      `Claude CLI не найден или не запускается${reason}.`,
-      'Установите Claude Code: `npm install -g @anthropic-ai/claude-code`, затем выполните вход',
-      'через кнопку входа в настройках Agents Studio или командой `claude auth login`.',
-      'Либо укажите API-ключ Anthropic в настройках провайдера — тогда CLI не требуется.'
-    ].join(' ');
+  private cliMissing(detail: string): ClaudeCliAvailability {
+    const clean = detail.trim();
+    const error = clean ? new AppError('studio.cliMissingDetail', { detail: clean }) : new AppError('studio.cliMissing');
+    return { available: false, message: error.message, error };
+  }
+
+  /** Ошибка Studio: английский текст — журналу и событию, снимок с кодом — карточке окна и телефону (decision-165). */
+  private failStudioSession(sessionId: string, projectPath: string, err: unknown, onError: (err: string, info?: ProviderErrorInfo) => void): void {
+    const message = err instanceof Error ? err.message : String(err);
+    const key = appErrorKeyOf(err);
+    this.finishSession(sessionId, projectPath, 'error', message, key);
+    onError(message, key ? toProviderErrorInfo(err) : undefined);
   }
 
   /**
@@ -1010,7 +1019,7 @@ class ClaudeBridgeService extends EventEmitter {
         if (timer) clearTimeout(timer);
         this.claudeCliCheck = { ...result, checkedAt: Date.now() };
         this.claudeCliCheckPromise = null;
-        if (!result.available) console.warn('[ClaudeBridge] Claude CLI недоступен:', result.message);
+        if (!result.available) console.warn('[ClaudeBridge] Claude CLI is unavailable:', result.message);
         resolve(result);
       };
 
@@ -1022,7 +1031,7 @@ class ClaudeBridgeService extends EventEmitter {
           env: { ...process.env, FORCE_COLOR: '0', CLAUDE_CONFIG_DIR: defaultClaudeAccountDir() }
         });
       } catch (err: any) {
-        finish({ available: false, message: this.buildCliMissingMessage(err?.message || String(err)) });
+        finish(this.cliMissing(err?.message || String(err)));
         return;
       }
 
@@ -1035,20 +1044,18 @@ class ClaudeBridgeService extends EventEmitter {
 
       timer = setTimeout(() => {
         try { child.kill(); } catch { /* ignore */ }
-        finish({
-          available: false,
-          message: `Claude CLI не ответил на \`claude --version\` за ${CLAUDE_CLI_CHECK_TIMEOUT_MS / 1000} с. Проверьте установку и PATH.`
-        });
+        const error = new AppError('studio.cliVersionTimeout', { seconds: CLAUDE_CLI_CHECK_TIMEOUT_MS / 1000 });
+        finish({ available: false, message: error.message, error });
       }, CLAUDE_CLI_CHECK_TIMEOUT_MS);
 
-      child.on('error', (err) => finish({ available: false, message: this.buildCliMissingMessage(err.message) }));
+      child.on('error', (err) => finish(this.cliMissing(err.message)));
       child.on('close', (code) => {
         if (code === 0) {
           const version = stdout.trim().split('\n')[0] || undefined;
-          console.log(`[ClaudeBridge] Claude CLI доступен: ${version || 'версия неизвестна'}`);
+          console.log(`[ClaudeBridge] Claude CLI is available: ${version || 'unknown version'}`);
           finish({ available: true, version });
         } else {
-          finish({ available: false, message: this.buildCliMissingMessage(stderr.trim() || `код выхода ${code}`) });
+          finish(this.cliMissing(stderr.trim() || `exit code ${code}`));
         }
       });
     });
@@ -1324,7 +1331,7 @@ class ClaudeBridgeService extends EventEmitter {
         req,
         onChunk,
         (completedMsg) => {
-          this.finishSession(sessionId, projectPath, 'done', 'Задача успешно выполнена');
+          this.finishSession(sessionId, projectPath, 'done', 'Task completed');
           onComplete(completedMsg);
         },
         (err, info) => {
@@ -1336,18 +1343,17 @@ class ClaudeBridgeService extends EventEmitter {
           computerTools: req.mode === 'agent' ? computerUseService.listProxyTools() : [],
           // Отмена — тоже конец ответа: вкладка снимает подписки, мост телефона и лимиты агентов его видят (TASK-171).
           onAborted: (partial) => {
-            this.finishSession(sessionId, projectPath, 'aborted', 'Сессия прервана пользователем');
+            this.finishSession(sessionId, projectPath, 'aborted', 'Session aborted by the user');
             onComplete(partial);
           }
         }
       );
       // Страховка: ответ закончился без колбэка — закрываем сессию как отменённую.
       if (this.activeSessions.has(sessionId)) {
-        this.finishSession(sessionId, projectPath, 'aborted', 'Сессия прервана пользователем');
+        this.finishSession(sessionId, projectPath, 'aborted', 'Session aborted by the user');
       }
     } catch (err: any) {
-      this.finishSession(sessionId, projectPath, 'error', err.message);
-      onError(err.message);
+      this.failStudioSession(sessionId, projectPath, err, onError);
     }
   }
 
@@ -1402,7 +1408,7 @@ class ClaudeBridgeService extends EventEmitter {
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
-    onError: (err: string) => void
+    onError: (err: string, info?: ProviderErrorInfo) => void
   ): Promise<void> {
     const { sessionId, projectPath, messages } = req;
     // cwd агента — активное рабочее дерево (worktree), backlog при этом общий (TASK-62).
@@ -1412,7 +1418,7 @@ class ClaudeBridgeService extends EventEmitter {
       onComplete({
         id: `msg-${Date.now()}`,
         role: 'assistant',
-        content: 'Пожалуйста, введите сообщение.',
+        content: hostText(getHostLanguage()).studio.emptyPrompt,
         timestamp: new Date().toISOString()
       });
       return;
@@ -1420,14 +1426,12 @@ class ClaudeBridgeService extends EventEmitter {
 
     const cliCheck = await this.ensureClaudeCliAvailable();
     if (!cliCheck.available) {
-      const message = cliCheck.message || 'Claude CLI недоступен.';
-      this.finishSession(sessionId, projectPath, 'error', message);
-      onError(message);
+      this.failStudioSession(sessionId, projectPath, cliCheck.error ?? new AppError('studio.cliUnavailable'), onError);
       return;
     }
     if (this.abortedSessions.has(sessionId)) {
       // Пользователь прервал сессию, пока шла проверка CLI.
-      this.finishSession(sessionId, projectPath, 'aborted', 'Сессия прервана пользователем');
+      this.finishSession(sessionId, projectPath, 'aborted', 'Session aborted by the user');
       onComplete({ id: `msg-${Date.now()}`, role: 'assistant', content: hostText(getHostLanguage()).studio.cancelledByUser, timestamp: new Date().toISOString() });
       return;
     }
@@ -1507,20 +1511,16 @@ class ClaudeBridgeService extends EventEmitter {
       cliArgs.push(...hitl.args);
     } else if (req.config.autoApprove) {
       cliArgs.push('--dangerously-skip-permissions');
-      hitlWarning = '> ⚠️ Встроенный MCP-сервер ProjectHub недоступен: Claude Code запущен без проверки разрешений, '
-        + 'списки исключений и запрещённых команд в этом ответе не применяются.\n\n';
+      hitlWarning = `> ⚠️ ${hostText(getHostLanguage()).studio.mcpUnavailableWarning}\n\n`;
       hitlService.recordFallback({
         sessionId,
         projectPath,
         origin: 'studio',
         engine: 'claude-cli',
-        reason: 'Встроенный MCP-сервер недоступен, включено авто-одобрение: запуск с --dangerously-skip-permissions'
+        reason: 'The built-in MCP server is unavailable, auto-approve is on: started with --dangerously-skip-permissions'
       });
     } else {
-      const message = 'Не удалось запустить встроенный MCP-сервер ProjectHub, через который Claude Code запрашивает '
-        + 'подтверждения действий. Включите сервер в настройках MCP (или освободите его порт) либо включите авто-одобрение в настройках Agents Studio.';
-      this.finishSession(sessionId, projectPath, 'error', message);
-      onError(message);
+      this.failStudioSession(sessionId, projectPath, new AppError('studio.mcpUnavailable'), onError);
       return;
     }
     cliArgs.push('--output-format', 'stream-json', '--verbose');
@@ -1554,9 +1554,7 @@ class ClaudeBridgeService extends EventEmitter {
       );
     } catch (err: any) {
       cleanupHitl();
-      const message = `Не удалось запустить Claude CLI: ${err?.message || String(err)}`;
-      this.finishSession(sessionId, projectPath, 'error', message);
-      onError(message);
+      this.failStudioSession(sessionId, projectPath, new AppError('studio.cliStartFailed', { detail: err?.message || String(err) }), onError);
       return;
     }
 
@@ -1567,13 +1565,12 @@ class ClaudeBridgeService extends EventEmitter {
     // события 'error' и 'close' у ChildProcess могут прийти оба.
     let finished = false;
     let stdinError: string | null = null;
-    const failSession = (message: string) => {
+    const failSession = (err: unknown) => {
       if (finished) return;
       finished = true;
       this.activeProcesses.delete(sessionId);
       cleanupHitl();
-      this.finishSession(sessionId, projectPath, 'error', message);
-      onError(message);
+      this.failStudioSession(sessionId, projectPath, err, onError);
     };
 
     // Ошибки на stdio-потоках (например EPIPE, если оболочка или CLI завершились мгновенно)
@@ -1583,8 +1580,8 @@ class ClaudeBridgeService extends EventEmitter {
       stdinError = err.message;
       console.warn(`[ClaudeBridge] stdin error for session ${sessionId}:`, err.message);
     });
-    child.stdout.on('error', (err) => failSession(`Ошибка чтения вывода Claude CLI: ${err.message}`));
-    child.stderr.on('error', (err) => failSession(`Ошибка чтения stderr Claude CLI: ${err.message}`));
+    child.stdout.on('error', (err) => failSession(new AppError('studio.cliOutputReadFailed', { detail: err.message })));
+    child.stderr.on('error', (err) => failSession(new AppError('studio.cliStderrReadFailed', { detail: err.message })));
 
     let accumulatedText = hitlWarning;
     let accumulatedThought = '';
@@ -1739,20 +1736,21 @@ class ClaudeBridgeService extends EventEmitter {
           ...(resultUsage ? { usage: resultUsage } : {})
         };
         if (aborted) {
-          this.finishSession(sessionId, projectPath, 'aborted', 'Сессия прервана пользователем');
+          this.finishSession(sessionId, projectPath, 'aborted', 'Session aborted by the user');
         } else if (resultError) {
           this.finishSession(sessionId, projectPath, 'error', resultError);
         } else {
-          this.finishSession(sessionId, projectPath, 'done', 'Задача успешно выполнена');
+          this.finishSession(sessionId, projectPath, 'done', 'Task completed');
         }
         onComplete(completeMsg);
       } else {
-        const err =
-          stderrOutput ||
-          (stdinError ? `Не удалось передать запрос в Claude CLI: ${stdinError}` : '') ||
-          `Claude Code завершился с кодом ${code}`;
-        this.finishSession(sessionId, projectPath, 'error', err);
-        onError(err);
+        // Вывод CLI — его собственный текст; без него — причина ProjectHub с кодом.
+        const err = stderrOutput
+          ? stderrOutput
+          : stdinError
+            ? new AppError('studio.cliStdinFailed', { detail: stdinError })
+            : new AppError('studio.cliExitCode', { code: String(code) });
+        this.failStudioSession(sessionId, projectPath, err, onError);
       }
     });
 
@@ -1763,7 +1761,7 @@ class ClaudeBridgeService extends EventEmitter {
       child.stdin.write(lastUserMessage, 'utf-8');
       child.stdin.end();
     } catch (err: any) {
-      failSession(`Не удалось передать запрос в Claude CLI: ${err?.message || String(err)}`);
+      failSession(new AppError('studio.cliStdinFailed', { detail: err?.message || String(err) }));
       killProcessTree(child);
     }
   }

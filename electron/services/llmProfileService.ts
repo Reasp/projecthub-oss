@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getStatePath } from './appPaths.js';
 import { secretStorageService, type SecretStorageService } from './secretStorageService.js';
+import { AppError } from '../../src/lib/appError.js';
 import { providerConfigError } from './providerErrors.js';
 import {
   buildProfileHeaders,
@@ -175,12 +176,12 @@ export class LlmProfileService {
   /** Профиль с расшифрованным ключом — только для main-процесса. */
   public async getProfileWithKey(id: string | undefined): Promise<{ profile: LlmProfile; apiKey?: string }> {
     if (!id) {
-      throw providerConfigError('Профиль OpenAI-совместимого провайдера не выбран в настройках.', 'no_profile');
+      throw providerConfigError(new AppError('llm.profileNotSelected'), 'no_profile');
     }
     const { profiles } = await this.migrateInlineKeys();
     const stored = profiles.find((p) => p.id === id);
     if (!stored) {
-      throw providerConfigError(`Профиль провайдера «${id}» не найден: возможно, он удалён. Выберите профиль в настройках Agents Studio.`, 'no_profile');
+      throw providerConfigError(new AppError('llm.profileNotFound', { id }), 'no_profile');
     }
     const { apiKey: _inline, ...profile } = stored;
     const apiKey = await this.secrets.getSecret(llmProfileSecretKey(id));

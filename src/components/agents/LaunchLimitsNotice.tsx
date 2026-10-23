@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Wallet } from '../common/icons';
 import type { AgentLaunchCheckInput, AgentLaunchVerdictView } from '../../types/electron';
+import { ipcFailureText } from '../../i18n/useTranslation';
 
 /**
  * Ограничения запуска агента до нажатия «Запустить» (точки расширения, decision-123 п. 4; бюджеты Team, decision-124).
- * В открытой редакции примечаний нет, и компонент ничего не рисует. Тексты готовит хост.
+ * В открытой редакции примечаний нет, и компонент ничего не рисует. Текст — по коду примечания на языке окна, без кода — текст хоста.
  */
 export function useLaunchCheck(input: AgentLaunchCheckInput | null): AgentLaunchVerdictView | null {
   const [verdict, setVerdict] = useState<AgentLaunchVerdictView | null>(null);
@@ -39,7 +40,7 @@ export function LaunchLimitsNotice({ verdict }: { verdict: AgentLaunchVerdictVie
       <div className="min-w-0 space-y-0.5">
         {sorted.map((n, i) => (
           <div key={i} className={`break-words ${tone(n.level)}`}>
-            {n.text}
+            {ipcFailureText({ error: n.text, errorKey: n.textKey })}
           </div>
         ))}
       </div>

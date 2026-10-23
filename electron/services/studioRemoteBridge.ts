@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { AIToolCall } from '../../src/types/electron';
 import type { StudioMode, StudioModelSelection } from '../../src/types/remote';
 import { studioChunkForPhone } from '../../src/utils/studioRemote.js';
+import { AppError, appErrorFields, asAppErrorKey, type AppErrorKey } from '../../src/lib/appError.js';
 
 /**
  * Мост Agents Studio ↔ телефон (TASK-140.10, decision-83).
@@ -31,6 +32,7 @@ export interface StudioRemoteReply {
   ok: boolean;
   sessionId?: string;
   error?: string;
+  errorKey?: AppErrorKey;
 }
 
 export interface WindowLike {
@@ -40,8 +42,8 @@ export interface WindowLike {
 
 type Listener = (event: string, data: Record<string, unknown>) => void;
 
-export const NO_WINDOW_ERROR = 'Окно ProjectHub на компьютере закрыто — Agents Studio недоступна. Откройте ProjectHub.';
-export const WINDOW_TIMEOUT_ERROR = 'Окно ProjectHub не ответило. Проверьте, что ProjectHub на компьютере не завис.';
+export const NO_WINDOW_ERROR: StudioRemoteReply = { ok: false, ...appErrorFields(new AppError('studio.windowClosed')) };
+export const WINDOW_TIMEOUT_ERROR: StudioRemoteReply = { ok: false, ...appErrorFields(new AppError('studio.windowTimeout')) };
 
 export class StudioRemoteBridge {
   private getWindow: () => WindowLike | null = () => null;
@@ -88,9 +90,9 @@ export class StudioRemoteBridge {
   }
 
   /** Конец ответа; повторный вызов (ошибка после завершения) ничего не шлёт. */
-  streamEnded(projectPath: string, sessionId: string, error?: string): void {
+  streamEnded(projectPath: string, sessionId: string, error?: string, errorKey?: AppErrorKey): void {
     if (!this.running.delete(sessionId)) return;
-    if (error) this.emit('studio:error', { projectPath, sessionId, error: String(error).slice(0, 2000) });
+    if (error) this.emit('studio:error', { projectPath, sessionId, error: String(error).slice(0, 2000), ...(errorKey ? { errorKey } : {}) });
     else this.emit('studio:complete', { projectPath, sessionId });
   }
 
@@ -98,12 +100,12 @@ export class StudioRemoteBridge {
 
   request(req: StudioRemoteRequest): Promise<StudioRemoteReply> {
     const win = this.getWindow();
-    if (!win || win.isDestroyed()) return Promise.resolve({ ok: false, error: NO_WINDOW_ERROR });
+    if (!win || win.isDestroyed()) return Promise.resolve(NO_WINDOW_ERROR);
     const requestId = crypto.randomBytes(8).toString('hex');
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        resolve({ ok: false, error: WINDOW_TIMEOUT_ERROR });
+        resolve(WINDOW_TIMEOUT_ERROR);
       }, this.replyTimeoutMs);
       this.pending.set(requestId, { resolve, timer });
       try {
@@ -127,7 +129,8 @@ export class StudioRemoteBridge {
     entry.resolve({
       ok: r.ok === true,
       ...(typeof r.sessionId === 'string' ? { sessionId: r.sessionId } : {}),
-      ...(typeof r.error === 'string' ? { error: r.error.slice(0, 500) } : {})
+      ...(typeof r.error === 'string' ? { error: r.error.slice(0, 500) } : {}),
+      ...(asAppErrorKey(r.errorKey) ? { errorKey: asAppErrorKey(r.errorKey) } : {})
     });
     return true;
   }
