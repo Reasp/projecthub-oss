@@ -13,6 +13,7 @@ import { PR_REVIEWS_DIR, PrReviewService } from './prReviewService.js';
 import { PrWatcher } from './prWatcher.js';
 import { applyPrMerge } from './prMergeTasks.js';
 import type { SwarmEventPayload, SwarmSession } from './swarmTypes.js';
+import { getHostLanguage } from './hostLanguage.js';
 
 /**
  * Ревью PR в приложении (TASK-81, decision-53): сервис ревью и опрос PR с настоящими зависимостями —
@@ -23,6 +24,7 @@ import type { SwarmEventPayload, SwarmSession } from './swarmTypes.js';
 const log = (level: 'info' | 'warn', message: string) => (level === 'warn' ? logger.warn(message) : logger.info(message));
 
 export const prReviewService = new PrReviewService({
+  lang: () => getHostLanguage(),
   gh: {
     getPr: (root, n) => prService.getPrForReview(root, n),
     getDiff: (root, n) => prService.getPrDiffStrict(root, n),
@@ -83,7 +85,7 @@ async function refreshMergeWatch(): Promise<void> {
 
 /** Запуск при старте приложения: опрос PR проектов с настройкой и следить за её сменой. */
 export function initPrMergeWatch(): () => void {
-  void refreshMergeWatch().catch((err) => log('warn', `[PrWatcher] Настройки слияния не прочитаны: ${String(err)}`));
+  void refreshMergeWatch().catch((err) => log('warn', `[PrWatcher] Merge settings not read: ${String(err)}`));
   const off = prService.onMergeSettingsChange(() => void refreshMergeWatch().catch(() => undefined));
   return () => {
     off();

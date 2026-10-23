@@ -853,6 +853,8 @@ export interface RemoteReviewCriterion {
   reported?: string;
   evidence?: string;
   reason?: string;
+  /** Код причины (decision-165): телефон показывает её на своём языке. */
+  reasonKey?: import('../lib/appError').AppErrorKey;
   ui?: boolean;
   screenshots?: RemoteReviewScreenshot[];
 }
@@ -862,6 +864,7 @@ export interface RemoteReviewReport {
   swarmId: string;
   outcome?: string;
   reason?: string;
+  reasonKey?: import('../lib/appError').AppErrorKey;
   finishedAt?: number;
   iterations: number;
   summary?: string;

@@ -6,6 +6,8 @@
  * Сервис флота только исполняет эти планы.
  */
 import { AppError } from '../../src/lib/appError.js';
+import type { Language } from '../../src/i18n/types.js';
+import { hostText } from '../i18n/hostText.js';
 import { REPORT_FENCE } from './doneLoop.js';
 import { parseTaskBody, toggleCriterionInContent } from './backlogTaskFormat.js';
 import type { AgentCheckpoint } from './agentTraceTypes.js';
@@ -27,7 +29,7 @@ export function normalizeInstruction(instruction: unknown): string {
 }
 
 export function instructionBlock(instruction: string): string {
-  return instruction ? `[ProjectHub] Уточнение пользователя: ${instruction}` : '';
+  return instruction ? `[ProjectHub] User clarification: ${instruction}` : '';
 }
 
 // ───────────────────────────── Цикл «до готовности» ─────────────────────────────
@@ -118,13 +120,13 @@ export function buildLoopContinuationPrompt(input: {
   const full = input.iterations.filter((it) => it.rolledBack === 'full').map((it) => it.index);
   const partial = input.iterations.filter((it) => it.rolledBack === 'partial').map((it) => it.index);
   const cancelled: string[] = [];
-  const many = (n: number) => (n > 1 ? ['итерации', 'отменены'] : ['итерация', 'отменена']);
-  if (full.length > 0) cancelled.push(`${many(full.length)[0]} ${formatIndexRanges(full)} ${many(full.length)[1]} откатом`);
-  if (partial.length > 0) cancelled.push(`${many(partial.length)[0]} ${formatIndexRanges(partial)} ${many(partial.length)[1]} частично`);
+  const word = (n: number) => (n > 1 ? 'iterations' : 'iteration');
+  if (full.length > 0) cancelled.push(`${word(full.length)} ${formatIndexRanges(full)} cancelled by the rollback`);
+  if (partial.length > 0) cancelled.push(`${word(partial.length)} ${formatIndexRanges(partial)} cancelled partially`);
   const block =
-    `[ProjectHub Done-loop] Цикл продолжен после отката${cancelled.length ? `: ${cancelled.join(', ')}` : ''}. ` +
-    'Результаты прошлых проверок к текущим файлам не относятся: проверки проекта и критерии приёмки будут сверены заново. ' +
-    `В конце хода выведи отчёт в ограде \`\`\`${REPORT_FENCE}\`\`\` по всем критериям.`;
+    `[ProjectHub Done-loop] The loop continues after a rollback${cancelled.length ? `: ${cancelled.join(', ')}` : ''}. ` +
+    'The results of earlier checks do not apply to the current files: the project checks and acceptance criteria will be verified again. ' +
+    `At the end of the turn, print the report in a \`\`\`${REPORT_FENCE}\`\`\` fence for all criteria.`;
   return [input.basePrompt, block, instructionBlock(input.instruction ?? ''), input.note ?? ''].filter(Boolean).join('\n\n');
 }
 
@@ -153,11 +155,9 @@ export function uncheckHarnessCriteria(
   return unchecked.length > 0 ? { content: body, unchecked } : null;
 }
 
-export function cancelledSummaryText(checkpointN: number | undefined, at: Date): string {
-  return (
-    `Итог цикла «до готовности» отменён откатом${checkpointN !== undefined ? ` к чекпоинту #${checkpointN}` : ''} ` +
-    `(${at.toISOString()}); цикл продолжен, отметки критериев сняты до нового результата.`
-  );
+/** Пишется в Final Summary задачи — на языке хоста (decision-161). */
+export function cancelledSummaryText(checkpointN: number | undefined, at: Date, lang: Language = 'en'): string {
+  return hostText(lang).doneLoop.cancelled(checkpointN, at.toISOString());
 }
 
 // ───────────────────────────── Handoff ─────────────────────────────

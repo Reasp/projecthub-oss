@@ -74,10 +74,10 @@ export type ClaudeAccountSource = 'slot' | 'role' | 'project' | 'default';
 
 /** Подпись источника аккаунта для логов и отчёта. */
 export const CLAUDE_ACCOUNT_SOURCE_LABEL: Record<ClaudeAccountSource, string> = {
-  slot: 'слот',
-  role: 'роль',
-  project: 'проект',
-  default: 'по умолчанию'
+  slot: 'slot',
+  role: 'role',
+  project: 'project',
+  default: 'default'
 };
 
 export interface ClaudeAccountResolution {

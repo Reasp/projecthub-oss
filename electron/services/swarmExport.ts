@@ -1,14 +1,16 @@
 import type { AgentSlotState, SwarmSession } from './swarmTypes.js';
-import { CLAUDE_ACCOUNT_SOURCE_LABEL } from './claudeAccounts.js';
 import { addUsage, emptyUsage, formatTokens, formatUsd, type AgentUsage } from './agentCost.js';
 import { describeProviderInfo } from './slotProvider.js';
 import { describeProviderErrorBrief } from './providerErrors.js';
 import { describeChainLink, describeFallbackStop, MAX_MODEL_SWITCHES } from './modelTiers.js';
-import { describeCheckpointPoint } from './agentTrace.js';
+import type { Language } from '../../src/i18n/types.js';
+import { formatAppError, type AppErrorKey } from '../../src/lib/appError.js';
+import { hostText } from '../i18n/hostText.js';
+import { swarmReportText, type SwarmReportText } from '../i18n/swarmReportText.js';
 
 /**
  * Экспорт swarm-сессии в Markdown-отчёт и JSON (TASK-56, AC #5) — для вложения в задачу
- * Backlog.md или описание PR. Чистый модуль без Electron.
+ * Backlog.md или описание PR. Отчёт — на языке хоста (decision-161), английский по умолчанию. Чистый модуль без Electron.
  */
 
 export interface SwarmSessionTotals {
@@ -25,18 +27,11 @@ export function agentUsage(agent: AgentSlotState): AgentUsage | undefined {
   return agent.metrics?.usage;
 }
 
-const COST_SOURCE_LABELS: Record<AgentUsage['costSource'], string> = {
-  provider: 'по данным провайдера',
-  'price-table': 'по таблице цен',
-  local: 'локальная',
-  unknown: 'неизвестна'
-};
-
-/** Стоимость агента для отчёта: у локальной модели — «$0.00 (локальная)», а не «—» (decision-42). */
-export function formatAgentCost(usage: AgentUsage | undefined, fallbackCostUsd?: number): string {
+/** Стоимость агента для отчёта: у локальной модели — «$0.00 (local)», а не «—» (decision-42). */
+export function formatAgentCost(usage: AgentUsage | undefined, fallbackCostUsd?: number, tx: SwarmReportText = swarmReportText()): string {
   const cost = usage?.costUsd ?? fallbackCostUsd;
   if (typeof cost !== 'number') return '—';
-  return usage?.costSource === 'local' ? `${formatUsd(cost)} (локальная)` : formatUsd(cost);
+  return usage?.costSource === 'local' ? tx.localCost(formatUsd(cost)) : formatUsd(cost);
 }
 
 /** Сводка по сессии: суммарные токены, стоимость и длительность (от старта до завершения). */
@@ -82,54 +77,48 @@ export function agentProviderLabel(agent: AgentSlotState): string {
   return `${agent.config.engine}${model && model !== 'default' ? ` · \`${model}\`` : ''}`;
 }
 
-const ROUTING_SOURCE_LABELS: Record<NonNullable<AgentSlotState['modelRouting']>['source'], string> = {
-  explicit: 'явная модель слота или роли',
-  tier: 'модель из таблицы тиров',
-  default: 'модель по умолчанию движка'
-};
-
 /**
  * Тир и переключения модели агента для отчёта (decision-44 п. 8): запрошенный тир, фактическая модель и
  * причина каждого переключения. Без тира — пусто.
  */
-export function modelRoutingLines(agent: AgentSlotState): string[] {
+export function modelRoutingLines(agent: AgentSlotState, tx: SwarmReportText = swarmReportText()): string[] {
   const routing = agent.modelRouting;
   if (!routing) return [];
   const lines: string[] = [];
-  const current = routing.current ? `, фактическая модель: \`${describeChainLink(routing.current)}\`` : '';
-  lines.push(`- Тир модели: \`${routing.requestedTier ?? '—'}\` (${ROUTING_SOURCE_LABELS[routing.source]})${current}`);
-  if (routing.note) lines.push(`- Тиры: ${routing.note}`);
+  lines.push(tx.modelTier(routing.requestedTier ?? '—', tx.routingSource[routing.source], routing.current ? describeChainLink(routing.current) : undefined));
+  if (routing.note) lines.push(tx.tiersNote(routing.note));
   if (routing.switches.length > 0) {
-    lines.push('- Переключения модели:');
+    lines.push(tx.modelSwitches);
     routing.switches.forEach((sw, i) => {
-      const waited = sw.waitedMs ? `, ожидание ${Math.round(sw.waitedMs / 100) / 10} с` : '';
+      const waited = sw.waitedMs ? tx.waited(Math.round(sw.waitedMs / 100) / 10) : '';
       lines.push(`  ${i + 1}. \`${describeChainLink(sw.from)}\` → \`${describeChainLink(sw.to)}\`: \`${sw.message}\`${waited}`);
     });
   }
   if (routing.stopped && routing.stopped !== 'not_switchable') {
-    lines.push(`- Цепочка остановлена: ${describeFallbackStop(routing.stopped, routing.maxSwitches ?? MAX_MODEL_SWITCHES)}`);
+    lines.push(tx.chainStopped(describeFallbackStop(routing.stopped, routing.maxSwitches ?? MAX_MODEL_SWITCHES)));
   }
   return lines;
+}
+
+function checkpointWhere(tx: SwarmReportText, cp: { kind?: string; turn?: number; run?: number }): string {
+  return tx.checkpointPoint(cp.kind, cp.kind === 'turn' ? cp.turn : cp.run);
 }
 
 /**
  * Чекпоинты и откаты агента для отчёта (decision-45): сколько снимков, какие откаты и куда. Без
  * чекпоинтов и откатов — пусто.
  */
-export function checkpointLines(agent: AgentSlotState): string[] {
+export function checkpointLines(agent: AgentSlotState, tx: SwarmReportText = swarmReportText()): string[] {
   const lines: string[] = [];
   const cps = agent.checkpoints ?? [];
   if (cps.length > 0) {
     const last = cps[cps.length - 1];
-    lines.push(`- Чекпоинты: ${cps.length} (последний #${last.n}, ${describeCheckpointPoint(last)}, \`${last.commit.slice(0, 7)}\`)`);
+    lines.push(tx.checkpoints(cps.length, last.n, checkpointWhere(tx, last), last.commit.slice(0, 7)));
   }
   for (const rw of agent.rewinds ?? []) {
     const cp = cps.find((c) => c.n === rw.toCheckpoint);
-    const where = describeCheckpointPoint({ kind: rw.toKind, turn: rw.toTurn, run: cp?.run });
-    lines.push(
-      `- Откат ${fmtDate(rw.at)}: к чекпоинту #${rw.toCheckpoint} (${where}), удалено файлов ${rw.removedFiles}` +
-        `${rw.preRewindCheckpoint ? `, прежнее состояние — чекпоинт #${rw.preRewindCheckpoint}` : ''}${rw.commitHash ? `, коммит \`${rw.commitHash.slice(0, 7)}\`` : ''}`
-    );
+    const where = checkpointWhere(tx, { kind: rw.toKind, turn: rw.toTurn, run: cp?.run });
+    lines.push(tx.rewind(fmtDate(rw.at), rw.toCheckpoint, where, rw.removedFiles, rw.preRewindCheckpoint, rw.commitHash?.slice(0, 7)));
   }
   return lines;
 }
@@ -138,31 +127,17 @@ function cell(text: string): string {
   return text.replace(/\|/g, '\\|');
 }
 
-function fmtDuration(ms: number | undefined): string {
+function fmtDuration(ms: number | undefined, tx: SwarmReportText): string {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return '—';
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} с`;
+  if (ms < 60_000) return tx.seconds((ms / 1000).toFixed(1));
   const minutes = Math.floor(ms / 60_000);
   const seconds = Math.round((ms % 60_000) / 1000);
-  return `${minutes} мин ${seconds} с`;
+  return tx.minSec(minutes, seconds);
 }
 
 function fmtDate(ts: number | undefined): string {
   if (!ts) return '—';
   return new Date(ts).toISOString().replace('T', ' ').slice(0, 19);
-}
-
-function statusLabel(status: string): string {
-  const map: Record<string, string> = {
-    pending: 'ожидает',
-    preparing: 'подготовка',
-    running: 'выполняется',
-    completed: 'завершён',
-    failed: 'ошибка',
-    stopped: 'остановлен',
-    interrupted: 'прерван',
-    budget_exceeded: 'бюджет превышен'
-  };
-  return map[status] ?? status;
 }
 
 function fence(text: string, lang = ''): string {
@@ -178,11 +153,13 @@ export interface MarkdownExportOptions {
   /** Максимум символов диффа агента в отчёте. */
   maxPatchChars?: number;
   includePatch?: boolean;
+  /** Язык отчёта — язык хоста (decision-161); по умолчанию английский. */
+  lang?: Language;
 }
 
-function clip(text: string, limit: number): string {
+function clip(text: string, limit: number, tx: SwarmReportText): string {
   if (text.length <= limit) return text;
-  return `${text.slice(0, limit)}\n…[усечено: ещё ${text.length - limit} символов]`;
+  return `${text.slice(0, limit)}\n${tx.truncated(text.length - limit)}`;
 }
 
 /** Markdown-отчёт по сессии: сводка, таблица агентов, вывод и дифф каждого. */
@@ -190,38 +167,47 @@ export function exportSwarmSessionMarkdown(session: SwarmSession, options: Markd
   const maxOutput = options.maxOutputChars ?? 20_000;
   const maxPatch = options.maxPatchChars ?? 30_000;
   const includePatch = options.includePatch !== false;
+  const tx = swarmReportText(options.lang);
+  const errors = hostText(options.lang).appErrors;
+  // Причина с кодом — на языке отчёта, без кода — как есть (decision-165).
+  const keyed = (text: string, key?: AppErrorKey) => (key && formatAppError(key, errors)) || text;
+  const status = (value: string) => tx.status[value] ?? value;
   const totals = summarizeSwarmSession(session);
-  const modeLabel =
-    session.mode === 'handoff' ? 'Handoff (конвейер)' : session.mode === 'done_loop' ? 'Done-loop (до готовности)' : 'Fan-Out (арена)';
+  const modeLabel = session.mode === 'handoff' ? tx.modes.handoff : session.mode === 'done_loop' ? tx.modes.doneLoop : tx.modes.fanOut;
   const lines: string[] = [];
 
-  lines.push(`# Swarm-сессия ${session.id}`);
+  lines.push(tx.title(session.id));
   lines.push('');
-  if (session.taskId) lines.push(`- **Задача:** ${session.taskId}${session.taskTitle ? ` — ${session.taskTitle}` : ''}`);
-  lines.push(`- **Проект:** \`${session.projectPath}\``);
-  lines.push(`- **Режим:** ${modeLabel}`);
-  lines.push(`- **Базовая ветка:** \`${session.baseBranch}\``);
-  lines.push(`- **Статус:** ${statusLabel(session.status)}`);
-  lines.push(`- **Создана:** ${fmtDate(session.createdAt)}${session.completedAt ? `, завершена: ${fmtDate(session.completedAt)}` : ''}`);
-  lines.push(`- **Длительность:** ${fmtDuration(totals.durationMs)}`);
+  if (session.taskId) lines.push(`- **${tx.task}:** ${session.taskId}${session.taskTitle ? ` — ${session.taskTitle}` : ''}`);
+  lines.push(`- **${tx.project}:** \`${session.projectPath}\``);
+  lines.push(`- **${tx.mode}:** ${modeLabel}`);
+  lines.push(`- **${tx.baseBranch}:** \`${session.baseBranch}\``);
+  lines.push(`- **${tx.statusLabel}:** ${status(session.status)}`);
+  lines.push(`- **${tx.created}:** ${fmtDate(session.createdAt)}${session.completedAt ? tx.completed(fmtDate(session.completedAt)) : ''}`);
+  lines.push(`- **${tx.duration}:** ${fmtDuration(totals.durationMs, tx)}`);
   lines.push(
-    `- **Токены:** ${formatTokens(totals.usage.totalTokens)} (вход ${formatTokens(totals.usage.inputTokens)}, выход ${formatTokens(totals.usage.outputTokens)}, кэш чтение ${formatTokens(totals.usage.cacheReadTokens)}, кэш запись ${formatTokens(totals.usage.cacheCreationTokens)})`
+    `- **${tx.tokens}:** ${formatTokens(totals.usage.totalTokens)} (${tx.tokensDetail(
+      formatTokens(totals.usage.inputTokens),
+      formatTokens(totals.usage.outputTokens),
+      formatTokens(totals.usage.cacheReadTokens),
+      formatTokens(totals.usage.cacheCreationTokens)
+    )})`
   );
-  lines.push(`- **Стоимость:** ${totals.costKnown ? formatUsd(totals.costUsd) : 'неизвестна'}${session.budgetUsd ? ` (бюджет ${formatUsd(session.budgetUsd)})` : ''}`);
+  lines.push(`- **${tx.cost}:** ${totals.costKnown ? formatUsd(totals.costUsd) : tx.unknown}${session.budgetUsd ? tx.budget(formatUsd(session.budgetUsd)) : ''}`);
   if (session.winnerAgentId) {
     const winner = session.agents.find((a) => a.id === session.winnerAgentId);
-    lines.push(`- **Победитель:** ${winner?.config.name ?? session.winnerAgentId}`);
+    lines.push(`- **${tx.winner}:** ${winner?.config.name ?? session.winnerAgentId}`);
   }
-  if (session.error) lines.push(`- **Ошибка:** ${session.error}`);
+  if (session.error) lines.push(`- **${tx.error}:** ${keyed(session.error, session.errorKey)}`);
   lines.push('');
-  lines.push('## Задание');
+  lines.push(tx.prompt);
   lines.push('');
   lines.push(fence(session.prompt || '', ''));
   lines.push('');
 
-  lines.push('## Агенты');
+  lines.push(tx.agents);
   lines.push('');
-  lines.push('| Агент | Движок | Провайдер · модель | Роль | Статус | Длительность | Токены (вход/выход) | Стоимость | Дифф | Коммит |');
+  lines.push(tx.tableHeader);
   lines.push('|---|---|---|---|---|---|---|---|---|---|');
   for (const agent of session.agents) {
     const u = agentUsage(agent);
@@ -231,23 +217,23 @@ export function exportSwarmSessionMarkdown(session: SwarmSession, options: Markd
       : agent.metrics.tokensEstimated
         ? `~${formatTokens(agent.metrics.tokensEstimated)}`
         : '—';
-    const cost = formatAgentCost(u, agent.metrics.costUsd);
-    const diff = agent.diffSummary ? `${agent.diffSummary.filesChanged} файлов, +${agent.diffSummary.insertions}/-${agent.diffSummary.deletions}` : '—';
+    const cost = formatAgentCost(u, agent.metrics.costUsd, tx);
+    const diff = agent.diffSummary ? tx.files(agent.diffSummary.filesChanged, agent.diffSummary.insertions, agent.diffSummary.deletions) : '—';
     const commit = agent.commitHash ? `\`${agent.commitHash.slice(0, 7)}\`` : agent.stashHash ? `stash \`${agent.stashHash.slice(0, 7)}\`` : '—';
     const name = `${agent.winner || session.winnerAgentId === agent.id ? '🏆 ' : ''}${agent.config.name}`;
     lines.push(
-      `| ${name} | ${agent.config.engine} | ${cell(agentProviderLabel(agent))} | ${agent.config.role ?? '—'} | ${statusLabel(agent.status)} | ${fmtDuration(agent.metrics.durationMs)} | ${tokens} | ${cost} | ${diff} | ${commit} |`
+      `| ${name} | ${agent.config.engine} | ${cell(agentProviderLabel(agent))} | ${agent.config.role ?? '—'} | ${status(agent.status)} | ${fmtDuration(agent.metrics.durationMs, tx)} | ${tokens} | ${cost} | ${diff} | ${commit} |`
     );
   }
   lines.push('');
 
   if (session.mode === 'handoff' && session.handoffStages?.length) {
-    lines.push('## Этапы конвейера');
+    lines.push(tx.stages);
     lines.push('');
     for (const stage of session.handoffStages) {
       lines.push(
-        `${stage.stageIndex + 1}. **${stage.role}** — ${statusLabel(stage.status)}${stage.durationMs ? ` (${fmtDuration(stage.durationMs)})` : ''}` +
-          `${stage.invalidatedAt ? `, результат отменён откатом ${fmtDate(stage.invalidatedAt)}` : ''}${stage.rerunCount ? `, перезапусков: ${stage.rerunCount}` : ''}`
+        `${stage.stageIndex + 1}. **${stage.role}** — ${status(stage.status)}${stage.durationMs ? ` (${fmtDuration(stage.durationMs, tx)})` : ''}` +
+          `${stage.invalidatedAt ? tx.stageCancelled(fmtDate(stage.invalidatedAt)) : ''}${stage.rerunCount ? tx.stageReruns(stage.rerunCount) : ''}`
       );
     }
     lines.push('');
@@ -255,16 +241,16 @@ export function exportSwarmSessionMarkdown(session: SwarmSession, options: Markd
 
   if (session.mode === 'done_loop' && session.doneLoop) {
     const loop = session.doneLoop;
-    lines.push('## Итерации цикла «до готовности»');
+    lines.push(tx.loopIterations);
     lines.push('');
-    if (loop.outcome) lines.push(`Итог: **${loop.outcome}**${loop.reason ? ` — ${loop.reason}` : ''}`, '');
+    if (loop.outcome) lines.push(`${tx.loopOutcome}: **${loop.outcome}**${loop.reason ? ` — ${keyed(loop.reason, loop.reasonKey)}` : ''}`, '');
     for (const it of loop.iterations) {
       const failed = it.checks.filter((c) => c.status === 'failed' || c.status === 'timeout' || c.status === 'error').length;
       const accepted = it.criteria.filter((c) => c.accepted).length;
       lines.push(
-        `${it.index}. проверок упало ${failed}/${it.checks.length}, критериев засчитано ${accepted}/${it.criteria.length}` +
-          `${typeof it.costUsd === 'number' ? `, ${formatUsd(it.costUsd)}` : ''}${it.decision ? `, решение: ${it.decision}` : ''}` +
-          `${it.rolledBack ? `, отменена откатом${it.rolledBack === 'partial' ? ' частично' : ''}` : ''}${it.segment ? `, продолжение ${it.segment}` : ''}`
+        `${it.index}. ${tx.iteration(failed, it.checks.length, accepted, it.criteria.length)}` +
+          `${typeof it.costUsd === 'number' ? `, ${formatUsd(it.costUsd)}` : ''}${it.decision ? tx.decision(it.decision) : ''}` +
+          `${it.rolledBack ? tx.rolledBack(it.rolledBack === 'partial') : ''}${it.segment ? tx.continuationN(it.segment) : ''}`
       );
     }
     lines.push('');
@@ -272,19 +258,19 @@ export function exportSwarmSessionMarkdown(session: SwarmSession, options: Markd
 
   // Продолжения после отката (decision-48 п. 4).
   if (session.continuations?.length) {
-    lines.push('## Продолжения после отката');
+    lines.push(tx.continuations);
     lines.push('');
     for (const c of session.continuations) {
       const agentName = session.agents.find((a) => a.id === c.agentId)?.config.name ?? c.agentId;
       const what =
         c.mode === 'loop'
-          ? `цикл продолжен с итерации ${(c.afterIteration ?? 0) + 1}`
+          ? tx.loopContinued((c.afterIteration ?? 0) + 1)
           : c.mode === 'handoff'
-            ? `перезапуск этапов ${(c.stages ?? []).map((i) => i + 1).join(', ')}`
-            : 'продолжение агента';
+            ? tx.stagesRestarted((c.stages ?? []).map((i) => i + 1).join(', '))
+            : tx.agentContinued;
       lines.push(
-        `- ${fmtDate(c.at)}: ${agentName} — ${what}${c.toCheckpoint !== undefined ? `, после отката к чекпоинту #${c.toCheckpoint}` : ''}` +
-          `${c.instruction ? `; уточнение: ${cell(c.instruction.slice(0, 300))}` : ''}`
+        `- ${fmtDate(c.at)}: ${agentName} — ${what}${c.toCheckpoint !== undefined ? tx.afterRewind(c.toCheckpoint) : ''}` +
+          `${c.instruction ? tx.clarification(cell(c.instruction.slice(0, 300))) : ''}`
       );
     }
     lines.push('');
@@ -293,41 +279,43 @@ export function exportSwarmSessionMarkdown(session: SwarmSession, options: Markd
   for (const agent of session.agents) {
     lines.push(`## ${agent.config.name}`);
     lines.push('');
-    lines.push(`- Провайдер: ${agentProviderLabel(agent)}`);
-    if (agent.providerInfo?.profileId) lines.push(`- Профиль: id \`${agent.providerInfo.profileId}\`${agent.providerInfo.local ? ', локальная модель' : ''}`);
-    lines.push(...modelRoutingLines(agent));
+    lines.push(tx.provider(agentProviderLabel(agent)));
+    if (agent.providerInfo?.profileId) lines.push(tx.profile(agent.providerInfo.profileId, Boolean(agent.providerInfo.local)));
+    lines.push(...modelRoutingLines(agent, tx));
     // Имя профиля, не e-mail (decision-87 п. 14).
     if (agent.claudeAccount) {
       const cli = agent.config.engine === 'codex-cli' ? 'Codex CLI' : agent.config.engine === 'gemini-cli' ? 'Gemini CLI' : 'Claude Code';
-      lines.push(`- Аккаунт ${cli}: «${agent.claudeAccount.name}» (${CLAUDE_ACCOUNT_SOURCE_LABEL[agent.claudeAccount.source]})`);
+      lines.push(tx.account(cli, agent.claudeAccount.name, tx.accountSource[agent.claudeAccount.source]));
     }
-    if (agent.worktreeBranch) lines.push(`- Ветка: \`${agent.worktreeBranch}\``);
+    if (agent.worktreeBranch) lines.push(tx.branch(agent.worktreeBranch));
     if (agent.worktreePath) lines.push(`- Worktree: \`${agent.worktreePath}\``);
-    lines.push(...checkpointLines(agent));
-    if (agent.error) lines.push(`- Ошибка: ${agent.error}`);
+    lines.push(...checkpointLines(agent, tx));
+    if (agent.error) lines.push(tx.agentError(keyed(agent.error, agent.errorKey)));
     // Вид ошибки провайдера (decision-43) — по нему решается, помог бы fallback (TASK-79).
-    if (agent.providerError) lines.push(`- Вид ошибки: \`${describeProviderErrorBrief(agent.providerError)}\``);
+    if (agent.providerError) lines.push(tx.errorKind(describeProviderErrorBrief(agent.providerError)));
     if (agent.review?.status === 'failed' && agent.review.providerError) {
-      lines.push(`- Ревьюер недоступен: \`${describeProviderErrorBrief(agent.review.providerError)}\``);
+      lines.push(tx.reviewerUnavailable(describeProviderErrorBrief(agent.review.providerError)));
     }
     const u = agentUsage(agent);
     if (u) {
-      lines.push(
-        `- Usage${u.estimated ? ' (оценка по длине текста, сервер не сообщил usage)' : ''}: вход ${formatTokens(u.inputTokens)}, выход ${formatTokens(u.outputTokens)}, кэш чтение ${formatTokens(u.cacheReadTokens)}, кэш запись ${formatTokens(u.cacheCreationTokens)}${u.model ? `, модель \`${u.model}\`` : ''}${typeof u.costUsd === 'number' ? `, стоимость ${formatUsd(u.costUsd)} (${COST_SOURCE_LABELS[u.costSource]})` : ''}`
-      );
+      const detail =
+        tx.usageDetail(formatTokens(u.inputTokens), formatTokens(u.outputTokens), formatTokens(u.cacheReadTokens), formatTokens(u.cacheCreationTokens)) +
+        (u.model ? tx.usageModel(u.model) : '') +
+        (typeof u.costUsd === 'number' ? tx.usageCost(formatUsd(u.costUsd), tx.costSource[u.costSource]) : '');
+      lines.push(tx.usage(Boolean(u.estimated), detail));
     }
     lines.push('');
     const output = agent.finalOutput || agent.liveOutput;
     if (output) {
-      lines.push('### Вывод');
+      lines.push(tx.output);
       lines.push('');
-      lines.push(fence(clip(output, maxOutput), ''));
+      lines.push(fence(clip(output, maxOutput, tx), ''));
       lines.push('');
     }
     if (includePatch && agent.diffSummary?.patch) {
-      lines.push('### Дифф');
+      lines.push(tx.diff);
       lines.push('');
-      lines.push(fence(clip(agent.diffSummary.patch, maxPatch), 'diff'));
+      lines.push(fence(clip(agent.diffSummary.patch, maxPatch, tx), 'diff'));
       lines.push('');
     }
   }

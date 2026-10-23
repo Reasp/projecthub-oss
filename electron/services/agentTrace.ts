@@ -89,13 +89,13 @@ export function traceUsageFromClaudeMessage(message: unknown): TraceUsage | null
 export function describeCheckpointPoint(cp: Pick<AgentCheckpoint, 'kind' | 'turn' | 'run'>): string {
   switch (cp.kind) {
     case 'turn':
-      return cp.turn !== undefined ? `после хода ${cp.turn}` : 'после хода';
+      return cp.turn !== undefined ? `after turn ${cp.turn}` : 'after a turn';
     case 'start':
-      return cp.run !== undefined ? `перед запуском ${cp.run}` : 'перед запуском';
+      return cp.run !== undefined ? `before run ${cp.run}` : 'before a run';
     case 'end':
-      return cp.run !== undefined ? `после запуска ${cp.run}` : 'после запуска';
+      return cp.run !== undefined ? `after run ${cp.run}` : 'after a run';
     default:
-      return 'перед откатом';
+      return 'before a rollback';
   }
 }
 

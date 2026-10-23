@@ -2586,6 +2586,7 @@ export interface TranslationDictionary {
     executorDefaultRole: string;
     stageDefaultRole: string;
     stageDefaultInstructions: string;
+    startError: string;
     multiAgentSwarmTitle: string;
     multiAgentSwarmDesc: string;
     orchestrationMode: string;

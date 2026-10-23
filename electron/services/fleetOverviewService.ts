@@ -95,6 +95,7 @@ export function swarmInput(s: SwarmSession): OverviewSwarmInput {
     createdAt: s.createdAt,
     ...(s.completedAt ? { completedAt: s.completedAt } : {}),
     ...(s.error ? { error: s.error } : {}),
+    ...(s.error && s.errorKey ? { errorKey: s.errorKey } : {}),
     agents: s.agents.map((a) => {
       const line = lastOutputLine(a.liveOutput || a.finalOutput || '');
       return {
@@ -104,6 +105,7 @@ export function swarmInput(s: SwarmSession): OverviewSwarmInput {
         ...(a.config.engine ? { engine: a.config.engine } : {}),
         status: a.status,
         ...(a.error ? { error: a.error } : {}),
+        ...(a.error && a.errorKey ? { errorKey: a.errorKey } : {}),
         ...(line ? { lastLine: line } : {})
       };
     }),
@@ -293,7 +295,7 @@ export class FleetOverviewService {
       if (cache.size > 5000) cache.delete(cache.keys().next().value as string);
       return value;
     } catch (err) {
-      this.deps.log?.(`[FleetOverview] Не прочитан ${path.basename(file)}: ${err instanceof Error ? err.message : String(err)}`);
+      this.deps.log?.(`[FleetOverview] Could not read ${path.basename(file)}: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
   }

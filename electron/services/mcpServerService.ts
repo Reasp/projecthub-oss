@@ -38,6 +38,7 @@ import { trackerToolDeps } from './trackerSyncServiceInstance.js';
 import { CI_TOOL_DEFINITIONS, callCiTool } from './ciTools.js';
 import { ciToolDeps } from './ciServiceInstance.js';
 import { deriveAgentToken, isAgentTokenShape, projectForAgentToken } from './agentToken.js';
+import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
 
 /** Маршрут хуков терминальных сессий (TASK-77, decision-54 п. 3–4). */
 export const TERMINAL_HOOK_ROUTE = '/api/hooks/event';
@@ -57,6 +58,8 @@ export interface McpServerStatus {
   url: string;
   /** Последняя ошибка запуска (например, не удалось подобрать свободный порт). */
   lastError: string | null;
+  /** Код ошибки старта (decision-165): окно показывает её на своём языке. */
+  lastErrorKey?: AppErrorKey | null;
 }
 
 /** Публичная часть статуса, отдаваемая по HTTP без аутентификации (без токена). */
@@ -106,6 +109,7 @@ class McpServerService {
   private token: string;
   private agentSecret: string;
   private lastError: string | null = null;
+  private lastErrorKey: AppErrorKey | null = null;
   private currentAppState = {
     activeProject: null as any,
     activeTab: 'kanban'
@@ -138,7 +142,7 @@ class McpServerService {
         await secretStorageService.setSecret(MCP_TOKEN_SECRET_KEY, this.token);
       }
     } catch (err) {
-      console.warn('[MCPServer] Не удалось загрузить персистентный токен, используется временный:', err);
+      console.warn('[MCPServer] Failed to load the persistent token, using a temporary one:', err);
     }
     // Секрет токенов агентов: постоянный, чтобы токен в окружении открытого терминала не протухал.
     try {
@@ -146,11 +150,11 @@ class McpServerService {
       if (storedAgent) this.agentSecret = storedAgent;
       else await secretStorageService.setSecret(MCP_AGENT_SECRET_KEY, this.agentSecret);
     } catch (err) {
-      console.warn('[MCPServer] Не удалось загрузить секрет токенов агентов, используется временный:', err);
+      console.warn('[MCPServer] Failed to load the agent token secret, using a temporary one:', err);
     }
     // Токен хуков терминала (TASK-77) — отдельный секрет с правом только на маршрут хуков.
     await terminalHookService.getToken().catch((err) => {
-      console.warn('[MCPServer] Не удалось загрузить токен хуков терминала:', err);
+      console.warn('[MCPServer] Failed to load the terminal hook token:', err);
     });
   }
 
@@ -183,7 +187,8 @@ class McpServerService {
       activeSessions: this.sseSessions.size,
       token: this.token,
       url: `http://127.0.0.1:${this.port}/sse`,
-      lastError: this.lastError
+      lastError: this.lastError,
+      lastErrorKey: this.lastErrorKey
     };
   }
 
@@ -196,7 +201,7 @@ class McpServerService {
   public regenerateToken(): string {
     this.token = `ph_mcp_${crypto.randomBytes(12).toString('hex')}`;
     secretStorageService.setSecret(MCP_TOKEN_SECRET_KEY, this.token).catch((err) => {
-      console.warn('[MCPServer] Не удалось сохранить новый токен:', err);
+      console.warn('[MCPServer] Failed to save the new token:', err);
     });
     this.broadcastStatus();
     return this.token;
@@ -240,6 +245,7 @@ class McpServerService {
 
     this.port = customPort;
     this.lastError = null;
+    this.lastErrorKey = null;
 
     return new Promise((resolve) => {
       const server = http.createServer((req, res) => {
@@ -249,10 +255,12 @@ class McpServerService {
       let attempts = 0;
       let settled = false;
 
-      const fail = (message: string) => {
+      const fail = (err: AppError) => {
         if (settled) return;
         settled = true;
+        const message = err.message;
         this.lastError = message;
+        this.lastErrorKey = err.appErrorKey;
         console.error(`[MCPServer] ${message}`);
         try {
           server.close();
@@ -279,9 +287,7 @@ class McpServerService {
         if (err?.code === 'EADDRINUSE') {
           attempts++;
           if (attempts >= MAX_PORT_ATTEMPTS) {
-            fail(
-              `Не удалось найти свободный порт: заняты ${customPort}–${this.port} (${MAX_PORT_ATTEMPTS} попыток)`
-            );
+            fail(new AppError('mcp.noFreePort', { from: customPort, to: this.port, n: MAX_PORT_ATTEMPTS }));
             return;
           }
           console.warn(`[MCPServer] Port ${this.port} is in use, trying ${this.port + 1}...`);
@@ -289,7 +295,7 @@ class McpServerService {
           server.listen(this.port, '127.0.0.1');
           return;
         }
-        fail(`Не удалось запустить HTTP-сервер: ${err?.message || String(err)}`);
+        fail(new AppError('mcp.httpStartFailed', { detail: err?.message || String(err) }));
       });
 
       server.listen(this.port, '127.0.0.1');
@@ -348,13 +354,13 @@ class McpServerService {
     server.registerTool(
       CLI_HITL_PERMISSION_TOOL,
       {
-        title: 'Запрос разрешения Claude Code (Human-in-the-Loop)',
+        title: 'Claude Code permission request (Human-in-the-Loop)',
         description:
-          'Служебный инструмент для флага --permission-prompt-tool Claude CLI: показывает карточку одобрения '
-          + 'в Agents Studio ProjectHub и возвращает решение пользователя. Не предназначен для вызова моделью.',
+          'Internal tool for the Claude CLI --permission-prompt-tool flag: shows an approval card '
+          + 'in ProjectHub Agents Studio and returns the user\'s decision. Not meant to be called by the model.',
         inputSchema: {
-          tool_name: z.string().describe('Имя инструмента Claude Code (Bash, Edit, Write, AskUserQuestion …)'),
-          input: z.record(z.any()).optional().describe('Вход инструмента'),
+          tool_name: z.string().describe('Claude Code tool name (Bash, Edit, Write, AskUserQuestion, ...)'),
+          input: z.record(z.any()).optional().describe('Tool input'),
           tool_use_id: z.string().optional()
         }
       },
@@ -363,7 +369,7 @@ class McpServerService {
         if (!hitlSessionId) {
           decision = {
             behavior: 'deny',
-            message: `ProjectHub: подключение не привязано к сессии Agents Studio (нет параметра ${CLI_HITL_QUERY_PARAM} в URL SSE).`
+            message: `ProjectHub: the connection is not bound to an Agents Studio session (no ${CLI_HITL_QUERY_PARAM} parameter in the SSE URL).`
           };
         } else {
           try {
@@ -374,7 +380,7 @@ class McpServerService {
             });
           } catch (err: any) {
             console.error('[MCPServer] permission_prompt failed:', err);
-            decision = { behavior: 'deny', message: `ProjectHub: ошибка обработки запроса разрешения: ${err?.message || String(err)}` };
+            decision = { behavior: 'deny', message: `ProjectHub: failed to process the permission request: ${err?.message || String(err)}` };
           }
         }
         return { content: [{ type: 'text', text: JSON.stringify(decision) }] };
@@ -387,8 +393,8 @@ class McpServerService {
     server.registerTool(
       'projecthub_get_app_state',
       {
-        title: 'Текущее состояние ProjectHub GUI',
-        description: 'Возвращает текущее состояние приложения: открытый проект, экранную вкладку и статус.',
+        title: 'Current ProjectHub GUI state',
+        description: 'Returns the current application state: the open project, the visible tab and the status.',
         inputSchema: {}
       },
       async () => {
@@ -417,8 +423,8 @@ class McpServerService {
     server.registerTool(
       'projecthub_list_projects',
       {
-        title: 'Список проектов в ProjectHub',
-        description: 'Возвращает реестр всех добавленных проектов с метаданными и путями на диске.',
+        title: 'List ProjectHub projects',
+        description: 'Returns the registry of all added projects with their metadata and paths on disk.',
         inputSchema: {}
       },
       async () => {
@@ -440,10 +446,10 @@ class McpServerService {
     server.registerTool(
       'projecthub_switch_project',
       {
-        title: 'Переключить проект в окне ProjectHub',
-        description: 'Выбирает проект и открывает его в графическом интерфейсе приложения.',
+        title: 'Switch project in the ProjectHub window',
+        description: 'Selects a project and opens it in the application GUI.',
         inputSchema: {
-          projectPath: z.string().describe('Абсолютный путь к каталогу проекта или его имя')
+          projectPath: z.string().describe('Absolute path to the project directory, or the project name')
         }
       },
       async ({ projectPath }) => {
@@ -455,7 +461,7 @@ class McpServerService {
           content: [
             {
               type: 'text',
-              text: `Команда переключения проекта на "${projectPath}" успешно передана в интерфейс ProjectHub.`
+              text: `The command to switch the project to "${projectPath}" was sent to the ProjectHub GUI.`
             }
           ]
         };
@@ -468,10 +474,10 @@ class McpServerService {
     server.registerTool(
       'projecthub_switch_tab',
       {
-        title: 'Переключить вкладку в ProjectHub',
-        description: 'Переключает видимую вкладку в приложении (ai, kanban, git, docs, terminal).',
+        title: 'Switch tab in ProjectHub',
+        description: 'Switches the visible tab in the application (ai, kanban, git, docs, terminal).',
         inputSchema: {
-          tab: z.enum(['ai', 'kanban', 'git', 'docs', 'terminal', 'analytics']).describe('Название вкладки')
+          tab: z.enum(['ai', 'kanban', 'git', 'docs', 'terminal', 'analytics']).describe('Tab name')
         }
       },
       async ({ tab }) => {
@@ -483,7 +489,7 @@ class McpServerService {
           content: [
             {
               type: 'text',
-              text: `Вкладка приложения переключена на "${tab}".`
+              text: `The application tab was switched to "${tab}".`
             }
           ]
         };
@@ -496,11 +502,11 @@ class McpServerService {
     server.registerTool(
       'projecthub_send_studio_prompt',
       {
-        title: 'Отправить промпт в Agents Studio',
-        description: 'Вставляет или отправляет задачу AI-агенту в Agents Studio открытого проекта.',
+        title: 'Send a prompt to Agents Studio',
+        description: 'Inserts or sends a task to the AI agent in Agents Studio of the open project.',
         inputSchema: {
-          prompt: z.string().describe('Текст задачи/промпта для агента'),
-          sendImmediately: z.boolean().optional().describe('Отправить сразу (true) или только вставить в поле ввода (false)')
+          prompt: z.string().describe('Task or prompt text for the agent'),
+          sendImmediately: z.boolean().optional().describe('Send right away (true) or only insert into the input field (false)')
         }
       },
       async ({ prompt, sendImmediately = true }) => {
@@ -512,7 +518,7 @@ class McpServerService {
           content: [
             {
               type: 'text',
-              text: `Промпт успешно передан в Agents Studio (${sendImmediately ? 'отправлен' : 'вставлен'}).`
+              text: `The prompt was passed to Agents Studio (${sendImmediately ? 'sent' : 'inserted'}).`
             }
           ]
         };
@@ -525,12 +531,12 @@ class McpServerService {
     server.registerTool(
       'projecthub_list_pending_approvals',
       {
-        title: 'Ожидающие решения запросы агентов (Human-in-the-Loop)',
+        title: 'Agent requests awaiting a decision (Human-in-the-Loop)',
         description:
-          'Возвращает очередь запросов, которые ждут решения человека: requestId, сессия, агент, инструмент, '
-          + 'команда или путь. Для ответа используйте projecthub_approve_action с requestId.',
+          'Returns the queue of requests waiting for a human decision: requestId, session, agent, tool, '
+          + 'command or path. To answer, use projecthub_approve_action with the requestId.',
         inputSchema: {
-          projectPath: z.string().optional().describe('Ограничить проектом')
+          projectPath: z.string().optional().describe('Limit to this project')
         }
       },
       async ({ projectPath }) => {
@@ -557,18 +563,18 @@ class McpServerService {
     server.registerTool(
       'projecthub_approve_action',
       {
-        title: 'Одобрить или отклонить действие агента',
+        title: 'Approve or reject an agent action',
         description:
-          'Отвечает на запрос подтверждения (Human-in-the-Loop) строго по requestId (см. projecthub_list_pending_approvals). '
-          + 'Первый ответ по requestId выигрывает; повторный получает «уже решено».',
+          'Answers a confirmation request (Human-in-the-Loop) strictly by requestId (see projecthub_list_pending_approvals). '
+          + 'The first answer for a requestId wins; a repeated one gets "already decided".',
         inputSchema: {
-          requestId: z.string().min(1).describe('ID запроса из очереди ожидающих решений'),
-          approved: z.boolean().describe('Одобрить (true) или отклонить (false)'),
-          reason: z.string().optional().describe('Опциональное текстовое пояснение или выбранный вариант')
+          requestId: z.string().min(1).describe('Request ID from the queue of pending decisions'),
+          approved: z.boolean().describe('Approve (true) or reject (false)'),
+          reason: z.string().optional().describe('Optional text explanation or the chosen option')
         }
       },
       async ({ requestId, approved, reason }) => {
-        const result = hitlService.decide(requestId, { approved, text: reason }, { kind: 'mcp', deviceName: 'MCP-клиент' });
+        const result = hitlService.decide(requestId, { approved, text: reason }, { kind: 'mcp', deviceName: 'MCP client' });
         if (result.ok) {
           this.dispatchToRenderer({
             type: 'approve_action',
@@ -576,10 +582,10 @@ class McpServerService {
           });
         }
         const text = result.ok
-          ? `Решение "${approved ? 'Одобрено' : 'Отклонено'}" применено к запросу ${requestId}.`
+          ? `Decision "${approved ? 'Approved' : 'Rejected'}" applied to request ${requestId}.`
           : result.reason === 'already_decided'
-            ? `Запрос ${requestId} уже решён ранее — повторное решение не применено.`
-            : `Запрос ${requestId} не найден в очереди ожидающих решений.`;
+            ? `Request ${requestId} was already decided: the repeated decision was not applied.`
+            : `Request ${requestId} was not found in the queue of pending decisions.`;
         return {
           isError: !result.ok,
           content: [
@@ -598,12 +604,12 @@ class McpServerService {
     server.registerTool(
       'projecthub_run_process',
       {
-        title: 'Запустить фоновый процесс',
-        description: 'Запускает команду (dev-сервер, тесты, сборку) с отслеживанием в Process Manager.',
+        title: 'Run a background process',
+        description: 'Runs a command (dev server, tests, build) tracked in the Process Manager.',
         inputSchema: {
-          projectPath: z.string().describe('Абсолютный путь к каталогу проекта'),
-          command: z.string().describe('Строка запускаемой команды'),
-          name: z.string().describe('Уникальное имя процесса (например, "dev", "test")')
+          projectPath: z.string().describe('Absolute path to the project directory'),
+          command: z.string().describe('Command line to run'),
+          name: z.string().describe('Unique process name (e.g. "dev", "test")')
         }
       },
       async ({ projectPath, command, name }) => {
@@ -625,10 +631,10 @@ class McpServerService {
     server.registerTool(
       'projecthub_stop_process',
       {
-        title: 'Остановить фоновый процесс',
-        description: 'Останавливает процесс по его ID или имени.',
+        title: 'Stop a background process',
+        description: 'Stops a process by its ID or name.',
         inputSchema: {
-          processId: z.string().describe('ID процесса вида path::name')
+          processId: z.string().describe('Process ID in the form path::name')
         }
       },
       async ({ processId }) => {
@@ -637,7 +643,7 @@ class McpServerService {
           content: [
             {
               type: 'text',
-              text: stopped ? `Процесс ${processId} остановлен.` : `Процесс ${processId} не найден.`
+              text: stopped ? `Process ${processId} stopped.` : `Process ${processId} not found.`
             }
           ]
         };
@@ -650,11 +656,11 @@ class McpServerService {
     server.registerTool(
       'projecthub_get_process_logs',
       {
-        title: 'Получить логи процесса',
-        description: 'Возвращает буфер последних строк вывода процесса.',
+        title: 'Get process logs',
+        description: 'Returns the buffer of the latest output lines of a process.',
         inputSchema: {
-          processId: z.string().describe('ID процесса вида path::name'),
-          lines: z.number().optional().describe('Количество последних строк (по умолчанию 50)')
+          processId: z.string().describe('Process ID in the form path::name'),
+          lines: z.number().optional().describe('Number of latest lines (default 50)')
         }
       },
       async ({ processId, lines = 50 }) => {
@@ -664,7 +670,7 @@ class McpServerService {
           content: [
             {
               type: 'text',
-              text: tail.join('') || 'Нет вывода'
+              text: tail.join('') || 'No output'
             }
           ]
         };
@@ -677,11 +683,11 @@ class McpServerService {
     server.registerTool(
       'projecthub_list_tasks',
       {
-        title: 'Список задач бэклога',
-        description: 'Возвращает список задач из папки backlog/tasks/ проекта.',
+        title: 'List backlog tasks',
+        description: 'Returns the list of tasks from the project\'s backlog/tasks/ folder.',
         inputSchema: {
-          projectPath: z.string().describe('Путь к проекту'),
-          status: z.string().optional().describe('Фильтр по статусу (To Do, In Progress, Review, Done)')
+          projectPath: z.string().describe('Project path'),
+          status: z.string().optional().describe('Filter by status (To Do, In Progress, Review, Done)')
         }
       },
       async ({ projectPath, status }) => {
@@ -730,7 +736,7 @@ class McpServerService {
           ...properties,
           projectPath: {
             type: 'string',
-            description: 'Путь к проекту — только для внешних MCP-клиентов; агенту ProjectHub проект известен из сессии'
+            description: 'Project path, for external MCP clients only; a ProjectHub agent knows its project from the session'
           }
         }
       };
@@ -740,7 +746,7 @@ class McpServerService {
         async (args: Record<string, unknown>) => {
           const ctx = this.memoryCallContext(hitlSessionId, args);
           if (!ctx) {
-            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран — память недоступна.' }] };
+            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: the agent session has ended or no project is selected, so memory is unavailable.' }] };
           }
           const res = await callMemoryTool(def.name, args, ctx, memoryToolDeps);
           return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
@@ -763,7 +769,7 @@ class McpServerService {
         { title: BASE_SYNC_TOOL_DEFINITION.name, description: BASE_SYNC_TOOL_DEFINITION.description, inputSchema: jsonSchemaToZodShape(BASE_SYNC_TOOL_DEFINITION.input_schema) },
         async (args: Record<string, unknown>) => {
           const ctx = claudeBridgeService.getBaseSyncContext(hitlSessionId);
-          if (!ctx) return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена.' }] };
+          if (!ctx) return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: the agent session has ended.' }] };
           const res = await runBaseSync(execGit, { workDir: ctx.workDir, action: baseSyncAction(args.action), env: ctx.gitEnv });
           return { isError: res.status === 'refused', content: [{ type: 'text' as const, text: res.text }] };
         }
@@ -785,13 +791,13 @@ class McpServerService {
     server.registerTool(
       'automation_list',
       {
-        title: 'Список автоматизаций ProjectHub',
+        title: 'List ProjectHub automations',
         description:
-          'Правила Automations (глобальные, проектные, встроенное правило назначенных задач): триггер, действие, '
-          + 'включено ли и подтверждено ли на этой машине, счётчики дня и пауза; плюс последние запуски из журнала.',
+          'Automations rules (global, project, and the built-in assigned-tasks rule): trigger, action, '
+          + 'whether it is enabled and confirmed on this machine, daily counters and pause; plus the latest runs from the log.',
         inputSchema: {
-          projectPath: z.string().optional().describe('Показать только глобальные правила и правила этого проекта'),
-          recentRuns: z.number().optional().describe('Сколько последних записей журнала вернуть (по умолчанию 20, до 100)')
+          projectPath: z.string().optional().describe('Show only global rules and the rules of this project'),
+          recentRuns: z.number().optional().describe('How many latest log entries to return (default 20, up to 100)')
         }
       },
       async ({ projectPath, recentRuns }) => {
@@ -803,12 +809,12 @@ class McpServerService {
     server.registerTool(
       'automation_run',
       {
-        title: 'Запустить автоматизацию сейчас',
+        title: 'Run an automation now',
         description:
-          'Ручной запуск правила Automations по ключу из automation_list (как кнопка «Запустить сейчас»): те же '
-          + 'подтверждение проектного правила, дневные лимиты и журнал, без cooldown. Недоступен агентам ProjectHub.',
+          'Manually runs an Automations rule by its key from automation_list (like the "Run now" button): the same '
+          + 'project rule confirmation, daily limits and log, without cooldown. Not available to ProjectHub agents.',
         inputSchema: {
-          ruleKey: z.string().describe('Ключ правила из automation_list, например global:nightly-docs')
+          ruleKey: z.string().describe('Rule key from automation_list, e.g. global:nightly-docs')
         }
       },
       async ({ ruleKey }) => {
@@ -836,7 +842,7 @@ class McpServerService {
             ...def.input_schema,
             properties: {
               ...properties,
-              projectPath: { type: 'string', description: 'Путь к проекту — только для внешних MCP-клиентов; агенту проекта он известен' }
+              projectPath: { type: 'string', description: 'Project path, for external MCP clients only; a project agent already knows it' }
             }
           }
         : def.input_schema;
@@ -846,7 +852,7 @@ class McpServerService {
         async (args: Record<string, unknown>) => {
           const ctx = contextFor(args);
           if (!ctx) {
-            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран.' }] };
+            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: the agent session has ended or no project is selected.' }] };
           }
           const res = await callProjectTool(def.name, args, ctx, projectAgentToolDeps);
           return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
@@ -860,7 +866,7 @@ class McpServerService {
             ...def.input_schema,
             properties: {
               ...((def.input_schema.properties ?? {}) as Record<string, unknown>),
-              projectPath: { type: 'string', description: 'Путь к проекту — только для внешних MCP-клиентов; агенту проекта он известен' }
+              projectPath: { type: 'string', description: 'Project path, for external MCP clients only; a project agent already knows it' }
             }
           }
         : def.input_schema;
@@ -870,7 +876,7 @@ class McpServerService {
         async (args: Record<string, unknown>) => {
           const ctx = contextFor(args);
           if (!ctx) {
-            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран.' }] };
+            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: the agent session has ended or no project is selected.' }] };
           }
           const res = await callTrackerTool(def.name, args, ctx, trackerToolDeps);
           return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
@@ -884,7 +890,7 @@ class McpServerService {
             ...def.input_schema,
             properties: {
               ...((def.input_schema.properties ?? {}) as Record<string, unknown>),
-              projectPath: { type: 'string', description: 'Путь к проекту — только для внешних MCP-клиентов; агенту проекта он известен' }
+              projectPath: { type: 'string', description: 'Project path, for external MCP clients only; a project agent already knows it' }
             }
           }
         : def.input_schema;
@@ -894,7 +900,7 @@ class McpServerService {
         async (args: Record<string, unknown>) => {
           const ctx = contextFor(args);
           if (!ctx) {
-            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена или проект не выбран.' }] };
+            return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: the agent session has ended or no project is selected.' }] };
           }
           const res = await callCiTool(def.name, args, ctx, ciToolDeps);
           return { isError: res.isError, content: [{ type: 'text' as const, text: res.text }] };
@@ -981,7 +987,7 @@ class McpServerService {
           async (args: Record<string, unknown>) => {
             const ctx = this.computerCallContext(session.hitlSessionId, sseSessionId);
             if (!ctx) {
-              return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: сессия агента завершена — действие отклонено.' }] };
+              return { isError: true, content: [{ type: 'text' as const, text: 'ProjectHub: the agent session has ended, so the action was rejected.' }] };
             }
             const res = await computerUseService.callTool(def.name, args, ctx);
             return {
@@ -994,7 +1000,7 @@ class McpServerService {
         );
         session.computerTools.push(registered);
       } catch (err) {
-        console.warn(`[MCPServer] Не удалось зарегистрировать ${def.name}:`, err);
+        console.warn(`[MCPServer] Failed to register ${def.name}:`, err);
       }
     }
   }
@@ -1071,7 +1077,7 @@ class McpServerService {
           if (!res.writableEnded && !res.destroyed) this.sendJson(res, 200, out);
         })
         .catch((err) => {
-          console.error('[MCPServer] Ошибка хука терминала:', err);
+          console.error('[MCPServer] Terminal hook error:', err);
           if (!res.writableEnded && !res.destroyed) this.sendJson(res, 500, { error: 'Hook handling failed' });
         });
     });
@@ -1185,7 +1191,7 @@ class McpServerService {
       // `phSession` — только для основного токена: агент проекта не может выдать себя за сессию Agents Studio.
       const hitlSessionId = agentProject ? undefined : parsedUrl.searchParams.get(CLI_HITL_QUERY_PARAM) || undefined;
       console.log(
-        `[MCPServer] New client connected to SSE stream${hitlSessionId ? ` (HITL для сессии ${hitlSessionId})` : ''}${agentProject ? ' (агент проекта)' : ''}`
+        `[MCPServer] New client connected to SSE stream${hitlSessionId ? ` (HITL for session ${hitlSessionId})` : ''}${agentProject ? ' (project agent)' : ''}`
       );
       const transport = new SSEServerTransport('/message', res);
       const sessionId = transport.sessionId;

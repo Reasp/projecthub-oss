@@ -52,7 +52,7 @@ function isObject(value: unknown): value is JsonObject {
 
 export function truncateToolResult(text: string, max = TOOL_RESULT_MAX_CHARS): string {
   if (text.length <= max) return text;
-  return `${text.slice(0, max)}\n…[результат усечён: ${text.length - max} символов не показано]`;
+  return `${text.slice(0, max)}\n…[result truncated: ${text.length - max} characters not shown]`;
 }
 
 /** Anthropic tools → OpenAI `tools` (`type: function`). */
@@ -116,7 +116,7 @@ export function parseToolArguments(raw: string): JsonObject {
     const parsed: unknown = JSON.parse(raw);
     return isObject(parsed) ? parsed : { value: parsed };
   } catch {
-    return { _parseError: `Не удалось разобрать аргументы инструмента как JSON: ${raw.slice(0, 200)}` };
+    return { _parseError: `Could not parse the tool arguments as JSON: ${raw.slice(0, 200)}` };
   }
 }
 
@@ -142,7 +142,7 @@ export function buildAnthropicToolTurn(
 ): AnthropicToolTurnMessage[] {
   const content: JsonObject[] = assistantBlocks.filter((b) => b.type !== 'text' || b.text.length > 0).map((b) => ({ ...b }));
   const toolResults: JsonObject[] = results.map(({ call, result }) => {
-    const blocks: JsonObject[] = [{ type: 'text', text: truncateToolResult(result.content || (result.isError ? 'Ошибка' : 'OK')) }];
+    const blocks: JsonObject[] = [{ type: 'text', text: truncateToolResult(result.content || (result.isError ? 'Error' : 'OK')) }];
     for (const img of result.images ?? []) {
       blocks.push({ type: 'image', source: { type: 'base64', media_type: img.mimeType, data: img.data } });
     }
@@ -182,20 +182,20 @@ export function buildOpenAIToolTurn(
   ];
   const imageParts: JsonObject[] = [];
   for (const { call, result } of results) {
-    let text = truncateToolResult(result.content || (result.isError ? 'Ошибка' : 'OK'));
+    let text = truncateToolResult(result.content || (result.isError ? 'Error' : 'OK'));
     const images = result.images ?? [];
     if (images.length > 0) {
       if (options.vision) {
         for (const img of images) imageParts.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.data}` } });
-        text += `\n[изображений: ${images.length} — переданы следующим сообщением]`;
+        text += `\n[images: ${images.length} — sent in the next message]`;
       } else {
-        text += `\n[изображений: ${images.length} — не переданы: модель без vision; используй дерево доступности (get_ui_tree/find_element)]`;
+        text += `\n[images: ${images.length} — not sent: the model has no vision; use the accessibility tree (get_ui_tree/find_element)]`;
       }
     }
-    messages.push({ role: 'tool', tool_call_id: call.id, content: result.isError ? `Ошибка: ${text}` : text });
+    messages.push({ role: 'tool', tool_call_id: call.id, content: result.isError ? `Error: ${text}` : text });
   }
   if (imageParts.length > 0) {
-    messages.push({ role: 'user', content: [{ type: 'text', text: 'Скриншоты из результатов инструментов выше:' }, ...imageParts] });
+    messages.push({ role: 'user', content: [{ type: 'text', text: 'Screenshots from the tool results above:' }, ...imageParts] });
   }
   return messages;
 }

@@ -2754,6 +2754,7 @@ export const ru: TranslationDictionary = {
     executorDefaultRole: 'Исполнитель',
     stageDefaultRole: 'Этап {num}',
     stageDefaultInstructions: 'Выполни этап {role}',
+    startError: 'Не удалось запустить рой: {error}',
     multiAgentSwarmTitle: 'Конфигурация роя: Multi-Agent Swarm & Arena',
     multiAgentSwarmDesc: 'Параллельная битва решений (Fan-Out) или сквозной конвейер (Handoff)',
     orchestrationMode: 'Режим оркестрации',

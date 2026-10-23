@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { AppBusEvent } from './hitlTypes.js';
 import type { Language } from '../../src/i18n/types.js';
 import { describeHitlRequest } from '../../src/lib/agentStatusText.js';
+import { formatAppError } from '../../src/lib/appError.js';
 import { hostText, type HostText } from '../i18n/hostText.js';
 import {
   NOTIFICATION_CHANNELS,
@@ -273,7 +274,9 @@ export function describeBusEvent(event: AppBusEvent, lang: Language = 'en'): App
         kind: 'agentFailed',
         severity: 'critical',
         title: tx.notify.agentFailed,
-        body: [projectName(event.projectPath), agentLabel(event, tx), trim(event.error, 140)].filter(Boolean).join(' · '),
+        body: [projectName(event.projectPath), agentLabel(event, tx), trim((event.errorKey && formatAppError(event.errorKey, tx.appErrors)) || event.error, 140)]
+          .filter(Boolean)
+          .join(' · '),
         at: event.at,
         dedupKey: `agent:failed:${event.sessionId}`,
         projectPath: event.projectPath,
@@ -487,8 +490,10 @@ export function describeBusEvent(event: AppBusEvent, lang: Language = 'en'): App
         id: `automation-failed-${event.runId}`,
         kind: 'automation',
         severity: 'warning',
-        title: tx.notify.automationFailed(trim(event.ruleName, 60)),
-        body: [trim(event.detail || event.action, 160), projectName(event.projectPath)].filter(Boolean).join(' · '),
+        title: tx.notify.automationFailed(trim(event.builtin ? tx.notify.builtinRuleName : event.ruleName, 60)),
+        body: [trim((event.detailKey && formatAppError(event.detailKey, tx.appErrors)) || event.detail || event.action, 160), projectName(event.projectPath)]
+          .filter(Boolean)
+          .join(' · '),
         at: event.at,
         dedupKey: `automation:failed:${event.runId}`,
         ...(event.projectPath ? { projectPath: event.projectPath, projectName: projectName(event.projectPath) } : {}),
@@ -522,7 +527,7 @@ export function describeBusEvent(event: AppBusEvent, lang: Language = 'en'): App
         id: `security-${event.source}-${event.at}`,
         kind: 'securityFinding',
         severity,
-        title: trim(event.title, 120),
+        title: trim((event.titleKey && formatAppError(event.titleKey, tx.appErrors)) || event.title, 120),
         body: [trim(event.summary, 200), projectName(event.projectPath)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `security:${event.source}:${event.projectPath}:${event.key}`,

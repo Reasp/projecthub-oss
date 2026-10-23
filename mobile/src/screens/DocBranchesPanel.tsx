@@ -4,7 +4,8 @@ import clsx from 'clsx';
 import type { RemoteDocBranchDiff, RemoteDocBranchMerge, RemoteDocBranches } from '../../../src/types/remote';
 import { collapseUnchanged, lineDiff } from '../../../src/lib/lineDiff';
 import { useServices } from '../app/context';
-import { useT } from '../i18n/react';
+import { useLanguage, useT } from '../i18n/react';
+import { hostLabelText } from '../../../src/i18n/hostLabels';
 import { Badge, Button, Card, Confirm, Sheet, Spinner } from '../components/ui';
 import { errorText } from '../app/errorText';
 
@@ -127,6 +128,7 @@ function FileBlock({
 
 export function DocBranchesPanel({ projectPath, refreshTick }: { projectPath: string; refreshTick: number }) {
   const tr = useT().docs.branches;
+  const language = useLanguage();
   const { store } = useServices();
   const [overview, setOverview] = useState<RemoteDocBranches | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -216,7 +218,7 @@ export function DocBranchesPanel({ projectPath, refreshTick }: { projectPath: st
           </div>
           <div className="mt-1 text-[14px] leading-snug">{br.title}</div>
           <div className="mt-0.5 text-[11.5px] text-slate-500">
-            {[br.author, br.task, tr.docs(br.docs.length), br.conflicts ? tr.conflicts(br.conflicts) : ''].filter(Boolean).join(' · ')}
+            {[br.author ? hostLabelText(br.author, language) : '', br.task, tr.docs(br.docs.length), br.conflicts ? tr.conflicts(br.conflicts) : ''].filter(Boolean).join(' · ')}
           </div>
         </Card>
       ))}

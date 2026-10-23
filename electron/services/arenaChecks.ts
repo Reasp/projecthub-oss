@@ -5,6 +5,9 @@
  * вывода команды, выход это `CheckDefinition[]` и счётчики. Покрыт unit-тестами.
  */
 import type { CheckArtifactsConfig, CheckDefinition, CheckKind, CheckRunResult, CheckStatus } from './arenaTypes.js';
+import type { Language } from '../../src/i18n/types.js';
+import { formatAppError } from '../../src/lib/appError.js';
+import { hostText } from '../i18n/hostText.js';
 
 /** Сколько символов вывода команды сохраняется в результате проверки (хвост). */
 export const CHECK_OUTPUT_TAIL_CHARS = 8000;
@@ -278,20 +281,26 @@ export function isCountedStatus(status: CheckStatus): boolean {
   return status === 'passed' || isFailedStatus(status);
 }
 
-/** Короткая сводка результата для строки в UI и отчёта ревьюеру. */
-export function summarizeCheckResult(result: CheckRunResult): string {
+/**
+ * Короткая сводка результата: журнал, промпт модели и отчёт ревьюеру — по-английски; итог в файле задачи — на языке
+ * хоста (`lang`, decision-161).
+ */
+export function summarizeCheckResult(result: CheckRunResult, lang: Language = 'en'): string {
+  const tx = hostText(lang).checks;
   const parts: string[] = [result.status];
   if (typeof result.failedTests === 'number' && result.failedTests > 0) {
-    parts.push(`упавших тестов: ${result.failedTests}${result.totalTests ? ` из ${result.totalTests}` : ''}`);
+    parts.push(tx.failedTests(result.failedTests, result.totalTests));
   } else if (typeof result.errorCount === 'number' && result.errorCount > 0) {
-    parts.push(`ошибок: ${result.errorCount}`);
+    parts.push(tx.errors(result.errorCount));
   }
-  if (typeof result.durationMs === 'number') parts.push(`${(result.durationMs / 1000).toFixed(1)} с`);
+  if (typeof result.durationMs === 'number') parts.push(tx.seconds((result.durationMs / 1000).toFixed(1)));
   if (result.artifacts && result.artifacts.length > 0) {
     const shots = result.artifacts.filter((a) => a.kind === 'screenshot').length;
-    const traces = result.artifacts.length - shots;
-    parts.push(`скриншотов: ${shots}${traces > 0 ? `, trace: ${traces}` : ''}${result.artifactsTruncated ? ' (часть не сохранена по лимиту)' : ''}`);
+    parts.push(tx.artifacts(shots, result.artifacts.length - shots, Boolean(result.artifactsTruncated)));
   }
-  if (result.detail) parts.push(result.detail);
+  if (result.detail) {
+    const keyed = result.detailKey && lang !== 'en' ? formatAppError(result.detailKey, hostText(lang).appErrors) : null;
+    parts.push(keyed ?? result.detail);
+  }
   return parts.join(', ');
 }

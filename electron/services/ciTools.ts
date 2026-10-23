@@ -25,27 +25,27 @@ export const CI_TOOL_DEFINITIONS: ReadonlyArray<{ name: CiToolName; description:
   {
     name: 'ci_status',
     description:
-      'Пайплайны CI проекта (GitHub Actions, GitLab CI, Jenkins) по ветке или коммиту: статус, ссылка, упавшие задания. '
-      + 'Без ветки и коммита — текущая ветка рабочего дерева агента.',
+      'Project CI pipelines (GitHub Actions, GitLab CI, Jenkins) for a branch or commit: status, link, failed jobs. '
+      + 'Without a branch or commit, the current branch of the agent\'s working tree is used.',
     input_schema: {
       type: 'object',
       properties: {
-        branch: { type: 'string', description: 'Ветка' },
-        sha: { type: 'string', description: 'Коммит' },
-        limit: { type: 'number', description: 'Сколько запусков вернуть (по умолчанию 10)' }
+        branch: { type: 'string', description: 'Branch' },
+        sha: { type: 'string', description: 'Commit' },
+        limit: { type: 'number', description: 'How many runs to return (default 10)' }
       }
     }
   },
   {
     name: 'ci_failed_log',
     description:
-      'Хвост лога упавших заданий запуска (до трёх) или одного задания, секреты замаскированы. Провайдер и id запуска — из ci_status.',
+      'Log tail of a run\'s failed jobs (up to three) or of a single job, with secrets masked. Take the provider and run id from ci_status.',
     input_schema: {
       type: 'object',
       properties: {
         provider: { type: 'string', enum: ['github-actions', 'gitlab-ci', 'jenkins'] },
-        runId: { type: 'string', description: 'Id запуска из ci_status' },
-        jobId: { type: 'string', description: 'Id задания; без него — упавшие задания запуска' }
+        runId: { type: 'string', description: 'Run id from ci_status' },
+        jobId: { type: 'string', description: 'Job id; without it, the run\'s failed jobs' }
       },
       required: ['provider', 'runId']
     }
@@ -53,15 +53,15 @@ export const CI_TOOL_DEFINITIONS: ReadonlyArray<{ name: CiToolName; description:
   {
     name: 'ci_rerun',
     description:
-      'Перезапустить упавшие задания запуска или запустить ручное задание GitLab (деплой, jobId). Действие во внешнем '
-      + 'сервисе: ждёт одобрения человека в ProjectHub. Сначала исправь причину падения.',
+      'Rerun a run\'s failed jobs or start a manual GitLab job (deploy, jobId). This acts on an external '
+      + 'service, so it waits for human approval in ProjectHub. Fix the cause of the failure first.',
     input_schema: {
       type: 'object',
       properties: {
         provider: { type: 'string', enum: ['github-actions', 'gitlab-ci', 'jenkins'] },
-        runId: { type: 'string', description: 'Id запуска из ci_status' },
-        jobId: { type: 'string', description: 'Ручное задание GitLab для запуска (деплой); без него — перезапуск упавших' },
-        reason: { type: 'string', description: 'Зачем перезапуск: что исправлено' }
+        runId: { type: 'string', description: 'Run id from ci_status' },
+        jobId: { type: 'string', description: 'Manual GitLab job to start (deploy); without it, failed jobs are rerun' },
+        reason: { type: 'string', description: 'Why rerun: what was fixed' }
       },
       required: ['provider', 'runId']
     }
@@ -89,19 +89,19 @@ export interface CiToolResult {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  queued: 'в очереди',
-  running: 'идёт',
-  success: 'успех',
-  failure: 'упал',
-  cancelled: 'отменён',
-  skipped: 'пропущен',
-  manual: 'ждёт ручного запуска'
+  queued: 'queued',
+  running: 'running',
+  success: 'success',
+  failure: 'failed',
+  cancelled: 'cancelled',
+  skipped: 'skipped',
+  manual: 'waiting for manual start'
 };
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
 
 function formatRun(run: CiRun): string {
-  return `- [${run.provider}] ${run.name}${run.number ? ` #${run.number}` : ''} (id ${run.id}): ${STATUS_LABELS[run.status] ?? run.status}, ветка ${run.branch || '—'}, коммит ${run.sha.slice(0, 10) || '—'}${run.url ? `, ${run.url}` : ''}`;
+  return `- [${run.provider}] ${run.name}${run.number ? ` #${run.number}` : ''} (id ${run.id}): ${STATUS_LABELS[run.status] ?? run.status}, branch ${run.branch || '—'}, commit ${run.sha.slice(0, 10) || '—'}${run.url ? `, ${run.url}` : ''}`;
 }
 
 /** Где человека рядом нет: запись в CI — только с явным разрешением роли. */
@@ -110,9 +110,9 @@ function unattended(ctx: ProjectToolContext): boolean {
 }
 
 export async function callCiTool(name: string, args: Record<string, unknown>, ctx: ProjectToolContext, deps: CiToolDeps): Promise<CiToolResult> {
-  if (!isCiToolName(name)) return { text: `Неизвестный инструмент: ${name}`, isError: true };
+  if (!isCiToolName(name)) return { text: `Unknown tool: ${name}`, isError: true };
   const root = findOwningProject(await deps.listProjectRoots(), ctx.sessionPath);
-  if (!root) return { text: 'Сессия не привязана к зарегистрированному проекту ProjectHub.', isError: true };
+  if (!root) return { text: 'The session is not linked to a registered ProjectHub project.', isError: true };
 
   try {
     if (name === 'ci_status') {
@@ -121,31 +121,31 @@ export async function callCiTool(name: string, args: Record<string, unknown>, ct
       const limit = Math.max(1, Math.min(Number(args.limit) || 10, 30));
       const res = await deps.listRuns(root, { ...(branch ? { branch } : {}), ...(sha ? { sha } : {}), limit });
       if (!res.providers.length) {
-        return { text: 'CI для проекта не настроен: нет подключения к GitHub или GitLab репозитория (или входа gh) и не задано задание Jenkins.', isError: true };
+        return { text: 'CI is not configured for the project: no GitHub or GitLab repository connection (or gh login) and no Jenkins job set.', isError: true };
       }
       const lines = [
-        `CI: ${res.providers.map((p) => `${p.label} через «${p.via}»`).join(', ')}`,
-        `Фильтр: ${branch ? `ветка ${branch}` : ''}${branch && sha ? ', ' : ''}${sha ? `коммит ${sha}` : ''}${!branch && !sha ? 'все ветки' : ''}`,
-        `Сводка: ${res.summary ? (STATUS_LABELS[res.summary] ?? res.summary) : 'запусков нет'}`,
+        `CI: ${res.providers.map((p) => `${p.label} via "${p.via}"`).join(', ')}`,
+        `Filter: ${branch ? `branch ${branch}` : ''}${branch && sha ? ', ' : ''}${sha ? `commit ${sha}` : ''}${!branch && !sha ? 'all branches' : ''}`,
+        `Summary: ${res.summary ? (STATUS_LABELS[res.summary] ?? res.summary) : 'no runs'}`,
         ...res.runs.slice(0, limit).map(formatRun),
-        ...res.errors.map((e) => `Ошибка: ${e}`)
+        ...res.errors.map((e) => `Error: ${e}`)
       ];
       const failed = res.runs.slice(0, limit).filter((r) => r.status === 'failure');
-      if (failed.length) lines.push('Лог упавших заданий: ci_failed_log с provider и runId.');
+      if (failed.length) lines.push('Failed job logs: ci_failed_log with provider and runId.');
       return { text: lines.join('\n'), isError: !res.ok };
     }
 
     const provider = str(args.provider);
     const runId = str(args.runId);
-    if (!provider || !runId) return { text: 'Нужны provider и runId из ci_status.', isError: true };
+    if (!provider || !runId) return { text: 'provider and runId from ci_status are required.', isError: true };
 
     if (name === 'ci_failed_log') {
       const logs = await deps.failedLogs(root, provider, runId, str(args.jobId) || undefined);
-      if (!logs.length) return { text: `В запуске ${runId} нет упавших заданий.`, isError: false };
+      if (!logs.length) return { text: `Run ${runId} has no failed jobs.`, isError: false };
       const text = logs
         .map((l) => {
-          const head = `### ${l.job.name}${l.job.stage ? ` (${l.job.stage})` : ''}: ${STATUS_LABELS[l.job.status] ?? l.job.status}${l.job.failedStep ? `, шаг «${l.job.failedStep}»` : ''}`;
-          const cut = l.truncated ? `\n(последние строки из ${l.totalLines})` : '';
+          const head = `### ${l.job.name}${l.job.stage ? ` (${l.job.stage})` : ''}: ${STATUS_LABELS[l.job.status] ?? l.job.status}${l.job.failedStep ? `, step "${l.job.failedStep}"` : ''}`;
+          const cut = l.truncated ? `\n(last lines of ${l.totalLines})` : '';
           return `${head}${cut}\n\`\`\`\n${l.text}\n\`\`\``;
         })
         .join('\n\n');
@@ -156,11 +156,11 @@ export async function callCiTool(name: string, args: Record<string, unknown>, ct
     const jobId = str(args.jobId);
     const run = await deps.getRun(root, provider, runId);
     const job = jobId ? run.jobs.find((j) => j.id === jobId) : undefined;
-    if (jobId && !job) return { text: `Задание ${jobId} не найдено в запуске ${runId}.`, isError: true };
+    if (jobId && !job) return { text: `Job ${jobId} not found in run ${runId}.`, isError: true };
     if (!jobId && !run.jobs.some((j) => j.status === 'failure') && provider !== 'jenkins') {
-      return { text: `В запуске ${runId} нечего перезапускать: упавших заданий нет.`, isError: true };
+      return { text: `Nothing to rerun in run ${runId}: no failed jobs.`, isError: true };
     }
-    const action = job ? `запуск ручного задания «${job.name}»` : 'перезапуск упавших заданий';
+    const action = job ? `started manual job "${job.name}"` : 'reran failed jobs';
     const where = await deps.describeTarget(root, provider);
     const info = {
       sessionId: ctx.sessionId,
@@ -186,20 +186,20 @@ export async function callCiTool(name: string, args: Record<string, unknown>, ct
     if (unattended(ctx) && !ctx.permissions?.allowedTools?.includes('ci_rerun')) {
       deps.recordAutoDecision(info, 'deny', CI_TOOLS_AUDIT_RULE, 'unattended-not-allowed');
       return {
-        text: 'Перезапуск CI из Automations и автозапуска разрешён, только если роль явно разрешает ci_rerun. Сообщи человеку, что нужен перезапуск.',
+        text: 'CI reruns from Automations and auto-start are allowed only if the role explicitly allows ci_rerun. Tell the human a rerun is needed.',
         isError: true
       };
     }
     if (!deps.requestApproval) {
       deps.recordAutoDecision(info, 'deny', CI_TOOLS_AUDIT_RULE, 'no-approver');
-      return { text: 'Перезапуск CI требует одобрения человека, а одобрить сейчас некому. Попросите человека перезапустить в ProjectHub.', isError: true };
+      return { text: 'A CI rerun requires human approval, and no one is available to approve right now. Ask the human to rerun it in ProjectHub.', isError: true };
     }
     const approved = await deps.requestApproval(info).catch(() => false);
-    if (!approved) return { text: 'Человек не одобрил перезапуск. Не запускай его другим способом.', isError: true };
+    if (!approved) return { text: 'The human did not approve the rerun. Do not run it another way.', isError: true };
     if (job) await deps.playJob(root, provider, job.id);
     else await deps.retry(root, provider, runId);
-    return { text: `Готово: ${action}, ${run.url}. Статус — ci_status через минуту-другую.`, isError: false };
+    return { text: `Done: ${action}, ${run.url}. Check the status with ci_status in a minute or two.`, isError: false };
   } catch (err) {
-    return { text: `Ошибка CI: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+    return { text: `CI error: ${err instanceof Error ? err.message : String(err)}`, isError: true };
   }
 }

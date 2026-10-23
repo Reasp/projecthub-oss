@@ -1,6 +1,6 @@
 import React from 'react';
 import { Gavel, RefreshCw, Play, Square, Settings2, Layers, Trophy, ShieldAlert, GitMerge } from '../../common/icons';
-import { useTranslation } from '../../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../../i18n/useTranslation';
 import type { AgentSlotState, SwarmSession } from '../../../types/electron';
 import { componentLabel, formatScore, scoreClass } from '../../../utils/arenaFormat';
 
@@ -142,14 +142,23 @@ export const ArenaJudgePanel: React.FC<ArenaJudgePanelProps> = ({
 
       {judge?.status === 'failed' && judge.error && (
         <div className="px-3 py-2 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg text-xs">
-          {j.judgeError.replace('{error}', judge.error)}
+          {j.judgeError.replace('{error}', ipcFailureText(judge))}
         </div>
       )}
 
       {judge?.status === 'done' && !judge.recommendedAgentId && (
         <div className="px-3 py-2 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-lg text-xs flex items-center gap-2">
           <ShieldAlert className="w-4 h-4 shrink-0" />
-          <span>{j.noRecommendation.replace('{reason}', judge.error || judge.autoMerge?.reason || j.noCandidates)}</span>
+          <span>
+            {j.noRecommendation.replace(
+              '{reason}',
+              judge.error
+                ? ipcFailureText(judge)
+                : judge.autoMerge?.reason
+                  ? ipcFailureText({ error: judge.autoMerge.reason, errorKey: judge.autoMerge.reasonKey })
+                  : j.noCandidates
+            )}
+          </span>
         </div>
       )}
 
@@ -172,8 +181,8 @@ export const ArenaJudgePanel: React.FC<ArenaJudgePanelProps> = ({
             {!judge.autoMerge.enabled
               ? j.autoMergeOff
               : judge.autoMerge.merged
-              ? j.autoMergeDone.replace('{reason}', judge.autoMerge.reason)
-              : j.autoMergeSkipped.replace('{reason}', judge.autoMerge.reason)}
+              ? j.autoMergeDone.replace('{reason}', ipcFailureText({ error: judge.autoMerge.reason, errorKey: judge.autoMerge.reasonKey }))
+              : j.autoMergeSkipped.replace('{reason}', ipcFailureText({ error: judge.autoMerge.reason, errorKey: judge.autoMerge.reasonKey }))}
           </span>
         </div>
       )}
@@ -203,8 +212,11 @@ export const ArenaJudgePanel: React.FC<ArenaJudgePanelProps> = ({
                 <span className="w-14 text-right font-mono text-muted-foreground" title={`${j.weightLabel} ${c.weight}`}>
                   {c.points.toFixed(1)}/{c.weight}
                 </span>
-                <span className="w-56 shrink-0 truncate text-muted-foreground/80" title={c.unknown ? j.componentUnknown : c.detail}>
-                  {c.unknown ? j.componentUnknown : c.detail}
+                <span
+                  className="w-56 shrink-0 truncate text-muted-foreground/80"
+                  title={c.unknown ? j.componentUnknown : ipcFailureText({ error: c.detail, errorKey: c.detailKey })}
+                >
+                  {c.unknown ? j.componentUnknown : ipcFailureText({ error: c.detail, errorKey: c.detailKey })}
                 </span>
               </div>
             ))}
@@ -224,7 +236,7 @@ export const ArenaJudgePanel: React.FC<ArenaJudgePanelProps> = ({
                   ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
                   : 'bg-secondary/40 text-muted-foreground border-border/60'
               }`}
-              title={agent.score?.blockedReason || ''}
+              title={agent.score?.blockedReason ? ipcFailureText({ error: agent.score.blockedReason, errorKey: agent.score.blockedReasonKey }) : ''}
             >
               <span className="font-mono">#{idx + 1}</span>
               <span className="font-medium truncate max-w-[140px]">{agent.config.name}</span>

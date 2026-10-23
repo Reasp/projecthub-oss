@@ -371,8 +371,9 @@ export const NewSwarmModal: React.FC = () => {
       return;
     }
 
+    let started: Awaited<ReturnType<typeof startFanOutAction>>;
     if (mode === 'fan_out') {
-      await startFanOutAction({
+      started = await startFanOutAction({
         projectPath: selectedProject.path,
         prompt: prompt.trim(),
         taskId: selectedTaskId || undefined,
@@ -384,12 +385,12 @@ export const NewSwarmModal: React.FC = () => {
     } else {
       const preset = presets.find((p) => p.id === selectedPresetId);
       const stages = agents.map((ag, idx) => ({
-        role: ag.role || t.swarm.stageDefaultRole.replace('{n}', String(idx + 1)),
+        role: ag.role || t.swarm.stageDefaultRole.replace('{num}', String(idx + 1)),
         agent: ag,
         instructions: preset?.stages?.[idx]?.instructions || t.swarm.stageDefaultInstructions.replace('{role}', ag.role || '')
       }));
 
-      await startHandoffAction({
+      started = await startHandoffAction({
         projectPath: selectedProject.path,
         prompt: prompt.trim(),
         taskId: selectedTaskId || undefined,
@@ -399,6 +400,7 @@ export const NewSwarmModal: React.FC = () => {
         stages
       });
     }
+    if (started && !('id' in started)) await dialog.alert(t.swarm.startError.replace('{error}', started.error));
   };
 
   return createPortal(

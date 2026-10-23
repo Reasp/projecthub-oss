@@ -93,42 +93,42 @@ const numList = (v: unknown): number[] => (Array.isArray(v) ? v.map(Number).filt
 export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; description: string; input_schema: Record<string, unknown> }> = [
   {
     name: 'task_list',
-    description: 'Список задач проекта (backlog/tasks): id, статус, заголовок, метки. Перед новой работой проверь, нет ли уже задачи под неё.',
+    description: 'Lists the project tasks (backlog/tasks): id, status, title, labels. Before starting new work, check whether a task for it already exists.',
     input_schema: {
       type: 'object',
       properties: {
-        status: { type: 'string', description: 'Только задачи с этим статусом' },
-        query: { type: 'string', description: 'Слова для поиска в заголовке, описании и метках' },
-        limit: { type: 'number', description: 'Сколько задач вернуть (по умолчанию 50)' }
+        status: { type: 'string', description: 'Only tasks with this status' },
+        query: { type: 'string', description: 'Words to search for in the title, description and labels' },
+        limit: { type: 'number', description: 'How many tasks to return (default 50)' }
       }
     }
   },
   {
     name: 'task_view',
-    description: 'Задача целиком: frontmatter, описание, критерии приёмки, заметки и итог.',
-    input_schema: { type: 'object', properties: { id: { type: 'string', description: 'id задачи, например TASK-12 или TASK-12.3' } }, required: ['id'] }
+    description: 'The whole task: frontmatter, description, acceptance criteria, notes and final summary.',
+    input_schema: { type: 'object', properties: { id: { type: 'string', description: 'Task id, for example TASK-12 or TASK-12.3' } }, required: ['id'] }
   },
   {
     name: 'task_create',
     description:
-      'Создать задачу Backlog.md (статус To Do). Описание — Markdown с короткими разделами ### (Почему, Цель, Ограничения). '
-      + 'Заголовок короткий: детали — в описание. Задача, заведённая агентом, получает метку agent-created и ждёт '
-      + 'подтверждения человека: автозапуск её не берёт, пока человек не подтвердит. Есть лимит задач на сессию и на сутки.',
+      'Creates a Backlog.md task (status To Do). The description is Markdown with short ### sections (Why, Goal, Constraints). '
+      + 'Keep the title short and put details in the description. A task created by an agent gets the agent-created label and waits '
+      + 'for human approval: auto-start does not pick it up until a human approves it. Tasks are limited per session and per day.',
     input_schema: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: 'Короткий заголовок' },
-        description: { type: 'string', description: 'Описание в Markdown' },
-        labels: { type: 'array', items: { type: 'string' }, description: 'Метки' },
-        priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Приоритет' },
-        type: { type: 'string', description: 'Тип: feature, bug, task, docs, chore…' },
-        acceptanceCriteria: { type: 'array', items: { type: 'string' }, description: 'Проверяемые критерии приёмки' },
-        parentTaskId: { type: 'string', description: 'id родительской задачи — тогда создаётся подзадача TASK-N.M' },
+        title: { type: 'string', description: 'Short title' },
+        description: { type: 'string', description: 'Description in Markdown' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Labels' },
+        priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Priority' },
+        type: { type: 'string', description: 'Type: feature, bug, task, docs, chore…' },
+        acceptanceCriteria: { type: 'array', items: { type: 'string' }, description: 'Verifiable acceptance criteria' },
+        parentTaskId: { type: 'string', description: 'Parent task id: a subtask TASK-N.M is created under it' },
         milestone: { type: 'string', description: 'Milestone' },
         assignee: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Исполнители: человек или agent:<роль>@<хост>. Ставь, только если об этом попросили'
+          description: 'Assignees: a person or agent:<role>@<host>. Set only when asked to'
         }
       },
       required: ['title']
@@ -137,51 +137,51 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
   {
     name: 'task_update',
     description:
-      'Изменить задачу: статус (To Do → In Progress → Review → Done; законченную работу — в Review), заголовок, описание, '
-      + 'метки, критерии (добавить, отметить), заметку хода работы, итог.',
+      'Updates a task: status (To Do → In Progress → Review → Done; finished work goes to Review), title, description, '
+      + 'labels, criteria (add, check), a progress note, the final summary.',
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'id задачи' },
-        status: { type: 'string', description: 'Новый статус из config.yml проекта' },
-        title: { type: 'string', description: 'Новый заголовок' },
-        description: { type: 'string', description: 'Новое описание целиком' },
-        labels: { type: 'array', items: { type: 'string' }, description: 'Метки целиком (метку agent-created снимает только человек)' },
+        id: { type: 'string', description: 'Task id' },
+        status: { type: 'string', description: 'New status from the project config.yml' },
+        title: { type: 'string', description: 'New title' },
+        description: { type: 'string', description: 'The whole new description' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'The full label list (only a human removes the agent-created label)' },
         assignee: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Исполнители целиком. Назначить агента на подтверждённую задачу может только человек'
+          description: 'The full assignee list. Only a human can assign an agent to an approved task'
         },
         priority: { type: 'string', enum: ['high', 'medium', 'low'] },
-        addCriteria: { type: 'array', items: { type: 'string' }, description: 'Добавить критерии приёмки' },
-        checkCriteria: { type: 'array', items: { type: 'number' }, description: 'Отметить выполненными критерии с этими номерами (с 1)' },
-        uncheckCriteria: { type: 'array', items: { type: 'number' }, description: 'Снять отметку с критериев с этими номерами' },
-        appendNotes: { type: 'string', description: 'Дописать заметку в Implementation Notes' },
-        finalSummary: { type: 'string', description: 'Итог работы (Final Summary) целиком' }
+        addCriteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria to add' },
+        checkCriteria: { type: 'array', items: { type: 'number' }, description: 'Mark the criteria with these numbers as done (1-based)' },
+        uncheckCriteria: { type: 'array', items: { type: 'number' }, description: 'Uncheck the criteria with these numbers' },
+        appendNotes: { type: 'string', description: 'Note to append to Implementation Notes' },
+        finalSummary: { type: 'string', description: 'The whole Final Summary of the work' }
       },
       required: ['id']
     }
   },
   {
     name: 'doc_list',
-    description: 'Документы (backlog/docs) и решения (backlog/decisions) проекта: id, заголовок, раздел, статус.',
+    description: 'Project documents (backlog/docs) and decisions (backlog/decisions): id, title, section, status.',
     input_schema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['doc', 'decision', 'all'], description: 'Что перечислить (по умолчанию all)' },
-        section: { type: 'string', description: 'Только раздел (и подразделы), например "Архитектура"' },
-        branch: { type: 'string', description: 'Ветка документации (db-N): только документы, изменённые в ней' }
+        kind: { type: 'string', enum: ['doc', 'decision', 'all'], description: 'What to list (default all)' },
+        section: { type: 'string', description: 'Only this section (and its subsections), for example "Architecture"' },
+        branch: { type: 'string', description: 'Documentation branch (db-N): only documents changed in it' }
       }
     }
   },
   {
     name: 'doc_view',
-    description: 'Документ или решение целиком по id (doc-N, decision-N). С branch — версия из ветки документации.',
+    description: 'The whole document or decision by id (doc-N, decision-N). With branch, the version from that documentation branch.',
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'doc-N или decision-N' },
-        branch: { type: 'string', description: 'Ветка документации (db-N)' }
+        id: { type: 'string', description: 'doc-N or decision-N' },
+        branch: { type: 'string', description: 'Documentation branch (db-N)' }
       },
       required: ['id']
     }
@@ -189,20 +189,20 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
   {
     name: 'doc_create',
     description:
-      'Создать документ (kind: doc) или архитектурное решение ADR (kind: decision) в формате Backlog.md. '
-      + 'Раздел обязателен: посмотри существующие через doc_list и выбери подходящий. '
-      + 'Решение: разделы ## Context, ## Decision, ## Consequences. Ссылки — [[decision-N]], [[doc-N]], [[TASK-N]].',
+      'Creates a document (kind: doc) or an architecture decision record, ADR (kind: decision), in Backlog.md format. '
+      + 'A section is required: look at the existing ones with doc_list and pick a fitting one. '
+      + 'A decision has the sections ## Context, ## Decision, ## Consequences. Links: [[decision-N]], [[doc-N]], [[TASK-N]].',
     input_schema: {
       type: 'object',
       properties: {
         kind: { type: 'string', enum: ['doc', 'decision'] },
-        title: { type: 'string', description: 'Заголовок' },
-        section: { type: 'string', description: 'Раздел дерева документации через /, например "Архитектура/Агенты"' },
-        content: { type: 'string', description: 'Текст в Markdown (без frontmatter)' },
-        docType: { type: 'string', enum: ['guide', 'readme', 'specification', 'other'], description: 'Тип документа (для kind: doc)' },
-        status: { type: 'string', enum: ['proposed', 'accepted', 'rejected', 'deprecated'], description: 'Статус решения (для kind: decision)' },
+        title: { type: 'string', description: 'Title' },
+        section: { type: 'string', description: 'Section of the documentation tree, levels separated by /, for example "Architecture/Agents"' },
+        content: { type: 'string', description: 'Markdown text (without frontmatter)' },
+        docType: { type: 'string', enum: ['guide', 'readme', 'specification', 'other'], description: 'Document type (for kind: doc)' },
+        status: { type: 'string', enum: ['proposed', 'accepted', 'rejected', 'deprecated'], description: 'Decision status (for kind: decision)' },
         tags: { type: 'array', items: { type: 'string' } },
-        branch: { type: 'string', description: 'Ветка документации (db-N): создать документ в ней, а не в основной' }
+        branch: { type: 'string', description: 'Documentation branch (db-N): create the document there instead of the main documentation' }
       },
       required: ['kind', 'title', 'section']
     }
@@ -210,30 +210,30 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
   {
     name: 'doc_update',
     description:
-      'Изменить документ или решение по id. Раздел, id и прочие поля frontmatter сохраняются, если их не менять явно. '
-      + 'С branch правка идёт в ветку документации и попадёт в основную только после принятия.',
+      'Updates a document or decision by id. The section, id and other frontmatter fields are kept unless you change them explicitly. '
+      + 'With branch, the edit goes to that documentation branch and reaches the main documentation only after it is accepted.',
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'doc-N или decision-N' },
-        content: { type: 'string', description: 'Новый текст целиком (без frontmatter)' },
+        id: { type: 'string', description: 'doc-N or decision-N' },
+        content: { type: 'string', description: 'The whole new text (without frontmatter)' },
         title: { type: 'string' },
         section: { type: 'string' },
         status: { type: 'string', enum: ['proposed', 'accepted', 'rejected', 'deprecated'] },
         tags: { type: 'array', items: { type: 'string' } },
-        branch: { type: 'string', description: 'Ветка документации (db-N)' }
+        branch: { type: 'string', description: 'Documentation branch (db-N)' }
       },
       required: ['id']
     }
   },
   {
     name: 'docs_search',
-    description: 'Поиск по документации, решениям, задачам и памяти проекта. Вызывай перед ответом про устройство проекта.',
+    description: 'Searches the project documentation, decisions, tasks and memory. Call it before answering how the project works.',
     input_schema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Запрос на естественном языке' },
-        limit: { type: 'number', description: 'Сколько результатов (1–20, по умолчанию 8)' }
+        query: { type: 'string', description: 'Natural-language query' },
+        limit: { type: 'number', description: 'How many results (1–20, default 8)' }
       },
       required: ['query']
     }
@@ -241,33 +241,33 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
   {
     name: 'doc_branch_open',
     description:
-      'Открыть ветку документации (decision-151): свою копию документов и решений, которую не видят другие агенты, пока её не '
-      + 'примут. Правки в ней — doc_create/doc_update с branch. Открывай, когда меняешь существующие документы параллельно '
-      + 'с другими агентами или хочешь показать правку человеку до принятия. Рабочее дерево и worktree не меняются.',
+      'Opens a documentation branch (decision-151): your own copy of the documents and decisions that other agents do not see until it '
+      + 'is accepted. Edit it with doc_create/doc_update and branch. Open one when you change existing documents in parallel '
+      + 'with other agents or want to show an edit to a human before it is accepted. The working tree and worktrees are not changed.',
     input_schema: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: 'Что меняется в документации, коротко' },
-        task: { type: 'string', description: 'Задача, ради которой правка (TASK-N)' }
+        title: { type: 'string', description: 'What changes in the documentation, briefly' },
+        task: { type: 'string', description: 'The task this edit is for (TASK-N)' }
       },
       required: ['title']
     }
   },
   {
     name: 'doc_branch_list',
-    description: 'Открытые и предложенные ветки документации проекта: id, статус, автор, число изменённых документов.',
-    input_schema: { type: 'object', properties: { all: { type: 'boolean', description: 'Включая принятые и закрытые' } } }
+    description: 'Open and proposed documentation branches of the project: id, status, author, number of changed documents.',
+    input_schema: { type: 'object', properties: { all: { type: 'boolean', description: 'Include merged and closed branches' } } }
   },
   {
     name: 'doc_branch_diff',
     description:
-      'Что ветка меняет относительно основной: документы, изменённые разделы и поля, конфликты с правками основной '
-      + '(раздел изменён по-разному с обеих сторон).',
+      'What the branch changes compared with the main documentation: documents, changed sections and fields, conflicts with edits in the main documentation '
+      + '(a section changed differently on both sides).',
     input_schema: {
       type: 'object',
       properties: {
         branch: { type: 'string', description: 'db-N' },
-        full: { type: 'boolean', description: 'Показать и текст изменённых разделов ветки' }
+        full: { type: 'boolean', description: 'Also show the text of the sections changed in the branch' }
       },
       required: ['branch']
     }
@@ -275,9 +275,9 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
   {
     name: 'doc_branch_resolve',
     description:
-      'Подтянуть в ветку текущую основную (как sync_base_branch). Разные разделы сливаются сами; если один раздел изменён '
-      + 'по-разному, вернётся конфликт с ключом раздела и тремя версиями. Повтори вызов с resolutions: для каждого ключа — '
-      + 'take: ours (основная), theirs (ветка), both (обе подряд) или text (свой текст раздела вместе с заголовком).',
+      'Brings the current main documentation into the branch (like sync_base_branch). Different sections merge on their own; if one section changed '
+      + 'differently, a conflict comes back with the section key and three versions. Call again with resolutions: for each key, '
+      + 'take: ours (main), theirs (branch), both (one after the other) or text (your own section text, including its heading).',
     input_schema: {
       type: 'object',
       properties: {
@@ -287,10 +287,10 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
           items: {
             type: 'object',
             properties: {
-              doc: { type: 'string', description: 'id документа (doc-N, decision-N)' },
-              key: { type: 'string', description: 'Ключ части из конфликта' },
+              doc: { type: 'string', description: 'Document id (doc-N, decision-N)' },
+              key: { type: 'string', description: 'Part key from the conflict' },
               take: { type: 'string', enum: ['ours', 'theirs', 'both', 'text'] },
-              text: { type: 'string', description: 'Текст части для take: text' }
+              text: { type: 'string', description: 'Part text for take: text' }
             },
             required: ['doc', 'key', 'take']
           }
@@ -302,13 +302,13 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
   {
     name: 'doc_branch_propose',
     description:
-      'Предложить слияние ветки: человек (или роль с правом слияния) увидит дифф в ProjectHub и на телефоне и примет его '
-      + 'целиком или по документам. Опиши, что и зачем изменено.',
+      'Proposes merging the branch: a human (or a role allowed to merge) sees the diff in ProjectHub and on the phone and accepts it '
+      + 'as a whole or document by document. Describe what changed and why.',
     input_schema: {
       type: 'object',
       properties: {
         branch: { type: 'string', description: 'db-N' },
-        message: { type: 'string', description: 'Что и зачем изменено' }
+        message: { type: 'string', description: 'What changed and why' }
       },
       required: ['branch']
     }
@@ -316,13 +316,13 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
   {
     name: 'doc_branch_merge',
     description:
-      'Принять ветку в основную документацию: целиком или только docs. Право роли permissions.docMerge: allow — сразу, '
-      + 'ask (по умолчанию) — карточка человеку, deny — отказ. Конфликт без resolutions — ничего не пишется.',
+      'Merges the branch into the main documentation: as a whole or only docs. Role permission permissions.docMerge: allow merges at once, '
+      + 'ask (default) sends a card to a human, deny refuses. On a conflict without resolutions nothing is written.',
     input_schema: {
       type: 'object',
       properties: {
         branch: { type: 'string', description: 'db-N' },
-        docs: { type: 'array', items: { type: 'string' }, description: 'Только эти документы (id)' },
+        docs: { type: 'array', items: { type: 'string' }, description: 'Only these documents (ids)' },
         resolutions: {
           type: 'array',
           items: {
@@ -342,7 +342,7 @@ export const PROJECT_TOOL_DEFINITIONS: ReadonlyArray<{ name: ProjectToolName; de
   },
   {
     name: 'doc_branch_close',
-    description: 'Закрыть ветку документации без слияния (правки отброшены).',
+    description: 'Closes the documentation branch without merging (its edits are discarded).',
     input_schema: { type: 'object', properties: { branch: { type: 'string', description: 'db-N' } }, required: ['branch'] }
   }
 ];
@@ -477,24 +477,24 @@ function applyDocUpdate(raw: string, args: Record<string, unknown>, isDecision: 
   const changes: string[] = [];
   if (str(args.title).trim()) {
     data.title = str(args.title).trim();
-    changes.push('заголовок');
+    changes.push('title');
   }
   if (str(args.section).trim()) {
     data.section = str(args.section).trim();
-    changes.push('раздел');
+    changes.push('section');
   }
   if (str(args.status).trim() && isDecision) {
     data.status = str(args.status).trim();
-    changes.push('статус');
+    changes.push('status');
   }
   if (args.tags !== undefined) {
     data.tags = strList(args.tags);
-    changes.push('метки');
+    changes.push('tags');
   }
   let body = content;
   if (args.content !== undefined) {
     body = `\n${str(args.content).replace(/^\s*---[\s\S]*?---\s*/, '').trim()}\n`;
-    changes.push('текст');
+    changes.push('text');
   }
   if (changes.length === 0) return { text: raw, changes };
   // Даты и прочие значения frontmatter — строками (правило 16), раздел и id — как были.
@@ -533,7 +533,7 @@ export function projectToolDefinitions(): Array<{ name: string; description: str
 /** Выполняет инструмент. Ошибки не бросает — возвращает текст для модели с `isError`. */
 export async function callProjectTool(name: string, args: Record<string, unknown>, ctx: ProjectToolContext, deps: ProjectToolDeps): Promise<ProjectToolResult> {
   const extra = editionTool(name);
-  if (!isProjectToolName(name) && !extra) return { text: `Неизвестный инструмент: ${name}`, isError: true };
+  if (!isProjectToolName(name) && !extra) return { text: `Unknown tool: ${name}`, isError: true };
   const root = await resolveProjectToolRoot(ctx.sessionPath, deps);
   const audit = (decision: 'allow' | 'deny', title: string, filePath?: string, detail?: string) =>
     deps.recordAutoDecision(
@@ -558,7 +558,7 @@ export async function callProjectTool(name: string, args: Record<string, unknown
   const writes = extra ? extra.write : WRITE_TOOLS.has(name as ProjectToolName);
   if (!root) {
     if (writes) audit('deny', `${name}: invalid_project`, undefined, 'invalid_project');
-    return { text: 'Проект недоступен: путь сессии не принадлежит зарегистрированному проекту ProjectHub.', isError: true };
+    return { text: 'Project unavailable: the session path does not belong to a project registered in ProjectHub.', isError: true };
   }
 
   if (extra) {
@@ -567,10 +567,10 @@ export async function callProjectTool(name: string, args: Record<string, unknown
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (writes) audit('deny', `${name}: error`, undefined, message);
-      return { text: `Ошибка: ${message}`, isError: true };
+      return { text: `Error: ${message}`, isError: true };
     }
   }
-  if (!isProjectToolName(name)) return { text: `Неизвестный инструмент: ${name}`, isError: true };
+  if (!isProjectToolName(name)) return { text: `Unknown tool: ${name}`, isError: true };
 
   try {
     if (isDocBranchToolName(name)) return await callDocBranchTool(name, args, { root, ctx, deps, audit });
@@ -583,21 +583,21 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         const rows = (await readTasks(root))
           .filter((t) => !status || t.status.toLowerCase() === status)
           .filter((t) => !query || `${t.title}\n${t.description}\n${t.labels.join(' ')}`.toLowerCase().includes(query));
-        if (rows.length === 0) return { text: 'Задач не найдено.', isError: false };
+        if (rows.length === 0) return { text: 'No tasks found.', isError: false };
         const lines = rows.slice(0, limit).map((t) => `${t.id} [${t.status}] ${t.title}${t.labels.length ? ` (${t.labels.join(', ')})` : ''}`);
-        if (rows.length > limit) lines.push(`… и ещё ${rows.length - limit}`);
+        if (rows.length > limit) lines.push(`… and ${rows.length - limit} more`);
         return { text: lines.join('\n'), isError: false };
       }
 
       case 'task_view': {
         const match = await findTaskFile(root, str(args.id));
-        if (!match) return { text: `Задача ${str(args.id)} не найдена.`, isError: true };
+        if (!match) return { text: `Task ${str(args.id)} not found.`, isError: true };
         return { text: await fs.readFile(match.filePath, 'utf-8'), isError: false };
       }
 
       case 'task_create': {
         const title = str(args.title).trim();
-        if (!title) return { text: 'Не указан заголовок (title).', isError: true };
+        if (!title) return { text: 'Missing title.', isError: true };
         const assignee = assigneeList(args.assignee);
         const labels = strList(args.labels);
 
@@ -640,7 +640,7 @@ export async function callProjectTool(name: string, args: Record<string, unknown
             : false;
           if (!approved) {
             if (!deps.requestApproval) audit('deny', `task_create: ${title}`, undefined, 'no-approver');
-            return { text: 'Человек не подтвердил задачу — она не создана. Опиши её в ответе, если она всё-таки нужна.', isError: true };
+            return { text: 'The human did not approve the task, so it was not created. Describe it in your reply if it is still needed.', isError: true };
           }
           approvedByHuman = true;
         }
@@ -658,7 +658,7 @@ export async function callProjectTool(name: string, args: Record<string, unknown
           ...(str(args.parentTaskId) ? { parentTaskId: str(args.parentTaskId) } : {}),
           acceptanceCriteria: strList(args.acceptanceCriteria)
         });
-        if (!created) return { text: 'Задачу создать не удалось (подробности в логе ProjectHub).', isError: true };
+        if (!created) return { text: 'Could not create the task (details are in the ProjectHub log).', isError: true };
         sessionTaskCounts.set(sessionKey, (sessionTaskCounts.get(sessionKey) ?? 0) + 1);
         const rel = path.relative(root, created.filePath).split(path.sep).join('/');
         const pending = isAwaitingApproval(created.labels);
@@ -669,16 +669,16 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         }
         return {
           text: pending
-            ? `Создано: ${created.id} «${created.title}» (${rel}). Задача ждёт подтверждения человека (метка agent-created): `
-              + 'до подтверждения автозапуск её не возьмёт.'
-            : `Создано: ${created.id} «${created.title}» (${rel}), подтверждено человеком.`,
+            ? `Created: ${created.id} "${created.title}" (${rel}). The task is awaiting human approval (label agent-created): `
+              + 'auto-start will not pick it up until it is approved.'
+            : `Created: ${created.id} "${created.title}" (${rel}), approved by a human.`,
           isError: false
         };
       }
 
       case 'task_update': {
         const match = await findTaskFile(root, str(args.id));
-        if (!match) return { text: `Задача ${str(args.id)} не найдена.`, isError: true };
+        if (!match) return { text: `Task ${str(args.id)} not found.`, isError: true };
         const filePath = assertInsideProject(path.join(root, 'backlog'), match.filePath);
         const { eol, data, content } = parseFile(await fs.readFile(filePath, 'utf-8'));
         const changes: string[] = [];
@@ -686,19 +686,19 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         if (str(args.status).trim()) {
           const statuses = await projectStatuses(root);
           const status = matchStatus(statuses, str(args.status).trim());
-          if (!status) return { text: `Статуса «${str(args.status)}» нет в config.yml проекта. Допустимые: ${statuses.join(', ')}.`, isError: true };
+          if (!status) return { text: `Status "${str(args.status)}" is not in the project config.yml. Allowed: ${statuses.join(', ')}.`, isError: true };
           data.status = status;
-          changes.push(`статус → ${status}`);
+          changes.push(`status → ${status}`);
         }
         if (str(args.title).trim()) {
           data.title = str(args.title).trim();
-          changes.push('заголовок');
+          changes.push('title');
         }
         const previousLabels = Array.isArray(data.labels) ? data.labels.map((l) => fmString(l) ?? '').filter(Boolean) : [];
         if (args.labels !== undefined) {
           // Метку agent-created снимает только человек (decision-89).
           data.labels = preserveApprovalLabel(previousLabels, strList(args.labels));
-          changes.push('метки');
+          changes.push('labels');
         }
         if (args.assignee !== undefined) {
           const previous = Array.isArray(data.assignee) ? data.assignee.map((a) => fmString(a) ?? '').filter(Boolean) : assigneeList(fmString(data.assignee));
@@ -707,23 +707,23 @@ export async function callProjectTool(name: string, args: Record<string, unknown
           if (!canAgentChangeAssignee({ labels: labelsNow, previous, next })) {
             audit('deny', `task_update: ${taskIdOf(data, filePath)}`, undefined, 'agent-assignee-on-approved-task');
             return {
-              text: 'Назначить агента на подтверждённую задачу может только человек (decision-89). '
-                + 'Заведи новую задачу с этим исполнителем — она подождёт подтверждения — или попроси человека.',
+              text: 'Only a human can assign an agent to an approved task (decision-89). '
+                + 'Create a new task with this assignee (it will wait for approval) or ask a human.',
               isError: true
             };
           }
           data.assignee = next;
-          changes.push('исполнитель');
+          changes.push('assignee');
         }
         if (str(args.priority).trim()) {
           data.priority = str(args.priority).trim().toLowerCase();
-          changes.push('приоритет');
+          changes.push('priority');
         }
 
         let body = content;
         if (args.description !== undefined) {
           body = applyDescription(body, str(args.description));
-          changes.push('описание');
+          changes.push('description');
         }
         const add = strList(args.addCriteria);
         const check = numList(args.checkCriteria);
@@ -734,23 +734,23 @@ export async function callProjectTool(name: string, args: Record<string, unknown
           for (const n of uncheck) if (criteria[n - 1]) criteria[n - 1].completed = false;
           for (const text of add) criteria.push({ text, completed: false });
           body = applyCriteria(body, criteria);
-          changes.push('критерии');
+          changes.push('criteria');
         }
         if (str(args.appendNotes).trim()) {
           body = applyImplementationNote(body, str(args.appendNotes).trim());
-          changes.push('заметка');
+          changes.push('note');
         }
         if (str(args.finalSummary).trim()) {
           body = applyFinalSummary(body, str(args.finalSummary).trim());
-          changes.push('итог');
+          changes.push('final summary');
         }
-        if (changes.length === 0) return { text: 'Нечего менять: не передано ни одного поля.', isError: true };
+        if (changes.length === 0) return { text: 'Nothing to change: no fields were passed.', isError: true };
 
         await fs.writeFile(filePath, serializeFile(body, withUpdatedDate(data), eol), 'utf-8');
         const id = taskIdOf(data, filePath);
         const rel = path.relative(root, filePath).split(path.sep).join('/');
         audit('allow', `task_update: ${id}`, rel, changes.join(', '));
-        return { text: `Обновлено: ${id} (${changes.join(', ')}).`, isError: false };
+        return { text: `Updated: ${id} (${changes.join(', ')}).`, isError: false };
       }
 
       case 'doc_list': {
@@ -760,7 +760,7 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         const docs = (await listProjectDocs(root))
           .filter((d) => kind === 'all' || d.category === kind)
           .filter((d) => !section || (d.section ?? '').toLowerCase().startsWith(section));
-        if (docs.length === 0) return { text: 'Документов не найдено.', isError: false };
+        if (docs.length === 0) return { text: 'No documents found.', isError: false };
         return {
           text: docs.map((d) => `${d.id} — ${d.title}${d.section ? ` [${d.section}]` : ''}${d.status ? ` (${d.status})` : ''}`).join('\n'),
           isError: false
@@ -770,11 +770,11 @@ export async function callProjectTool(name: string, args: Record<string, unknown
       case 'doc_view': {
         if (str(args.branch).trim()) {
           const inBranch = await readDocInBranch(root, str(args.branch), str(args.id), deps.docBranchEnv);
-          if (!inBranch) return { text: `Документа ${str(args.id)} нет в ветке ${str(args.branch)}.`, isError: true };
+          if (!inBranch) return { text: `Document ${str(args.id)} is not in branch ${str(args.branch)}.`, isError: true };
           return { text: inBranch.content, isError: false };
         }
         const doc = await findDoc(root, str(args.id));
-        if (!doc) return { text: `Документ ${str(args.id)} не найден.`, isError: true };
+        if (!doc) return { text: `Document ${str(args.id)} not found.`, isError: true };
         return { text: await fs.readFile(doc.filePath, 'utf-8'), isError: false };
       }
 
@@ -782,8 +782,8 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         const kind = str(args.kind) === 'decision' ? 'decision' : 'doc';
         const title = str(args.title).trim();
         const section = str(args.section).trim();
-        if (!title) return { text: 'Не указан заголовок (title).', isError: true };
-        if (!section) return { text: 'Не указан раздел (section): посмотри существующие через doc_list.', isError: true };
+        if (!title) return { text: 'Missing title.', isError: true };
+        if (!section) return { text: 'Missing section: look at the existing ones with doc_list.', isError: true };
         const docType = str(args.docType);
         const params = {
           type: kind,
@@ -797,17 +797,17 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         const branch = str(args.branch).trim();
         if (branch) {
           const inBranch = await createDocInBranch(root, branch, params, deps.docBranchEnv);
-          audit('allow', `doc_create: ${inBranch.docId} в ${branch}`, inBranch.path, `branch ${branch}`);
+          audit('allow', `doc_create: ${inBranch.docId} in ${branch}`, inBranch.path, `branch ${branch}`);
           deps.onDocBranchChanged?.({ projectPath: root, branchId: branch, event: 'updated' });
           return {
-            text: `Создано в ветке ${branch}: ${inBranch.docId} «${inBranch.title}» (${inBranch.path}). `
-              + 'Номер окончательный после принятия: если его займут в основной, ветка уступит (decision-76).',
+            text: `Created in branch ${branch}: ${inBranch.docId} "${inBranch.title}" (${inBranch.path}). `
+              + 'The number becomes final once the branch is accepted: if the main documentation takes it first, the branch yields (decision-76).',
             isError: false
           };
         }
         const created = await createProjectDoc(root, params);
         audit('allow', `doc_create: ${created.id}`, created.fileRelative);
-        return { text: `Создано: ${created.id} «${created.title}» (${created.fileRelative}).`, isError: false };
+        return { text: `Created: ${created.id} "${created.title}" (${created.fileRelative}).`, isError: false };
       }
 
       case 'doc_update': {
@@ -825,28 +825,28 @@ export async function callProjectTool(name: string, args: Record<string, unknown
             },
             deps.docBranchEnv
           );
-          if (changes.length === 0) return { text: 'Нечего менять: не передано ни одного поля.', isError: true };
-          audit('allow', `doc_update: ${updated.docId} в ${branch}`, updated.path, `branch ${branch}: ${changes.join(', ')}`);
+          if (changes.length === 0) return { text: 'Nothing to change: no fields were passed.', isError: true };
+          audit('allow', `doc_update: ${updated.docId} in ${branch}`, updated.path, `branch ${branch}: ${changes.join(', ')}`);
           deps.onDocBranchChanged?.({ projectPath: root, branchId: branch, event: 'updated' });
-          return { text: `Обновлено в ветке ${branch}: ${updated.docId} (${changes.join(', ')}).`, isError: false };
+          return { text: `Updated in branch ${branch}: ${updated.docId} (${changes.join(', ')}).`, isError: false };
         }
         const doc = await findDoc(root, str(args.id));
-        if (!doc) return { text: `Документ ${str(args.id)} не найден.`, isError: true };
+        if (!doc) return { text: `Document ${str(args.id)} not found.`, isError: true };
         const filePath = assertInsideProject(path.join(root, 'backlog'), doc.filePath);
         const next = applyDocUpdate(await fs.readFile(filePath, 'utf-8'), args, doc.category === 'decision');
-        if (next.changes.length === 0) return { text: 'Нечего менять: не передано ни одного поля.', isError: true };
+        if (next.changes.length === 0) return { text: 'Nothing to change: no fields were passed.', isError: true };
         await fs.writeFile(filePath, next.text, 'utf-8');
         audit('allow', `doc_update: ${doc.id}`, doc.fileRelative, next.changes.join(', '));
-        return { text: `Обновлено: ${doc.id} (${next.changes.join(', ')}).`, isError: false };
+        return { text: `Updated: ${doc.id} (${next.changes.join(', ')}).`, isError: false };
       }
 
       case 'docs_search': {
         const query = str(args.query).trim();
-        if (!query) return { text: 'Не указан запрос (query).', isError: true };
+        if (!query) return { text: 'Missing query.', isError: true };
         const limitRaw = Number(args.limit);
         const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(20, Math.floor(limitRaw)) : 8;
         const results = await deps.searchDocs(root, query, limit);
-        if (results.length === 0) return { text: 'Ничего не найдено.', isError: false };
+        if (results.length === 0) return { text: 'Nothing found.', isError: false };
         return {
           text: results
             .slice(0, limit)
@@ -859,7 +859,7 @@ export async function callProjectTool(name: string, args: Record<string, unknown
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (WRITE_TOOLS.has(name)) audit('deny', `${name}: error`, undefined, message);
-    return { text: `Ошибка: ${message}`, isError: true };
+    return { text: `Error: ${message}`, isError: true };
   }
-  return { text: `Неизвестный инструмент: ${name}`, isError: true };
+  return { text: `Unknown tool: ${name}`, isError: true };
 }

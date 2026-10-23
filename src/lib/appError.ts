@@ -91,6 +91,12 @@ export function appErrorFields(err: unknown): { error: string; errorKey?: AppErr
   return key ? { error, errorKey: key } : { error };
 }
 
+/** Причина в состоянии (`reason` + `reasonKey` и т. п.): английский текст для журнала и модели и её код. */
+export function keyedText(code: AppErrorCode, params?: AppErrorParams): { text: string; key: AppErrorKey } {
+  const key: AppErrorKey = params ? { code, params } : { code };
+  return { text: formatAppError(key, appErrorTextEn) ?? code, key };
+}
+
 /** Приписать ключ ошибке, пришедшей по сети (RPC телефона): текст остаётся английским запасным. */
 export function withAppErrorKey<E extends Error>(err: E, key: unknown): E {
   const clean = asAppErrorKey(key);

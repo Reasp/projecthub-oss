@@ -58,7 +58,7 @@ function record(value: unknown): Record<string, unknown> {
 function responseFailed(response: unknown): { failed: boolean; detail?: string } {
   const r = record(response);
   const exit = r.exit_code ?? r.exitCode;
-  if (typeof exit === 'number' && exit !== 0) return { failed: true, detail: `код выхода ${exit}` };
+  if (typeof exit === 'number' && exit !== 0) return { failed: true, detail: `exit code ${exit}` };
   if (r.is_error === true || r.isError === true || r.success === false) {
     return { failed: true, ...(str(r.error) ? { detail: str(r.error)!.slice(0, 200) } : {}) };
   }
@@ -74,15 +74,15 @@ export type ParseHookResult = { ok: true; event: NormalizedHookEvent } | { ok: f
 function parseAntigravityPayload(p: Record<string, unknown>, eventHint: string | undefined): ParseHookResult {
   const eventName = str(eventHint);
   if (!eventName || eventName === 'PostToolUseFailure' || !(HOOK_EVENT_NAMES as readonly string[]).includes(eventName)) {
-    return { ok: false, error: `неподдерживаемое событие хука Antigravity: ${eventName ?? 'не передано'}` };
+    return { ok: false, error: `unsupported Antigravity hook event: ${eventName ?? 'not passed'}` };
   }
   const event = eventName as HookEventName;
   const sessionId = str(p.conversationId);
-  if (!sessionId) return { ok: false, error: 'во входе хука нет conversationId' };
+  if (!sessionId) return { ok: false, error: 'the hook input has no conversationId' };
   const call = record(p.toolCall);
   const toolName = str(call.name);
   if ((event === 'PreToolUse' || event === 'PostToolUse') && !toolName) {
-    return { ok: false, error: `во входе ${event} нет toolCall.name` };
+    return { ok: false, error: `the ${event} input has no toolCall.name` };
   }
   const args = record(call.args);
   const workspace = Array.isArray(p.workspacePaths) ? str(p.workspacePaths[0]) : undefined;
@@ -113,14 +113,14 @@ export function parseHookPayload(engine: HookEngine, raw: unknown, eventHint?: s
   if (engine === 'antigravity') return parseAntigravityPayload(p, eventHint);
   const eventName = str(p.hook_event_name);
   if (!eventName || !(HOOK_EVENT_NAMES as readonly string[]).includes(eventName)) {
-    return { ok: false, error: `неподдерживаемое событие хука: ${eventName ?? 'нет hook_event_name'}` };
+    return { ok: false, error: `unsupported hook event: ${eventName ?? 'no hook_event_name'}` };
   }
   const event = eventName as HookEventName;
   const sessionId = str(p.session_id);
-  if (!sessionId) return { ok: false, error: 'во входе хука нет session_id' };
+  if (!sessionId) return { ok: false, error: 'the hook input has no session_id' };
   const toolName = str(p.tool_name);
   if ((event === 'PreToolUse' || event === 'PostToolUse' || event === 'PostToolUseFailure') && !toolName) {
-    return { ok: false, error: `во входе ${event} нет tool_name` };
+    return { ok: false, error: `the ${event} input has no tool_name` };
   }
   const failure = event === 'PostToolUseFailure'
     ? { failed: true, ...(str(p.error) ? { detail: str(p.error)!.slice(0, 200) } : {}) }
@@ -268,7 +268,7 @@ function formatAntigravityResponse(event: HookEventName, verdict: HookVerdict): 
   }
   if (event !== 'PreToolUse') return NONE;
   if (verdict.kind === 'deny') return { ...NONE, stdout: JSON.stringify({ decision: 'deny', reason: verdict.reason }) };
-  if (verdict.kind === 'allow') return { ...NONE, stdout: JSON.stringify({ decision: 'allow', reason: verdict.reason || 'Разрешено в ProjectHub' }) };
+  if (verdict.kind === 'allow') return { ...NONE, stdout: JSON.stringify({ decision: 'allow', reason: verdict.reason || 'Allowed in ProjectHub' }) };
   return NONE;
 }
 
@@ -305,7 +305,7 @@ export function formatHookResponse(engine: HookEngine, event: HookEventName, ver
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
-          permissionDecisionReason: verdict.reason || 'Разрешено в ProjectHub'
+          permissionDecisionReason: verdict.reason || 'Allowed in ProjectHub'
         }
       }),
       stderr: ''
@@ -317,7 +317,7 @@ export function formatHookResponse(engine: HookEngine, event: HookEventName, ver
 /** Ответ скрипта при недоступном ProjectHub (decision-54 п. 8): закрытый режим отказывает только PreToolUse. */
 export function failModeResponse(engine: HookEngine, event: HookEventName, failMode: 'open' | 'closed', reason: string): HookProcessOutput {
   if (failMode === 'closed' && event === 'PreToolUse') {
-    return formatHookResponse(engine, event, { kind: 'deny', reason: `ProjectHub недоступен (режим fail-closed): ${reason}` });
+    return formatHookResponse(engine, event, { kind: 'deny', reason: `ProjectHub is unavailable (fail-closed mode): ${reason}` });
   }
   return NONE;
 }

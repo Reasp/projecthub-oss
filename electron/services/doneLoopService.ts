@@ -26,7 +26,8 @@ import {
 } from './backlogTaskFormat.js';
 import { summarizeCheckResult } from './arenaChecks.js';
 import { executeCheck, pendingCheckResult, setCheckDetail } from './checkRunner.js';
-import { AppError, appErrorFields } from '../../src/lib/appError.js';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
+import { getHostLanguage } from './hostLanguage.js';
 import { visualArtifactService } from './visualArtifactService.js';
 import { iterationScreenshots } from './visualArtifacts.js';
 import {
@@ -80,6 +81,7 @@ export interface DoneLoopRunOptions {
 export interface DoneLoopRunResult {
   outcome: DoneLoopOutcome;
   reason?: string;
+  reasonKey?: AppErrorKey;
 }
 
 /** Настройки цикла для проекта: проверки как у арены + секция `doneLoop` + выбор пользователя. */
@@ -131,12 +133,15 @@ export class DoneLoopService {
     options: DoneLoopRunOptions = {}
   ): Promise<DoneLoopRunResult> {
     const state = session.doneLoop;
-    if (!state) return { outcome: 'task_error', reason: 'Сессия не в режиме «до готовности»' };
-    if (!session.taskId) return this.fail(state, 'task_error', 'Цикл «до готовности» требует задачу Backlog.md', hooks);
+    if (!state) {
+      const err = new AppError('loop.notDoneLoop');
+      return { outcome: 'task_error', reason: err.message, reasonKey: err.appErrorKey };
+    }
+    if (!session.taskId) return this.fail(state, 'task_error', new AppError('swarm.doneLoopNeedsTask'), hooks);
 
     if (!state.criteriaBaseline) {
       const task = await findTaskFile(session.projectPath, session.taskId).catch(() => null);
-      if (!task) return this.fail(state, 'task_error', `Задача ${session.taskId} не найдена в backlog/tasks`, hooks);
+      if (!task) return this.fail(state, 'task_error', new AppError('swarm.taskNotFound', { id: session.taskId }), hooks);
       state.criteriaBaseline = parseTaskBody(task.content).criteria;
       state.task = { filePath: task.filePath, criteriaChecked: [] };
     }
@@ -154,7 +159,7 @@ export class DoneLoopService {
     let continueSession = Boolean(options.resume) && state.iterations.length > segmentStart;
 
     for (;;) {
-      if (hooks.isStopped()) return this.fail(state, 'stopped', 'Цикл остановлен человеком', hooks);
+      if (hooks.isStopped()) return this.fail(state, 'stopped', new AppError('loop.stoppedByHuman'), hooks);
 
       const iteration: DoneLoopIteration = {
         index: state.iterations.length + 1,
@@ -170,7 +175,7 @@ export class DoneLoopService {
       // Лимит итераций действует на отрезок цикла (decision-48 п. 2.3), номера итераций сквозные.
       const inSegment = iterationInSegment(iteration.index, segmentStart);
       hooks.log(
-        `[Done-loop] Итерация ${iteration.index}${segment > 0 ? ` (${inSegment}/${state.settings.maxIterations} после отката)` : `/${state.settings.maxIterations}`}: ход агента`
+        `[Done-loop] Iteration ${iteration.index}${segment > 0 ? ` (${inSegment}/${state.settings.maxIterations} after the rollback)` : `/${state.settings.maxIterations}`}: agent turn`
       );
       hooks.onUpdate();
 
@@ -200,6 +205,7 @@ export class DoneLoopService {
           if (parsed.report.summary) iteration.reportSummary = parsed.report.summary;
         } else {
           iteration.reportError = parsed.error;
+          iteration.reportErrorKey = parsed.errorKey;
         }
         // Скриншоты из отчёта сверяются с артефактами проверок этой итерации (decision-55 п. 7).
         iteration.criteria = verifyCriteria(
@@ -210,7 +216,7 @@ export class DoneLoopService {
         );
         const accepted = iteration.criteria.filter((c) => c.accepted).length;
         hooks.log(
-          `[Done-loop] Отчёт: ${parsed.ok ? 'разобран' : `не принят (${parsed.error})`}; критериев засчитано ${accepted}/${iteration.criteria.length}`
+          `[Done-loop] Report: ${parsed.ok ? 'parsed' : `not accepted (${parsed.error})`}; criteria accepted ${accepted}/${iteration.criteria.length}`
         );
       }
 
@@ -220,6 +226,7 @@ export class DoneLoopService {
         stopped: hooks.isStopped(),
         agentStatus: agent.status,
         agentError: agent.error,
+        agentErrorKey: agent.errorKey,
         checksPassed: checksPassed(iteration.checks),
         allCriteriaAccepted: iteration.criteria.every((c) => c.accepted),
         costUsd: state.totalCostUsd,
@@ -230,7 +237,7 @@ export class DoneLoopService {
       hooks.onUpdate();
 
       if (decision.action === 'retry') {
-        hooks.log(`[Done-loop] Итерация ${iteration.index} не принята — повторный ход с ошибками и незакрытыми критериями.`);
+        hooks.log(`[Done-loop] Iteration ${iteration.index} was not accepted — another turn with the errors and open criteria.`);
         prompt = this.retryPrompt(state, iteration, segmentStart);
         continue;
       }
@@ -238,7 +245,7 @@ export class DoneLoopService {
         await this.completeTask(session, agent, state, iteration, hooks);
         return { outcome: 'success' };
       }
-      return this.fail(state, decision.outcome, decision.reason, hooks);
+      return this.fail(state, decision.outcome, { message: decision.reason, appErrorKey: decision.reasonKey }, hooks);
     }
   }
 
@@ -297,11 +304,11 @@ export class DoneLoopService {
       const restored = restoreCriteriaFlags(file.content, baseline.map((c) => c.completed));
       if (restored === null) return false;
       await writeTaskFile(task.filePath, { ...file, content: restored });
-      hooks.log('[Done-loop] ⚠️ Агент менял отметки критериев в файле задачи — откачено: критерии отмечает только ProjectHub.');
+      hooks.log('[Done-loop] ⚠️ The agent changed criteria checkmarks in the task file — reverted: only ProjectHub checks criteria.');
       if (workdir !== session.projectPath) await hooks.materialize();
       return true;
     } catch (err) {
-      hooks.log(`[Done-loop] Не удалось сверить отметки критериев: ${err instanceof Error ? err.message : String(err)}`);
+      hooks.log(`[Done-loop] Could not verify criteria checkmarks: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }
@@ -331,13 +338,13 @@ export class DoneLoopService {
         setCheckDetail(result, new AppError('checks.loopStopped'));
         continue;
       }
-      hooks.log(`[Done-loop] Проверка «${result.name}»: ${result.command}`);
+      hooks.log(`[Done-loop] Check “${result.name}”: ${result.command}`);
       const running = executeCheck(result, checks[i], workdir, hooks.signal, {
         artifacts: { scope: visualArtifactService.swarmScope(session.id), agentId: agent.id, run: `iter-${iterationIndex}` }
       });
       hooks.onUpdate();
       await running;
-      hooks.log(`[Done-loop] «${result.name}» → ${summarizeCheckResult(result)}`);
+      hooks.log(`[Done-loop] “${result.name}” → ${summarizeCheckResult(result)}`);
       hooks.onUpdate();
     }
     return results;
@@ -353,7 +360,9 @@ export class DoneLoopService {
   ): Promise<void> {
     state.phase = 'finished';
     state.outcome = 'success';
-    state.reason = `Проверки и критерии приёмки выполнены за ${iteration.index} итер.`;
+    const succeeded = new AppError('loop.succeeded', { n: iteration.index });
+    state.reason = succeeded.message;
+    state.reasonKey = succeeded.appErrorKey;
     const checked: number[] = [];
 
     try {
@@ -367,7 +376,7 @@ export class DoneLoopService {
         if (!c.accepted || c.alreadyChecked) continue;
         // Человек мог поправить чеклист во время цикла — отмечаем только тот же самый критерий.
         if (current[c.index - 1]?.text !== c.text) {
-          hooks.log(`[Done-loop] Критерий #${c.index} изменился в задаче во время цикла — не отмечен.`);
+          hooks.log(`[Done-loop] Criterion #${c.index} changed in the task during the loop — not checked.`);
           continue;
         }
         const updated = toggleCriterionInContent(body, c.index - 1, true);
@@ -384,7 +393,7 @@ export class DoneLoopService {
         reviewStatus = findReviewStatus(backlogConfig.statuses);
         if (typeof file.data.status === 'string') previousStatus = file.data.status;
         if (reviewStatus) file.data.status = reviewStatus;
-        else hooks.log('[Done-loop] В конфиге Backlog.md проекта нет статуса Review — статус задачи не изменён.');
+        else hooks.log('[Done-loop] The project Backlog.md config has no Review status — the task status is unchanged.');
       }
 
       body = applyFinalSummary(
@@ -402,7 +411,8 @@ export class DoneLoopService {
           durationMs: Date.now() - session.createdAt,
           reportSummary: iteration.reportSummary,
           branch: agent.worktreeBranch,
-          commitHash: agent.commitHash ?? agent.lastCommitHash
+          commitHash: agent.commitHash ?? agent.lastCommitHash,
+          lang: getHostLanguage()
         })
       );
       await writeTaskFile(filePath, { ...file, content: body });
@@ -415,12 +425,12 @@ export class DoneLoopService {
         finalSummaryWritten: true
       };
       hooks.log(
-        `[Done-loop] ✅ Готово: отмечено критериев ${checked.length}${reviewStatus ? `, задача переведена в ${reviewStatus}` : ''}, Final Summary записан.`
+        `[Done-loop] ✅ Done: criteria checked ${checked.length}${reviewStatus ? `, the task moved to ${reviewStatus}` : ''}, Final Summary written.`
       );
     } catch (err) {
       const { error: message, errorKey } = appErrorFields(err);
       state.task = { ...(state.task ?? { criteriaChecked: [] }), criteriaChecked: checked, error: message, errorKey };
-      hooks.log(`[Done-loop] Цикл успешен, но записать итог в задачу не удалось: ${message}`);
+      hooks.log(`[Done-loop] The loop succeeded, but the result could not be written to the task: ${message}`);
     }
     hooks.onUpdate();
   }
@@ -445,31 +455,41 @@ export class DoneLoopService {
           file.data.status = task.previousStatus;
           statusRestored = true;
         }
-        if (task.finalSummaryWritten) body = applyFinalSummary(body, cancelledSummaryText(checkpointN, new Date()));
+        if (task.finalSummaryWritten) body = applyFinalSummary(body, cancelledSummaryText(checkpointN, new Date(), getHostLanguage()));
         await writeTaskFile(task.filePath, { ...file, content: body });
         const statusNote = statusRestored
-          ? `, статус задачи возвращён в ${task.previousStatus}`
+          ? `, the task status is back to ${task.previousStatus}`
           : task.movedToReview
-            ? ', статус задачи не менялся (прежний не записан или изменён вручную)'
+            ? ', the task status is unchanged (the previous one was not recorded or was changed manually)'
             : '';
-        log(`[Done-loop] Итог прошлого успеха отменён откатом: снято отметок критериев ${unchecked?.unchecked.length ?? 0}${statusNote}.`);
+        log(`[Done-loop] The earlier success was cancelled by the rollback: criteria unchecked ${unchecked?.unchecked.length ?? 0}${statusNote}.`);
       } catch (err) {
-        log(`[Done-loop] Не удалось отменить итог прошлого успеха в файле задачи: ${err instanceof Error ? err.message : String(err)}`);
+        log(`[Done-loop] Could not cancel the earlier success in the task file: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     state.outcome = undefined;
     state.reason = undefined;
+    state.reasonKey = undefined;
     state.phase = 'running_agent';
     state.task = { ...(task?.filePath ? { filePath: task.filePath } : {}), criteriaChecked: [] };
   }
 
-  private fail(state: DoneLoopState, outcome: DoneLoopOutcome, reason: string, hooks: DoneLoopHooks): DoneLoopRunResult {
+  /** Причина — `AppError` или английский текст с кодом (decision-165): журнал видит текст, окно — код. */
+  private fail(
+    state: DoneLoopState,
+    outcome: DoneLoopOutcome,
+    why: { message: string; appErrorKey?: AppErrorKey },
+    hooks: DoneLoopHooks
+  ): DoneLoopRunResult {
+    const reason = why.message;
+    const reasonKey = why.appErrorKey;
     state.phase = outcome === 'stopped' ? 'stopped' : 'failed';
     state.outcome = outcome;
     state.reason = reason;
+    state.reasonKey = reasonKey;
     hooks.log(`[Done-loop] ${outcome === 'stopped' ? '⏹' : '❌'} ${OUTCOME_LABELS[outcome]}: ${reason}`);
     hooks.onUpdate();
-    return { outcome, reason };
+    return { outcome, reason, ...(reasonKey ? { reasonKey } : {}) };
   }
 }
 

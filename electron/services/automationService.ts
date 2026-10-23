@@ -17,6 +17,7 @@ import { findTaskFile } from './taskFileLookup.js';
 import { taskEventSource } from './taskEventSource.js';
 import { backlogWatcher } from './backlogWatcher.js';
 import { logger } from './logger.js';
+import { keyedText } from '../../src/lib/appError.js';
 import { prReviewService, prWatcher } from './prReviewApp.js';
 import type { SwarmEventPayload, SwarmSession } from './swarmTypes.js';
 
@@ -81,12 +82,15 @@ const actions: ActionDeps = {
     const { securityHealthService } = await import('./securityHealthService.js');
     const { summarizeCounts } = await import('./dependencyAudit.js');
     const res = await securityHealthService.runAudit(root, { reason: 'automation', minSeverity });
-    if (res.fromCache) return { ok: true, detail: `аудит был меньше 10 минут назад: ${summarizeCounts(res.report.counts)}` };
+    if (res.fromCache) {
+      const cached = keyedText('automations.auditCached', { counts: summarizeCounts(res.report.counts) });
+      return { ok: true, detail: cached.text, detailKey: cached.key };
+    }
     const failed = res.report.ecosystems.filter((e) => e.status === 'error' && !e.stale);
     const stale = res.report.ecosystems.filter((e) => e.stale);
     const parts = [
       summarizeCounts(res.report.counts),
-      `новых находок: ${res.newFindings.length}`,
+      `new findings: ${res.newFindings.length}`,
       ...res.report.ecosystems.filter((e) => e.status !== 'done').map((e) => `${e.ecosystem}: ${e.message ?? e.status}`)
     ];
     return { ok: failed.length === 0 && stale.length === 0, detail: parts.join('; ') };

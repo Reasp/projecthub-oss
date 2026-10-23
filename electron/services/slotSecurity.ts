@@ -219,14 +219,14 @@ export function mergeApprovalKey(report: AgentSlotSecurity, candidate: string, b
   return { params, lines };
 }
 
-/** Короткая сводка для ревьюера и лога. */
+/** Короткая сводка для ревьюера и журнала — по-английски. */
 export function securitySummaryText(report: AgentSlotSecurity | undefined): string {
-  if (!report) return 'дифф на секреты и зависимости не проверялся';
+  if (!report) return 'the diff was not checked for secrets and dependencies';
   const parts: string[] = [];
-  parts.push(report.secrets.length ? `секреты: ${summarizeSecretFindings(report.secrets, 4)}` : 'секретов нет');
+  parts.push(report.secrets.length ? `secrets: ${summarizeSecretFindings(report.secrets, 4)}` : 'no secrets');
   const deps = reviewableChanges(report.dependencies);
-  parts.push(deps.length ? `зависимости: ${summarizeDependencyChanges(deps, 8)}` : 'новых зависимостей нет');
-  for (const lock of report.lockChanges) parts.push(`${lock.manifest}: +${lock.added} пакетов`);
+  parts.push(deps.length ? `dependencies: ${summarizeDependencyChanges(deps, 8)}` : 'no new dependencies');
+  for (const lock of report.lockChanges) parts.push(`${lock.manifest}: +${lock.added} packages`);
   return parts.join('; ');
 }
 

@@ -117,8 +117,10 @@ export interface ScoreComponent {
   points: number;
   /** Исходная величина до нормализации (строк диффа, USD, мс, доля AC) — для подсказки. */
   raw?: number;
-  /** Короткое объяснение, почему получилось именно так. */
+  /** Короткое объяснение, почему получилось именно так (английский текст). */
   detail: string;
+  /** Код объяснения (decision-165): окно показывает его на своём языке. */
+  detailKey?: AppErrorKey;
   /** Данных не было — компонент получил нейтральную оценку и не влияет на сравнение. */
   unknown?: boolean;
 }
@@ -130,6 +132,7 @@ export interface CandidateScore {
   /** Провалена блокирующая проверка — кандидат не может быть рекомендован. */
   blocked: boolean;
   blockedReason?: string;
+  blockedReasonKey?: AppErrorKey;
   components: ScoreComponent[];
   computedAt: number;
 }
@@ -216,6 +219,7 @@ export interface JudgeState {
   startedAt?: number;
   finishedAt?: number;
   error?: string;
+  errorKey?: AppErrorKey;
   /** Лучший незаблокированный кандидат; `undefined`, если рекомендовать некого. */
   recommendedAgentId?: string;
   /** Веса, которыми считался балл (могли поменяться в конфиге после прогона). */
@@ -228,6 +232,7 @@ export interface JudgeState {
     merged: boolean;
     agentId?: string;
     reason: string;
+    reasonKey?: AppErrorKey;
   };
 }
 

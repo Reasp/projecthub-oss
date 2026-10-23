@@ -289,14 +289,14 @@ export const AutomationsModal: React.FC = () => {
         <div key={`${entry.ts}-${entry.runId ?? ''}-${entry.status}-${i}`} className="grid grid-cols-[120px_180px_90px_1fr] gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-[11px]">
           <span className="text-muted-foreground">{fmtTime(entry.ts)}</span>
           <span className="truncate" title={entry.ruleKey}>
-            {entry.ruleName}
+            {entry.scope === 'builtin' ? a.builtinName : entry.ruleName}
             {entry.projectPath ? <span className="text-muted-foreground"> · {baseName(entry.projectPath)}</span> : null}
           </span>
           <span className={`font-semibold ${LOG_COLORS[entry.status]}`}>{a.log.statuses[entry.status]}</span>
           <span className="min-w-0 text-slate-300">
             <span className="text-muted-foreground">
               {entry.trigger}
-              {entry.eventSummary ? ` — ${entry.eventSummary}` : ''}
+              {entry.eventSummary ? ` — ${ipcFailureText({ error: entry.eventSummary, errorKey: entry.eventSummaryKey })}` : ''}
               {entry.action ? ` → ${entry.action}` : ''}
               {entry.depth ? ` · ${fill(a.log.depth, { depth: entry.depth })}` : ''}
             </span>

@@ -220,6 +220,7 @@ export function reviewReportFromSession(session: SwarmSession): RemoteReviewRepo
     swarmId: session.id,
     ...(loop.outcome ? { outcome: loop.outcome } : {}),
     ...(loop.reason ? { reason: cut(loop.reason, DETAIL_MAX) } : {}),
+    ...(loop.reason && loop.reasonKey ? { reasonKey: loop.reasonKey } : {}),
     ...(session.completedAt ? { finishedAt: session.completedAt } : {}),
     iterations: live.length,
     ...(last?.reportSummary ? { summary: cut(last.reportSummary, 2000) } : {}),
@@ -254,6 +255,7 @@ export function reviewCriteria(
       ...(v.reported ? { reported: v.reported } : {}),
       ...(v.evidence ? { evidence: cut(v.evidence, DETAIL_MAX) } : {}),
       ...(v.reason ? { reason: cut(v.reason, 300) } : {}),
+      ...(v.reason && v.reasonKey ? { reasonKey: v.reasonKey } : {}),
       ...(v.ui ? { ui: true } : {}),
       ...(v.screenshots?.length ? { screenshots: v.screenshots.map((s) => ({ relPath: s.relPath, name: s.name, checkName: s.checkId })) } : {})
     };

@@ -14,7 +14,7 @@ import {
 import { ComputerUseSettingsModal } from '../computer/ComputerUseSettingsModal';
 
 import type { McpServerStatus } from '../../types/electron';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useToast } from '../../hooks/useTimeoutState';
 
 export const McpServerStatusBadge: React.FC = () => {
@@ -179,7 +179,7 @@ export const McpServerStatusBadge: React.FC = () => {
             {/* Startup error (e.g. no free port) */}
             {!status.isRunning && status.lastError && (
               <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-[11px] leading-relaxed">
-                {t.mcp.startError.replace('{error}', status.lastError)}
+                {t.mcp.startError.replace('{error}', ipcFailureText({ error: status.lastError, errorKey: status.lastErrorKey }))}
               </div>
             )}
 

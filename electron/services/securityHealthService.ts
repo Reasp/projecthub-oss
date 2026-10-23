@@ -15,7 +15,7 @@ import path from 'node:path';
 import treeKill from 'tree-kill';
 import { getUserDataDir } from './appPaths.js';
 import type { AppBusEvent } from './hitlTypes.js';
-import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
+import { AppError, appErrorFields, keyedText, type AppErrorKey } from '../../src/lib/appError.js';
 import {
   auditMessage,
   buildFindingTask,
@@ -352,13 +352,15 @@ export class SecurityHealthService {
     const counts = emptyCounts();
     for (const f of relevant) counts[f.severity] += 1;
     const top = [...relevant].sort((a, b) => severityRank(b.severity) - severityRank(a.severity))[0];
+    const title = keyedText('security.auditNew', { n: relevant.length });
     const names = relevant.slice(0, 5).map((f) => f.package).join(', ') + (relevant.length > 5 ? ` +${relevant.length - 5}` : '');
     this.deps.publish({
       type: 'security:finding',
       projectPath: root,
       source: 'audit',
       severity: top.severity,
-      title: `Новые уязвимости зависимостей: ${relevant.length}`,
+      title: title.text,
+      titleKey: title.key,
       summary: `${summarizeCounts(counts)} · ${names}`,
       count: relevant.length,
       key: relevant.flatMap((f) => f.advisories.map((a) => `${f.package}:${a.id}`)).sort().join(',').slice(0, 500) || names,

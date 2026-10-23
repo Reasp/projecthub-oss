@@ -756,7 +756,7 @@ export const SwarmArenaView: React.FC = () => {
                             {agent.score?.blocked && (
                               <span
                                 className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-500/10 text-rose-400 border-rose-500/30"
-                                title={agent.score.blockedReason}
+                                title={agent.score.blockedReason ? ipcFailureText({ error: agent.score.blockedReason, errorKey: agent.score.blockedReasonKey }) : undefined}
                               >
                                 {t.judge.blockedBadge}
                               </span>
@@ -989,7 +989,10 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                             <span
                               className={`font-mono text-[11px] font-bold ${scoreClass(agent.score)}`}
                               title={agent.score.components
-                                .map((c) => `${componentLabel(c.key, t.judge)}: ${c.points.toFixed(1)}/${c.weight} — ${c.unknown ? t.judge.componentUnknown : c.detail}`)
+                                .map(
+                                  (c) =>
+                                    `${componentLabel(c.key, t.judge)}: ${c.points.toFixed(1)}/${c.weight} — ${c.unknown ? t.judge.componentUnknown : ipcFailureText({ error: c.detail, errorKey: c.detailKey })}`
+                                )
                                 .join('\n')}
                             >
                               {t.judge.scoreLabel} {formatScore(agent.score)}

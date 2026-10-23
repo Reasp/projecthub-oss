@@ -252,7 +252,7 @@ export function buildModelChain(settings: ModelTierSettings, input: ModelChainIn
 /** Подпись звена для логов и экспорта: «qwen2.5:7b-instruct · профиль Ollama» или «opus · claude-cli». */
 export function describeChainLink(link: Pick<ChainLink, 'engine' | 'model' | 'profile' | 'provider'>): string {
   if (link.engine !== 'api') return `${link.model} · ${link.engine}`;
-  if (link.profile) return `${link.model} · профиль «${link.profile}»`;
+  if (link.profile) return `${link.model} · profile “${link.profile}”`;
   if (link.provider) return `${link.model} · ${link.provider}`;
   return `${link.model} · Agents Studio`;
 }

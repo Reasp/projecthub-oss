@@ -16,6 +16,8 @@ import type {
   ReviewerFinding
 } from './arenaTypes.js';
 import { summarizeCheckResult } from './arenaChecks.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
+import { keyedText, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
 
 /** Сколько символов диффа уходит в промпт ревьюера. */
 export const REVIEWER_DIFF_MAX_CHARS = 60_000;
@@ -45,11 +47,11 @@ function truncateDiff(patch: string, maxChars: number): { text: string; truncate
 
 /** Схема ответа: описывается в промпте явно, чтобы парсер не гадал. */
 export const REVIEWER_RESPONSE_SCHEMA = `{
-  "summary": "2-4 предложения: что сделал кандидат и годится ли результат",
+  "summary": "2-4 sentences: what the candidate did and whether the result is good enough",
   "overall": 0.0,
-  "criteria": [{ "index": 1, "verdict": "met|partial|unmet|unknown", "comment": "почему" }],
-  "findings": [{ "file": "путь/файл.ts", "line": 42, "severity": "critical|major|minor|info", "message": "замечание" }],
-  "risks": ["риск 1", "риск 2"]
+  "criteria": [{ "index": 1, "verdict": "met|partial|unmet|unknown", "comment": "why" }],
+  "findings": [{ "file": "path/file.ts", "line": 42, "severity": "critical|major|minor|info", "message": "finding" }],
+  "risks": ["risk 1", "risk 2"]
 }`;
 
 /** Промпт ревьюера по одному кандидату. */
@@ -58,48 +60,48 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
   const sections: string[] = [];
 
   sections.push(
-    'Ты ревьюер в арене агентов ProjectHub. Оцени один вариант решения задачи и верни строго JSON ' +
-      'по схеме ниже — без пояснений до и после, без markdown-ограды.'
+    'You are a reviewer in the ProjectHub agent arena. Evaluate one candidate solution of the task and return strictly JSON ' +
+      'following the schema below — no explanations before or after, no markdown fence.'
   );
 
   const taskHeader = [input.taskId, input.taskTitle].filter(Boolean).join(' — ');
-  sections.push(`## Задача\n${taskHeader || '(без привязки к задаче Backlog.md)'}\n\n${input.prompt}`);
+  sections.push(`## Task\n${taskHeader || '(not linked to a Backlog.md task)'}\n\n${input.prompt}`);
 
   if (input.criteria.length > 0) {
     const lines = input.criteria.map((text, i) => `${i + 1}. ${text}`).join('\n');
-    sections.push(`## Критерии приёмки\n${lines}`);
+    sections.push(`## Acceptance criteria\n${lines}`);
   } else {
-    sections.push('## Критерии приёмки\nУ задачи нет чеклиста критериев — оцени соответствие формулировке задачи.');
+    sections.push('## Acceptance criteria\nThe task has no criteria checklist — evaluate against the task statement.');
   }
 
-  sections.push(`## Кандидат\n${input.agentName}${input.agentRole ? ` (роль: ${input.agentRole})` : ''}`);
+  sections.push(`## Candidate\n${input.agentName}${input.agentRole ? ` (role: ${input.agentRole})` : ''}`);
 
   if (input.checks.length > 0) {
     const lines = input.checks
-      .map((c) => `- ${c.name} (${c.kind}${c.blocking ? ', блокирующая' : ''}): ${summarizeCheckResult(c)}`)
+      .map((c) => `- ${c.name} (${c.kind}${c.blocking ? ', blocking' : ''}): ${summarizeCheckResult(c)}`)
       .join('\n');
-    sections.push(`## Результаты проверок в worktree кандидата\n${lines}`);
+    sections.push(`## Check results in the candidate worktree\n${lines}`);
   }
 
   if (input.securitySummary) {
-    sections.push(`## Безопасность диффа (проверка ProjectHub)\n${input.securitySummary}`);
+    sections.push(`## Diff security (ProjectHub check)\n${input.securitySummary}`);
   }
 
   const summary = input.diffSummary
-    ? `Файлов: ${input.diffSummary.filesChanged}, +${input.diffSummary.insertions} / -${input.diffSummary.deletions}\n\n`
+    ? `Files: ${input.diffSummary.filesChanged}, +${input.diffSummary.insertions} / -${input.diffSummary.deletions}\n\n`
     : '';
   sections.push(
-    `## Дифф кандидата\n${summary}${diff ? `\`\`\`diff\n${diff}\n\`\`\`` : '(пусто — кандидат не изменил файлы)'}` +
-      (truncated ? '\n\n[дифф усечён для промпта; оценивай по показанной части]' : '')
+    `## Candidate diff\n${summary}${diff ? `\`\`\`diff\n${diff}\n\`\`\`` : '(empty — the candidate did not change files)'}` +
+      (truncated ? '\n\n[the diff is truncated for the prompt; evaluate the shown part]' : '')
   );
 
   sections.push(
-    '## Формат ответа\n' +
-      'Верни один JSON-объект:\n' +
+    '## Response format\n' +
+      'Return one JSON object:\n' +
       REVIEWER_RESPONSE_SCHEMA +
-      '\n\n`overall` — число 0..1: насколько результат готов к слиянию. `index` в `criteria` — номер ' +
-      'критерия приёмки из списка выше; дай вердикт по каждому. `findings` — конкретные замечания с ' +
-      'файлом и по возможности строкой. Не предлагай правок кода, не изменяй файлы.'
+      '\n\n`overall` is a number 0..1: how ready the result is to merge. `index` in `criteria` is the number ' +
+      'of the acceptance criterion from the list above; give a verdict for each. `findings` are specific remarks with ' +
+      'a file and, if possible, a line. Do not suggest code edits, do not change files.'
   );
 
   return sections.join('\n\n');
@@ -167,6 +169,8 @@ export interface ParsedReviewerResponse {
   risks: string[];
   /** Причина, по которой структуру достать не удалось (ответ показывается пользователю как есть). */
   parseError?: string;
+  /** Код причины (decision-165). */
+  parseErrorKey?: AppErrorKey;
 }
 
 /**
@@ -176,16 +180,20 @@ export interface ParsedReviewerResponse {
 export function parseReviewerResponse(raw: string, criteria: string[] = []): ParsedReviewerResponse {
   const empty: ParsedReviewerResponse = { ok: false, criteria: [], findings: [], risks: [] };
   const json = extractJsonObject(raw ?? '');
-  if (!json) return { ...empty, parseError: 'В ответе нет JSON-объекта' };
+  const failure = (code: AppErrorCode, params?: AppErrorParams): ParsedReviewerResponse => {
+    const { text, key } = keyedText(code, params);
+    return { ...empty, parseError: text, parseErrorKey: key };
+  };
+  if (!json) return failure('judge.reviewNoJson');
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
   } catch (err) {
-    return { ...empty, parseError: `JSON не разобрался: ${err instanceof Error ? err.message : String(err)}` };
+    return failure('judge.reviewBadJson', { detail: err instanceof Error ? err.message : String(err) });
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ...empty, parseError: 'Ответ не является объектом' };
+    return failure('judge.reviewNotObject');
   }
   const obj = parsed as Record<string, unknown>;
 
@@ -214,7 +222,7 @@ export function parseReviewerResponse(raw: string, criteria: string[] = []): Par
         .sort((a, b) => a[0] - b[0])
         .map(([index, value]) => ({
           index,
-          text: `Критерий ${index}`,
+          text: `Criterion ${index}`,
           verdict: value.verdict,
           ...(value.comment ? { comment: value.comment } : {})
         }));

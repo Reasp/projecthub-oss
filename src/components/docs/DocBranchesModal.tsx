@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, GitBranch, GitMerge, XCircle, AlertTriangle, ShieldCheck, FileText } from '../common/icons';
 import { ipcErrorText as errorText, useTranslation } from '../../i18n/useTranslation';
+import { hostLabelText } from '../../i18n/hostLabels';
 import { useDialog } from '../../hooks/useDialog';
 import { InitDiffView } from '../projects/InitDiffView';
 import type { DocBranchDiff, DocBranchFile, DocBranchesOverview, DocResolution } from '../../types/electron';
@@ -23,7 +24,7 @@ type Resolutions = Record<string, Record<string, DocResolution>>;
  * конфликты разделов с выбором стороны, принятие целиком или по документам и отклонение ветки.
  */
 export const DocBranchesModal: React.FC<DocBranchesModalProps> = ({ projectPath, initialBranchId, initialDocPath, onClose, onMainChanged }) => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const b = t.docs.branches;
   const { confirm } = useDialog();
   const [overview, setOverview] = useState<DocBranchesOverview | null>(null);
@@ -171,7 +172,7 @@ export const DocBranchesModal: React.FC<DocBranchesModalProps> = ({ projectPath,
                 </div>
                 <div className="text-xs text-slate-100 mt-1 line-clamp-2">{br.title}</div>
                 <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-2">
-                  {br.author && <span>{br.author}</span>}
+                  {br.author && <span>{hostLabelText(br.author, language)}</span>}
                   {br.task && <span>{br.task}</span>}
                   <span>{b.docsCount.replace('{count}', String(br.docs.length))}</span>
                   {br.conflicts > 0 && <span className="text-rose-300">{b.conflictsCount.replace('{count}', String(br.conflicts))}</span>}

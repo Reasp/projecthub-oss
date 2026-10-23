@@ -146,6 +146,7 @@ interface ActiveRun extends RunTrace {
   trigger: string;
   subject: string;
   eventSummary?: string;
+  eventSummaryKey?: AppErrorKey;
   startedAt: number;
   isAgent: boolean;
 }
@@ -473,7 +474,7 @@ export class AutomationEngine {
     const limits = this.config.settings.builtinAssigned;
     const rule: AutomationRule = {
       id: BUILTIN_ASSIGNED_ID,
-      name: 'Автозапуск назначенных задач',
+      name: 'Auto-start assigned tasks',
       enabled: this.deps.builtin.isEnabled(),
       trigger: { kind: 'manual' },
       conditions: {},
@@ -553,7 +554,7 @@ export class AutomationEngine {
       scope: entry.scope.kind,
       trigger: ctx.trigger,
       subject,
-      ...(ctx.event ? { eventSummary: ctx.event.summary } : {}),
+      ...(ctx.event ? { eventSummary: ctx.event.summary, ...(ctx.event.summaryKey ? { eventSummaryKey: ctx.event.summaryKey } : {}) } : {}),
       ...(ctx.projectRoot ? { projectPath: ctx.projectRoot } : {}),
       action: action.type
     };
@@ -614,7 +615,7 @@ export class AutomationEngine {
       limits: entry.rule.limits,
       trigger: ctx.trigger,
       subject,
-      ...(ctx.event ? { eventSummary: ctx.event.summary } : {}),
+      ...(ctx.event ? { eventSummary: ctx.event.summary, ...(ctx.event.summaryKey ? { eventSummaryKey: ctx.event.summaryKey } : {}) } : {}),
       startedAt: now,
       isAgent: isAgentAction(action.type)
     };
@@ -651,7 +652,8 @@ export class AutomationEngine {
         this.deps.actions
       );
     } catch (err) {
-      result = { outcome: 'failed', detail: errorText(err) };
+      const { error, errorKey } = appErrorFields(err);
+      result = { outcome: 'failed', detail: error, ...(errorKey ? { detailKey: errorKey } : {}) };
     }
 
     if (result.outcome === 'pending') {
@@ -667,17 +669,19 @@ export class AutomationEngine {
       try {
         done = await result.completion;
       } catch (err) {
-        done = { outcome: 'failed', detail: errorText(err) };
+        const { error, errorKey } = appErrorFields(err);
+        done = { outcome: 'failed', detail: error, ...(errorKey ? { detailKey: errorKey } : {}) };
       }
       for (const id of done.swarmIds ?? []) if (!run.swarmIds.includes(id)) run.swarmIds.push(id);
       this.finishRun(run, {
         outcome: done.outcome,
         ...(done.detail ? { detail: done.detail } : {}),
+        ...(done.detailKey ? { detailKey: done.detailKey } : {}),
         ...(done.costUsd !== undefined ? { costUsd: done.costUsd } : {}),
         ...(done.swarmIds?.[0] ? { swarmId: done.swarmIds[0] } : {})
       });
     } else {
-      this.finishRun(run, { outcome: result.outcome, ...(result.detail ? { detail: result.detail } : {}) });
+      this.finishRun(run, { outcome: result.outcome, ...(result.detail ? { detail: result.detail } : {}), ...(result.detailKey ? { detailKey: result.detailKey } : {}) });
     }
   }
 
@@ -731,6 +735,7 @@ export class AutomationEngine {
       durationMs: now - run.startedAt,
       ...(run.projectPath ? { projectPath: run.projectPath } : {}),
       ...(run.eventSummary ? { eventSummary: run.eventSummary } : {}),
+      ...(run.eventSummary && run.eventSummaryKey ? { eventSummaryKey: run.eventSummaryKey } : {}),
       ...(result.detail ? { detail: result.detail.slice(0, 2000) } : {}),
       ...(result.detail && result.detailKey ? { detailKey: result.detailKey } : {}),
       ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
@@ -744,7 +749,9 @@ export class AutomationEngine {
       ...(run.projectPath ? { projectPath: run.projectPath } : {}),
       action: run.action.type,
       outcome: result.outcome,
+      ...(run.scope === 'builtin' ? { builtin: true } : {}),
       ...(result.detail ? { detail: result.detail.slice(0, 500) } : {}),
+      ...(result.detail && result.detailKey ? { detailKey: result.detailKey } : {}),
       ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
       ...(result.swarmId ? { swarmId: result.swarmId } : {}),
       at: now

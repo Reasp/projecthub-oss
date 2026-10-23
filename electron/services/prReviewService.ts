@@ -8,6 +8,8 @@ import type { PrReviewTarget } from './prService.js';
 import { normalizePathKey } from './automationRules.js';
 import { stateFields, withVersion } from './stateFiles.js';
 import { AppError, appErrorFields, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
+import type { Language } from '../../src/i18n/types.js';
+import { hostText } from '../i18n/hostText.js';
 import {
   applyVerdicts,
   buildPrComment,
@@ -85,6 +87,7 @@ export interface StartPrReviewInput {
 export interface ReviewCompletion {
   outcome: 'success' | 'failed';
   detail?: string;
+  detailKey?: AppErrorKey;
   costUsd?: number;
   swarmIds?: string[];
 }
@@ -113,6 +116,8 @@ export interface PrReviewDeps {
   stateDir: string;
   now(): number;
   log(level: 'info' | 'warn', message: string): void;
+  /** Язык комментария в PR и заметки в задаче — язык хоста (decision-161). */
+  lang?(): Language;
 }
 
 const TERMINAL = new Set(['completed', 'failed', 'stopped', 'interrupted']);
@@ -303,7 +308,7 @@ export class PrReviewService {
       record.finishedAt = this.deps.now();
       await this.saveQuietly(record);
       this.publishFinished(record);
-      return { outcome: 'failed', detail: message, ...(record.costUsd !== undefined ? { costUsd: record.costUsd } : {}), swarmIds: record.swarmIds };
+      return { outcome: 'failed', detail: message, ...(fields.errorKey ? { detailKey: fields.errorKey } : {}), ...(record.costUsd !== undefined ? { costUsd: record.costUsd } : {}), swarmIds: record.swarmIds };
     };
 
     try {
@@ -328,7 +333,7 @@ export class PrReviewService {
       const slots: AgentSlotConfig[] = [];
       for (const [i, slug] of input.reviewers.entries()) {
         const slot = await this.deps.fleet.buildRoleSlot(root, slug, `review-${pr.number}-${i + 1}-${Date.now().toString(36)}`, {
-          name: `${slug} · ревьюер ${i + 1}`,
+          name: `${slug} · reviewer ${i + 1}`,
           permissions: this.readOnlyPermissions()
         });
         if ('error' in slot) return fail(slot);
@@ -380,7 +385,7 @@ export class PrReviewService {
         record.findings = findings;
         await this.saveQuietly(record);
         const slot = await this.deps.fleet.buildRoleSlot(root, record.verifier.roleSlug, `verify-${pr.number}-${Date.now().toString(36)}`, {
-          name: `${record.verifier.roleSlug} · проверяющий`,
+          name: `${record.verifier.roleSlug} · verifier`,
           permissions: this.readOnlyPermissions()
         });
         if ('error' in slot) {
@@ -429,7 +434,7 @@ export class PrReviewService {
       const doneReviewers = record.reviewers.filter((r) => r.status === 'done').map((r) => r.name);
       if (confirmed > 0) {
         const clean = sanitizeForPublication(
-          buildPrComment({ pr: { number: pr.number, headSha: pr.headSha }, findings, reviewers: doneReviewers, ...(record.verifier?.name ? { verifier: record.verifier.name } : {}), ...(record.costUsd !== undefined ? { costUsd: record.costUsd } : {}) })
+          buildPrComment({ pr: { number: pr.number, headSha: pr.headSha }, findings, reviewers: doneReviewers, ...(record.verifier?.name ? { verifier: record.verifier.name } : {}), ...(record.costUsd !== undefined ? { costUsd: record.costUsd } : {}), lang: this.deps.lang?.() ?? 'en' })
         );
         record.comment = clean.text;
         if (clean.blocked) record.publish = { ...record.publish, state: 'blocked', ...appErrorFields(new AppError('review.secretInText', { detail: clean.blocked })) };
@@ -443,9 +448,14 @@ export class PrReviewService {
       if (record.publish.state === 'pending') void this.requestPublication(record);
 
       const refuted = findings.filter((f) => f.verdict === 'refuted').length;
+      const counts = { number: pr.number, n: findings.length, confirmed, refuted };
+      const summary = record.comment
+        ? new AppError('review.runSummaryPublish', { ...counts, mode: { code: record.publish.mode === 'hitl' ? 'review.publishAwaiting' : 'review.publishManual' } })
+        : new AppError('review.runSummary', counts);
       return {
         outcome: 'success',
-        detail: `PR #${pr.number}: находок ${findings.length}, подтверждено ${confirmed}, отброшено ${refuted}${record.comment ? `; публикация: ${record.publish.mode === 'hitl' ? 'ждёт решения' : 'вручную'}` : ''}`,
+        detail: summary.message,
+        detailKey: summary.appErrorKey,
         ...(record.costUsd !== undefined ? { costUsd: record.costUsd } : {}),
         swarmIds: record.swarmIds
       };
@@ -458,10 +468,12 @@ export class PrReviewService {
     const confirmed = record.findings.filter((f) => f.verdict === 'confirmed').length;
     const refuted = record.findings.filter((f) => f.verdict === 'refuted').length;
     const cost = record.costUsd !== undefined ? `, $${record.costUsd.toFixed(2)}` : '';
+    const tx = hostText(this.deps.lang?.() ?? 'en').prReview;
+    const at = new Date(record.finishedAt ?? this.deps.now()).toISOString().slice(0, 16).replace('T', ' ');
     return [
-      `**Ревью PR #${record.prNumber} ${new Date(record.finishedAt ?? this.deps.now()).toISOString().slice(0, 16).replace('T', ' ')} UTC** — голова \`${record.headSha.slice(0, 7)}\`${cost}`,
-      `- находок ${record.findings.length}: подтверждено ${confirmed}, отброшено при проверке ${refuted}`,
-      `- ревьюеры: ${record.reviewers.map((r) => `${r.name} (${r.status === 'done' ? r.findings : 'ошибка'})`).join(', ')}`
+      `${tx.noteHeader(record.prNumber, at, record.headSha.slice(0, 7))}${cost}`,
+      tx.noteFindings(record.findings.length, confirmed, refuted),
+      tx.noteReviewers(record.reviewers.map((r) => `${r.name} (${r.status === 'done' ? r.findings : tx.reviewerError})`).join(', '))
     ].join('\n');
   }
 

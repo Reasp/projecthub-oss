@@ -25,6 +25,7 @@ import {
 import { useHitlStore } from '../../store/useHitlStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { hostLabelText } from '../../i18n/hostLabels';
 import { accountDisplayName } from '../../lib/cliAccountEngines';
 import { useToast } from '../../hooks/useTimeoutState';
 import { InteractiveApprovalCard } from '../ai/InteractiveApprovalCard';
@@ -68,7 +69,7 @@ const originStyle: Record<string, string> = {
 };
 
 export const HitlCenterModal: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const {
     isCenterOpen,
     closeCenter,
@@ -303,7 +304,7 @@ export const HitlCenterModal: React.FC = () => {
         </td>
         <td className="px-2 py-1.5 text-slate-300 whitespace-nowrap text-[11px]">
           {by}
-          {e.deviceName ? <div className="text-[11px] text-slate-500">{e.deviceName}</div> : null}
+          {e.deviceName ? <div className="text-[11px] text-slate-500">{hostLabelText(e.deviceName, language)}</div> : null}
           {e.rule ? <div className="text-[11px] font-mono text-slate-500">{e.rule}</div> : null}
         </td>
         <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap text-[11px] font-mono">

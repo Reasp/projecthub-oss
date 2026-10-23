@@ -39,8 +39,9 @@ interface SwarmState {
   requestAiView: (mode: 'studio' | 'swarm') => void;
   openNewSwarmModal: (initialConfig?: { taskId?: string; taskTitle?: string; prompt?: string; mode?: SwarmMode }) => void;
   closeNewSwarmModal: () => void;
-  startFanOutAction: (options: StartFanOutOptions) => Promise<SwarmSession | null>;
-  startHandoffAction: (options: StartHandoffOptions) => Promise<SwarmSession | null>;
+  /** Сбой старта — `{ error }` текстом на языке окна: модалка показывает его человеку (decision-165). */
+  startFanOutAction: (options: StartFanOutOptions) => Promise<SwarmSession | { error: string } | null>;
+  startHandoffAction: (options: StartHandoffOptions) => Promise<SwarmSession | { error: string } | null>;
   /** Цикл «до готовности» (TASK-75). */
   startDoneLoopAction: (options: StartDoneLoopOptions) => Promise<SwarmSession | { error: string }>;
   getDoneLoopConfigAction: (projectPath: string) => Promise<DoneLoopSettings | null>;
@@ -175,7 +176,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
     } catch (err) {
       console.error('[SwarmStore] Failed to start Fan-Out:', err);
       set({ isLoading: false });
-      return null;
+      return { error: ipcErrorText(err) };
     }
   },
 
@@ -201,7 +202,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
     } catch (err) {
       console.error('[SwarmStore] Failed to start Handoff:', err);
       set({ isLoading: false });
-      return null;
+      return { error: ipcErrorText(err) };
     }
   },
 

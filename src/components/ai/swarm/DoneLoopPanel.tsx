@@ -117,7 +117,7 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
           <div className="space-y-0.5">
             <div className="font-semibold">
               {doneLoopOutcomeLabel(loop.outcome, d)}
-              {loop.reason ? <span className="font-normal"> — {loop.reason}</span> : null}
+              {loop.reason ? <span className="font-normal"> — {ipcFailureText({ error: loop.reason, errorKey: loop.reasonKey })}</span> : null}
             </div>
             {loop.task?.finalSummaryWritten && (
               <div>
@@ -223,7 +223,9 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                       <p className="text-foreground whitespace-pre-wrap">{it.reportSummary}</p>
                     </div>
                   )}
-                  {it.reportError && <div className="text-rose-400">{d.reportMissing.replace('{error}', it.reportError)}</div>}
+                  {it.reportError && (
+                    <div className="text-rose-400">{d.reportMissing.replace('{error}', ipcFailureText({ error: it.reportError, errorKey: it.reportErrorKey }))}</div>
+                  )}
 
                   {it.criteria.length > 0 && (
                     <ul className="space-y-1.5">
@@ -250,7 +252,7 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                               )
                             ) : (
                               <div className="text-rose-400/90">
-                                {c.reason}
+                                {c.reason ? ipcFailureText({ error: c.reason, errorKey: c.reasonKey }) : null}
                                 {c.evidence ? <span className="text-muted-foreground"> — {c.evidence}</span> : null}
                               </div>
                             )}

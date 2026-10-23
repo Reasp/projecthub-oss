@@ -13,6 +13,9 @@ import { applyImplementationNote, normalizeFrontmatter, nowBacklogTimestamp, wit
 import { findTaskFile } from './taskFileLookup.js';
 import { redactSecrets } from './hitlAudit.js';
 import type { SwarmMode } from './swarmTypes.js';
+import type { Language } from '../../src/i18n/types.js';
+import { formatAppError, type AppErrorKey } from '../../src/lib/appError.js';
+import { hostText } from '../i18n/hostText.js';
 
 /** Сколько символов итога агента попадает в заметку. */
 export const NOTE_SUMMARY_MAX = 600;
@@ -35,6 +38,8 @@ export interface SessionNoteInput {
   mode: SwarmMode;
   status: SessionNoteStatus;
   error?: string;
+  /** Код причины: заметка собирает её на языке хоста (decision-165). */
+  errorKey?: AppErrorKey;
   totalCostUsd?: number;
   agents: SessionNoteAgent[];
   /** Число итераций цикла «до готовности»; для остальных режимов — нет. */
@@ -43,19 +48,9 @@ export interface SessionNoteInput {
   summary?: string;
   /** Номер продолжения после отката (decision-48), 0 — исходный запуск. */
   continuation?: number;
+  /** Язык хоста (decision-161): файл задачи читает человек. По умолчанию английский. */
+  lang?: Language;
 }
-
-const MODE_LABEL: Record<string, string> = {
-  fan_out: 'арена (fan-out)',
-  handoff: 'конвейер (handoff)',
-  done_loop: 'цикл «до готовности»'
-};
-
-const STATUS_LABEL: Record<SessionNoteStatus, string> = {
-  completed: 'успех',
-  failed: 'провал',
-  stopped: 'остановлена'
-};
 
 const usd = (v: number) => `$${v.toFixed(v < 0.01 ? 4 : 2)}`;
 
@@ -81,23 +76,28 @@ export function noteSummary(text: string | undefined, max = NOTE_SUMMARY_MAX): s
 }
 
 export function formatSessionNote(input: SessionNoteInput): string {
-  const head: string[] = [MODE_LABEL[input.mode] ?? input.mode, STATUS_LABEL[input.status]];
-  if (typeof input.iterations === 'number') head.push(`итераций: ${input.iterations}`);
+  const host = hostText(input.lang);
+  const tx = host.sessionNote;
+  const head: string[] = [tx.modes[input.mode] ?? input.mode, tx.statuses[input.status]];
+  if (typeof input.iterations === 'number') head.push(tx.iterations(input.iterations));
   if (typeof input.totalCostUsd === 'number') head.push(usd(input.totalCostUsd));
-  if (input.continuation) head.push(`продолжение ${input.continuation}`);
+  if (input.continuation) head.push(tx.continuation(input.continuation));
 
-  const lines = [`**Сессия агента ${nowBacklogTimestamp(input.at)} UTC** — ${head.join(', ')}`];
-  if (input.status !== 'completed' && input.error) lines.push(`Причина: ${noteSummary(input.error, 300)}`);
+  const lines = [tx.header(nowBacklogTimestamp(input.at), head.join(', '))];
+  if (input.status !== 'completed' && input.error) {
+    const reason = (input.errorKey && formatAppError(input.errorKey, host.appErrors)) || input.error;
+    lines.push(tx.reason(noteSummary(reason, 300)));
+  }
   for (const a of input.agents) {
     const who = [a.role, a.engine, a.model].filter(Boolean).join(', ');
     const parts = [`- ${oneLine(a.name)} (${who}): ${a.status}`];
-    if (a.branch) parts.push(`ветка \`${a.branch}\``);
-    if (a.commitHash) parts.push(`коммит ${a.commitHash.slice(0, 7)}`);
+    if (a.branch) parts.push(tx.branch(a.branch));
+    if (a.commitHash) parts.push(tx.commit(a.commitHash.slice(0, 7)));
     if (typeof a.costUsd === 'number' && input.agents.length > 1) parts.push(usd(a.costUsd));
     lines.push(parts.join(', '));
   }
   const summary = noteSummary(input.summary);
-  if (summary) lines.push(`Итог: ${summary}`);
+  if (summary) lines.push(tx.summary(summary));
   return lines.join('\n');
 }
 

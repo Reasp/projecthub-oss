@@ -7,6 +7,10 @@
  * `doneLoopService`. Покрыт unit-тестами (`tests/unit/doneLoop.test.ts`).
  */
 import { z } from 'zod';
+import type { Language } from '../../src/i18n/types.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
+import { formatAppError, keyedText, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
+import { hostText } from '../i18n/hostText.js';
 import { extractJsonObject } from './reviewerPrompt.js';
 import { isFailedStatus, scriptCommand, summarizeCheckResult, DEFAULT_CHECK_TIMEOUT_MS } from './arenaChecks.js';
 import type { CheckDefinition, CheckRunResult } from './arenaTypes.js';
@@ -89,12 +93,15 @@ export const AgentReportSchema = z.object({
 });
 
 export const REPORT_EXAMPLE = `{
-  "summary": "Что сделано в этом ходе, 2-4 предложения",
+  "summary": "What was done in this turn, 2-4 sentences",
   "criteria": [
-    { "index": 1, "status": "done", "evidence": "src/foo.ts:42 — функция bar; тест tests/unit/foo.test.ts «bar считает сумму» проходит" },
-    { "index": 2, "status": "not_done", "evidence": "Не хватает обработки пустого ввода" }
+    { "index": 1, "status": "done", "evidence": "src/foo.ts:42 — function bar; test tests/unit/foo.test.ts 'bar adds numbers' passes" },
+    { "index": 2, "status": "not_done", "evidence": "Empty input handling is missing" }
   ]
 }`;
+
+/** Причина для модели и журнала по-английски и её код для окна и телефона (decision-165). */
+const keyed = keyedText;
 
 /** Все сбалансированные JSON-объекты верхнего уровня в тексте (с учётом строк и экранирования). */
 function jsonObjectsIn(text: string): string[] {
@@ -115,7 +122,12 @@ function jsonObjectsIn(text: string): string[] {
   return out;
 }
 
-export type ParsedAgentReport = { ok: true; report: AgentReport } | { ok: false; error: string };
+export type ParsedAgentReport = { ok: true; report: AgentReport } | { ok: false; error: string; errorKey: AppErrorKey };
+
+function reportFailure(code: AppErrorCode, params?: AppErrorParams): ParsedAgentReport {
+  const { text, key } = keyed(code, params);
+  return { ok: false, error: text, errorKey: key };
+}
 
 /**
  * Разбор отчёта из финального сообщения агента. Предпочтение — последней ограде
@@ -130,24 +142,24 @@ export function parseAgentReport(text: string): ParsedAgentReport {
   let candidate: string | null;
   if (fenced.length > 0) {
     candidate = extractJsonObject(fenced[fenced.length - 1][1]);
-    if (!candidate) return { ok: false, error: `Блок ${REPORT_FENCE} не содержит JSON-объекта` };
+    if (!candidate) return reportFailure('loop.reportNoJson', { fence: REPORT_FENCE });
   } else {
     const objects = jsonObjectsIn(source).filter((o) => /"criteria"\s*:/.test(o));
     candidate = objects.length > 0 ? objects[objects.length - 1] : null;
   }
-  if (!candidate) return { ok: false, error: `В ответе нет отчёта (блок \`\`\`${REPORT_FENCE}\`\`\`)` };
+  if (!candidate) return reportFailure('loop.reportMissing', { fence: REPORT_FENCE });
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(candidate);
   } catch (err) {
-    return { ok: false, error: `JSON отчёта не разобрался: ${err instanceof Error ? err.message : String(err)}` };
+    return reportFailure('loop.reportBadJson', { detail: err instanceof Error ? err.message : String(err) });
   }
   const result = AgentReportSchema.safeParse(parsed);
   if (!result.success) {
     const issue = result.error.issues[0];
-    const where = issue?.path?.length ? issue.path.join('.') : 'отчёт';
-    return { ok: false, error: `Отчёт не соответствует схеме: ${where} — ${issue?.message ?? 'ошибка'}` };
+    const where = issue?.path?.length ? issue.path.join('.') : 'report';
+    return reportFailure('loop.reportSchema', { path: where, detail: issue?.message ?? 'invalid' });
   }
   return { ok: true, report: result.data };
 }
@@ -190,8 +202,12 @@ export function verifyCriteria(
     for (const ref of item?.screenshots ?? []) {
       const r = resolveScreenshotRef(ref, screenshots);
       if (r.ok) resolved.push({ ref, checkId: r.match.checkId, name: r.match.artifact.name, relPath: r.match.artifact.relPath });
-      else missing.push(r.error === 'ambiguous' ? `«${ref}» неоднозначен (${(r.candidates ?? []).join(', ')})` : `«${ref}»`);
+      else missing.push(r.error === 'ambiguous' ? `“${ref}” (${(r.candidates ?? []).join(', ')})` : `“${ref}”`);
     }
+    const why = (code: AppErrorCode, params?: AppErrorParams): Pick<CriterionVerification, 'reason' | 'reasonKey'> => {
+      const { text, key } = keyed(code, params);
+      return { reason: text, reasonKey: key };
+    };
     const base: CriterionVerification = {
       index,
       text: c.text,
@@ -200,21 +216,21 @@ export function verifyCriteria(
       ...(ui ? { ui: true } : {}),
       ...(resolved.length > 0 ? { screenshots: resolved } : {})
     };
-    if (c.completed) return { ...base, accepted: true, alreadyChecked: true, reason: 'Отмечен в задаче до запуска цикла' };
-    if (!report) return { ...base, reason: 'Нет разобранного отчёта агента' };
-    if (!item) return { ...base, reason: 'Агент не отчитался по критерию' };
+    if (c.completed) return { ...base, accepted: true, alreadyChecked: true, ...why('loop.criterionPreChecked') };
+    if (!report) return { ...base, ...why('loop.criterionNoReport') };
+    if (!item) return { ...base, ...why('loop.criterionNotReported') };
     if (item.status !== 'done') {
-      return { ...base, reason: item.status === 'blocked' ? 'Агент сообщил о блокере' : 'Агент сообщил, что критерий не выполнен' };
+      return { ...base, ...why(item.status === 'blocked' ? 'loop.criterionBlocked' : 'loop.criterionNotDone') };
     }
     if (missing.length > 0) {
-      return { ...base, reason: `Скриншот ${missing.join(', ')} не найден среди артефактов проверок итерации` };
+      return { ...base, ...why('loop.criterionScreenshotMissing', { refs: missing.join(', ') }) };
     }
     if (ui && resolved.length === 0) {
-      return { ...base, reason: 'Критерий [ui] требует скриншот проверки ui-smoke (поле screenshots в отчёте)' };
+      return { ...base, ...why('loop.criterionUiNeedsScreenshot') };
     }
     // Найденный скриншот — evidence наравне с текстом (decision-55 п. 7).
     if (resolved.length === 0 && item.evidence.trim().length < minEvidenceChars) {
-      return { ...base, reason: 'Нет конкретного evidence (файл/тест/вывод команды)' };
+      return { ...base, ...why('loop.criterionNoEvidence') };
     }
     return { ...base, accepted: true };
   });
@@ -236,6 +252,7 @@ export interface DecideInput {
   /** Статус слота агента по итогам хода. */
   agentStatus: string;
   agentError?: string;
+  agentErrorKey?: AppErrorKey;
   checksPassed: boolean;
   allCriteriaAccepted: boolean;
   costUsd?: number;
@@ -245,7 +262,18 @@ export interface DecideInput {
 export type DoneLoopDecision =
   | { action: 'finish' }
   | { action: 'retry' }
-  | { action: 'fail'; outcome: Exclude<DoneLoopOutcome, 'success'>; reason: string };
+  | { action: 'fail'; outcome: Exclude<DoneLoopOutcome, 'success'>; reason: string; reasonKey?: AppErrorKey };
+
+function failWith(outcome: Exclude<DoneLoopOutcome, 'success'>, code: AppErrorCode, params?: AppErrorParams): DoneLoopDecision {
+  const { text, key } = keyed(code, params);
+  return { action: 'fail', outcome, reason: text, reasonKey: key };
+}
+
+/** Ошибка хода агента: его собственный текст и код, без текста — общая причина. */
+function agentFailure(input: DecideInput, outcome: 'budget' | 'agent_error', fallback: AppErrorCode): DoneLoopDecision {
+  if (!input.agentError) return failWith(outcome, fallback);
+  return { action: 'fail', outcome, reason: input.agentError, ...(input.agentErrorKey ? { reasonKey: input.agentErrorKey } : {}) };
+}
 
 /**
  * Переход после хода: `run → check → verify → finish | retry | fail`.
@@ -255,39 +283,27 @@ export type DoneLoopDecision =
  */
 export function decideNext(input: DecideInput): DoneLoopDecision {
   if (input.stopped || input.agentStatus === 'stopped') {
-    return { action: 'fail', outcome: 'stopped', reason: 'Цикл остановлен человеком' };
+    return failWith('stopped', 'loop.stoppedByHuman');
   }
-  if (input.agentStatus === 'budget_exceeded') {
-    return { action: 'fail', outcome: 'budget', reason: input.agentError || 'Агент остановлен по бюджету' };
-  }
-  if (input.agentStatus === 'failed') {
-    return { action: 'fail', outcome: 'agent_error', reason: input.agentError || 'Ход агента завершился ошибкой' };
-  }
+  if (input.agentStatus === 'budget_exceeded') return agentFailure(input, 'budget', 'loop.agentBudgetStopped');
+  if (input.agentStatus === 'failed') return agentFailure(input, 'agent_error', 'loop.agentTurnFailed');
   if (input.checksPassed && input.allCriteriaAccepted) return { action: 'finish' };
 
   const budget = input.budgetUsd;
   if (typeof budget === 'number' && budget > 0 && typeof input.costUsd === 'number' && input.costUsd >= budget) {
-    return {
-      action: 'fail',
-      outcome: 'budget',
-      reason: `Бюджет цикла $${budget.toFixed(2)} исчерпан (потрачено $${input.costUsd.toFixed(2)}) за ${input.iteration} итер.`
-    };
+    return failWith('budget', 'loop.budgetExhausted', { budget: budget.toFixed(2), spent: input.costUsd.toFixed(2), n: input.iteration });
   }
   if (input.iteration >= input.maxIterations) {
-    return {
-      action: 'fail',
-      outcome: 'iteration_limit',
-      reason: `Достигнут лимит итераций (${input.maxIterations}): ${failureSummary(input)}`
-    };
+    return failWith('iteration_limit', 'loop.iterationLimit', { max: input.maxIterations, summary: { code: failureSummary(input) } });
   }
   return { action: 'retry' };
 }
 
-function failureSummary(input: DecideInput): string {
-  const parts: string[] = [];
-  if (!input.checksPassed) parts.push('проверки не прошли');
-  if (!input.allCriteriaAccepted) parts.push('не все критерии приёмки закрыты');
-  return parts.join(', ') || 'цель не достигнута';
+function failureSummary(input: DecideInput): AppErrorCode {
+  if (!input.checksPassed && !input.allCriteriaAccepted) return 'loop.goalChecksAndCriteria';
+  if (!input.checksPassed) return 'loop.goalChecks';
+  if (!input.allCriteriaAccepted) return 'loop.goalCriteria';
+  return 'loop.goalNotReached';
 }
 
 // ───────────────────────────────── Промпты ─────────────────────────────────
@@ -300,36 +316,36 @@ export function buildDoneLoopInstructions(input: {
   maxIterations: number;
 }): string {
   const criteriaLines = input.criteria.length
-    ? input.criteria.map((c, i) => `${i + 1}. ${c.completed ? '[уже отмечен] ' : ''}${c.text}`).join('\n')
-    : '(у задачи нет чеклиста — ориентируйся на описание)';
+    ? input.criteria.map((c, i) => `${i + 1}. ${c.completed ? '[already checked] ' : ''}${c.text}`).join('\n')
+    : '(the task has no checklist — follow its description)';
   const checkLines = input.checks.length
-    ? input.checks.map((c) => `- ${c.name}: \`${c.command}\`${c.blocking === false ? ' (не блокирует)' : ''}`).join('\n')
-    : '- (проверки для проекта не настроены)';
+    ? input.checks.map((c) => `- ${c.name}: \`${c.command}\`${c.blocking === false ? ' (non-blocking)' : ''}`).join('\n')
+    : '- (no checks are configured for the project)';
   const uiSmoke = input.checks.filter(isUiSmokeCheck);
   const hasUiCriteria = input.criteria.some((c) => !c.completed && isUiCriterion(c.text));
 
   return [
-    '# Режим «до готовности» (ProjectHub Done-loop)',
-    `Ты выполняешь задачу ${input.taskId} в замкнутом контуре. После каждого твоего хода ProjectHub сам ` +
-      'коммитит изменения, запускает проверки проекта и сверяет критерии приёмки по твоему отчёту. ' +
-      `Если что-то не сходится, ты получишь ошибки и продолжишь в этой же сессии (не больше ${input.maxIterations} ходов).`,
-    `## Критерии приёмки\n${criteriaLines}`,
-    `## Проверки, которые ProjectHub запустит после хода\n${checkLines}`,
-    '## Правила\n' +
-      '- Не отмечай чекбоксы критериев и не меняй `status` в файле задачи Backlog.md — это делает только ProjectHub; такие правки откатываются.\n' +
-      '- Перед отчётом сам прогони проверки, если можешь, и исправь ошибки.\n' +
-      '- Отмечай критерий `done` только с конкретным evidence: путь к файлу и строка, имя теста, команда и её результат. Без evidence критерий не засчитывается.\n' +
-      '- Честно ставь `not_done` или `blocked` с объяснением — это дешевле, чем повторный ход по ложному `done`.',
-    '## Отчёт в конце каждого хода\n' +
-      `Последним блоком финального сообщения выведи отчёт в ограде \`\`\`${REPORT_FENCE}:\n` +
+    '# “Until done” mode (ProjectHub Done-loop)',
+    `You are working on task ${input.taskId} in a closed loop. After each of your turns ProjectHub ` +
+      'commits the changes, runs the project checks and verifies the acceptance criteria against your report. ' +
+      `If something does not add up, you get the errors and continue in the same session (at most ${input.maxIterations} turns).`,
+    `## Acceptance criteria\n${criteriaLines}`,
+    `## Checks ProjectHub runs after the turn\n${checkLines}`,
+    '## Rules\n' +
+      '- Do not tick criteria checkboxes and do not change `status` in the Backlog.md task file — only ProjectHub does that; such edits are reverted.\n' +
+      '- Before the report, run the checks yourself if you can and fix the errors.\n' +
+      '- Mark a criterion `done` only with specific evidence: file path and line, test name, command and its result. A criterion without evidence is not accepted.\n' +
+      '- Honestly use `not_done` or `blocked` with an explanation — that is cheaper than another turn over a false `done`.',
+    '## Report at the end of every turn\n' +
+      `As the last block of your final message, print the report in a \`\`\`${REPORT_FENCE} fence:\n` +
       '```' + REPORT_FENCE + '\n' + REPORT_EXAMPLE + '\n```\n' +
-      '`index` — номер критерия из списка выше; дай строку по каждому незакрытому критерию. ' +
+      '`index` is the criterion number from the list above; give a line for every criterion that is not closed. ' +
       '`status`: `done` | `not_done` | `blocked`.',
     ...(uiSmoke.length > 0 ? [buildScreenshotEvidenceSection(uiSmoke)] : []),
     ...(hasUiCriteria && uiSmoke.length === 0
       ? [
-          '## Критерии [ui]\nКритерии с меткой `[ui]` засчитываются только со скриншотом проверки `ui-smoke`, а такой проверки в ' +
-            'проекте нет: отчитайся по ним `blocked` и объясни, что нужна проверка `ui-smoke` в `.projecthub.json`.'
+          '## [ui] criteria\nCriteria tagged `[ui]` are accepted only with a screenshot of a `ui-smoke` check, and the project has ' +
+            'no such check: report them as `blocked` and explain that a `ui-smoke` check in `.projecthub.json` is needed.'
         ]
       : [])
   ].join('\n\n');
@@ -339,12 +355,12 @@ export function buildDoneLoopInstructions(input: {
 function buildScreenshotEvidenceSection(uiSmoke: CheckDefinition[]): string {
   const names = uiSmoke.map((c) => `\`${c.id}\``).join(', ');
   return (
-    '## Скриншоты как evidence\n' +
-    `Проверки ${names} сохраняют скриншоты в каталог из переменной окружения \`PROJECTHUB_ARTIFACTS_DIR\` ` +
+    '## Screenshots as evidence\n' +
+    `Checks ${names} save screenshots to the directory from the \`PROJECTHUB_ARTIFACTS_DIR\` environment variable ` +
     '(Playwright: `page.screenshot({ path: path.join(process.env.PROJECTHUB_ARTIFACTS_DIR, \'home.png\') })`). ' +
-    'Для критерия про интерфейс добавь в строку отчёта поле `"screenshots": ["home.png"]` — имена файлов, которые создаёт тест. ' +
-    'ProjectHub сверит их с артефактами проверок этой итерации; ненайденное имя — критерий не засчитан. ' +
-    'Критерии с меткой `[ui]` без скриншота не засчитываются. Свои снимки из Playwright MCP evidence не являются.'
+    'For a UI criterion, add the field `"screenshots": ["home.png"]` to its report line — the names of the files the test creates. ' +
+    'ProjectHub matches them against the check artifacts of this iteration; a name that is not found means the criterion is not accepted. ' +
+    'Criteria tagged `[ui]` are not accepted without a screenshot. Your own Playwright MCP snapshots are not evidence.'
   );
 }
 
@@ -364,50 +380,44 @@ export function buildRetryPrompt(input: {
 }): string {
   const tailChars = input.tailChars ?? RETRY_CHECK_TAIL_CHARS;
   const sections: string[] = [
-    `[ProjectHub Done-loop] Итерация ${input.iteration} из ${input.maxIterations} не принята. Продолжи работу в этом же рабочем каталоге: ` +
-      'исправь перечисленное ниже, не начинай задачу заново.'
+    `[ProjectHub Done-loop] Iteration ${input.iteration} of ${input.maxIterations} was not accepted. Continue in the same working directory: ` +
+      'fix what is listed below, do not start the task over.'
   ];
 
   const failed = input.checks.filter((c) => isFailedStatus(c.status));
   if (failed.length > 0) {
     const blocks = failed.map(
       (c) =>
-        `### ${c.name} (\`${c.command}\`) — ${summarizeCheckResult(c)}${c.blocking ? '' : ', не блокирует'}\n` +
+        `### ${c.name} (\`${c.command}\`) — ${summarizeCheckResult(c)}${c.blocking ? '' : ', non-blocking'}\n` +
         '```text\n' +
-        tail(c.outputTail || c.detail || '(вывода нет)', tailChars) +
+        tail(c.outputTail || c.detail || '(no output)', tailChars) +
         '\n```'
     );
-    sections.push(`## Упавшие проверки\n${blocks.join('\n\n')}`);
+    sections.push(`## Failed checks\n${blocks.join('\n\n')}`);
   } else if (input.checks.length > 0) {
-    sections.push('## Проверки\nВсе проверки прошли — не сломай их.');
+    sections.push('## Checks\nAll checks passed — do not break them.');
   }
 
-  if (input.reportError) sections.push(`## Отчёт\nОтчёт не принят: ${input.reportError}.`);
+  if (input.reportError) sections.push(`## Report\nThe report was not accepted: ${input.reportError}.`);
 
   const shots = iterationScreenshots(input.checks);
   if (shots.length > 0) {
     const lines = shots.slice(0, 40).map((s) => `- ${s.checkId}/${s.artifact.name}`);
-    sections.push(`## Скриншоты проверок этой итерации\nНа них можно ссылаться в поле \`screenshots\`:\n${lines.join('\n')}`);
+    sections.push(`## Check screenshots of this iteration\nYou can refer to them in the \`screenshots\` field:\n${lines.join('\n')}`);
   }
 
   const open = input.criteria.filter((c) => !c.accepted);
   if (open.length > 0) {
-    const lines = open.map((c) => `- #${c.index} ${c.text} — ${c.reason ?? 'не засчитан'}${c.evidence ? ` (твой evidence: «${tail(c.evidence, 300)}»)` : ''}`);
-    sections.push(`## Незакрытые критерии приёмки\n${lines.join('\n')}`);
+    const lines = open.map((c) => `- #${c.index} ${c.text} — ${c.reason ?? 'not accepted'}${c.evidence ? ` (your evidence: “${tail(c.evidence, 300)}”)` : ''}`);
+    sections.push(`## Open acceptance criteria\n${lines.join('\n')}`);
   }
 
-  sections.push(`В конце хода снова выведи отчёт в ограде \`\`\`${REPORT_FENCE}\`\`\` по всем незакрытым критериям.`);
+  sections.push(`At the end of the turn, print the report in a \`\`\`${REPORT_FENCE}\`\`\` fence again for all open criteria.`);
   return sections.join('\n\n');
 }
 
-export const OUTCOME_LABELS: Record<DoneLoopOutcome, string> = {
-  success: 'готово',
-  iteration_limit: 'исчерпан лимит итераций',
-  budget: 'исчерпан бюджет',
-  agent_error: 'ошибка агента',
-  task_error: 'ошибка задачи',
-  stopped: 'остановлен человеком'
-};
+/** Подписи итога для журнала — по-английски; файл задачи получает их на языке хоста (`hostText`). */
+export const OUTCOME_LABELS: Record<DoneLoopOutcome, string> = hostText('en').doneLoop.outcomes;
 
 /** Итоговое резюме для секции `Final Summary` задачи. */
 export function buildDoneLoopFinalSummary(input: {
@@ -425,43 +435,47 @@ export function buildDoneLoopFinalSummary(input: {
   reportSummary?: string;
   branch?: string;
   commitHash?: string;
+  /** Язык хоста (decision-161): файл задачи читает человек. */
+  lang?: Language;
 }): string {
+  const lang = input.lang ?? 'en';
+  const tx = hostText(lang).doneLoop;
+  const labels = hostText(lang).appErrors;
   const lines: string[] = [];
   // Лимит действует на отрезок, а номера итераций сквозные: после продолжения показываем оба числа.
   const inSegment = input.segmentIterations;
   const count =
     inSegment !== undefined && inSegment !== input.iterations
-      ? `итераций ${input.iterations}, после отката ${inSegment} из ${input.maxIterations}`
-      : `итераций ${input.iterations} из ${input.maxIterations}`;
-  lines.push(
-    `Выполнено агентом ProjectHub в режиме «до готовности» (${input.agentName}, движок ${input.engine}): ${OUTCOME_LABELS[input.outcome]}, ${count}.`
-  );
+      ? tx.iterationsAfterRewind(input.iterations, inSegment, input.maxIterations)
+      : tx.iterations(input.iterations, input.maxIterations);
+  lines.push(tx.headline(input.agentName, input.engine, tx.outcomes[input.outcome], count));
   if (input.reportSummary) lines.push('', input.reportSummary.trim());
 
   if (input.criteria.length > 0) {
-    lines.push('', 'Критерии приёмки (сверены ProjectHub по отчёту агента):');
+    lines.push('', tx.criteriaHeader);
     for (const c of input.criteria) {
       const mark = c.accepted ? 'x' : ' ';
-      const note = c.alreadyChecked ? 'отмечен до запуска' : c.accepted ? c.evidence ?? '' : c.reason ?? '';
+      const reason = (c.reasonKey && formatAppError(c.reasonKey, labels)) ?? c.reason ?? '';
+      const note = c.alreadyChecked ? tx.preChecked : c.accepted ? c.evidence ?? '' : reason;
       // Только имена: пути userData машинозависимы, а файл задачи коммитится (decision-55 п. 7).
-      const shots = c.accepted && c.screenshots?.length ? ` (скриншоты: ${c.screenshots.map((s) => `${s.checkId}/${s.name}`).join(', ')})` : '';
+      const shots = c.accepted && c.screenshots?.length ? ` (${tx.screenshots(c.screenshots.map((s) => `${s.checkId}/${s.name}`).join(', '))})` : '';
       lines.push(`- [${mark}] #${c.index} ${c.text}${note ? ` — ${note.replace(/\s+/g, ' ').trim()}` : ''}${shots}`);
     }
   }
 
   if (input.checks.length > 0) {
-    lines.push('', 'Проверки последней итерации:');
-    for (const c of input.checks) lines.push(`- ${c.name} (\`${c.command}\`): ${summarizeCheckResult(c)}`);
+    lines.push('', tx.checksHeader);
+    for (const c of input.checks) lines.push(`- ${c.name} (\`${c.command}\`): ${summarizeCheckResult(c, lang)}`);
   } else {
-    lines.push('', 'Проверки: не настроены.');
+    lines.push('', tx.checksNone);
   }
 
   const meta: string[] = [];
-  meta.push(`стоимость ${typeof input.costUsd === 'number' ? `$${input.costUsd.toFixed(4)}` : 'неизвестна'}`);
-  if (typeof input.durationMs === 'number') meta.push(`длительность ${Math.round(input.durationMs / 1000)} с`);
-  if (input.branch) meta.push(`ветка \`${input.branch}\``);
-  if (input.commitHash) meta.push(`коммит ${input.commitHash.slice(0, 7)}`);
-  lines.push('', `Итого: ${meta.join(', ')}.`);
+  meta.push(tx.cost(typeof input.costUsd === 'number' ? `$${input.costUsd.toFixed(4)}` : undefined));
+  if (typeof input.durationMs === 'number') meta.push(tx.duration(Math.round(input.durationMs / 1000)));
+  if (input.branch) meta.push(tx.branch(input.branch));
+  if (input.commitHash) meta.push(tx.commit(input.commitHash.slice(0, 7)));
+  lines.push('', tx.total(meta.join(', ')));
   return lines.join('\n');
 }
 

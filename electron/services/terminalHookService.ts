@@ -42,6 +42,7 @@ import type { AIProviderConfig } from './aiAgentService.js';
 import type { ApprovalResponse, AppBusEvent, HitlEngine, HitlRequest, HitlRequestType, HitlTextCode, HitlTextKey, HitlTextLine } from './hitlTypes.js';
 import { keyedHitlText } from './hitlText.js';
 import type { RoleDefinition } from './roleTypes.js';
+import { AppError } from '../../src/lib/appError.js';
 import { terminalSessionTracker, type TerminalActivity } from './terminalSessionTracker.js';
 
 export const TERMINAL_HOOKS_FILE = 'terminal-hooks.json';
@@ -122,7 +123,7 @@ function defaultDeps(): TerminalHookDeps {
         parts.push(`${result.name || result.id}: ${result.status}`);
         if (result.blocking && isFailedStatus(result.status)) failed.push(result.name || result.id);
       }
-      return { failed, summary: parts.join('; ') || 'проверок в проекте нет' };
+      return { failed, summary: parts.join('; ') || 'no checks in the project' };
     },
     buildDiff: async (workDir, toolName, filePath, input) => (await import('./claudeBridgeService.js')).buildCliWriteDiff(workDir, toolName, filePath, input),
     userDataDir: () => getUserDataDir(),
@@ -198,7 +199,7 @@ export class TerminalHookService {
   public async regenerateToken(): Promise<string> {
     this.token = `ph_hook_${crypto.randomBytes(16).toString('hex')}`;
     await this.deps.setSecret(TERMINAL_HOOK_TOKEN_SECRET_KEY, this.token).catch((err) => {
-      console.error('[TerminalHooks] Не удалось сохранить токен хуков:', err);
+      console.error('[TerminalHooks] Could not save the hook token:', err);
     });
     return this.token;
   }
@@ -243,7 +244,7 @@ export class TerminalHookService {
   /** Обработка одного события хука. Не бросает: любая ошибка — «без решения» с сообщением в stderr. */
   public async handle(body: unknown, options: { signal?: AbortSignal } = {}): Promise<HookProcessOutput> {
     const b = (body && typeof body === 'object' ? body : {}) as Partial<TerminalHookRequestBody>;
-    if (!isHookEngine(b.engine)) return formatHookResponse('claude', 'PostToolUse', { kind: 'none', message: 'ProjectHub: неизвестный движок хука' });
+    if (!isHookEngine(b.engine)) return formatHookResponse('claude', 'PostToolUse', { kind: 'none', message: 'ProjectHub: unknown hook engine' });
     const engine = b.engine;
     const parsed = parseHookPayload(engine, b.payload, typeof b.event === 'string' ? b.event : undefined);
     if (!parsed.ok) return { exitCode: 0, stdout: '', stderr: `ProjectHub: ${parsed.error}` };
@@ -252,13 +253,13 @@ export class TerminalHookService {
       const dir = typeof b.projectDir === 'string' && b.projectDir.trim() ? b.projectDir : event.cwd;
       const projectPath = dir ? await this.deps.resolveProject(dir) : null;
       if (!projectPath) {
-        return formatHookResponse(engine, event.event, { kind: 'none', message: 'ProjectHub: каталог не принадлежит зарегистрированному проекту — хук без решения' });
+        return formatHookResponse(engine, event.event, { kind: 'none', message: 'ProjectHub: the directory does not belong to a registered project — the hook makes no decision' });
       }
       const verdict = await this.dispatch(event, projectPath, b.budgetMs, options.signal);
       return formatHookResponse(engine, event.event, verdict);
     } catch (err) {
-      console.error('[TerminalHooks] Ошибка обработки хука:', err);
-      return { exitCode: 0, stdout: '', stderr: `ProjectHub: ошибка обработки хука: ${err instanceof Error ? err.message : String(err)}` };
+      console.error('[TerminalHooks] Hook handling error:', err);
+      return { exitCode: 0, stdout: '', stderr: `ProjectHub: hook handling error: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
 
@@ -276,7 +277,7 @@ export class TerminalHookService {
     }
   }
 
-  private track(event: NormalizedHookEvent, projectPath: string, kind: TerminalActivity['event'], failed?: string): void {
+  private track(event: NormalizedHookEvent, projectPath: string, kind: TerminalActivity['event'], failed?: AppError): void {
     const meta = this.meta(event, projectPath);
     const input = policyToolCalls(event)[0]?.input ?? event.toolInput ?? {};
     const summary = commandFromInput(input) || filePathFromInput(input);
@@ -288,7 +289,7 @@ export class TerminalHookService {
       event: kind,
       ...(event.toolName ? { tool: event.toolName } : {}),
       ...(summary ? { summary: preview(summary, 120) } : {}),
-      ...(failed ? { failed } : {})
+      ...(failed ? { failed: failed.message, failedKey: failed.appErrorKey } : {})
     });
   }
 
@@ -450,10 +451,11 @@ export class TerminalHookService {
       this.deps.publish({ type: 'agent:finished', outcome: 'done', ...base });
       return { kind: 'none' };
     }
-    const reason = `Проверки проекта не прошли: ${checks.failed.join(', ')}. ${checks.summary}`;
-    this.track(event, projectPath, 'Stop', reason);
-    this.deps.publish({ type: 'agent:failed', error: reason, ...base });
-    return settings.stopChecks === 'block' ? { kind: 'block', reason: `${reason}. Исправь и заверши работу снова.` } : { kind: 'none', message: reason };
+    const failure = new AppError('hooks.stopChecksFailed', { checks: checks.failed.join(', '), summary: checks.summary });
+    const reason = failure.message;
+    this.track(event, projectPath, 'Stop', failure);
+    this.deps.publish({ type: 'agent:failed', error: reason, errorKey: failure.appErrorKey, ...base });
+    return settings.stopChecks === 'block' ? { kind: 'block', reason: `${reason}. Fix it and finish the work again.` } : { kind: 'none', message: reason };
   }
 
   /**

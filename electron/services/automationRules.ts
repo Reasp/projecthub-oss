@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { AppBusEvent } from './hitlTypes.js';
 import { validateCron } from './cronExpr.js';
-import { AppError, type AppErrorKey, type AppErrorParam } from '../../src/lib/appError.js';
+import { AppError, keyedText, type AppErrorKey, type AppErrorParam, type AppErrorParams } from '../../src/lib/appError.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 import { addedAssignees } from './taskSnapshot.js';
 import { isAwaitingApproval } from './agentTaskPolicy.js';
 
@@ -49,7 +50,7 @@ export const DEFAULT_MAX_RUNS_PER_DAY = 20;
 /** Сколько после завершения запуска события по его задаче считаются порождёнными им. */
 export const CHAIN_ATTRIBUTION_WINDOW_MS = 2 * 60 * 1000;
 export const DEFAULT_MAX_CONCURRENT_AGENT_RUNS = 2;
-export const DEFAULT_TASK_PROMPT = 'Выполни задачу {{taskId}}: {{taskTitle}}';
+export const DEFAULT_TASK_PROMPT = 'Complete task {{taskId}}: {{taskTitle}}';
 /** Сколько ревьюеров может быть у одного ревью PR (decision-53 п. 2). */
 export const MAX_PR_REVIEWERS = 3;
 /** Триггеры, событие которых несёт PR, — только с ними действует `reviewPr`. */
@@ -328,8 +329,10 @@ export interface AutomationEvent {
   projectPath?: string;
   /** Предмет события — ключ cooldown: задача, PR, процесс, рой, устройство. */
   subject: string;
-  /** Краткое описание для `{{event}}` и журнала. */
+  /** Краткое описание для `{{event}}` и журнала — по-английски. */
   summary: string;
+  /** Код описания (decision-165): журнал в окне показывает его на своём языке. */
+  summaryKey?: AppErrorKey;
   taskId?: string;
   taskTitle?: string;
   labels?: string[];
@@ -352,6 +355,12 @@ export interface AutomationEvent {
 }
 
 /** Событие шины → события автоматизаций (одно изменение задачи может дать несколько). */
+/** Описание события: английский текст и код (decision-165). */
+function summaryOf(code: AppErrorCode, params: AppErrorParams): Pick<AutomationEvent, 'summary' | 'summaryKey'> {
+  const { text, key } = keyedText(code, params);
+  return { summary: text, summaryKey: key };
+}
+
 export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
   switch (event.type) {
     case 'task:updated': {
@@ -365,7 +374,7 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
         at: event.at
       };
       const out: AutomationEvent[] = [
-        { ...base, kind: 'task.updated', assignee: event.assignee, summary: `${event.taskId} изменена` }
+        { ...base, kind: 'task.updated', assignee: event.assignee, ...summaryOf('automations.evTaskUpdated', { task: event.taskId }) }
       ];
       if (event.changes.status) {
         out.push({
@@ -379,7 +388,7 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
       }
       const added = addedAssignees(event.changes);
       if (added.length) {
-        out.push({ ...base, kind: 'task.assigned', assignee: added, summary: `${event.taskId} назначена на ${added.join(', ')}` });
+        out.push({ ...base, kind: 'task.assigned', assignee: added, ...summaryOf('automations.evTaskAssigned', { task: event.taskId, who: added.join(', ') }) });
       }
       return out;
     }
@@ -389,7 +398,7 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
           kind: 'swarm.finished',
           projectPath: event.projectPath,
           subject: `swarm:${event.swarmId}`,
-          summary: `рой «${event.name}» завершён: ${event.outcome}`,
+          ...summaryOf('automations.evSwarmFinished', { name: event.name, outcome: event.outcome }),
           outcome: event.outcome,
           swarmId: event.swarmId,
           at: event.at
@@ -401,7 +410,7 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
           kind: 'agent.failed',
           projectPath: event.projectPath,
           subject: `agent:${event.sessionId}`,
-          summary: `агент ${event.agentName || event.sessionId} упал: ${event.error}`,
+          ...summaryOf('automations.evAgentFailed', { agent: event.agentName || event.sessionId, error: event.errorKey ?? event.error }),
           agentId: event.agentId,
           at: event.at
         }
@@ -412,7 +421,7 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
           kind: 'process.crashed',
           projectPath: event.projectPath,
           subject: `process:${event.name}`,
-          summary: `процесс «${event.name}» упал (код ${event.exitCode ?? '—'})`,
+          ...summaryOf('automations.evProcessCrashed', { name: event.name, code: event.exitCode ?? '—' }),
           processName: event.name,
           at: event.at
         }
@@ -423,7 +432,7 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
           kind: 'pr.created',
           projectPath: event.projectPath,
           subject: `pr:${event.number}`,
-          summary: `PR #${event.number} «${event.title}» создан`,
+          ...summaryOf('automations.evPrCreated', { n: event.number, title: event.title }),
           prNumber: event.number,
           prTitle: event.title,
           prUrl: event.url,
@@ -438,10 +447,10 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
           projectPath: event.projectPath,
           // Cooldown — на пару «PR + голова»: новый коммит в тот же PR ревьюится без ожидания.
           subject: `pr:${event.number}@${event.headSha.slice(0, 12)}`,
-          summary:
-            event.type === 'pr:opened'
-              ? `PR #${event.number} «${event.title}» открыт`
-              : `PR #${event.number} «${event.title}»: ${event.reason === 'ready' ? 'готов к ревью' : 'новые коммиты'}`,
+          ...summaryOf(event.type === 'pr:opened' ? 'automations.evPrOpened' : event.reason === 'ready' ? 'automations.evPrReady' : 'automations.evPrCommits', {
+            n: event.number,
+            title: event.title
+          }),
           prNumber: event.number,
           prTitle: event.title,
           prUrl: event.url,
@@ -456,7 +465,11 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
           kind: 'pr.merged',
           projectPath: event.projectPath,
           subject: `pr:${event.number}:merged`,
-          summary: `PR #${event.number} «${event.title}» слит${event.movedTasks.length ? `; ${event.movedTasks.map((m) => `${m.taskId} → ${m.to}`).join(', ')}` : ''}`,
+          ...summaryOf('automations.evPrMerged', {
+            n: event.number,
+            title: event.title,
+            moved: event.movedTasks.length ? `; ${event.movedTasks.map((m) => `${m.taskId} → ${m.to}`).join(', ')}` : ''
+          }),
           // Для `{{taskId}}` в промпте — первая задача PR (TASK-138.5).
           ...(event.taskIds[0] ? { taskId: event.taskIds[0] } : {}),
           prNumber: event.number,
@@ -471,7 +484,7 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
           kind: 'pr.checksFailed',
           projectPath: event.projectPath,
           subject: `pr:${event.number}`,
-          summary: `проверки PR #${event.number} «${event.title}» упали`,
+          ...summaryOf('automations.evPrChecksFailed', { n: event.number, title: event.title }),
           at: event.at
         }
       ];
@@ -480,7 +493,7 @@ export function automationEventsFromBus(event: AppBusEvent): AutomationEvent[] {
         {
           kind: 'device.connected',
           subject: `device:${event.deviceId}`,
-          summary: `подключено устройство «${event.deviceName}»`,
+          ...summaryOf('automations.evDeviceConnected', { name: event.deviceName }),
           at: event.at
         }
       ];

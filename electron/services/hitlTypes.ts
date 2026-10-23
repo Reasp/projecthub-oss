@@ -348,7 +348,8 @@ export type AppBusEvent =
     }
   | ({ type: 'agent:started' } & AgentEventBase)
   | ({ type: 'agent:finished'; outcome: 'done' | 'aborted'; durationMs?: number } & AgentEventBase)
-  | ({ type: 'agent:failed'; error: string; durationMs?: number } & AgentEventBase)
+  /** `error` — английский текст для журнала и правил; `errorKey` — его код, уведомление собирает текст на языке хоста. */
+  | ({ type: 'agent:failed'; error: string; errorKey?: import('../../src/lib/appError.js').AppErrorKey; durationMs?: number } & AgentEventBase)
   /** Слот переключился на следующую модель fallback-цепочки (TASK-79, decision-44). */
   | ({
       type: 'agent:modelFallback';
@@ -551,11 +552,14 @@ export type AppBusEvent =
       type: 'automation:runFinished';
       ruleId: string;
       ruleName: string;
+      /** Встроенное правило: его имя уведомление берёт из словаря хоста. */
+      builtin?: boolean;
       runId: string;
       projectPath?: string;
       action: string;
       outcome: 'success' | 'failed';
       detail?: string;
+      detailKey?: import('../../src/lib/appError.js').AppErrorKey;
       costUsd?: number;
       swarmId?: string;
       at: number;
@@ -605,7 +609,9 @@ export type AppBusEvent =
       projectPath: string;
       source: 'audit' | 'secrets' | 'dependencies';
       severity: 'critical' | 'high' | 'moderate' | 'low' | 'info' | 'unknown';
+      /** Английский заголовок для журнала и правил; `titleKey` — его код, уведомление собирает его на языке хоста. */
       title: string;
+      titleKey?: import('../../src/lib/appError.js').AppErrorKey;
       /** Сводка без значений секретов: уровни и пакеты, виды и файлы. */
       summary: string;
       count: number;

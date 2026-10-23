@@ -5,6 +5,7 @@
  */
 
 import type { OverviewTerminalInput } from '../../src/utils/fleetOverview.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
 
 /** Без событий дольше — сессия считается простаивающей: CLI закрыли без Stop или человек думает. */
 export const TERMINAL_IDLE_AFTER_MS = 15 * 60_000;
@@ -23,8 +24,9 @@ export interface TerminalActivity {
   tool?: string;
   /** Короткая подпись инструмента: команда или путь. */
   summary?: string;
-  /** Только для Stop: проверки проекта не прошли. */
+  /** Только для Stop: проверки проекта не прошли (английский текст и код). */
   failed?: string;
+  failedKey?: AppErrorKey;
 }
 
 interface Entry extends OverviewTerminalInput {
@@ -52,6 +54,7 @@ export class TerminalSessionTracker {
       state: a.failed ? 'failed' : stopped ? 'idle' : 'running',
       updatedAt: at,
       ...(detail ? { detail } : {}),
+      ...(a.failed && a.failedKey ? { detailKey: a.failedKey } : {}),
       stopped
     };
     // Новая запись — в конец Map: старые вытесняются первыми.

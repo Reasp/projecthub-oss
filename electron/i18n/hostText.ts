@@ -6,9 +6,10 @@
  * Чистый модуль без Electron: его импортируют чистые модули правил и unit-тесты.
  */
 import type { Language } from '../../src/i18n/types.js';
-import type { ApprovalRequest } from '../../src/types/electron';
+import type { ApprovalRequest, DoneLoopOutcome } from '../../src/types/electron';
 import { describeHitlRequest, type HitlTextLabels } from '../../src/lib/agentStatusText.js';
 import { hitlRequestTextEn, hitlRequestTextRu } from '../../src/i18n/hitlRequestText.js';
+import { appErrorTextEn, appErrorTextRu, type AppErrorLabels } from '../../src/i18n/appErrorText.js';
 
 function pluralRu(n: number, one: string, few: string, many: string): string {
   const abs = Math.abs(n) % 100;
@@ -21,6 +22,8 @@ function pluralRu(n: number, one: string, few: string, many: string): string {
 
 export interface HostText {
   hitl: HitlTextLabels;
+  /** Словарь ошибок по коду (decision-165): причина в уведомлении и файле задачи на языке хоста. */
+  appErrors: AppErrorLabels;
   agent: string;
   duration: { sec: (s: number) => string; min: (m: number) => string; minSec: (m: number, s: number) => string };
   notify: {
@@ -49,6 +52,7 @@ export interface HostText {
     automationRuns: string;
     automationSuspended: string;
     automationFailed: (rule: string) => string;
+    builtinRuleName: string;
     reviewFailed: (error: string) => string;
     reviewError: string;
     reviewDone: (confirmed: number, refuted: number, unverified: number) => string;
@@ -108,10 +112,64 @@ export interface HostText {
   chat: { testTitle: string; testBody: string; usageLabel: string };
   /** Имя устройства, которое привёл соседний ПК федерации (decision-111): сохраняется в записи токена. */
   remote: { phoneName: string; viaPeer: (device: string, peer: string) => string };
+  /** Заметка хода роя в Implementation Notes задачи (TASK-76, TASK-202.7). */
+  sessionNote: {
+    modes: Record<string, string>;
+    statuses: { completed: string; failed: string; stopped: string };
+    iterations: (n: number) => string;
+    continuation: (n: number) => string;
+    header: (at: string, head: string) => string;
+    reason: (text: string) => string;
+    branch: (name: string) => string;
+    commit: (hash: string) => string;
+    summary: (text: string) => string;
+  };
+  /** Комментарий ревью в PR и заметка в задаче (TASK-81, TASK-202.7): их читают люди команды. */
+  prReview: {
+    title: (sha: string) => string;
+    confirmed: (n: number, reviewers: string, verifier?: string) => string;
+    none: string;
+    suggestion: string;
+    proof: string;
+    foundBy: (n: number) => string;
+    refuted: (n: number) => string;
+    unverified: (n: number) => string;
+    cost: (usd: string) => string;
+    noteHeader: (n: number, at: string, sha: string) => string;
+    noteFindings: (n: number, confirmed: number, refuted: number) => string;
+    noteReviewers: (list: string) => string;
+    reviewerError: string;
+  };
+  /** Сводка результата проверки (TASK-202.7): итог цикла в файле задачи. Статус проверки — код (`passed`, `failed`). */
+  checks: {
+    failedTests: (failed: number, total?: number) => string;
+    errors: (n: number) => string;
+    seconds: (s: string) => string;
+    artifacts: (shots: number, traces: number, truncated: boolean) => string;
+  };
+  /** Итог цикла «до готовности» в разделе Final Summary задачи (TASK-202.7): файл задачи коммитится в проект. */
+  doneLoop: {
+    outcomes: Record<DoneLoopOutcome, string>;
+    iterations: (n: number, max: number) => string;
+    iterationsAfterRewind: (n: number, inSegment: number, max: number) => string;
+    headline: (agent: string, engine: string, outcome: string, count: string) => string;
+    criteriaHeader: string;
+    preChecked: string;
+    screenshots: (list: string) => string;
+    checksHeader: string;
+    checksNone: string;
+    cost: (usd?: string) => string;
+    duration: (s: number) => string;
+    branch: (name: string) => string;
+    commit: (hash: string) => string;
+    total: (parts: string) => string;
+    cancelled: (checkpoint: number | undefined, at: string) => string;
+  };
 }
 
 const en: HostText = {
   hitl: hitlRequestTextEn,
+  appErrors: appErrorTextEn,
   agent: 'Agent',
   duration: { sec: (s) => `${s} s`, min: (m) => `${m} min`, minSec: (m, s) => `${m} min ${s} s` },
   notify: {
@@ -141,6 +199,7 @@ const en: HostText = {
     automationRuns: 'daily run limit reached',
     automationSuspended: 'Automation paused until midnight',
     automationFailed: (rule) => `Automation “${rule}” failed`,
+    builtinRuleName: 'Auto-start assigned tasks',
     reviewFailed: (error) => `failed: ${error}`,
     reviewError: 'error',
     reviewDone: (confirmed, refuted, unverified) =>
@@ -208,11 +267,72 @@ const en: HostText = {
   },
   dialogs: { exportTrace: 'Export agent trace', exportSwarm: 'Export swarm session' },
   chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' },
-  remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}` }
+  remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}` },
+  sessionNote: {
+    modes: { fan_out: 'arena (fan-out)', handoff: 'pipeline (handoff)', done_loop: '“until done” loop' },
+    statuses: { completed: 'success', failed: 'failure', stopped: 'stopped' },
+    iterations: (n) => `iterations: ${n}`,
+    continuation: (n) => `continuation ${n}`,
+    header: (at, head) => `**Agent session ${at} UTC** — ${head}`,
+    reason: (text) => `Reason: ${text}`,
+    branch: (name) => `branch \`${name}\``,
+    commit: (hash) => `commit ${hash}`,
+    summary: (text) => `Result: ${text}`
+  },
+  prReview: {
+    title: (sha) => `### ProjectHub review · ${sha}`,
+    confirmed: (n, reviewers, verifier) => `Confirmed findings: **${n}** (reviewers: ${reviewers}${verifier ? `; verification: ${verifier}` : ''}).`,
+    none: 'No confirmed findings.',
+    suggestion: 'Suggestion',
+    proof: 'Confirmation',
+    foundBy: (n) => `_Found by ${n} reviewers._`,
+    refuted: (n) => `refuted on verification: ${n}`,
+    unverified: (n) => `not verified: ${n}`,
+    cost: (usd) => `review cost: $${usd}`,
+    noteHeader: (n, at, sha) => `**PR #${n} review ${at} UTC** — head \`${sha}\``,
+    noteFindings: (n, confirmed, refuted) => `- findings ${n}: confirmed ${confirmed}, refuted on verification ${refuted}`,
+    noteReviewers: (list) => `- reviewers: ${list}`,
+    reviewerError: 'error'
+  },
+  checks: {
+    failedTests: (failed, total) => `failed tests: ${failed}${total ? ` of ${total}` : ''}`,
+    errors: (n) => `errors: ${n}`,
+    seconds: (s) => `${s} s`,
+    artifacts: (shots, traces, truncated) =>
+      `screenshots: ${shots}${traces > 0 ? `, trace: ${traces}` : ''}${truncated ? ' (some were not saved due to the limit)' : ''}`
+  },
+  doneLoop: {
+    outcomes: {
+      success: 'done',
+      iteration_limit: 'iteration limit reached',
+      budget: 'budget exhausted',
+      agent_error: 'agent error',
+      task_error: 'task error',
+      stopped: 'stopped by a person'
+    },
+    iterations: (n, max) => `iterations ${n} of ${max}`,
+    iterationsAfterRewind: (n, inSegment, max) => `iterations ${n}, after the rollback ${inSegment} of ${max}`,
+    headline: (agent, engine, outcome, count) =>
+      `Done by a ProjectHub agent in the “until done” mode (${agent}, engine ${engine}): ${outcome}, ${count}.`,
+    criteriaHeader: 'Acceptance criteria (verified by ProjectHub against the agent report):',
+    preChecked: 'checked before the start',
+    screenshots: (list) => `screenshots: ${list}`,
+    checksHeader: 'Checks of the last iteration:',
+    checksNone: 'Checks: not configured.',
+    cost: (usd) => `cost ${usd ?? 'unknown'}`,
+    duration: (s) => `duration ${s} s`,
+    branch: (name) => `branch \`${name}\``,
+    commit: (hash) => `commit ${hash}`,
+    total: (parts) => `Total: ${parts}.`,
+    cancelled: (checkpoint, at) =>
+      `The “until done” result was cancelled by a rollback${checkpoint !== undefined ? ` to checkpoint #${checkpoint}` : ''} ` +
+      `(${at}); the loop continues, the criteria checkmarks are cleared until a new result.`
+  }
 };
 
 const ru: HostText = {
   hitl: hitlRequestTextRu,
+  appErrors: appErrorTextRu,
   agent: 'Агент',
   duration: { sec: (s) => `${s} с`, min: (m) => `${m} мин`, minSec: (m, s) => `${m} мин ${s} с` },
   notify: {
@@ -242,6 +362,7 @@ const ru: HostText = {
     automationRuns: 'исчерпано число запусков за день',
     automationSuspended: 'Автоматизация приостановлена до полуночи',
     automationFailed: (rule) => `Автоматизация «${rule}» не выполнена`,
+    builtinRuleName: 'Автозапуск назначенных задач',
     reviewFailed: (error) => `не выполнено: ${error}`,
     reviewError: 'ошибка',
     reviewDone: (confirmed, refuted, unverified) =>
@@ -309,7 +430,67 @@ const ru: HostText = {
   },
   dialogs: { exportTrace: 'Экспорт трассы агента', exportSwarm: 'Экспорт swarm-сессии' },
   chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' },
-  remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}` }
+  remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}` },
+  sessionNote: {
+    modes: { fan_out: 'арена (fan-out)', handoff: 'конвейер (handoff)', done_loop: 'цикл «до готовности»' },
+    statuses: { completed: 'успех', failed: 'провал', stopped: 'остановлена' },
+    iterations: (n) => `итераций: ${n}`,
+    continuation: (n) => `продолжение ${n}`,
+    header: (at, head) => `**Сессия агента ${at} UTC** — ${head}`,
+    reason: (text) => `Причина: ${text}`,
+    branch: (name) => `ветка \`${name}\``,
+    commit: (hash) => `коммит ${hash}`,
+    summary: (text) => `Итог: ${text}`
+  },
+  prReview: {
+    title: (sha) => `### Ревью ProjectHub · ${sha}`,
+    confirmed: (n, reviewers, verifier) => `Подтверждено замечаний: **${n}** (ревьюеры: ${reviewers}${verifier ? `; проверка: ${verifier}` : ''}).`,
+    none: 'Подтверждённых замечаний нет.',
+    suggestion: 'Предложение',
+    proof: 'Подтверждение',
+    foundBy: (n) => `_Нашли ${n} ревьюера._`,
+    refuted: (n) => `отброшено при проверке: ${n}`,
+    unverified: (n) => `не проверено: ${n}`,
+    cost: (usd) => `стоимость ревью: $${usd}`,
+    noteHeader: (n, at, sha) => `**Ревью PR #${n} ${at} UTC** — голова \`${sha}\``,
+    noteFindings: (n, confirmed, refuted) => `- находок ${n}: подтверждено ${confirmed}, отброшено при проверке ${refuted}`,
+    noteReviewers: (list) => `- ревьюеры: ${list}`,
+    reviewerError: 'ошибка'
+  },
+  checks: {
+    failedTests: (failed, total) => `упавших тестов: ${failed}${total ? ` из ${total}` : ''}`,
+    errors: (n) => `ошибок: ${n}`,
+    seconds: (s) => `${s} с`,
+    artifacts: (shots, traces, truncated) =>
+      `скриншотов: ${shots}${traces > 0 ? `, trace: ${traces}` : ''}${truncated ? ' (часть не сохранена по лимиту)' : ''}`
+  },
+  doneLoop: {
+    outcomes: {
+      success: 'готово',
+      iteration_limit: 'исчерпан лимит итераций',
+      budget: 'исчерпан бюджет',
+      agent_error: 'ошибка агента',
+      task_error: 'ошибка задачи',
+      stopped: 'остановлен человеком'
+    },
+    iterations: (n, max) => `итераций ${n} из ${max}`,
+    iterationsAfterRewind: (n, inSegment, max) => `итераций ${n}, после отката ${inSegment} из ${max}`,
+    headline: (agent, engine, outcome, count) =>
+      `Выполнено агентом ProjectHub в режиме «до готовности» (${agent}, движок ${engine}): ${outcome}, ${count}.`,
+    criteriaHeader: 'Критерии приёмки (сверены ProjectHub по отчёту агента):',
+    preChecked: 'отмечен до запуска',
+    screenshots: (list) => `скриншоты: ${list}`,
+    checksHeader: 'Проверки последней итерации:',
+    checksNone: 'Проверки: не настроены.',
+    cost: (usd) => `стоимость ${usd ?? 'неизвестна'}`,
+    duration: (s) => `длительность ${s} с`,
+    branch: (name) => `ветка \`${name}\``,
+    commit: (hash) => `коммит ${hash}`,
+    total: (parts) => `Итого: ${parts}.`,
+    cancelled: (checkpoint, at) =>
+      `Итог цикла «до готовности» отменён откатом${checkpoint !== undefined ? ` к чекпоинту #${checkpoint}` : ''} ` +
+      `(${at}); цикл продолжен, отметки критериев сняты до нового результата.`
+  }
 };
 
 const TEXTS: Record<Language, HostText> = { en, ru };

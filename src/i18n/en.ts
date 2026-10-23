@@ -2752,6 +2752,7 @@ export const en: TranslationDictionary = {
     executorDefaultRole: 'Executor',
     stageDefaultRole: 'Stage {num}',
     stageDefaultInstructions: 'Execute stage {role}',
+    startError: 'Could not start the swarm: {error}',
     multiAgentSwarmTitle: 'Swarm Configuration: Multi-Agent Swarm & Arena',
     multiAgentSwarmDesc: 'Parallel battle of solutions (Fan-Out) or end-to-end pipeline (Handoff)',
     orchestrationMode: 'Orchestration Mode',

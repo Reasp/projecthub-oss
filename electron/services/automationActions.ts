@@ -6,6 +6,8 @@ import { isFailedStatus, scriptCommand, type DefaultChecksInput } from './arenaC
 import type { RunOnceResult } from './processManager.js';
 import { DEFAULT_TASK_PROMPT, renderTemplate, type AutomationAction, type AutomationEvent } from './automationRules.js';
 import type { AuditSeverity } from './dependencyAudit.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
+import { appErrorKeyOf, keyedText, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
 
 /**
  * Исполнение действий Automations (TASK-74, decision-52 п. 1, 6).
@@ -57,13 +59,16 @@ export interface PrReviewRequest {
 export interface DeferredCompletion {
   outcome: 'success' | 'failed';
   detail?: string;
+  detailKey?: AppErrorKey;
   costUsd?: number;
   swarmIds?: string[];
 }
 
 export interface ActionDeps {
-  startRoleAgent(req: StartRoleAgentRequest): Promise<StartedAgentSession | { error: string }>;
-  startPrReview(req: PrReviewRequest): Promise<{ reviewId: string; completion: Promise<DeferredCompletion> } | { skipped: string } | { error: string }>;
+  startRoleAgent(req: StartRoleAgentRequest): Promise<StartedAgentSession | { error: string; errorKey?: AppErrorKey }>;
+  startPrReview(
+    req: PrReviewRequest
+  ): Promise<{ reviewId: string; completion: Promise<DeferredCompletion> } | { skipped: string; skippedKey?: AppErrorKey } | { error: string; errorKey?: AppErrorKey }>;
   findTaskTitle(projectRoot: string, taskId: string): Promise<string | null>;
   loadChecks(projectRoot: string): Promise<CheckDefinition[]>;
   runCheck(def: CheckDefinition, workdir: string): Promise<CheckRunResult>;
@@ -72,7 +77,7 @@ export interface ActionDeps {
   runOnce(command: string, options: { cwd: string; timeoutMs: number; env?: Record<string, string>; portStrategy?: 'fixed' | 'auto'; port?: number }): Promise<RunOnceResult>;
   publish(event: AppBusEvent): void;
   /** Аудит зависимостей (decision-56 п. 8); сервис сам публикует `security:finding` о новых находках. */
-  auditDependencies?(projectRoot: string, minSeverity: AuditSeverity): Promise<{ ok: boolean; detail: string }>;
+  auditDependencies?(projectRoot: string, minSeverity: AuditSeverity): Promise<{ ok: boolean; detail: string; detailKey?: AppErrorKey }>;
 }
 
 export interface ActionContext {
@@ -91,11 +96,17 @@ export interface ActionContext {
   onSessionStarted?: (swarmId: string, agentIds: string[]) => void;
 }
 
+/** `detail` — английский текст для журнала, `detailKey` — его код для окна (decision-165). */
 export type ActionResult =
-  | { outcome: 'success' | 'failed'; detail?: string }
+  | { outcome: 'success' | 'failed'; detail?: string; detailKey?: AppErrorKey }
   | { outcome: 'pending'; swarmId: string; agentIds: string[]; taskId?: string; detail?: string }
   /** Итог придёт позже и не сводится к одной сессии роя (ревью PR: ревьюеры, затем проверяющий). */
   | { outcome: 'deferred'; completion: Promise<DeferredCompletion>; detail?: string };
+
+function result(outcome: 'success' | 'failed', code: AppErrorCode, params?: AppErrorParams): ActionResult {
+  const { text, key } = keyedText(code, params);
+  return { outcome, detail: text, detailKey: key };
+}
 
 export const PROJECT_ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 export const REINDEX_TIMEOUT_MS = 15 * 60 * 1000;
@@ -128,7 +139,7 @@ export function findProjectAction(config: ProjectActionConfig, actionId: string)
 
 export async function executeAutomationAction(ctx: ActionContext, deps: ActionDeps): Promise<ActionResult> {
   const { action } = ctx;
-  if (action.type !== 'notify' && !ctx.projectRoot) return { outcome: 'failed', detail: 'Не определён проект для действия' };
+  if (action.type !== 'notify' && !ctx.projectRoot) return result('failed', 'automations.actionNoProject');
   const root = ctx.projectRoot as string;
 
   switch (action.type) {
@@ -149,10 +160,10 @@ export async function executeAutomationAction(ctx: ActionContext, deps: ActionDe
     case 'runAgent': {
       const taskId = action.taskId ?? ctx.event?.taskId;
       const taskTitle = taskId ? (ctx.event?.taskTitle ?? (await deps.findTaskTitle(root, taskId)) ?? undefined) : undefined;
-      if (action.mode === 'doneLoop' && !taskId) return { outcome: 'failed', detail: 'Циклу «до готовности» нужна задача' };
+      if (action.mode === 'doneLoop' && !taskId) return result('failed', 'automations.loopNeedsTask');
       const template = action.prompt?.trim() || (taskId ? DEFAULT_TASK_PROMPT : '');
       const prompt = renderTemplate(template, { ...templateVars(ctx, taskTitle), taskId });
-      if (!prompt) return { outcome: 'failed', detail: 'Пустой промпт агента' };
+      if (!prompt) return result('failed', 'automations.emptyPrompt');
       const started = await deps.startRoleAgent({
         projectPath: root,
         roleSlug: action.roleSlug,
@@ -164,13 +175,13 @@ export async function executeAutomationAction(ctx: ActionContext, deps: ActionDe
         ...(action.maxIterations ? { maxIterations: action.maxIterations } : {}),
         automation: { ruleKey: ctx.ruleKey, ruleName: ctx.ruleName, runId: ctx.runId, depth: ctx.depth }
       });
-      if ('error' in started) return { outcome: 'failed', detail: started.error };
+      if ('error' in started) return { outcome: 'failed', detail: started.error, ...(started.errorKey ? { detailKey: started.errorKey } : {}) };
       return {
         outcome: 'pending',
         swarmId: started.id,
         agentIds: started.agents.map((a) => a.id),
         ...(taskId ? { taskId } : {}),
-        detail: `роль ${action.roleSlug}${action.mode === 'doneLoop' ? ', до готовности' : ''}`
+        detail: `role ${action.roleSlug}${action.mode === 'doneLoop' ? ', until done' : ''}`
       };
     }
 
@@ -179,29 +190,29 @@ export async function executeAutomationAction(ctx: ActionContext, deps: ActionDe
       const wanted = action.checkIds?.length ? all.filter((c) => action.checkIds!.includes(c.id)) : all;
       const missing = action.checkIds?.filter((id) => !all.some((c) => c.id === id)) ?? [];
       if (!wanted.length) {
-        return { outcome: missing.length ? 'failed' : 'success', detail: missing.length ? `Нет проверок: ${missing.join(', ')}` : 'Проверок в проекте нет' };
+        return missing.length ? result('failed', 'automations.checksMissing', { ids: missing.join(', ') }) : result('success', 'automations.noChecks');
       }
       const results: CheckRunResult[] = [];
       for (const def of wanted) results.push(await deps.runCheck(def, root));
       const failed = results.filter((r) => r.blocking && isFailedStatus(r.status));
       const summary = results.map((r) => `${r.name || r.id}: ${r.status}`).join('; ');
-      return {
-        outcome: failed.length || missing.length ? 'failed' : 'success',
-        detail: [summary, missing.length ? `нет проверок: ${missing.join(', ')}` : ''].filter(Boolean).join('; ')
-      };
+      const outcome = failed.length || missing.length ? 'failed' : 'success';
+      return missing.length
+        ? result(outcome, 'automations.checksSummaryMissing', { summary, ids: missing.join(', ') })
+        : { outcome, detail: summary };
     }
 
     case 'reindexDocs': {
       const stack = await deps.readProjectStack(root);
-      if (!stack.scripts?.['index-docs']) return { outcome: 'failed', detail: 'В package.json проекта нет скрипта index-docs' };
+      if (!stack.scripts?.['index-docs']) return result('failed', 'automations.noIndexDocs');
       const run = await deps.runOnce(scriptCommand(stack.packageManager ?? 'npm', 'index-docs'), { cwd: root, timeoutMs: REINDEX_TIMEOUT_MS });
       const ok = run.exitCode === 0 && !run.timedOut;
-      return { outcome: ok ? 'success' : 'failed', detail: ok ? 'Индекс документации пересобран' : run.error || tail(run.output) };
+      return ok ? result('success', 'automations.docsReindexed') : { outcome: 'failed', detail: run.error || tail(run.output) };
     }
 
     case 'reviewPr': {
       const prNumber = ctx.event?.prNumber;
-      if (!prNumber) return { outcome: 'failed', detail: 'В событии нет номера PR' };
+      if (!prNumber) return result('failed', 'automations.noPrNumber');
       const started = await deps.startPrReview({
         projectPath: root,
         prNumber,
@@ -213,15 +224,15 @@ export async function executeAutomationAction(ctx: ActionContext, deps: ActionDe
         automation: { ruleKey: ctx.ruleKey, ruleName: ctx.ruleName, runId: ctx.runId, depth: ctx.depth },
         onSessionStarted: (swarmId, agentIds) => ctx.onSessionStarted?.(swarmId, agentIds)
       });
-      if ('error' in started) return { outcome: 'failed', detail: started.error };
-      if ('skipped' in started) return { outcome: 'success', detail: started.skipped };
-      return { outcome: 'deferred', completion: started.completion, detail: `ревью PR #${prNumber}` };
+      if ('error' in started) return { outcome: 'failed', detail: started.error, ...(started.errorKey ? { detailKey: started.errorKey } : {}) };
+      if ('skipped' in started) return { outcome: 'success', detail: started.skipped, ...(started.skippedKey ? { detailKey: started.skippedKey } : {}) };
+      return { outcome: 'deferred', completion: started.completion, detail: `PR #${prNumber} review` };
     }
 
     case 'auditDependencies': {
-      if (!deps.auditDependencies) return { outcome: 'failed', detail: 'Аудит зависимостей недоступен' };
+      if (!deps.auditDependencies) return result('failed', 'automations.auditUnavailable');
       const res = await deps.auditDependencies(root, action.minSeverity);
-      return { outcome: res.ok ? 'success' : 'failed', detail: res.detail };
+      return { outcome: res.ok ? 'success' : 'failed', detail: res.detail, ...(res.detailKey ? { detailKey: res.detailKey } : {}) };
     }
 
     case 'projectAction': {
@@ -229,12 +240,12 @@ export async function executeAutomationAction(ctx: ActionContext, deps: ActionDe
       try {
         config = await deps.getProjectConfig(root);
       } catch (err) {
-        return { outcome: 'failed', detail: `Не прочитан .projecthub.json: ${errorText(err)}` };
+        return result('failed', 'automations.configUnreadable', { detail: appErrorKeyOf(err) ?? errorText(err) });
       }
       const def = findProjectAction(config, action.actionId);
-      if (!def?.command) return { outcome: 'failed', detail: `Действие «${action.actionId}» не найдено в .projecthub.json` };
+      if (!def?.command) return result('failed', 'automations.actionNotFound', { id: action.actionId });
       if (def.requiresConfirmation) {
-        return { outcome: 'failed', detail: `Действие «${def.name || action.actionId}» требует подтверждения человека — автоматизация его не выполняет` };
+        return result('failed', 'automations.actionNeedsConfirmation', { name: def.name || action.actionId });
       }
       const run = await deps.runOnce(def.command, {
         cwd: def.cwd ? path.resolve(root, def.cwd) : root,
@@ -244,7 +255,8 @@ export async function executeAutomationAction(ctx: ActionContext, deps: ActionDe
         ...(def.port ? { port: def.port } : {})
       });
       const ok = run.exitCode === 0 && !run.timedOut;
-      return { outcome: ok ? 'success' : 'failed', detail: run.timedOut ? 'Тайм-аут действия' : run.error || tail(run.output) };
+      if (run.timedOut) return result('failed', 'automations.actionTimeout');
+      return { outcome: ok ? 'success' : 'failed', detail: run.error || tail(run.output) };
     }
   }
 }

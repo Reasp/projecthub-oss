@@ -11,6 +11,8 @@
  * Чистый модуль без Electron и IO — покрыт unit-тестами.
  */
 import { isCountedStatus, isFailedStatus } from './arenaChecks.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
+import { keyedText, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
 import type {
   CandidateScore,
   CheckRunResult,
@@ -182,27 +184,38 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/** Текст для журнала и модели по-английски и код для окна (decision-165). */
+type Keyed = { text: string; key: AppErrorKey };
+
+function reasonOf(code: AppErrorCode, params?: AppErrorParams): { reason: string; reasonKey: AppErrorKey } {
+  const { text, key } = keyedText(code, params);
+  return { reason: text, reasonKey: key };
+}
+
 /** Оценка безопасности: 1 — чисто, 0 — секреты, 0.5 — пакет с флагом риска; без скана — нейтральная. */
-export function securityScore(security: CandidateSecurityInput | undefined): { normalized: number; known: boolean; detail: string } {
-  if (!security) return { normalized: UNKNOWN_NORMALIZED, known: false, detail: 'дифф на секреты и зависимости не проверялся' };
+export function securityScore(security: CandidateSecurityInput | undefined): { normalized: number; known: boolean; detail: Keyed } {
+  if (!security) return { normalized: UNKNOWN_NORMALIZED, known: false, detail: keyedText('judge.securityUnknown') };
   if (security.secrets > 0) {
-    return { normalized: 0, known: true, detail: `секретов в диффе: ${security.secrets}` };
+    return { normalized: 0, known: true, detail: keyedText('judge.securitySecrets', { n: security.secrets }) };
   }
   if (security.riskyDependencies > 0) {
-    return { normalized: 0.5, known: true, detail: `пакетов с флагом риска: ${security.riskyDependencies}` };
+    return { normalized: 0.5, known: true, detail: keyedText('judge.securityRisky', { n: security.riskyDependencies }) };
   }
   return {
     normalized: 1,
     known: true,
-    detail: security.dependencyChanges > 0 ? `секретов нет, изменений зависимостей: ${security.dependencyChanges}` : 'секретов и новых зависимостей нет'
+    detail:
+      security.dependencyChanges > 0
+        ? keyedText('judge.securityDependencyChanges', { n: security.dependencyChanges })
+        : keyedText('judge.securityClean')
   };
 }
 
 /** Почему авто-мердж кандидата невозможен по безопасности; `undefined` — препятствий нет. */
-export function securityAutoMergeBlock(security: CandidateSecurityInput | undefined): string | undefined {
+export function securityAutoMergeBlock(security: CandidateSecurityInput | undefined): { reason: string; reasonKey: AppErrorKey } | undefined {
   if (!security) return undefined;
-  if (security.secrets > 0) return `В диффе найдены секреты (${security.secrets}) — нужно решение человека`;
-  if (security.dependencyChanges > 0) return `Изменены зависимости (${security.dependencyChanges}) — нужно решение человека`;
+  if (security.secrets > 0) return reasonOf('judge.autoMergeSecrets', { n: security.secrets });
+  if (security.dependencyChanges > 0) return reasonOf('judge.autoMergeDependencies', { n: security.dependencyChanges });
   return undefined;
 }
 
@@ -241,7 +254,7 @@ export function computeCandidateScore(
   const push = (
     key: ScoreComponentKey,
     normalized: number,
-    detail: string,
+    detail: Keyed,
     options: { raw?: number; unknown?: boolean } = {}
   ) => {
     const weight = Math.max(0, w[key] ?? 0);
@@ -250,7 +263,8 @@ export function computeCandidateScore(
       weight,
       normalized: round2(clamp01(normalized)),
       points: round2(weight * clamp01(normalized)),
-      detail,
+      detail: detail.text,
+      detailKey: detail.key,
       ...(options.raw !== undefined ? { raw: round2(options.raw) } : {}),
       ...(options.unknown ? { unknown: true } : {})
     });
@@ -260,7 +274,7 @@ export function computeCandidateScore(
   push(
     'checks',
     checks.normalized,
-    checks.counted === 0 ? 'проверки не запускались' : `пройдено ${checks.passed} из ${checks.counted}`,
+    checks.counted === 0 ? keyedText('judge.checksNotRun') : keyedText('judge.checksPassed', { passed: checks.passed, counted: checks.counted }),
     { raw: checks.passed, unknown: checks.counted === 0 }
   );
 
@@ -269,8 +283,8 @@ export function computeCandidateScore(
     'acceptance',
     acceptance.normalized,
     acceptance.known
-      ? `критериев выполнено ${acceptance.met} из ${acceptance.total} (частичные — половина)`
-      : 'нет оценки по критериям приёмки',
+      ? keyedText('judge.acceptanceMet', { met: acceptance.met, total: acceptance.total })
+      : keyedText('judge.acceptanceUnknown'),
     { raw: acceptance.total ? acceptance.met / acceptance.total : undefined, unknown: !acceptance.known }
   );
 
@@ -278,34 +292,33 @@ export function computeCandidateScore(
   push(
     'review',
     review.normalized,
-    review.known
-      ? `оценка ревьюера с учётом штрафа ${round2(review.penalty)} за замечания`
-      : 'ревьюер не дал оценки',
+    review.known ? keyedText('judge.reviewScore', { penalty: round2(review.penalty) }) : keyedText('judge.reviewUnknown'),
     { unknown: !review.known }
   );
 
   if (input.diff) {
     const lines = input.diff.insertions + input.diff.deletions;
-    push('diffSize', normalizeLowerIsBetter(lines, cohort.maxDiffLines), `строк в диффе: ${lines}`, { raw: lines });
+    push('diffSize', normalizeLowerIsBetter(lines, cohort.maxDiffLines), keyedText('judge.diffLines', { n: lines }), { raw: lines });
 
     const units = localityUnits(input.diff);
     push(
       'locality',
       normalizeLowerIsBetter(units, cohort.maxLocality),
-      `файлов: ${input.diff.filesChanged}, модулей: ${input.diff.modules ?? 0}` +
-        (typeof input.diff.dependents === 'number' ? `, зависимых символов: ${input.diff.dependents}` : ''),
+      typeof input.diff.dependents === 'number'
+        ? keyedText('judge.localityDependents', { files: input.diff.filesChanged, modules: input.diff.modules ?? 0, dependents: input.diff.dependents })
+        : keyedText('judge.locality', { files: input.diff.filesChanged, modules: input.diff.modules ?? 0 }),
       { raw: units }
     );
   } else {
-    push('diffSize', UNKNOWN_NORMALIZED, 'дифф не посчитан', { unknown: true });
-    push('locality', UNKNOWN_NORMALIZED, 'дифф не посчитан', { unknown: true });
+    push('diffSize', UNKNOWN_NORMALIZED, keyedText('judge.diffUnknown'), { unknown: true });
+    push('locality', UNKNOWN_NORMALIZED, keyedText('judge.diffUnknown'), { unknown: true });
   }
 
   const hasCost = typeof input.costUsd === 'number' && Number.isFinite(input.costUsd);
   push(
     'cost',
     hasCost ? normalizeLowerIsBetter(input.costUsd as number, cohort.maxCostUsd) : UNKNOWN_NORMALIZED,
-    hasCost ? `стоимость $${(input.costUsd as number).toFixed(4)}` : 'стоимость неизвестна',
+    hasCost ? keyedText('judge.cost', { usd: (input.costUsd as number).toFixed(4) }) : keyedText('judge.costUnknown'),
     { raw: hasCost ? (input.costUsd as number) : undefined, unknown: !hasCost }
   );
 
@@ -313,7 +326,7 @@ export function computeCandidateScore(
   push(
     'time',
     hasTime ? normalizeLowerIsBetter(input.durationMs as number, cohort.maxDurationMs) : UNKNOWN_NORMALIZED,
-    hasTime ? `время ${((input.durationMs as number) / 1000).toFixed(1)} с` : 'время неизвестно',
+    hasTime ? keyedText('judge.time', { s: ((input.durationMs as number) / 1000).toFixed(1) }) : keyedText('judge.timeUnknown'),
     { raw: hasTime ? (input.durationMs as number) : undefined, unknown: !hasTime }
   );
 
@@ -332,10 +345,15 @@ export function computeCandidateScore(
     agentId: input.agentId,
     total,
     blocked: Boolean(blocker),
-    ...(blocker ? { blockedReason: `Блокирующая проверка «${blocker.name}»: ${blocker.status}` } : {}),
+    ...(blocker ? blockedFields(blocker) : {}),
     components,
     computedAt: now
   };
+}
+
+function blockedFields(blocker: CheckRunResult): Pick<CandidateScore, 'blockedReason' | 'blockedReasonKey'> {
+  const { text, key } = keyedText('judge.blockedByCheck', { name: blocker.name, status: blocker.status });
+  return { blockedReason: text, blockedReasonKey: key };
 }
 
 /** Баллы всех кандидатов в одной когорте (нормализация относительная — считать нужно вместе). */
@@ -361,17 +379,15 @@ export function rankCandidates(scores: CandidateScore[]): CandidateScore[] {
  * Кого рекомендовать: лучший незаблокированный кандидат. Если лидеров с одинаковым баллом
  * несколько, рекомендации нет — выбор в этом случае действительно за человеком.
  */
-export function recommendCandidate(scores: CandidateScore[]): { agentId?: string; reason: string } {
+export function recommendCandidate(scores: CandidateScore[]): { agentId?: string; reason: string; reasonKey: AppErrorKey } {
   const eligible = rankCandidates(scores).filter((s) => !s.blocked);
-  if (eligible.length === 0) {
-    return { reason: 'Все кандидаты провалили блокирующие проверки' };
-  }
+  if (eligible.length === 0) return reasonOf('judge.allBlocked');
   const best = eligible[0];
   const tied = eligible.filter((s) => s.total === best.total);
   if (tied.length > 1) {
-    return { reason: `Ничья по баллу ${best.total} между кандидатами: ${tied.map((s) => s.agentId).join(', ')}` };
+    return reasonOf('judge.tie', { score: best.total, agents: tied.map((s) => s.agentId).join(', ') });
   }
-  return { agentId: best.agentId, reason: `Лучший балл ${best.total} из ${eligible.length} кандидатов без блокировок` };
+  return { agentId: best.agentId, ...reasonOf('judge.best', { score: best.total, n: eligible.length }) };
 }
 
 /**
@@ -383,25 +399,26 @@ export function autoMergeDecision(
   checksByAgent: Record<string, CheckRunResult[]>,
   config: { enabled: boolean; minScore: number },
   securityByAgent: Record<string, CandidateSecurityInput | undefined> = {}
-): { allowed: boolean; agentId?: string; reason: string } {
-  if (!config.enabled) return { allowed: false, reason: 'Авто-мердж выключен в настройках проекта' };
-  const { agentId, reason } = recommendCandidate(scores);
-  if (!agentId) return { allowed: false, reason };
+): { allowed: boolean; agentId?: string; reason: string; reasonKey: AppErrorKey } {
+  if (!config.enabled) return { allowed: false, ...reasonOf('judge.autoMergeDisabled') };
+  const recommendation = recommendCandidate(scores);
+  const { agentId } = recommendation;
+  if (!agentId) return { allowed: false, reason: recommendation.reason, reasonKey: recommendation.reasonKey };
 
   const score = scores.find((s) => s.agentId === agentId);
-  if (!score) return { allowed: false, reason: 'Балл рекомендованного кандидата не найден' };
+  if (!score) return { allowed: false, ...reasonOf('judge.scoreNotFound') };
   if (score.total < config.minScore) {
-    return { allowed: false, agentId, reason: `Балл ${score.total} ниже порога ${config.minScore}` };
+    return { allowed: false, agentId, ...reasonOf('judge.belowThreshold', { score: score.total, min: config.minScore }) };
   }
   const checks = checksByAgent[agentId] ?? [];
   if (checks.length === 0) {
-    return { allowed: false, agentId, reason: 'Проверки не запускались — авто-мердж запрещён' };
+    return { allowed: false, agentId, ...reasonOf('judge.autoMergeNoChecks') };
   }
   const failed = checks.filter((c) => isFailedStatus(c.status));
   if (failed.length > 0) {
-    return { allowed: false, agentId, reason: `Проверки не зелёные: ${failed.map((c) => c.name).join(', ')}` };
+    return { allowed: false, agentId, ...reasonOf('judge.checksNotGreen', { names: failed.map((c) => c.name).join(', ') }) };
   }
   const securityBlock = securityAutoMergeBlock(securityByAgent[agentId]);
-  if (securityBlock) return { allowed: false, agentId, reason: securityBlock };
-  return { allowed: true, agentId, reason: `Балл ${score.total} ≥ порога ${config.minScore}, все проверки зелёные` };
+  if (securityBlock) return { allowed: false, agentId, ...securityBlock };
+  return { allowed: true, agentId, ...reasonOf('judge.autoMergeAllowed', { score: score.total, min: config.minScore }) };
 }

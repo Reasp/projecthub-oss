@@ -266,6 +266,7 @@ export interface McpServerStatus {
   token: string;
   url: string;
   lastError: string | null;
+  lastErrorKey?: import('../lib/appError').AppErrorKey | null;
 }
 
 /** Сведения экрана «Диагностика» (TASK-58): версии, пути, уровень логирования. */
@@ -2656,6 +2657,7 @@ export interface AutomationLogEntry {
   trigger: string;
   subject?: string;
   eventSummary?: string;
+  eventSummaryKey?: import('../lib/appError').AppErrorKey;
   action?: string;
   reason?: string;
   detail?: string;
@@ -3552,6 +3554,7 @@ export interface ScoreComponent {
   points: number;
   raw?: number;
   detail: string;
+  detailKey?: import('../lib/appError').AppErrorKey;
   unknown?: boolean;
 }
 
@@ -3560,6 +3563,7 @@ export interface CandidateScore {
   total: number;
   blocked: boolean;
   blockedReason?: string;
+  blockedReasonKey?: import('../lib/appError').AppErrorKey;
   components: ScoreComponent[];
   computedAt: number;
 }
@@ -3606,6 +3610,7 @@ export interface JudgeState {
   startedAt?: number;
   finishedAt?: number;
   error?: string;
+  errorKey?: import('../lib/appError').AppErrorKey;
   recommendedAgentId?: string;
   weights?: ScoreWeights;
   stage?: 'checks' | 'diff' | 'review' | 'scoring';
@@ -3615,6 +3620,7 @@ export interface JudgeState {
     merged: boolean;
     agentId?: string;
     reason: string;
+    reasonKey?: import('../lib/appError').AppErrorKey;
   };
 }
 
@@ -4100,6 +4106,7 @@ export interface CriterionVerification {
   evidence?: string;
   accepted: boolean;
   reason?: string;
+  reasonKey?: import('../lib/appError').AppErrorKey;
   alreadyChecked?: boolean;
   ui?: boolean;
   screenshots?: CriterionScreenshot[];
@@ -4120,6 +4127,7 @@ export interface DoneLoopIteration {
   checks: CheckRunResult[];
   reportFound: boolean;
   reportError?: string;
+  reportErrorKey?: import('../lib/appError').AppErrorKey;
   reportSummary?: string;
   criteria: CriterionVerification[];
   costUsd?: number;
@@ -4149,6 +4157,7 @@ export interface DoneLoopState {
   criteriaBaseline?: Array<{ text: string; completed: boolean }>;
   outcome?: DoneLoopOutcome;
   reason?: string;
+  reasonKey?: import('../lib/appError').AppErrorKey;
   totalCostUsd?: number;
   task?: {
     filePath?: string;

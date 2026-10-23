@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { jaccard, tokenize } from './memorySearch.js';
 import { REDACTION_PATTERNS, detectSecrets } from './secretPatterns.js';
+import type { Language } from '../../src/i18n/types.js';
+import { hostText } from '../i18n/hostText.js';
 
 /**
  * Формат и логика ревью PR (TASK-81, decision-53 п. 4–8): промпты ревьюера и проверяющего,
@@ -362,7 +364,7 @@ function truncate(value: string, max: number): { text: string; truncated: boolea
 
 const REVIEW_EXAMPLE = `\`\`\`${REVIEW_FENCE}
 {
-  "summary": "Что меняет PR и общий вывод, 2-3 предложения",
+  "summary": "What the PR changes and the overall verdict, 2-3 sentences",
   "findings": [
     {
       "file": "src/lib/parse.ts",
@@ -370,10 +372,10 @@ const REVIEW_EXAMPLE = `\`\`\`${REVIEW_FENCE}
       "endLine": 45,
       "severity": "major",
       "category": "bug",
-      "title": "Пустая строка роняет разбор",
-      "description": "Почему это ошибка и когда она проявится",
-      "suggestion": "Как исправить",
-      "evidence": "Цитата кода или путь выполнения, подтверждающие находку"
+      "title": "An empty string breaks parsing",
+      "description": "Why this is a bug and when it shows up",
+      "suggestion": "How to fix it",
+      "evidence": "A code quote or execution path that confirms the finding"
     }
   ]
 }
@@ -383,29 +385,29 @@ const REVIEW_EXAMPLE = `\`\`\`${REVIEW_FENCE}
 export function buildReviewerPrompt(input: { pr: ReviewPrInput; task?: ReviewTaskInput; diff: string; maxDiffChars?: number }): string {
   const { text: diff, truncated } = truncate(input.diff ?? '', input.maxDiffChars ?? REVIEW_DIFF_MAX_CHARS);
   const sections: string[] = [
-    'Ты ревьюер Pull Request. Рабочий каталог — код головы этого PR; ты можешь только читать файлы и искать по ним. ' +
-      'Ничего не меняй и не запускай. Найди настоящие проблемы: ошибки логики, регрессии, уязвимости, потерю данных, ' +
-      'гонки, неверную обработку ошибок, нарушение критериев задачи. Стиль, форматирование и вкусовщину не пиши. ' +
-      'Каждую находку подтверди: файл, строка, цитата кода или путь выполнения. Если проблем нет — верни пустой список. ' +
-      `Результат засчитывается только из ограды ${REVIEW_FENCE} с JSON в конце ответа — таблицы и свободный текст не разбираются.`,
+    'You are a Pull Request reviewer. The working directory is the code of this PR head; you can only read files and search them. ' +
+      'Do not change or run anything. Find real problems: logic errors, regressions, vulnerabilities, data loss, ' +
+      'races, wrong error handling, violations of the task criteria. Do not write about style, formatting or taste. ' +
+      'Back every finding: file, line, code quote or execution path. If there are no problems, return an empty list. ' +
+      `The result counts only from the ${REVIEW_FENCE} fence with JSON at the end of the answer — tables and free text are not parsed.`,
     `## Pull Request #${input.pr.number}: ${input.pr.title}\n` +
-      `Ветка ${input.pr.headRef} → ${input.pr.baseRef}, голова ${input.pr.headSha.slice(0, 12)}` +
+      `Branch ${input.pr.headRef} → ${input.pr.baseRef}, head ${input.pr.headSha.slice(0, 12)}` +
       (input.pr.body?.trim() ? `\n\n${truncate(input.pr.body.trim(), 4000).text}` : '')
   ];
   if (input.task) {
-    const criteria = input.task.criteria.length ? `\n\nКритерии приёмки:\n${input.task.criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : '';
-    sections.push(`## Связанная задача ${input.task.id}: ${input.task.title}\n${truncate(input.task.description ?? '', 4000).text}${criteria}`);
+    const criteria = input.task.criteria.length ? `\n\nAcceptance criteria:\n${input.task.criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : '';
+    sections.push(`## Linked task ${input.task.id}: ${input.task.title}\n${truncate(input.task.description ?? '', 4000).text}${criteria}`);
   }
   sections.push(
-    `## Дифф PR\n${diff ? `\`\`\`diff\n${diff}\n\`\`\`` : '(пусто)'}` +
-      (truncated ? '\n\n[дифф усечён для промпта — остальные изменения читай в файлах рабочего каталога]' : '')
+    `## PR diff\n${diff ? `\`\`\`diff\n${diff}\n\`\`\`` : '(empty)'}` +
+      (truncated ? '\n\n[the diff is truncated for the prompt — read the rest of the changes in the working directory files]' : '')
   );
   sections.push(
-    `## Формат ответа\nПоследним блоком ответа верни ограду ${REVIEW_FENCE} с JSON:\n${REVIEW_EXAMPLE}\n` +
-      '`severity`: critical | major | minor | nit. `line` — строка в новой версии файла.'
+    `## Response format\nAs the last block of the answer, return the ${REVIEW_FENCE} fence with JSON:\n${REVIEW_EXAMPLE}\n` +
+      '`severity`: critical | major | minor | nit. `line` is the line in the new version of the file.'
   );
   // Последний абзац — напоминание о формате: локальные модели чаще следуют последней инструкции.
-  sections.push(`ВАЖНО: закончи ответ оградой \`\`\`${REVIEW_FENCE} с JSON по образцу выше. Ответ без неё не будет засчитан.`);
+  sections.push(`IMPORTANT: end the answer with the \`\`\`${REVIEW_FENCE} fence with JSON following the sample above. An answer without it does not count.`);
   return sections.join('\n\n');
 }
 
@@ -418,24 +420,24 @@ export function buildVerifierPrompt(input: { pr: ReviewPrInput; findings: Unique
         `### ${f.id} [${f.severity}] ${place}`,
         f.title,
         f.description,
-        f.evidence ? `Доказательство ревьюера: ${f.evidence}` : '',
-        f.suggestion ? `Предложение: ${f.suggestion}` : ''
+        f.evidence ? `Reviewer evidence: ${f.evidence}` : '',
+        f.suggestion ? `Suggestion: ${f.suggestion}` : ''
       ]
         .filter(Boolean)
         .join('\n');
     })
     .join('\n\n');
   return [
-    `Ты проверяющий находок ревью PR #${input.pr.number} «${input.pr.title}». Рабочий каталог — код головы PR; ` +
-      'ты можешь только читать файлы и искать по ним. Для каждой находки ниже прочитай указанное место и попробуй ' +
-      'её опровергнуть: ошибается ли ревьюер, обработан ли случай в другом месте, достижим ли путь выполнения. ' +
-      '`confirmed` — только если ты сам нашёл в коде подтверждение (процитируй его в evidence); `refuted` — если ' +
-      'находка неверна; `uncertain` — если проверить нельзя. Сомневаешься — не подтверждай.',
-    `## Находки\n${list}`,
-    `## Формат ответа\nПоследним блоком верни ограду ${VERIFY_FENCE}:\n\`\`\`${VERIFY_FENCE}\n` +
-      '{ "verdicts": [{ "id": "F1", "verdict": "confirmed", "reason": "почему", "evidence": "цитата кода" }] }\n```\n' +
-      'Дай вердикт по каждой находке из списка.',
-    `ВАЖНО: закончи ответ оградой \`\`\`${VERIFY_FENCE} с JSON. Ответ без неё не будет засчитан.`
+    `You verify the review findings of PR #${input.pr.number} “${input.pr.title}”. The working directory is the code of the PR head; ` +
+      'you can only read files and search them. For each finding below, read the referenced place and try ' +
+      'to refute it: is the reviewer wrong, is the case handled elsewhere, is the execution path reachable. ' +
+      '`confirmed` only if you found the confirmation in the code yourself (quote it in evidence); `refuted` if ' +
+      'the finding is wrong; `uncertain` if it cannot be checked. When in doubt, do not confirm.',
+    `## Findings\n${list}`,
+    `## Response format\nAs the last block, return the ${VERIFY_FENCE} fence:\n\`\`\`${VERIFY_FENCE}\n` +
+      '{ "verdicts": [{ "id": "F1", "verdict": "confirmed", "reason": "why", "evidence": "code quote" }] }\n```\n' +
+      'Give a verdict for every finding in the list.',
+    `IMPORTANT: end the answer with the \`\`\`${VERIFY_FENCE} fence with JSON. An answer without it does not count.`
   ].join('\n\n');
 }
 
@@ -458,6 +460,8 @@ export interface CommentInput {
   reviewers: string[];
   verifier?: string;
   costUsd?: number;
+  /** Язык комментария — язык хоста (decision-161); по умолчанию английский. */
+  lang?: Language;
 }
 
 const SEVERITY_ICON: Record<ReviewSeverity, string> = { critical: '🛑', major: '⚠️', minor: '🔸', nit: '▫️' };
@@ -475,27 +479,26 @@ export function buildPrComment(input: CommentInput): string {
   const confirmed = input.findings.filter((f) => f.verdict === 'confirmed').sort(compareFindings);
   const refuted = input.findings.filter((f) => f.verdict === 'refuted').length;
   const unverified = input.findings.length - confirmed.length - refuted;
+  const tx = hostText(input.lang).prReview;
   const lines: string[] = [
-    `### Ревью ProjectHub · ${input.pr.headSha.slice(0, 7)}`,
+    tx.title(input.pr.headSha.slice(0, 7)),
     '',
-    confirmed.length
-      ? `Подтверждено замечаний: **${confirmed.length}** (ревьюеры: ${input.reviewers.join(', ')}${input.verifier ? `; проверка: ${input.verifier}` : ''}).`
-      : 'Подтверждённых замечаний нет.',
+    confirmed.length ? tx.confirmed(confirmed.length, input.reviewers.join(', '), input.verifier) : tx.none,
     ''
   ];
   for (const f of confirmed) {
     const place = `\`${f.file}${f.line ? `:${f.line}${f.endLine ? `-${f.endLine}` : ''}` : ''}\``;
     lines.push(`#### ${SEVERITY_ICON[f.severity]} ${f.severity} · ${place} — ${f.title}`);
     lines.push('', f.description);
-    if (f.suggestion) lines.push('', `**Предложение:** ${f.suggestion}`);
-    if (f.verdictEvidence) lines.push('', `<details><summary>Подтверждение</summary>\n\n${f.verdictEvidence}\n\n</details>`);
-    if (f.agreement > 1) lines.push('', `_Нашли ${f.agreement} ревьюера._`);
+    if (f.suggestion) lines.push('', `**${tx.suggestion}:** ${f.suggestion}`);
+    if (f.verdictEvidence) lines.push('', `<details><summary>${tx.proof}</summary>\n\n${f.verdictEvidence}\n\n</details>`);
+    if (f.agreement > 1) lines.push('', tx.foundBy(f.agreement));
     lines.push('');
   }
   const footer = [
-    refuted ? `отброшено при проверке: ${refuted}` : '',
-    unverified > 0 ? `не проверено: ${unverified}` : '',
-    input.costUsd !== undefined ? `стоимость ревью: $${input.costUsd.toFixed(2)}` : ''
+    refuted ? tx.refuted(refuted) : '',
+    unverified > 0 ? tx.unverified(unverified) : '',
+    input.costUsd !== undefined ? tx.cost(input.costUsd.toFixed(2)) : ''
   ].filter(Boolean);
   if (footer.length) lines.push(`<sub>${footer.join(' · ')}</sub>`);
   return truncate(lines.join('\n').trim(), COMMENT_MAX_CHARS).text;

@@ -173,7 +173,7 @@ export const ComputersSection: React.FC = () => {
   const renderSession = (host: FleetHostEntry, actions: OverviewActions, project: OverviewProject, s: OverviewSession) => {
     const Icon = sessionIcon(s.kind);
     const active = fleet.remoteSession && fleet.remoteSession.hostId === host.hostId && fleet.remoteSession.session.id === s.id;
-    const detail = overviewSessionDetail(s, t.hitl.requestText);
+    const detail = overviewSessionDetail(s, t.hitl.requestText, t.appErrors);
     return (
       <div
         key={`${s.kind}:${s.id}`}

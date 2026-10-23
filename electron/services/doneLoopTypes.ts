@@ -41,8 +41,10 @@ export interface CriterionVerification {
   evidence?: string;
   /** Критерий засчитан ProjectHub. */
   accepted: boolean;
-  /** Почему не засчитан (или пометка для уже закрытого). */
+  /** Почему не засчитан (или пометка для уже закрытого): английский текст для модели и журнала. */
   reason?: string;
+  /** Код причины (decision-165): окно и телефон показывают её на своём языке. */
+  reasonKey?: AppErrorKey;
   /** Критерий был отмечен в задаче ещё до цикла — не пересматривается. */
   alreadyChecked?: boolean;
   /** Критерий помечен `[ui]`: без скриншота проверки не засчитывается. */
@@ -74,6 +76,7 @@ export interface DoneLoopIteration {
   checks: CheckRunResult[];
   reportFound: boolean;
   reportError?: string;
+  reportErrorKey?: AppErrorKey;
   reportSummary?: string;
   criteria: CriterionVerification[];
   /** Стоимость этого хода, если провайдер/таблица цен её дали. */
@@ -129,6 +132,8 @@ export interface DoneLoopState {
   criteriaBaseline?: Array<{ text: string; completed: boolean }>;
   outcome?: DoneLoopOutcome;
   reason?: string;
+  /** Код причины итога (decision-165). */
+  reasonKey?: AppErrorKey;
   totalCostUsd?: number;
   /** Что ProjectHub записал в файл задачи. */
   task?: {

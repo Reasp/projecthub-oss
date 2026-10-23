@@ -95,7 +95,7 @@ export function SessionRow({ session: s, onOpen, children }: { session: Overview
             <span className={clsx('shrink-0 text-[12px]', STATE_TONE[s.state])}>{tr.fleet.states[s.state]}</span>
           </span>
           <span className={clsx('block truncate text-[13px]', s.state === 'waiting' ? 'text-amber-200' : 'text-slate-400')}>
-            {overviewSessionDetail(s, tr.models.hitlText) || (s.kind === 'terminal' ? tr.fleet.terminalHint : tr.fleet.kinds[s.kind])}
+            {overviewSessionDetail(s, tr.models.hitlText, tr.models.appErrors) || (s.kind === 'terminal' ? tr.fleet.terminalHint : tr.fleet.kinds[s.kind])}
           </span>
         </span>
       </button>

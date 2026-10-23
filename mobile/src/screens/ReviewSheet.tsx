@@ -140,7 +140,7 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
                 </div>
               </div>
               {c.evidence && <div className="mt-1 pl-6 text-[12px] text-slate-400">{c.evidence}</div>}
-              {c.accepted === false && c.reason && <div className="mt-1 pl-6 text-[12px] text-rose-300">{c.reason}</div>}
+              {c.accepted === false && c.reason && <div className="mt-1 pl-6 text-[12px] text-rose-300">{failureText({ error: c.reason, errorKey: c.reasonKey })}</div>}
               {(c.screenshots ?? []).map((s) => (
                 <div key={s.relPath} className="pl-6">
                   <Shot source={source} item={item} shot={s} />

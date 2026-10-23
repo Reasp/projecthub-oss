@@ -13,7 +13,7 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { checkDetailOf, executeCheck } from './checkRunner.js';
-import { AppError } from '../../src/lib/appError.js';
+import { AppError, appErrorFields } from '../../src/lib/appError.js';
 import { visualArtifactService } from './visualArtifactService.js';
 import type { AIMessage } from './aiAgentService.js';
 import { loadRoles } from './roleService.js';
@@ -147,7 +147,9 @@ export class ArenaJudgeService {
       if (candidates.length === 0) {
         judge.status = 'done';
         judge.finishedAt = Date.now();
-        judge.error = 'Нет завершённых кандидатов с рабочим деревом';
+        const none = new AppError('judge.noCandidates');
+        judge.error = none.message;
+        judge.errorKey = none.appErrorKey;
         return judge;
       }
 
@@ -188,7 +190,8 @@ export class ArenaJudgeService {
         attempted: false,
         merged: false,
         ...(auto.agentId ? { agentId: auto.agentId } : {}),
-        reason: auto.reason
+        reason: auto.reason,
+        reasonKey: auto.reasonKey
       };
 
       judge.status = 'done';
@@ -199,8 +202,10 @@ export class ArenaJudgeService {
       judge.status = 'failed';
       judge.stage = undefined;
       judge.finishedAt = Date.now();
-      judge.error = err instanceof Error ? err.message : String(err);
-      console.error('[ArenaJudge] Прогон судьи завершился ошибкой:', err);
+      const { error, errorKey } = appErrorFields(err);
+      judge.error = error;
+      judge.errorKey = errorKey;
+      console.error('[ArenaJudge] Judge run failed:', err);
       return judge;
     } finally {
       this.controllers.delete(session.id);
@@ -263,7 +268,7 @@ export class ArenaJudgeService {
         ...(usable ? {} : checkDetailOf(new AppError('processes.cwdNotFound', { path: workdir })))
       }));
       if (!usable) {
-        hooks.log(agent, `[Судья] Проверки пропущены: каталог ${workdir} не найден.`);
+        hooks.log(agent, `[Judge] Checks skipped: directory ${workdir} not found.`);
         continue;
       }
       agent.checks.forEach((result, i) => {
@@ -287,17 +292,17 @@ export class ArenaJudgeService {
       jobs.map((job) => async () => {
         if (signal.aborted) {
           job.result.status = 'skipped';
-          job.result.detail = 'Прогон судьи отменён';
+          Object.assign(job.result, checkDetailOf(new AppError('judge.runCancelled')));
           return;
         }
         const running = executeCheck(job.result, job, job.workdir!, signal, {
           artifacts: { scope, agentId: job.agent.id, run: judgeRun }
         });
         hooks.onUpdate(job.agent.id);
-        hooks.log(job.agent, `[Судья] Проверка «${job.result.name}»: ${job.command}`);
+        hooks.log(job.agent, `[Judge] Check “${job.result.name}”: ${job.command}`);
         await running;
 
-        hooks.log(job.agent, `[Судья] «${job.result.name}» → ${summarizeCheckResult(job.result)}`);
+        hooks.log(job.agent, `[Judge] “${job.result.name}” → ${summarizeCheckResult(job.result)}`);
         hooks.onUpdate(job.agent.id);
       }),
       config.maxConcurrentChecks
@@ -327,13 +332,13 @@ export class ArenaJudgeService {
           agent.diffSummary.riskLevel = impact.riskLevel;
           hooks.log(
             agent,
-            `[Судья] GitNexus: задето символов ${impact.changedSymbols}` +
-              (impact.affectedProcesses !== undefined ? `, потоков выполнения ${impact.affectedProcesses}` : '') +
-              (impact.riskLevel ? `, риск ${impact.riskLevel}` : '')
+            `[Judge] GitNexus: symbols touched ${impact.changedSymbols}` +
+              (impact.affectedProcesses !== undefined ? `, execution flows ${impact.affectedProcesses}` : '') +
+              (impact.riskLevel ? `, risk ${impact.riskLevel}` : '')
           );
         }
       } catch (err) {
-        console.warn('[ArenaJudge] Не удалось получить impact из GitNexus:', err);
+        console.warn('[ArenaJudge] Could not get the impact from GitNexus:', err);
       }
     }
     hooks.onUpdate();
@@ -348,7 +353,7 @@ export class ArenaJudgeService {
       const { criteria } = parseTaskBody(file.content);
       return criteria.map((c) => stripCriterionPrefix(c.text)).filter(Boolean);
     } catch (err) {
-      console.warn('[ArenaJudge] Не удалось прочитать критерии приёмки задачи:', err);
+      console.warn('[ArenaJudge] Could not read the task acceptance criteria:', err);
       return [];
     }
   }
@@ -375,7 +380,7 @@ export class ArenaJudgeService {
     if (resolved.problem) {
       for (const agent of candidates) {
         agent.review = { agentId: agent.id, status: 'failed', model: reviewerModel, error: resolved.problem.message, errorKey: resolved.problem.messageKey };
-        hooks.log(agent, `[Судья] Ревьюер недоступен: ${resolved.problem.message}`);
+        hooks.log(agent, `[Judge] Reviewer unavailable: ${resolved.problem.message}`);
         hooks.onUpdate(agent.id);
       }
       return;
@@ -423,17 +428,17 @@ export class ArenaJudgeService {
           criteria: parsed.criteria,
           findings: parsed.findings,
           risks: parsed.risks,
-          ...(parsed.ok ? {} : { error: parsed.parseError, raw: text.slice(0, 4000) })
+          ...(parsed.ok ? {} : { error: parsed.parseError, ...(parsed.parseErrorKey ? { errorKey: parsed.parseErrorKey } : {}), raw: text.slice(0, 4000) })
         };
         agent.review = verdict;
         hooks.log(
           agent,
           parsed.ok
-            ? `[Судья] Ревью получено: замечаний ${parsed.findings.length}, критериев оценено ${parsed.criteria.length}.`
-            : `[Судья] Ревью не разобрано: ${parsed.parseError}`
+            ? `[Judge] Review received: findings ${parsed.findings.length}, criteria evaluated ${parsed.criteria.length}.`
+            : `[Judge] Review not parsed: ${parsed.parseError}`
         );
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const { error: message, errorKey } = appErrorFields(err);
         const providerError = signal.aborted ? undefined : providerErrorInfoOf(err);
         agent.review = {
           agentId: agent.id,
@@ -441,9 +446,10 @@ export class ArenaJudgeService {
           model: reviewerModel,
           durationMs: Date.now() - startedAt,
           error: message,
+          ...(errorKey ? { errorKey } : {}),
           ...(providerError ? { providerError } : {})
         };
-        hooks.log(agent, `[Судья] Ревьюер недоступен: ${message}`);
+        hooks.log(agent, `[Judge] Reviewer unavailable: ${message}`);
       }
       hooks.onUpdate(agent.id);
     }
@@ -454,7 +460,7 @@ export class ArenaJudgeService {
       const { roles } = await loadRoles(projectPath);
       return roles.find((r) => r.slug === slug);
     } catch (err) {
-      console.warn(`[ArenaJudge] Роль "${slug}" не загрузилась:`, err);
+      console.warn(`[ArenaJudge] Role "${slug}" did not load:`, err);
       return undefined;
     }
   }

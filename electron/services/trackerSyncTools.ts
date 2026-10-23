@@ -21,22 +21,22 @@ export const TRACKER_TOOL_DEFINITIONS: ReadonlyArray<{ name: TrackerToolName; de
   {
     name: 'tracker_sync_status',
     description:
-      'Синхронизация задач проекта с внешним трекером (ClickUp): включена ли, какой список, соответствие статусов, '
-      + 'сколько задач связано, итог последнего запуска.',
+      'Sync of project tasks with an external tracker (ClickUp): whether it is enabled, which list, status mapping, '
+      + 'how many tasks are linked, result of the last run.',
     input_schema: { type: 'object', properties: {} }
   },
   {
     name: 'tracker_sync_preview',
     description:
-      'План синхронизации без записи: какие задачи будут импортированы, выгружены, какие поля уйдут в трекер или придут '
-      + 'из него, конфликты и статусы без соответствия. Вызывай перед tracker_sync_run.',
+      'Sync plan without writing anything: which tasks will be imported or exported, which fields will go to the tracker or come '
+      + 'from it, conflicts and unmapped statuses. Call it before tracker_sync_run.',
     input_schema: { type: 'object', properties: {} }
   },
   {
     name: 'tracker_sync_run',
     description:
-      'Выполнить синхронизацию: записать изменения в трекер и в backlog/. Пишет во внешний сервис, поэтому ждёт '
-      + 'одобрения человека в ProjectHub.',
+      'Run the sync: write changes to the tracker and to backlog/. It writes to an external service, so it waits for '
+      + 'human approval in ProjectHub.',
     input_schema: { type: 'object', properties: {} }
   }
 ];
@@ -67,30 +67,30 @@ export interface TrackerToolResult {
 }
 
 const KIND_LABELS: Record<string, string> = {
-  import: 'импорт из трекера',
-  export: 'выгрузка в трекер',
-  push: 'изменения в трекер',
-  pull: 'изменения в backlog',
-  conflict: 'конфликты',
-  missingRemote: 'нет в трекере',
-  missingLocal: 'нет в проекте',
-  unmappedStatus: 'статус без соответствия',
-  error: 'ошибки'
+  import: 'import from tracker',
+  export: 'export to tracker',
+  push: 'changes to tracker',
+  pull: 'changes to backlog',
+  conflict: 'conflicts',
+  missingRemote: 'missing in tracker',
+  missingLocal: 'missing in project',
+  unmappedStatus: 'unmapped status',
+  error: 'errors'
 };
 
 /** Текст итога для модели и для карточки HITL. */
 export function formatRunSummary(summary: TrackerRunSummary, limit = 40): string {
-  const head = summary.ok ? (summary.dryRun ? 'План синхронизации' : 'Синхронизация выполнена') : `Не выполнено: ${summary.error ?? 'ошибки в журнале'}`;
+  const head = summary.ok ? (summary.dryRun ? 'Sync plan' : 'Sync completed') : `Not completed: ${summary.error ?? 'errors in the log'}`;
   const counts = Object.entries(summary.counts)
     .map(([k, v]) => `${KIND_LABELS[k] ?? k}: ${v}`)
     .join(', ');
   const lines = summary.entries.slice(0, limit).map((e) => {
     const who = [e.taskId, e.externalId ? `#${e.externalId}` : ''].filter(Boolean).join(' ');
     const fields = e.fields?.length ? ` [${e.fields.join(', ')}]` : '';
-    return `- ${KIND_LABELS[e.kind] ?? e.kind}: ${who}${e.title ? ` «${e.title}»` : ''}${fields}${e.detail ? ` — ${e.detail}` : ''}`;
+    return `- ${KIND_LABELS[e.kind] ?? e.kind}: ${who}${e.title ? ` "${e.title}"` : ''}${fields}${e.detail ? ` — ${e.detail}` : ''}`;
   });
-  const more = summary.entries.length > limit ? [`… ещё ${summary.entries.length - limit}`] : [];
-  return [head, counts || 'изменений нет', ...lines, ...more].join('\n');
+  const more = summary.entries.length > limit ? [`… ${summary.entries.length - limit} more`] : [];
+  return [head, counts || 'no changes', ...lines, ...more].join('\n');
 }
 
 /** План синхронизации строками карточки HITL (TASK-202.8): виды записей — кодом словаря, данные задач как есть. */
@@ -115,9 +115,9 @@ function hasChanges(summary: TrackerRunSummary): boolean {
 }
 
 export async function callTrackerTool(name: string, _args: Record<string, unknown>, ctx: TrackerToolContext, deps: TrackerToolDeps): Promise<TrackerToolResult> {
-  if (!isTrackerToolName(name)) return { text: `Неизвестный инструмент: ${name}`, isError: true };
+  if (!isTrackerToolName(name)) return { text: `Unknown tool: ${name}`, isError: true };
   const root = findOwningProject(await deps.listProjectRoots(), ctx.sessionPath);
-  if (!root) return { text: 'Сессия не привязана к зарегистрированному проекту ProjectHub.', isError: true };
+  if (!root) return { text: 'The session is not linked to a registered ProjectHub project.', isError: true };
 
   try {
     if (name === 'tracker_sync_status') {
@@ -147,7 +147,7 @@ export async function callTrackerTool(name: string, _args: Record<string, unknow
     const plan = await deps.preview(root);
     if (name === 'tracker_sync_preview') return { text: formatRunSummary(plan), isError: !plan.ok };
     if (!plan.ok) return { text: formatRunSummary(plan), isError: true };
-    if (!hasChanges(plan)) return { text: `${formatRunSummary(plan)}\nЗаписывать нечего.`, isError: false };
+    if (!hasChanges(plan)) return { text: `${formatRunSummary(plan)}\nNothing to write.`, isError: false };
 
     const info = {
       sessionId: ctx.sessionId,
@@ -164,13 +164,13 @@ export async function callTrackerTool(name: string, _args: Record<string, unknow
     };
     if (!deps.requestApproval) {
       deps.recordAutoDecision(info, 'deny', TRACKER_TOOLS_AUDIT_RULE, 'no-approver');
-      return { text: 'Синхронизация пишет во внешний сервис и требует одобрения человека, а одобрить сейчас некому. Попросите человека нажать «Синхронизировать» в ProjectHub.', isError: true };
+      return { text: 'The sync writes to an external service and requires human approval, and no one is available to approve right now. Ask the human to press "Sync" in ProjectHub.', isError: true };
     }
     const approved = await deps.requestApproval(info).catch(() => false);
-    if (!approved) return { text: 'Человек не одобрил синхронизацию. Не запускай её другим способом.', isError: true };
+    if (!approved) return { text: 'The human did not approve the sync. Do not run it another way.', isError: true };
     const result = await deps.run(root);
     return { text: formatRunSummary(result), isError: !result.ok };
   } catch (err) {
-    return { text: `Ошибка синхронизации: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+    return { text: `Sync error: ${err instanceof Error ? err.message : String(err)}`, isError: true };
   }
 }

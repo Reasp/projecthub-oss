@@ -10,6 +10,8 @@
 import type { DeviceRights, RemoteHitlRisk } from '../types/remote';
 import type { HitlTextKey } from '../types/electron';
 import { describeHitlRequest, type HitlTextLabels } from '../lib/agentStatusText';
+import { formatAppError, type AppErrorKey } from '../lib/appError';
+import type { AppErrorLabels } from '../i18n/appErrorText';
 import { accessActions, owningProject, type ProjectAccess } from './projectAccess';
 
 export type OverviewSessionKind = 'studio' | 'swarm' | 'terminal';
@@ -42,6 +44,8 @@ export interface OverviewSession {
   updatedAt: number;
   /** Вторая строка: вопрос агента, ошибка, последняя строка вывода или начало промпта. */
   detail?: string;
+  /** Код ошибки во второй строке (decision-165): клиент собирает её на своём языке. */
+  detailKey?: AppErrorKey;
   engine?: string;
   agentName?: string;
   role?: string;
@@ -112,6 +116,7 @@ export interface OverviewSwarmAgentInput {
   engine?: string;
   status: string;
   error?: string;
+  errorKey?: AppErrorKey;
   /** Последняя строка вывода. */
   lastLine?: string;
 }
@@ -126,6 +131,7 @@ export interface OverviewSwarmInput {
   createdAt?: number;
   completedAt?: number;
   error?: string;
+  errorKey?: AppErrorKey;
   agents: OverviewSwarmAgentInput[];
   ownerMemberId?: string;
 }
@@ -140,6 +146,8 @@ export interface OverviewTerminalInput {
   updatedAt: number;
   /** Последний инструмент или причина сбоя проверок. */
   detail?: string;
+  /** Код причины сбоя проверок (decision-165). */
+  detailKey?: AppErrorKey;
 }
 
 export interface OverviewPendingInput {
@@ -240,10 +248,19 @@ export function overviewRequestTitle(req: Pick<OverviewPendingRequest, 'title' |
   return req.textKey ? oneLine(describeHitlRequest(req, labels).title, OVERVIEW_LIMITS.detail) : req.title;
 }
 
-/** Вторая строка сессии: у ждущей — заголовок последнего запроса на языке клиента, иначе `detail` хоста. */
-export function overviewSessionDetail(s: Pick<OverviewSession, 'state' | 'detail' | 'pending'>, labels: HitlTextLabels): string | undefined {
+/**
+ * Вторая строка сессии: у ждущей — заголовок последнего запроса на языке клиента, у ошибки с кодом — её текст по словарю
+ * клиента, иначе `detail` хоста.
+ */
+export function overviewSessionDetail(
+  s: Pick<OverviewSession, 'state' | 'detail' | 'detailKey' | 'pending'>,
+  labels: HitlTextLabels,
+  errors?: Partial<AppErrorLabels>
+): string | undefined {
   const last = s.state === 'waiting' ? s.pending?.[s.pending.length - 1] : undefined;
-  return last ? overviewRequestTitle(last, labels) : s.detail;
+  if (last) return overviewRequestTitle(last, labels);
+  const keyed = s.detailKey && errors ? formatAppError(s.detailKey, errors) : null;
+  return keyed ? oneLine(keyed) : s.detail;
 }
 
 /** Цель в коде запроса — одной строкой той же длины, что заголовок: дерево не несёт команд целиком. */
@@ -324,6 +341,7 @@ function swarmSession(s: OverviewSwarmInput): OverviewSession {
   const focus =
     (state === 'running' ? s.agents.find((a) => ACTIVE_AGENT.has(a.status)) : undefined) ?? (state === 'failed' ? failedAgent : undefined) ?? s.agents[0];
   const detail = state === 'failed' ? failedAgent?.error || s.error || focus?.lastLine : focus?.lastLine;
+  const detailKey = state !== 'failed' ? undefined : failedAgent?.error ? failedAgent.errorKey : s.error ? s.errorKey : undefined;
   const first = s.agents[0];
   const title = s.taskId ? `${s.taskId}${s.taskTitle ? ` · ${s.taskTitle}` : ''}` : first?.name || s.mode;
   return {
@@ -333,6 +351,7 @@ function swarmSession(s: OverviewSwarmInput): OverviewSession {
     state,
     updatedAt: Math.max(s.completedAt ?? 0, s.createdAt ?? 0),
     ...(detail ? { detail: oneLine(detail) } : {}),
+    ...(detail && detailKey ? { detailKey } : {}),
     ...(focus?.engine ? { engine: focus.engine } : {}),
     ...(focus ? { agentName: focus.name, agentId: focus.id } : {}),
     ...(focus?.roleSlug ? { role: focus.roleSlug } : {}),
@@ -350,6 +369,7 @@ function terminalSession(t: OverviewTerminalInput): OverviewSession {
     state: t.state,
     updatedAt: t.updatedAt,
     ...(t.detail ? { detail: oneLine(t.detail) } : {}),
+    ...(t.detail && t.detailKey ? { detailKey: t.detailKey } : {}),
     engine: t.engine,
     agentName: t.agentName,
     ...(t.role ? { role: t.role } : {})
