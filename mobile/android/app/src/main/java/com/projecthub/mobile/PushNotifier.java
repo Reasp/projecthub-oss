@@ -14,6 +14,9 @@ import androidx.core.app.NotificationManagerCompat;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 /**
  * Уведомление о запросе агента из расшифрованного push (TASK-140.3, decision-115). Кнопки — по классу риска
@@ -68,6 +71,19 @@ final class PushNotifier {
             .putExtra("ep", p.optJSONArray("ep") == null ? "[]" : p.optJSONArray("ep").toString())
             .putExtra("notifId", notifId);
         return PendingIntent.getBroadcast(ctx, notifId * 2 + ("allow".equals(decision) ? 1 : 0), intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+    }
+
+    /** Параметры шаблона заголовка из `tk.p` (TASK-202.8): только строковые значения. */
+    static Map<String, String> pushParams(JSONObject raw) {
+        Map<String, String> out = new HashMap<>();
+        if (raw == null) return out;
+        Iterator<String> keys = raw.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            Object value = raw.opt(key);
+            if (value instanceof String) out.put(key, (String) value);
+        }
+        return out;
     }
 
     private static String riskText(Context ctx, String risk) {
@@ -130,7 +146,7 @@ final class PushNotifier {
         JSONObject tk = p.optJSONObject("tk");
         String title = tk == null
             ? p.optString("title")
-            : HitlPushTitle.of(Texts.of(ctx), tk.optString("c"), tk.optString("t"), tk.optString("a"), p.optString("title"));
+            : HitlPushTitle.of(Texts.of(ctx), tk.optString("c"), tk.optString("t"), tk.optString("a"), pushParams(tk.optJSONObject("p")), p.optString("title"));
         String what = p.optString("cmd", "").isEmpty() ? title : "$ " + p.optString("cmd");
         StringBuilder big = new StringBuilder(title);
         if (!p.optString("cmd", "").isEmpty()) big.append("\n$ ").append(p.optString("cmd"));

@@ -1859,13 +1859,43 @@ export type HitlTextCode =
   | 'sync_abort'
   | 'read'
   | 'read_outside'
-  | 'question';
+  | 'question'
+  | 'read_excluded'
+  | 'subagent'
+  | 'tool'
+  | 'browser_host'
+  | 'assistant_question'
+  | 'merge_security'
+  | 'merge_security_many'
+  | 'merge_renumber'
+  | 'plan_conflict'
+  | 'plan_renumber'
+  | 'ci_rerun'
+  | 'ci_play'
+  | 'task_create'
+  | 'tracker_sync'
+  | 'doc_merge'
+  | 'task_claim'
+  | 'task_release'
+  | 'pr_publish'
+  | 'computer_action'
+  | 'computer_dangerous';
+
+/** Строка пояснения кодом (TASK-202.8); зеркало `electron/services/hitlTypes.ts`. */
+export interface HitlTextLine {
+  code: string;
+  params?: Record<string, HitlLineParam>;
+}
+
+export type HitlLineParam = string | HitlTextLine | HitlTextLine[];
 
 export interface HitlTextKey {
   code: HitlTextCode;
   target?: string;
   agent?: string;
   ownDetails?: boolean;
+  params?: Record<string, string>;
+  lines?: HitlTextLine[];
 }
 
 export interface ApprovalRequest {
@@ -3208,8 +3238,10 @@ export interface BacklogRenumberSummary {
   renumber: BacklogRenumbering[];
   mentionCount: number;
   fileCount: number;
-  /** Готовый текст для диалога и карточки HITL. */
+  /** Тот же план по-английски — для журнала; окно строит сообщение само (`buildRenumberMessage`). */
   text: string;
+  /** План строками словаря карточки HITL (TASK-202.8). */
+  lines?: HitlTextLine[];
 }
 
 export interface MergeOptions {

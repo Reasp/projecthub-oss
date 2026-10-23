@@ -52,7 +52,7 @@ const PERSIST_DIFF_LIMIT = 50_000;
 
 /** Ожидание одобрения прервано (abortSession/clearSession/закрытие окна), а не отклонено пользователем. */
 export class ApprovalCancelledError extends Error {
-  constructor(message = 'Сессия прервана: ожидание одобрения отменено') {
+  constructor(message = 'Session interrupted: waiting for approval was cancelled') {
     super(message);
     this.name = 'ApprovalCancelledError';
   }
@@ -475,7 +475,7 @@ export class HitlService extends EventEmitter {
     const source: HitlDecisionSource = { kind: 'timeout' };
     this.rememberDecided(entry.request, false, source);
     this.writeDecision(entry.request, 'deny', source, undefined, entry.request.orphaned ? 'session_gone' : undefined);
-    entry.resolve?.({ approved: false, text: 'Таймаут ожидания решения — запрос отклонён автоматически' });
+    entry.resolve?.({ approved: false, text: 'Timed out waiting for a decision — the request was denied automatically' });
     this.emit('expired', { request: entry.request });
     appEventBus.publish({ type: 'hitl:expired', request: entry.request });
   }

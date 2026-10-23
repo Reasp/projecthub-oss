@@ -9,6 +9,7 @@
  * `paths`, `url`), а не ветвления по каждому инструменту. Чистый модуль без Electron.
  */
 import { isInsideProject } from './pathGuard.js';
+import type { HitlTextLine } from './hitlTypes.js';
 
 /** `page` — внутри изолированного браузера; `host` — файлы машины или код в процессе сервера. */
 export type BrowserToolClass = 'page' | 'host';
@@ -43,7 +44,7 @@ export const KNOWN_BROWSER_TOOLS: ReadonlySet<string> = new Set([
 
 /** Инструменты, которые выходят за браузер при любых аргументах. */
 const ALWAYS_HOST: Record<string, string> = {
-  browser_run_code_unsafe: 'выполняет произвольный код в процессе Playwright MCP на этой машине'
+  browser_run_code_unsafe: 'runs arbitrary code in the Playwright MCP process on this machine'
 };
 
 /** Имя инструмента MCP вида `mcp__<сервер>__browser_<действие>` (Claude Code). */
@@ -56,8 +57,10 @@ export function parseBrowserToolName(tool: string): { server: string; action: st
 
 export interface BrowserToolClassification {
   cls: BrowserToolClass;
-  /** Почему `host` — для карточки HITL и аудита. */
+  /** Почему `host` — по-английски для модели и аудита. */
   reason?: string;
+  /** Та же причина кодом строки пояснения карточки HITL (TASK-202.8). */
+  reasonLine?: HitlTextLine;
 }
 
 function isFileUrl(value: unknown): boolean {
@@ -75,21 +78,25 @@ export function classifyBrowserTool(
 ): BrowserToolClassification | null {
   if (!KNOWN_BROWSER_TOOLS.has(action)) return null;
   const always = ALWAYS_HOST[action];
-  if (always) return { cls: 'host', reason: `${action} ${always}` };
+  if (always) return { cls: 'host', reason: `${action} ${always}`, reasonLine: { code: 'browserUnsafeCode', params: { action } } };
 
   const args = input && typeof input === 'object' ? input : {};
   const filename = args.filename;
   if (typeof filename === 'string' && filename.trim() && !isInsideProject(workDir, filename)) {
-    return { cls: 'host', reason: `${action}: файл «${filename}» вне рабочего каталога` };
+    return { cls: 'host', reason: `${action}: file «${filename}» is outside the working directory`, reasonLine: { code: 'browserFileOutside', params: { action, file: filename } } };
   }
   if (Array.isArray(args.paths)) {
     const outside = args.paths.find((p) => typeof p !== 'string' || !isInsideProject(workDir, p));
     if (outside !== undefined) {
-      return { cls: 'host', reason: `${action}: файл «${String(outside)}» вне рабочего каталога` };
+      return {
+        cls: 'host',
+        reason: `${action}: file «${String(outside)}» is outside the working directory`,
+        reasonLine: { code: 'browserFileOutside', params: { action, file: String(outside) } }
+      };
     }
   }
   if (isFileUrl(args.url)) {
-    return { cls: 'host', reason: `${action}: адрес file: открывает файлы машины` };
+    return { cls: 'host', reason: `${action}: a file: address opens files of this machine`, reasonLine: { code: 'browserFileUrl', params: { action } } };
   }
   return { cls: 'page' };
 }
@@ -105,6 +112,8 @@ export interface BrowserPolicyVerdict {
   verdict: 'allow' | 'deny' | 'ask';
   rule: 'browser-page' | 'browser-host' | 'browser-host-autonomous';
   reason?: string;
+  /** Причина `browser-host` кодом строки карточки HITL (TASK-202.8). */
+  reasonLine?: HitlTextLine;
 }
 
 /**
@@ -125,8 +134,8 @@ export function evaluateBrowserTool(
     return {
       verdict: 'deny',
       rule: 'browser-host-autonomous',
-      reason: `Отклонено: ${cls.reason}. В автономном запуске действия вне браузера проекта запрещены.`
+      reason: `Denied: ${cls.reason}. Actions outside the project browser are not allowed in an autonomous run.`
     };
   }
-  return { verdict: 'ask', rule: 'browser-host', reason: cls.reason };
+  return { verdict: 'ask', rule: 'browser-host', reason: cls.reason, ...(cls.reasonLine ? { reasonLine: cls.reasonLine } : {}) };
 }

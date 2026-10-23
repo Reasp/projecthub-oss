@@ -128,9 +128,9 @@ export function isFileDialog(target: ComputerTarget | null | undefined, titles: 
 }
 
 export function describeTarget(target: ComputerTarget | null | undefined): string {
-  if (!target) return 'цель не определена';
+  if (!target) return 'target unknown';
   const parts = [target.app, target.title ? `«${target.title}»` : undefined].filter(Boolean);
-  return parts.length ? parts.join(' ') : `окно ${target.windowId ?? '?'}`;
+  return parts.length ? parts.join(' ') : `window ${target.windowId ?? '?'}`;
 }
 
 export interface EvaluateComputerActionInput {

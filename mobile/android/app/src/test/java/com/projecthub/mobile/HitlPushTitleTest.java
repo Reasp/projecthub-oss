@@ -24,6 +24,16 @@ public class HitlPushTitleTest {
     }
 
     @Test
+    public void templateParamsFromHost() {
+        java.util.Map<String, String> p = new java.util.HashMap<>();
+        p.put("number", "12");
+        p.put("title", "Fix login");
+        assertEquals("Опубликовать ревью PR #12 «Fix login»", HitlPushTitle.of(ru, "pr_publish", "", "", p, "x"));
+        assertEquals("Publish PR #12 review «Fix login»", HitlPushTitle.of(en, "pr_publish", "", "", p, "x"));
+        assertEquals("Агент заводит задачу: Новая задача", HitlPushTitle.of(ru, "task_create", "Новая задача", "", p, "x"));
+    }
+
+    @Test
     public void unknownCodeOrOldHostKeepsHostTitle() {
         assertEquals("Bash: rm -rf dist", HitlPushTitle.of(ru, null, null, null, "Bash: rm -rf dist"));
         assertEquals("New kind", HitlPushTitle.of(ru, "future_code", "x", "A", "New kind"));

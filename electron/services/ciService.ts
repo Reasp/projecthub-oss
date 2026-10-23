@@ -284,6 +284,6 @@ export class CiService {
   /** Что увидит человек в запросе HITL: CI, репозиторий или задание, подключение. */
   async describeTarget(projectPath: string, provider: string): Promise<string> {
     const access = await this.accessFor(projectPath, provider);
-    return `${access.adapter.label}, ${access.target.path}, через «${access.via}»`;
+    return `${access.adapter.label}, ${access.target.path} (${access.via})`;
   }
 }

@@ -810,11 +810,11 @@ export class PRService {
     const backend = await this.resolveBackend(projectPath).catch(() => null);
     if (backend?.kind === 'connection') {
       return {
-        command: `Комментарий в PR #${prNumber} (${backend.adapter.label}, ${backend.repo.path}) от подключения «${backend.connection.label}»`,
+        command: `Comment on PR #${prNumber} (${backend.adapter.label}, ${backend.repo.path}) from connection «${backend.connection.label}»`,
         tool: `${backend.adapter.id} pr comment`
       };
     }
-    return { command: `gh pr comment ${prNumber} --body-file <текст ниже>`, tool: 'gh pr comment' };
+    return { command: `gh pr comment ${prNumber} --body-file <text below>`, tool: 'gh pr comment' };
   }
 
   /**

@@ -45,6 +45,26 @@
     <string name="hitl_code_read">Read</string>
     <string name="hitl_code_read_outside">Read</string>
     <string name="hitl_code_question">Question from Claude Code</string>
+    <string name="hitl_code_read_excluded">⚠️ File is on the read exclusion list</string>
+    <string name="hitl_code_subagent">Run subagent</string>
+    <string name="hitl_code_tool">Tool</string>
+    <string name="hitl_code_browser_host">Playwright MCP browser goes beyond the browser</string>
+    <string name="hitl_code_assistant_question">Question from the assistant</string>
+    <string name="hitl_code_merge_security">Merge candidate «{candidate}» into {base}: {secrets} secrets, {packages} packages</string>
+    <string name="hitl_code_merge_security_many">Assemble the result from {count} candidates into {base}: security decisions needed</string>
+    <string name="hitl_code_merge_renumber">Renumber backlog of candidate {candidate} before merging into {base}</string>
+    <string name="hitl_code_plan_conflict">Merge conflict in subtask {task}</string>
+    <string name="hitl_code_plan_renumber">Backlog numbers collided in subtask {task}</string>
+    <string name="hitl_code_ci_rerun">Agent asks to rerun failed jobs in CI</string>
+    <string name="hitl_code_ci_play">Agent asks to run manual job «{job}» in CI</string>
+    <string name="hitl_code_task_create">Agent creates a task</string>
+    <string name="hitl_code_tracker_sync">Agent runs task sync with the tracker</string>
+    <string name="hitl_code_doc_merge">Accept documentation branch {id}: {title}</string>
+    <string name="hitl_code_task_claim">Agent takes task {task} on origin</string>
+    <string name="hitl_code_task_release">Agent releases task {task} on origin</string>
+    <string name="hitl_code_pr_publish">Publish PR #{number} review «{title}»</string>
+    <string name="hitl_code_computer_action">Action on the computer</string>
+    <string name="hitl_code_computer_dangerous">⚠️ Dangerous action on the computer</string>
 
     <!-- Итог нажатия кнопки в уведомлении -->
     <string name="outcome_push_off">Push is off for this computer — open the app</string>

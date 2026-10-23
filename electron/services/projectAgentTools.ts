@@ -39,7 +39,8 @@ import {
   withApprovalLabel,
   type AgentTaskLimits
 } from './agentTaskPolicy.js';
-import type { HitlEngine, HitlOrigin, HitlRequest, RolePermissions } from './hitlTypes.js';
+import type { HitlEngine, HitlOrigin, HitlRequest, HitlTextLine, RolePermissions } from './hitlTypes.js';
+import { keyedHitlText } from './hitlText.js';
 import type { AgentTaskCreatedInfo } from './agentTaskNotify.js';
 import type { RagSearchResult } from '../../src/types/electron';
 import { createDocInBranch, readDocInBranch, updateDocInBranch, type DocBranchEnv } from './docBranches.js';
@@ -614,22 +615,20 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         }
         let approvedByHuman = false;
         if (decision.action === 'ask') {
-          const preview = [
-            `Задача: ${title}`,
-            assignee.length ? `Исполнитель: ${assignee.join(', ')}` : '',
-            labels.length ? `Метки: ${labels.join(', ')}` : '',
-            '',
-            str(args.description).trim(),
-            ...strList(args.acceptanceCriteria).map((c) => `- [ ] ${c}`)
-          ].filter((line, i, all) => line || (i > 0 && all[i - 1]));
+          const body = [str(args.description).trim(), ...strList(args.acceptanceCriteria).map((c) => `- [ ] ${c}`)].filter(Boolean).join('\n');
+          const lines: HitlTextLine[] = [
+            { code: 'taskTitle', params: { title } },
+            ...(assignee.length ? [{ code: 'taskAssignee', params: { list: assignee.join(', ') } }] : []),
+            ...(labels.length ? [{ code: 'taskLabels', params: { list: labels.join(', ') } }] : []),
+            ...(body ? [{ code: 'text', params: { text: `\n${body}` } }] : [])
+          ];
           const approved = deps.requestApproval
             ? await deps
                 .requestApproval({
                   sessionId: ctx.sessionId,
                   projectPath: root,
                   type: 'file_write',
-                  title: `Агент заводит задачу: ${title}`,
-                  details: preview.join('\n'),
+                  ...keyedHitlText({ code: 'task_create', target: title, lines }),
                   origin: ctx.origin,
                   engine: ctx.engine,
                   ...(ctx.agentId ? { agentId: ctx.agentId } : {}),

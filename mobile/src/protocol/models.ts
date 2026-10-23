@@ -1,5 +1,5 @@
 import type { DeviceRights, RemotePendingAgentTask, RemoteHitlRisk, RemotePendingApproval, RemoteTaskSummary } from '../../../src/types/remote';
-import type { HitlTextKey } from '../../../src/types/electron';
+import type { HitlLineParam, HitlTextKey, HitlTextLine } from '../../../src/types/electron';
 import { describeHitlRequest, type HitlText, type HitlTextLabels } from '../../../src/lib/agentStatusText';
 import { t } from '../i18n';
 
@@ -223,12 +223,47 @@ function parseTextKey(raw: unknown): HitlTextKey | undefined {
   const k = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   if (typeof k.code !== 'string' || !k.code) return undefined;
   const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const params = parseStringMap(k.params);
+  const lines = Array.isArray(k.lines) ? k.lines.map(parseTextLine) : undefined;
   return {
     code: k.code as HitlTextKey['code'],
     ...(str(k.target) ? { target: str(k.target) } : {}),
     ...(str(k.agent) ? { agent: str(k.agent) } : {}),
-    ...(k.ownDetails === true ? { ownDetails: true } : {})
+    ...(k.ownDetails === true ? { ownDetails: true } : {}),
+    ...(params ? { params } : {}),
+    // Битая строка — весь список отбрасывается: карточка покажет запасной текст хоста.
+    ...(lines && lines.length > 0 && lines.every(Boolean) ? { lines: lines as HitlTextLine[] } : {})
   };
+}
+
+function parseStringMap(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(raw)) if (typeof value === 'string') out[name] = value;
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Строка пояснения кодом (TASK-202.8); `null` — не та форма. */
+function parseTextLine(raw: unknown): HitlTextLine | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const line = raw as Record<string, unknown>;
+  if (typeof line.code !== 'string' || !line.code) return null;
+  if (line.params === undefined) return { code: line.code };
+  if (!line.params || typeof line.params !== 'object' || Array.isArray(line.params)) return null;
+  const params: Record<string, HitlLineParam> = {};
+  for (const [name, value] of Object.entries(line.params)) {
+    if (typeof value === 'string') params[name] = value;
+    else if (Array.isArray(value)) {
+      const nested = value.map(parseTextLine);
+      if (!nested.every(Boolean)) return null;
+      params[name] = nested as HitlTextLine[];
+    } else {
+      const nested = parseTextLine(value);
+      if (!nested) return null;
+      params[name] = nested;
+    }
+  }
+  return { code: line.code, params };
 }
 
 /** Заголовок и пояснение запроса на языке телефона (TASK-205): по коду, без кода — текст хоста. */

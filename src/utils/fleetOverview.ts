@@ -247,8 +247,17 @@ export function overviewSessionDetail(s: Pick<OverviewSession, 'state' | 'detail
 }
 
 /** Цель в коде запроса — одной строкой той же длины, что заголовок: дерево не несёт команд целиком. */
+/** Дерево показывает только заголовок: строки пояснения не передаются, цель и параметры обрезаются (TASK-202.8). */
 function overviewTextKey(key: HitlTextKey): HitlTextKey {
-  return key.target ? { ...key, target: oneLine(key.target, OVERVIEW_LIMITS.title) } : key;
+  const params = key.params
+    ? Object.fromEntries(Object.entries(key.params).map(([name, value]) => [name, oneLine(value, OVERVIEW_LIMITS.title)]))
+    : undefined;
+  return {
+    code: key.code,
+    ...(key.target ? { target: oneLine(key.target, OVERVIEW_LIMITS.title) } : {}),
+    ...(key.agent ? { agent: key.agent } : {}),
+    ...(params ? { params } : {})
+  };
 }
 
 export function oneLine(text: string, limit: number = OVERVIEW_LIMITS.detail): string {

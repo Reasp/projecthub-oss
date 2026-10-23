@@ -23,9 +23,11 @@ import { applyFinalSummary, normalizeFrontmatter, parseTaskBody, withUpdatedDate
 import { readBacklogConfig } from './backlogConfigService.js';
 import { buildAgentContext } from './contextBuilder.js';
 import { execGit, type GitRunner } from './checkpointGit.js';
-import { describeBacklogRenumber, dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, type PreparedIncoming } from './backlogMerge.js';
+import { renumberHitlLines, dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, type PreparedIncoming } from './backlogMerge.js';
 import { findReviewStatus } from './doneLoop.js';
 import { hitlService } from './hitlService.js';
+import { answeredOption, keyedHitlText } from './hitlText.js';
+import type { HitlTextLine } from './hitlTypes.js';
 import { modelCallService } from './modelCallService.js';
 import { modelRouteView, slotFieldsFromResolved, type ModelRouteView } from './modelRouter.js';
 import { targetFromRole, targetFromSlot } from './modelTarget.js';
@@ -814,7 +816,7 @@ export class PlanService extends EventEmitter {
         node.conflictFiles = [];
         node.renumberPending = prepared.preview.renumber.map(({ from, to }) => ({ from, to }));
         setReason(node, new AppError('plans.renumberNeeded', { list: prepared.preview.renumber.map((r) => `${r.from} → ${r.to}`).join(', ') }));
-        void this.askAboutRenumber(plan, node, describeBacklogRenumber(prepared.preview));
+        void this.askAboutRenumber(plan, node, renumberHitlLines(prepared.preview));
         return false;
       }
       const message = mergeMessageWithRenumber(
@@ -860,30 +862,27 @@ export class PlanService extends EventEmitter {
       sessionId: `plan-${plan.id}`,
       projectPath: plan.projectPath,
       type: 'question' as const,
-      title: `Конфликт слияния подзадачи ${node.taskId}`,
-      details: [
-        `Ветка ${node.branch} не слилась в ${plan.integrationBranch}.`,
-        node.conflictFiles?.length ? `Конфликтные файлы: ${node.conflictFiles.join(', ')}` : '',
-        patch ? `\n${patch.slice(0, CONFLICT_PATCH_LIMIT)}` : ''
-      ]
-        .filter(Boolean)
-        .join('\n'),
-      questionData: {
-        title: `Что делать с ${node.taskId}?`,
-        subtitle: `Конфликтные файлы: ${(node.conflictFiles ?? []).join(', ') || 'не определены'}`,
-        options: [
-          { id: 'retry', label: 'Я разрешил конфликт — повторить слияние' },
-          { id: 'skip', label: 'Пропустить подзадачу', description: 'Зависимые узлы будут заблокированы' },
-          { id: 'stop', label: 'Остановить план' }
-        ]
-      },
+      ...keyedHitlText(
+        {
+          code: 'plan_conflict',
+          params: { task: node.taskId, files: (node.conflictFiles ?? []).join(', ') || '—' },
+          lines: [
+            { code: 'planNotMerged', params: { branch: node.branch ?? '', target: plan.integrationBranch ?? '' } },
+            ...(node.conflictFiles?.length ? [{ code: 'planConflictFiles', params: { files: node.conflictFiles.join(', ') } }] : []),
+            ...(patch ? [{ code: 'text', params: { text: `\n${patch.slice(0, CONFLICT_PATCH_LIMIT)}` } }] : [])
+          ]
+        },
+        { options: ['retry', 'skip', 'stop'] }
+      ),
       createdAt: Date.now(),
       origin: 'swarm' as const
     };
 
     try {
       const answer = await hitlService.request(request);
-      const choice: ConflictResolution = answer.text === 'skip' || answer.text === 'stop' ? answer.text : 'retry';
+      // Окно и голос отвечают подписью варианта на своём языке — id ищется по словарям (TASK-202.8).
+      const picked = answeredOption('plan_conflict', answer.text);
+      const choice: ConflictResolution = picked === 'skip' || picked === 'stop' ? picked : 'retry';
       await this.resolveConflict(plan.id, node.taskId, answer.approved ? choice : 'skip');
     } catch (err) {
       console.warn(`[PlanService] Запрос по конфликту ${node.taskId} не получил ответа:`, err);
@@ -891,29 +890,23 @@ export class PlanService extends EventEmitter {
   }
 
   /** Совпавшие номера backlog — вопрос человеку с планом замен (decision-76 п. 6): перенумеровать, пропустить, остановить. */
-  private async askAboutRenumber(plan: PlanState, node: PlanNode, planText: string): Promise<void> {
+  private async askAboutRenumber(plan: PlanState, node: PlanNode, planLines: HitlTextLine[]): Promise<void> {
     const request = {
       id: hitlService.newRequestId('plan'),
       sessionId: `plan-${plan.id}`,
       projectPath: plan.projectPath,
       type: 'question' as const,
-      title: `Совпали номера backlog в подзадаче ${node.taskId}`,
-      details: planText,
-      questionData: {
-        title: `Перенумеровать записи ветки ${node.branch}?`,
-        subtitle: 'Записи интеграционной ветки не меняются; записи ветки узла получат новые номера',
-        options: [
-          { id: 'renumber', label: 'Перенумеровать и слить' },
-          { id: 'skip', label: 'Пропустить подзадачу', description: 'Зависимые узлы будут заблокированы' },
-          { id: 'stop', label: 'Остановить план' }
-        ]
-      },
+      ...keyedHitlText(
+        { code: 'plan_renumber', params: { task: node.taskId, branch: node.branch ?? '' }, lines: planLines },
+        { options: ['renumber', 'skip', 'stop'] }
+      ),
       createdAt: Date.now(),
       origin: 'swarm' as const
     };
     try {
       const answer = await hitlService.request(request);
-      const choice: ConflictResolution = answer.text === 'skip' || answer.text === 'stop' ? answer.text : 'renumber';
+      const picked = answeredOption('plan_renumber', answer.text);
+      const choice: ConflictResolution = picked === 'skip' || picked === 'stop' ? picked : 'renumber';
       await this.resolveConflict(plan.id, node.taskId, answer.approved ? choice : 'skip');
     } catch (err) {
       console.warn(`[PlanService] Запрос по номерам ${node.taskId} не получил ответа:`, err);

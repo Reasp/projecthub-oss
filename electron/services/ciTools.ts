@@ -1,5 +1,6 @@
 import { findOwningProject } from './pathGuard.js';
 import type { HitlRequest } from './hitlTypes.js';
+import { keyedHitlText } from './hitlText.js';
 import type { ProjectToolContext } from './projectAgentTools.js';
 import type { CiJobLog, CiRunsResult } from './ciService.js';
 import type { CiRun, CiRunDetail } from './ciProviders.js';
@@ -165,10 +166,15 @@ export async function callCiTool(name: string, args: Record<string, unknown>, ct
       sessionId: ctx.sessionId,
       projectPath: root,
       type: 'command' as const,
-      title: `Агент просит ${action} в CI`,
-      details: [`${run.name}${run.number ? ` #${run.number}` : ''}, ветка ${run.branch || '—'}, ${run.url}`, where, str(args.reason) ? `Причина: ${str(args.reason)}` : '']
-        .filter(Boolean)
-        .join('\n'),
+      ...keyedHitlText({
+        code: job ? 'ci_play' : 'ci_rerun',
+        ...(job ? { params: { job: job.name } } : {}),
+        lines: [
+          { code: 'ciRun', params: { run: `${run.name}${run.number ? ` #${run.number}` : ''}`, branch: run.branch || '—', url: run.url } },
+          ...(where ? [{ code: 'text', params: { text: where } }] : []),
+          ...(str(args.reason) ? [{ code: 'ciReason', params: { reason: str(args.reason) } }] : [])
+        ]
+      }),
       command: `ci_rerun ${provider} ${runId}${jobId ? ` ${jobId}` : ''}`,
       origin: ctx.origin,
       engine: ctx.engine,

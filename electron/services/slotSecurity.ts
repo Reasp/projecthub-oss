@@ -23,6 +23,7 @@ import {
   type RegistryMeta
 } from './dependencyDiff.js';
 import type { CandidateSecurityInput } from './arenaScoring.js';
+import type { HitlTextLine } from './hitlTypes.js';
 
 export interface AgentSlotSecurity {
   scannedAt: number;
@@ -199,18 +200,23 @@ export function securityForFiles(report: AgentSlotSecurity | undefined, files: s
   };
 }
 
-/** Заголовок и подробности запроса HITL при слиянии — без значений секретов. */
-export function mergeApprovalText(report: AgentSlotSecurity, candidate: string, target: string): { title: string; details: string } {
+/**
+ * Запрос HITL при слиянии кодом (TASK-202.8): параметры заголовка `merge_security` и строки пояснения — без значений
+ * секретов. Текст на языке интерфейса собирает словарь `hitlRequestText`; шаблоны строк кончаются точкой, потому что
+ * карточка в окне сворачивает переводы строк.
+ */
+export function mergeApprovalKey(report: AgentSlotSecurity, candidate: string, base: string): { params: Record<string, string>; lines: HitlTextLine[] } {
   const deps = reviewableChanges(report.dependencies);
-  const title = `Слить кандидата «${candidate}» в ${target}: секретов ${report.secrets.length}, пакетов ${deps.length}`;
-  const lines: string[] = [];
-  if (report.secrets.length) lines.push(`Секреты (значения скрыты): ${summarizeSecretFindings(report.secrets, 6)}`);
-  if (deps.length) lines.push(`Зависимости: ${summarizeDependencyChanges(deps, 12)}`);
-  for (const lock of report.lockChanges) lines.push(`${lock.manifest}: +${lock.added} пакетов (${lock.sample.slice(0, 6).join(', ')})`);
-  if (report.registry === 'disabled') lines.push('Проверка пакетов в registry выключена в настройках Security Health.');
-  if (report.registry === 'partial') lines.push('Метаданные registry получены не для всех пакетов.');
-  // Карточка HITL в окне сворачивает переводы строк — точка в конце строки сохраняет границы пунктов.
-  return { title, details: lines.map((l) => (l.endsWith('.') ? l : `${l}.`)).join('\n') };
+  const params = { candidate, base, secrets: String(report.secrets.length), packages: String(deps.length) };
+  const lines: HitlTextLine[] = [];
+  if (report.secrets.length) lines.push({ code: 'mergeSecrets', params: { summary: summarizeSecretFindings(report.secrets, 6) } });
+  if (deps.length) lines.push({ code: 'mergeDependencies', params: { summary: summarizeDependencyChanges(deps, 12) } });
+  for (const lock of report.lockChanges) {
+    lines.push({ code: 'mergeLock', params: { manifest: lock.manifest, added: String(lock.added), sample: lock.sample.slice(0, 6).join(', ') } });
+  }
+  if (report.registry === 'disabled') lines.push({ code: 'mergeRegistryDisabled' });
+  if (report.registry === 'partial') lines.push({ code: 'mergeRegistryPartial' });
+  return { params, lines };
 }
 
 /** Короткая сводка для ревьюера и лога. */

@@ -1,6 +1,7 @@
 /**
- * Заголовки и пояснения карточек HITL по коду (TASK-204, TASK-205). Один словарь на три клиента: окно ProjectHub
- * (`hitl.requestText`), мобильный клиент (`models.hitlText`) и main-процесс — системные уведомления и Telegram.
+ * Заголовки и пояснения карточек HITL по коду (TASK-204, TASK-205, TASK-202.8). Один словарь на три клиента: окно
+ * ProjectHub (`hitl.requestText`), мобильный клиент (`models.hitlText`) и main-процесс — системные уведомления,
+ * Telegram и английский запасной текст запроса для журнала и аудита.
  *
  * Чистый модуль без React и Electron.
  */
@@ -10,6 +11,10 @@ const SYNC_DETAILS_EN = 'Merge the base branch into the agent worktree branch; t
 const SYNC_DETAILS_RU = 'Слияние основной ветки в ветку worktree агента; основное дерево и основная ветка не меняются';
 const RUN_DETAILS_EN = 'Run the command in the agent working directory';
 const RUN_DETAILS_RU = 'Выполнение команды в рабочем каталоге агента';
+const MERGE_SECURITY_EN = 'Merge candidate «{candidate}» into {base}: {secrets} secrets, {packages} packages';
+const MERGE_SECURITY_RU = 'Слить кандидата «{candidate}» в {base}: секретов {secrets}, пакетов {packages}';
+const PLAN_SKIP_EN = { label: 'Skip the subtask', description: 'Dependent nodes will be blocked' };
+const PLAN_SKIP_RU = { label: 'Пропустить подзадачу', description: 'Зависимые узлы будут заблокированы' };
 
 export const hitlRequestTextEn: HitlTextLabels = {
   titles: {
@@ -23,7 +28,27 @@ export const hitlRequestTextEn: HitlTextLabels = {
     sync_abort: 'Abort merging the base branch',
     read: 'Read',
     read_outside: 'Read',
-    question: 'Question from Claude Code'
+    question: 'Question from Claude Code',
+    read_excluded: '⚠️ File is on the read exclusion list',
+    subagent: 'Run subagent',
+    tool: 'Tool',
+    browser_host: 'Playwright MCP browser goes beyond the browser',
+    assistant_question: 'Question from the assistant',
+    merge_security: MERGE_SECURITY_EN,
+    merge_security_many: 'Assemble the result from {count} candidates into {base}: security decisions needed',
+    merge_renumber: 'Renumber backlog of candidate {candidate} before merging into {base}',
+    plan_conflict: 'Merge conflict in subtask {task}',
+    plan_renumber: 'Backlog numbers collided in subtask {task}',
+    ci_rerun: 'Agent asks to rerun failed jobs in CI',
+    ci_play: 'Agent asks to run manual job «{job}» in CI',
+    task_create: 'Agent creates a task',
+    tracker_sync: 'Agent runs task sync with the tracker',
+    doc_merge: 'Accept documentation branch {id}: {title}',
+    task_claim: 'Agent takes task {task} on origin',
+    task_release: 'Agent releases task {task} on origin',
+    pr_publish: 'Publish PR #{number} review «{title}»',
+    computer_action: 'Action on the computer',
+    computer_dangerous: '⚠️ Dangerous action on the computer'
   },
   details: {
     file_write: 'Change the file contents',
@@ -36,9 +61,113 @@ export const hitlRequestTextEn: HitlTextLabels = {
     sync_abort: SYNC_DETAILS_EN,
     read: 'Allow the agent to read {target}?',
     read_outside: '{target} is outside the agent working directory. Allow reading?',
-    question: ''
+    question: '',
+    read_excluded: '{target} is on the read exclusion list. Allow reading?',
+    subagent: 'Claude Code asks to run a subagent',
+    tool: '',
+    browser_host: '',
+    assistant_question: '',
+    merge_security: '',
+    merge_security_many: '',
+    merge_renumber: '',
+    plan_conflict: '',
+    plan_renumber: '',
+    ci_rerun: '',
+    ci_play: '',
+    task_create: '',
+    tracker_sync: '',
+    doc_merge: '',
+    task_claim: '',
+    task_release: '',
+    pr_publish: '',
+    computer_action: '',
+    computer_dangerous: ''
   },
-  readQuestion: { title: 'Read file', allow: 'Allow reading', deny: 'Deny reading' }
+  readQuestion: { title: 'Read file', allow: 'Allow reading', deny: 'Deny reading' },
+  questions: {
+    plan_conflict: {
+      title: 'What to do with {task}?',
+      subtitle: 'Conflicting files: {files}',
+      options: {
+        retry: { label: 'I resolved the conflict — retry the merge' },
+        skip: PLAN_SKIP_EN,
+        stop: { label: 'Stop the plan' }
+      }
+    },
+    plan_renumber: {
+      title: 'Renumber entries of branch {branch}?',
+      subtitle: 'Integration branch entries stay unchanged; entries of the node branch get new numbers',
+      options: {
+        renumber: { label: 'Renumber and merge' },
+        skip: PLAN_SKIP_EN,
+        stop: { label: 'Stop the plan' }
+      }
+    }
+  },
+  lines: {
+    text: '{text}',
+    writeExcluded: 'The file is protected by the auto-approve exclusion list',
+    writeByTool: 'Claude Code ({tool}) asks to change the file',
+    commandDenied: 'The command is on the deny list for auto-run',
+    browserUnsafeCode: '{action} runs arbitrary code in the Playwright MCP process on this machine',
+    browserFileOutside: '{action}: file «{file}» is outside the working directory',
+    browserFileUrl: '{action}: a file: address opens files of this machine',
+    terminalRule: '{engine} in the terminal · rule {rule}',
+    terminalRuleRead: '{engine} in the terminal · rule {rule} (read)',
+    terminalSecrets: 'Secret scanner (values hidden): {summary}',
+    mergeCandidate: MERGE_SECURITY_EN,
+    mergeSecrets: 'Secrets (values hidden): {summary}.',
+    mergeDependencies: 'Dependencies: {summary}.',
+    mergeLock: '{manifest}: +{added} packages ({sample}).',
+    mergeRegistryDisabled: 'Package registry check is off in Security Health settings.',
+    mergeRegistryPartial: 'Registry metadata was not received for all packages.',
+    renumberIntro: 'Numbers from branch {incoming} collide with numbers already added in {target}.',
+    renumberRule: 'Entries of the target branch stay unchanged; incoming entries get new numbers:',
+    renumberMentions: 'Mentions of old numbers: {count} in {files} files.',
+    renumberMore: '  …and {count} more',
+    planNotMerged: 'Branch {branch} did not merge into {target}.',
+    planConflictFiles: 'Conflicting files: {files}',
+    ciRun: '{run}, branch {branch}, {url}',
+    ciReason: 'Reason: {reason}',
+    taskTitle: 'Task: {title}',
+    taskAssignee: 'Assignee: {list}',
+    taskLabels: 'Labels: {list}',
+    trackerNoChanges: 'No changes',
+    trackerCounts: '{list}',
+    trackerCount: '{kind}: {count}',
+    trackerEntry: '- {kind}: {rest}',
+    trackerMore: '… {count} more',
+    'trackerKind.import': 'import from tracker',
+    'trackerKind.export': 'export to tracker',
+    'trackerKind.push': 'changes to tracker',
+    'trackerKind.pull': 'changes to backlog',
+    'trackerKind.conflict': 'conflicts',
+    'trackerKind.missingRemote': 'missing in tracker',
+    'trackerKind.missingLocal': 'missing in project',
+    'trackerKind.unmappedStatus': 'status without mapping',
+    'trackerKind.error': 'errors',
+    docProposal: 'Proposal: {text}',
+    docCount: 'Documents: {count}',
+    docFile: '- {doc} «{title}» — {change}',
+    docParts: '  {parts}',
+    docNotes: '  [{notes}]',
+    'docChange.added': 'new',
+    'docChange.removed': 'removed',
+    'docChange.modified': 'changed',
+    docPart: '{label}{mark}',
+    docField: 'field {label}{mark}',
+    docRenumbered: 'number {from} is taken in main → {to}',
+    docMainChanged: 'main changed too',
+    docConflicts: 'conflicts: {count}',
+    claimTake: 'The claim is a service ref {ref} on origin: other copies of the repository will see that the task is taken. The task file gets the assignee and In Progress.',
+    claimRelease: 'The claim {ref} is removed on origin, the task goes to To Do.',
+    computerDangerous: 'The tool is classified as dangerous — confirmation required.',
+    computerFileDialog: 'Action in a file dialog.',
+    computerOutsideAllowlist: 'The application is not on the allowlist.',
+    computerNoTarget: 'The target window is not determined.',
+    computerManual: 'The role requires manual confirmation.',
+    computerMapped: 'Coordinates were converted from the screenshot.'
+  }
 };
 
 export const hitlRequestTextRu: HitlTextLabels = {
@@ -53,7 +182,27 @@ export const hitlRequestTextRu: HitlTextLabels = {
     sync_abort: 'Отменить слияние основной ветки',
     read: 'Чтение',
     read_outside: 'Чтение',
-    question: 'Вопрос от Claude Code'
+    question: 'Вопрос от Claude Code',
+    read_excluded: '⚠️ Файл в списке исключений для чтения',
+    subagent: 'Запуск подагента',
+    tool: 'Инструмент',
+    browser_host: 'Браузер Playwright MCP выходит за пределы браузера',
+    assistant_question: 'Вопрос от ассистента',
+    merge_security: MERGE_SECURITY_RU,
+    merge_security_many: 'Собрать результат из {count} кандидатов в {base}: нужны решения по безопасности',
+    merge_renumber: 'Перенумеровать backlog кандидата {candidate} перед слиянием в {base}',
+    plan_conflict: 'Конфликт слияния подзадачи {task}',
+    plan_renumber: 'Совпали номера backlog в подзадаче {task}',
+    ci_rerun: 'Агент просит перезапустить упавшие задания в CI',
+    ci_play: 'Агент просит запустить ручное задание «{job}» в CI',
+    task_create: 'Агент заводит задачу',
+    tracker_sync: 'Агент запускает синхронизацию задач с трекером',
+    doc_merge: 'Принять ветку документации {id}: {title}',
+    task_claim: 'Агент берёт задачу {task} на origin',
+    task_release: 'Агент отдаёт задачу {task} на origin',
+    pr_publish: 'Опубликовать ревью PR #{number} «{title}»',
+    computer_action: 'Действие на компьютере',
+    computer_dangerous: '⚠️ Опасное действие на компьютере'
   },
   details: {
     file_write: 'Изменение содержимого файла',
@@ -66,7 +215,111 @@ export const hitlRequestTextRu: HitlTextLabels = {
     sync_abort: SYNC_DETAILS_RU,
     read: 'Разрешить агенту прочитать {target}?',
     read_outside: 'Путь {target} вне рабочего каталога агента. Разрешить чтение?',
-    question: ''
+    question: '',
+    read_excluded: 'Файл {target} в списке исключений для чтения. Разрешить чтение?',
+    subagent: 'Claude Code просит запустить подагента',
+    tool: '',
+    browser_host: '',
+    assistant_question: '',
+    merge_security: '',
+    merge_security_many: '',
+    merge_renumber: '',
+    plan_conflict: '',
+    plan_renumber: '',
+    ci_rerun: '',
+    ci_play: '',
+    task_create: '',
+    tracker_sync: '',
+    doc_merge: '',
+    task_claim: '',
+    task_release: '',
+    pr_publish: '',
+    computer_action: '',
+    computer_dangerous: ''
   },
-  readQuestion: { title: 'Чтение файла', allow: 'Разрешить чтение', deny: 'Запретить чтение' }
+  readQuestion: { title: 'Чтение файла', allow: 'Разрешить чтение', deny: 'Запретить чтение' },
+  questions: {
+    plan_conflict: {
+      title: 'Что делать с {task}?',
+      subtitle: 'Конфликтные файлы: {files}',
+      options: {
+        retry: { label: 'Я разрешил конфликт — повторить слияние' },
+        skip: PLAN_SKIP_RU,
+        stop: { label: 'Остановить план' }
+      }
+    },
+    plan_renumber: {
+      title: 'Перенумеровать записи ветки {branch}?',
+      subtitle: 'Записи интеграционной ветки не меняются; записи ветки узла получат новые номера',
+      options: {
+        renumber: { label: 'Перенумеровать и слить' },
+        skip: PLAN_SKIP_RU,
+        stop: { label: 'Остановить план' }
+      }
+    }
+  },
+  lines: {
+    text: '{text}',
+    writeExcluded: 'Файл защищён списком исключений авто-одобрения',
+    writeByTool: 'Claude Code ({tool}) запрашивает изменение файла',
+    commandDenied: 'Команда в списке запрещённых для авто-запуска',
+    browserUnsafeCode: '{action} выполняет произвольный код в процессе Playwright MCP на этой машине',
+    browserFileOutside: '{action}: файл «{file}» вне рабочего каталога',
+    browserFileUrl: '{action}: адрес file: открывает файлы машины',
+    terminalRule: '{engine} в терминале · правило {rule}',
+    terminalRuleRead: '{engine} в терминале · правило {rule} (чтение)',
+    terminalSecrets: 'Сканер секретов (значения скрыты): {summary}',
+    mergeCandidate: MERGE_SECURITY_RU,
+    mergeSecrets: 'Секреты (значения скрыты): {summary}.',
+    mergeDependencies: 'Зависимости: {summary}.',
+    mergeLock: '{manifest}: +{added} пакетов ({sample}).',
+    mergeRegistryDisabled: 'Проверка пакетов в registry выключена в настройках Security Health.',
+    mergeRegistryPartial: 'Метаданные registry получены не для всех пакетов.',
+    renumberIntro: 'Номера из ветки {incoming} совпали с номерами, уже добавленными в {target}.',
+    renumberRule: 'Сущности целевой ветки не меняются; входящие получат новые номера:',
+    renumberMentions: 'Упоминаний старых номеров: {count} в {files} файлах.',
+    renumberMore: '  …и ещё {count}',
+    planNotMerged: 'Ветка {branch} не слилась в {target}.',
+    planConflictFiles: 'Конфликтные файлы: {files}',
+    ciRun: '{run}, ветка {branch}, {url}',
+    ciReason: 'Причина: {reason}',
+    taskTitle: 'Задача: {title}',
+    taskAssignee: 'Исполнитель: {list}',
+    taskLabels: 'Метки: {list}',
+    trackerNoChanges: 'Изменений нет',
+    trackerCounts: '{list}',
+    trackerCount: '{kind}: {count}',
+    trackerEntry: '- {kind}: {rest}',
+    trackerMore: '… ещё {count}',
+    'trackerKind.import': 'импорт из трекера',
+    'trackerKind.export': 'выгрузка в трекер',
+    'trackerKind.push': 'изменения в трекер',
+    'trackerKind.pull': 'изменения в backlog',
+    'trackerKind.conflict': 'конфликты',
+    'trackerKind.missingRemote': 'нет в трекере',
+    'trackerKind.missingLocal': 'нет в проекте',
+    'trackerKind.unmappedStatus': 'статус без соответствия',
+    'trackerKind.error': 'ошибки',
+    docProposal: 'Предложение: {text}',
+    docCount: 'Документов: {count}',
+    docFile: '- {doc} «{title}» — {change}',
+    docParts: '  {parts}',
+    docNotes: '  [{notes}]',
+    'docChange.added': 'новый',
+    'docChange.removed': 'удалён',
+    'docChange.modified': 'изменён',
+    docPart: '{label}{mark}',
+    docField: 'поле {label}{mark}',
+    docRenumbered: 'номер {from} занят в основной → {to}',
+    docMainChanged: 'основная тоже менялась',
+    docConflicts: 'конфликтов: {count}',
+    claimTake: 'Захват — служебный ref {ref} на origin: остальные копии репозитория увидят, что задача занята. В файле задачи — исполнитель и In Progress.',
+    claimRelease: 'Захват {ref} снимается на origin, задача — в To Do.',
+    computerDangerous: 'Инструмент отнесён к опасным — требуется подтверждение.',
+    computerFileDialog: 'Действие в файловом диалоге.',
+    computerOutsideAllowlist: 'Приложение не входит в allowlist.',
+    computerNoTarget: 'Целевое окно не определено.',
+    computerManual: 'Роль требует ручного подтверждения.',
+    computerMapped: 'Координаты пересчитаны со скриншота.'
+  }
 };

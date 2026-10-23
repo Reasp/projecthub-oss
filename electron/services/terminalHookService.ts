@@ -39,7 +39,8 @@ import {
   type TerminalHookSettings
 } from './terminalHookProtocol.js';
 import type { AIProviderConfig } from './aiAgentService.js';
-import type { ApprovalResponse, AppBusEvent, HitlEngine, HitlRequest, HitlRequestType } from './hitlTypes.js';
+import type { ApprovalResponse, AppBusEvent, HitlEngine, HitlRequest, HitlRequestType, HitlTextCode, HitlTextKey, HitlTextLine } from './hitlTypes.js';
+import { keyedHitlText } from './hitlText.js';
 import type { RoleDefinition } from './roleTypes.js';
 import { terminalSessionTracker, type TerminalActivity } from './terminalSessionTracker.js';
 
@@ -339,7 +340,7 @@ export class TerminalHookService {
       const scan = await this.deps.scanCommit(workDir, projectPath, bashCommand).catch(() => null);
       if (scan && scan.findings.length > 0) {
         secretNote = summarizeSecretFindings(scan.findings);
-        verdict = { verdict: 'ask', rule: 'secret-scan', reason: `В коммите похоже на секреты: ${secretNote}` };
+        verdict = { verdict: 'ask', rule: 'secret-scan', reason: `The commit looks like it contains secrets: ${secretNote}` };
       }
     }
     const meta = this.meta(event, projectPath, role);
@@ -352,7 +353,7 @@ export class TerminalHookService {
 
     if (verdict.verdict === 'deny') {
       this.deps.hitl.recordAutoDecision({ ...meta, ...auditExtra }, 'deny', verdict.rule, verdict.reason);
-      return { kind: 'deny', reason: verdict.reason || `ProjectHub: инструмент ${tool} отклонён политикой (${verdict.rule})` };
+      return { kind: 'deny', reason: verdict.reason || `ProjectHub: tool ${tool} is denied by policy (${verdict.rule})` };
     }
     if (verdict.verdict === 'allow') {
       const id = this.deps.hitl.recordAutoDecision({ ...meta, ...auditExtra }, 'allow', verdict.rule);
@@ -360,14 +361,18 @@ export class TerminalHookService {
       return { kind: 'none' };
     }
 
+    // Заголовок и пояснение кодом (TASK-202.8): окно и телефон показывают их на своём языке.
+    const askInput = first?.input ?? event.toolInput;
+    const lines: HitlTextLine[] = [
+      { code: CLI_READ_TOOLS.includes(policyTool) ? 'terminalRuleRead' : 'terminalRule', params: { engine: ENGINE_LABEL[event.engine], rule: verdict.rule } },
+      ...(secretNote ? [{ code: 'terminalSecrets', params: { summary: secretNote } }] : []),
+      ...(type !== 'file_write' && !command ? [{ code: 'text', params: { text: preview(askInput) } }] : [])
+    ];
     const request: HitlRequest = {
       ...meta,
       id: this.deps.hitl.newRequestId('term'),
       type,
-      title: this.askTitle(policyTool, tool, filePath, command, event, first?.input ?? event.toolInput),
-      details:
-        `${ENGINE_LABEL[event.engine]} в терминале · правило ${verdict.rule}${CLI_READ_TOOLS.includes(policyTool) ? ' (чтение)' : ''}` +
-        (secretNote ? `\nСканер секретов (значения скрыты): ${secretNote}` : ''),
+      ...keyedHitlText({ ...this.askKey(policyTool, tool, filePath, command, event, askInput), lines }),
       ...(filePath ? { filePath } : {}),
       ...(command ? { command } : {}),
       createdAt: this.deps.now()
@@ -377,36 +382,36 @@ export class TerminalHookService {
         ? { filePath, oldContent: '', newContent: '', patch: preview(event.toolInput.command ?? event.toolInput.patch ?? '', 50_000) }
         : await this.deps.buildDiff(projectPath, policyTool, filePathFromInput(first?.input ?? event.toolInput), first?.input ?? event.toolInput);
       if (diff) request.diff = diff;
-    } else if (!command) {
-      request.details = `${request.details}\n${preview(first?.input ?? event.toolInput)}`;
     }
 
     const config2 = config.autoApproveRules?.approvalTimeoutMin;
     const timeoutMs = approvalTimeoutFromBudget(budgetMs, typeof config2 === 'number' && config2 > 0 ? config2 * 60_000 : undefined);
-    const onAbort = () => this.deps.hitl.cancelMatching((r) => r.id === request.id, 'Хук терминала завершён до решения');
-    if (signal?.aborted) return { kind: 'deny', reason: 'ProjectHub: хук завершён до решения' };
+    const onAbort = () => this.deps.hitl.cancelMatching((r) => r.id === request.id, 'The terminal hook ended before a decision');
+    if (signal?.aborted) return { kind: 'deny', reason: 'ProjectHub: the hook ended before a decision' };
     signal?.addEventListener('abort', onAbort, { once: true });
     try {
       const res = await this.deps.hitl.request(request, { timeoutMs });
       if (!res.approved) {
-        return { kind: 'deny', reason: `Отклонено в ProjectHub${res.text ? `: ${res.text}` : ''}` };
+        return { kind: 'deny', reason: `Denied in ProjectHub${res.text ? `: ${res.text}` : ''}` };
       }
       this.remember(event.toolUseId, request.id);
-      return { kind: 'allow', reason: `Разрешено в ProjectHub${res.text ? `: ${res.text}` : ''}` };
+      return { kind: 'allow', reason: `Allowed in ProjectHub${res.text ? `: ${res.text}` : ''}` };
     } catch (err) {
-      return { kind: 'deny', reason: `ProjectHub: ожидание решения прервано (${err instanceof Error ? err.message : String(err)})` };
+      return { kind: 'deny', reason: `ProjectHub: waiting for a decision was interrupted (${err instanceof Error ? err.message : String(err)})` };
     } finally {
       signal?.removeEventListener('abort', onAbort);
     }
   }
 
-  private askTitle(policyTool: string, tool: string, filePath: string, command: string, event: NormalizedHookEvent, input: Record<string, unknown>): string {
-    const where = `${ENGINE_LABEL[event.engine]}${event.agentType ? ` · ${event.agentType}` : ''}`;
-    if (CLI_WRITE_TOOLS.includes(policyTool)) return `${where}: запись файла ${filePath || '(путь не указан)'}`;
-    if (command) return `${where}: команда ${preview(command, 160)}`;
-    if (CLI_READ_TOOLS.includes(policyTool)) return `${where}: чтение файла ${filePath}`;
-    if (CLI_SUBAGENT_TOOLS.includes(policyTool)) return `${where}: запуск подагента ${preview(input.description ?? '', 120)}`;
-    return `${where}: инструмент ${tool}`;
+  /** Вид карточки: движок и тип агента — префикс заголовка, путь, команда или инструмент — цель. */
+  private askKey(policyTool: string, tool: string, filePath: string, command: string, event: NormalizedHookEvent, input: Record<string, unknown>): HitlTextKey {
+    const agent = `${ENGINE_LABEL[event.engine]}${event.agentType ? ` · ${event.agentType}` : ''}`;
+    const key = (code: HitlTextCode, target: string): HitlTextKey => ({ code, agent, ...(target ? { target } : {}) });
+    if (CLI_WRITE_TOOLS.includes(policyTool)) return key('file_write', filePath);
+    if (command) return key('command', preview(command, 160));
+    if (CLI_READ_TOOLS.includes(policyTool)) return key('read', filePath);
+    if (CLI_SUBAGENT_TOOLS.includes(policyTool)) return key('subagent', preview(input.description ?? '', 120));
+    return key('tool', tool);
   }
 
   private postToolUse(event: NormalizedHookEvent, projectPath: string): HookVerdict {

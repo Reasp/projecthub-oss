@@ -52,16 +52,52 @@ export type HitlTextCode =
   | 'read'
   | 'read_outside'
   /** Вопрос Claude CLI без своего заголовка (TASK-205): заголовок и заголовок вопроса — из словаря. */
-  | 'question';
+  | 'question'
+  // Остальные источники запросов (TASK-202.8): Claude CLI, хуки терминала, рой, план, инструменты проекта.
+  | 'read_excluded'
+  | 'subagent'
+  | 'tool'
+  | 'browser_host'
+  | 'assistant_question'
+  | 'merge_security'
+  | 'merge_security_many'
+  | 'merge_renumber'
+  | 'plan_conflict'
+  | 'plan_renumber'
+  | 'ci_rerun'
+  | 'ci_play'
+  | 'task_create'
+  | 'tracker_sync'
+  | 'doc_merge'
+  | 'task_claim'
+  | 'task_release'
+  | 'pr_publish'
+  | 'computer_action'
+  | 'computer_dangerous';
+
+/**
+ * Строка пояснения кодом (TASK-202.8): шаблон из словаря `lines`. Значение параметра — строка, вложенная строка
+ * или список вложенных строк (через запятую).
+ */
+export interface HitlTextLine {
+  code: string;
+  params?: Record<string, HitlLineParam>;
+}
+
+export type HitlLineParam = string | HitlTextLine | HitlTextLine[];
 
 export interface HitlTextKey {
   code: HitlTextCode;
-  /** Путь, команда или «base → branch»; в заголовке идёт после двоеточия. */
+  /** Путь, команда или «base → branch»; в заголовке идёт после двоеточия, если шаблон не ставит его сам. */
   target?: string;
   /** Имя агента Swarm/Handoff — префикс заголовка. */
   agent?: string;
   /** `details` — пояснение агента или хоста, интерфейс показывает его как есть, а не пояснение по умолчанию. */
   ownDetails?: boolean;
+  /** Подстановки в шаблоны заголовка, пояснения по умолчанию и вопроса (TASK-202.8). */
+  params?: Record<string, string>;
+  /** Пояснение строками словаря вместо пояснения по умолчанию (TASK-202.8). */
+  lines?: HitlTextLine[];
 }
 
 export interface QuestionOption {

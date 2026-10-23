@@ -4,6 +4,7 @@ import path from 'node:path';
 import { AppError } from '../../src/lib/appError';
 import { execGit, sanitizeRefSegment, type GitRunner } from './checkpointGit';
 import { backlogPathsAtCommit } from './backlogIdAllocator';
+import type { HitlTextLine } from './hitlTypes';
 import {
   entityFromBacklogPath,
   findBacklogIdMentions,
@@ -141,16 +142,34 @@ export function describeBacklogRenumber(preview: Pick<BacklogMergePreview, 'renu
   const files = new Map<string, number>();
   for (const m of preview.mentions) files.set(m.file, (files.get(m.file) ?? 0) + 1);
   const lines = [
-    `Номера из ветки ${preview.incoming} совпали с номерами, уже добавленными в ${preview.target}.`,
-    `Сущности целевой ветки не меняются; входящие получат новые номера:`,
+    `Numbers from branch ${preview.incoming} collide with numbers already added in ${preview.target}.`,
+    `Entries of the target branch stay unchanged; incoming entries get new numbers:`,
     '',
     ...preview.renumber.map((r) => `${r.from} → ${r.to}`),
     '',
-    `Упоминаний старых номеров: ${preview.mentions.length} в ${files.size} файлах.`,
+    `Mentions of old numbers: ${preview.mentions.length} in ${files.size} files.`,
     ...[...files.entries()].slice(0, 20).map(([file, n]) => `  ${file}: ${n}`)
   ];
-  if (files.size > 20) lines.push(`  …и ещё ${files.size - 20}`);
+  if (files.size > 20) lines.push(`  …and ${files.size - 20} more`);
   return lines.join('\n');
+}
+
+/** Тот же план строками словаря карточки HITL (TASK-202.8): окно и телефон показывают его на своём языке. */
+export function renumberHitlLines(preview: Pick<BacklogMergePreview, 'renumber' | 'mentions' | 'incoming' | 'target'>): HitlTextLine[] {
+  const files = new Map<string, number>();
+  for (const m of preview.mentions) files.set(m.file, (files.get(m.file) ?? 0) + 1);
+  const text = (value: string): HitlTextLine => ({ code: 'text', params: { text: value } });
+  const lines: HitlTextLine[] = [
+    { code: 'renumberIntro', params: { incoming: preview.incoming, target: preview.target } },
+    { code: 'renumberRule' },
+    text(''),
+    ...preview.renumber.map((r) => text(`${r.from} → ${r.to}`)),
+    text(''),
+    { code: 'renumberMentions', params: { count: String(preview.mentions.length), files: String(files.size) } },
+    ...[...files.entries()].slice(0, 20).map(([file, n]) => text(`  ${file}: ${n}`))
+  ];
+  if (files.size > 20) lines.push({ code: 'renumberMore', params: { count: String(files.size - 20) } });
+  return lines;
 }
 
 export interface RenumberedBranch {
@@ -261,6 +280,8 @@ export interface BacklogRenumberSummary {
   mentionCount: number;
   fileCount: number;
   text: string;
+  /** План строками карточки HITL (`renumberHitlLines`). */
+  lines: HitlTextLine[];
 }
 
 export function summarizeRenumber(preview: BacklogMergePreview): BacklogRenumberSummary {
@@ -268,6 +289,7 @@ export function summarizeRenumber(preview: BacklogMergePreview): BacklogRenumber
     renumber: preview.renumber,
     mentionCount: preview.mentions.length,
     fileCount: new Set(preview.mentions.map((m) => m.file)).size,
-    text: describeBacklogRenumber(preview)
+    text: describeBacklogRenumber(preview),
+    lines: renumberHitlLines(preview)
   };
 }

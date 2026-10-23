@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AppBusEvent, ApprovalResponse, HitlRequest, RolePermissions } from './hitlTypes.js';
+import { keyedHitlText } from './hitlText.js';
 import type { AgentSlotConfig, StartFanOutOptions, SwarmAutomationMeta, SwarmSession } from './swarmTypes.js';
 import type { PrReviewTarget } from './prService.js';
 import { normalizePathKey } from './automationRules.js';
@@ -493,7 +494,7 @@ export class PrReviewService {
     const requestId = record.publish.requestId ?? `prpub-${record.id}`;
     let approved = false;
     const target = (await this.deps.gh.describeComment?.(record.projectPath, record.prNumber).catch(() => undefined)) ?? {
-      command: `gh pr comment ${record.prNumber} --body-file <текст ниже>`,
+      command: `gh pr comment ${record.prNumber} --body-file <text below>`,
       tool: 'gh pr comment'
     };
     try {
@@ -503,9 +504,11 @@ export class PrReviewService {
           sessionId: `pr-review-${record.id}`,
           projectPath: record.projectPath,
           type: 'command',
-          title: `Опубликовать ревью PR #${record.prNumber} «${record.prTitle}»`,
+          ...keyedHitlText(
+            { code: 'pr_publish', params: { number: String(record.prNumber), title: record.prTitle }, ownDetails: true },
+            { details: record.comment }
+          ),
           command: target.command,
-          details: record.comment,
           tool: target.tool,
           origin: record.origin === 'automation' ? 'automation' : 'swarm',
           createdAt: this.deps.now()

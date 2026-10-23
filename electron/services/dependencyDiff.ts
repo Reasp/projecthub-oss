@@ -301,5 +301,5 @@ export function summarizeDependencyChanges(changes: DependencyChange[], max = 8)
     const flags = c.flags?.length ? ` [${c.flags.join(', ')}]` : '';
     return c.kind === 'added' ? `+${c.name} ${version}${flags}`.trim() : `${c.name} ${c.from ?? '?'}→${c.to ?? '?'}${flags}`;
   });
-  return list.slice(0, max).join(', ') + (list.length > max ? ` и ещё ${list.length - max}` : '');
+  return list.slice(0, max).join(', ') + (list.length > max ? ` +${list.length - max}` : '');
 }

@@ -3,7 +3,7 @@ import { isInsideProject } from './pathGuard.js';
 import { evaluateBrowserTool } from './browserToolCatalog.js';
 import { autonomousTaskWriteViolation } from './agentTaskPolicy.js';
 import type { AIProviderConfig, AutoApproveRules } from './aiAgentService.js';
-import type { HitlDecisionSource, RolePermissions } from './hitlTypes.js';
+import type { HitlDecisionSource, HitlTextLine, RolePermissions } from './hitlTypes.js';
 
 // Классы риска (TASK-140.4) живут в отдельном модуле, политика их переэкспортирует: одно место для правил HITL.
 export { classifyRisk, classifyCommand, isConfirmationSufficient, riskOfRequest } from './hitlRisk.js';
@@ -27,7 +27,10 @@ export type PolicyVerdict = {
   verdict: 'allow' | 'deny' | 'ask';
   /** Имя правила для аудита (`auto-command`, `outside-project`, `manual` …). */
   rule: string;
+  /** Причина по-английски: уходит модели и в аудит. */
   reason?: string;
+  /** Причина кодом строки карточки HITL (TASK-202.8); пока только у выхода за браузер Playwright MCP. */
+  reasonLine?: HitlTextLine;
 };
 
 export function isPathExcluded(filePath: string, patterns: string[] = []): boolean {
@@ -176,7 +179,7 @@ export function evaluateToolRequest(
   const auto = Boolean(config.autoApprove);
 
   if (!isToolAllowed(tool, rules?.allowedTools)) {
-    return { verdict: 'deny', rule: 'tool-not-allowed', reason: `Инструмент ${tool} не входит в allow-список роли.` };
+    return { verdict: 'deny', rule: 'tool-not-allowed', reason: `Tool ${tool} is not on the role allow list.` };
   }
 
   // Playwright MCP (decision-55 п. 3): внутри изолированного браузера — без карточки, выход за него — к человеку.
@@ -202,8 +205,8 @@ export function evaluateToolRequest(
       return {
         verdict: 'deny',
         rule: 'outside-project',
-        reason: `Запись отклонена: путь "${filePath}" находится вне корня проекта "${projectPath}". `
-          + 'Разрешены только пути внутри проекта — укажи путь относительно его корня без выхода через "..".'
+        reason: `Write denied: path "${filePath}" is outside the project root "${projectPath}". `
+          + 'Only paths inside the project are allowed — give a path relative to its root without going up through "..".'
       };
     }
     if (isPathExcluded(filePath, rules?.writeExcludePatterns)) return { verdict: 'ask', rule: 'write-excluded' };

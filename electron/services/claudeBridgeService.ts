@@ -18,6 +18,7 @@ import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountSe
 import { parseClaudeResultEvent, priceUsage, type AgentUsage } from './agentCost.js';
 import { pricingService } from './pricingService.js';
 import { hitlService, ApprovalCancelledError } from './hitlService.js';
+import { keyedHitlText, readAnswerDenied } from './hitlText.js';
 import { appEventBus } from './eventBus.js';
 import { buildAgentContext, buildComputerUseInstructions, type ContextPartKey } from './contextBuilder.js';
 import { computerUseService, type ComputerCallContext } from './computerUseService.js';
@@ -46,6 +47,8 @@ import type {
   HitlEngine,
   HitlOrigin,
   HitlRequest,
+  HitlTextCode,
+  HitlTextLine,
   QuestionData,
   QuestionOption,
   RolePermissions
@@ -541,7 +544,7 @@ class ClaudeBridgeService extends EventEmitter {
   public async handleCliPermissionRequest(sessionId: string, request: CliPermissionRequest): Promise<CliPermissionDecision> {
     const ctx = this.cliPermissionContexts.get(sessionId);
     if (!ctx) {
-      return { behavior: 'deny', message: 'ProjectHub: сессия агента не найдена или уже завершена — запрос разрешения отклонён.' };
+      return { behavior: 'deny', message: 'ProjectHub: the agent session was not found or has already ended — the permission request is denied.' };
     }
     const { projectPath, config, onChunk } = ctx;
     // Файлы агент правит в своём рабочем дереве (worktree), а не обязательно в основном (TASK-62).
@@ -593,10 +596,12 @@ class ClaudeBridgeService extends EventEmitter {
         }
       }
     };
+    // Отказы уходят модели — по-английски без кода (TASK-202.8).
+    const interrupted = 'The session was interrupted by the user';
     const decide = (res: ApprovalResponse | null, what: string): CliPermissionDecision => {
-      if (res === null) return deny('Сессия прервана пользователем');
+      if (res === null) return deny(interrupted);
       if (res.approved) return allow();
-      return deny(`Пользователь отклонил ${what}${res.text ? `: ${res.text}` : ''}`);
+      return deny(`The user denied ${what}${res.text ? `: ${res.text}` : ''}`);
     };
 
     if (verdict.verdict === 'deny') {
@@ -604,7 +609,7 @@ class ClaudeBridgeService extends EventEmitter {
         filePath: filePathOf() || undefined,
         command: commandOf() || undefined
       });
-      return deny(verdict.reason || `Инструмент ${toolName} отклонён политикой (${verdict.rule}).`);
+      return deny(verdict.reason || `Tool ${toolName} is denied by policy (${verdict.rule}).`);
     }
 
     // Инструменты управления компьютером прокси ProjectHub: политику, HITL и аудит применяет сам
@@ -633,11 +638,11 @@ class ClaudeBridgeService extends EventEmitter {
         const qData = this.parseQuestionData(input);
         const res = await ask({
           id: newId(), sessionId, projectPath, type: 'question',
-          title: qData.title || QUESTION_FALLBACK_TITLE, details: qData.subtitle, questionData: qData,
+          title: qData.title || QUESTION_FALLBACK_TITLE, details: qData.subtitle, questionData: { ...qData, title: qData.title || QUESTION_FALLBACK_TITLE },
           ...(qData.title ? {} : { textKey: { code: 'question', ownDetails: true } }), createdAt: Date.now()
         });
-        if (!res || !res.approved) return deny(res ? 'Пользователь закрыл вопрос без ответа' : 'Сессия прервана пользователем');
-        answers[qData.subtitle || qData.title] = this.normalizeQuestionAnswer(res.text);
+        if (!res || !res.approved) return deny(res ? 'The user closed the question without an answer' : interrupted);
+        answers[qData.subtitle || qData.title || QUESTION_FALLBACK_TITLE] = this.normalizeQuestionAnswer(res.text);
         return allow({ ...input, answers });
       }
       for (const q of questions) {
@@ -656,7 +661,7 @@ class ClaudeBridgeService extends EventEmitter {
           ...(header ? {} : { textKey: { code: 'question', ownDetails: true } }),
           createdAt: Date.now()
         });
-        if (!res || !res.approved) return deny(res ? 'Пользователь закрыл вопрос без ответа' : 'Сессия прервана пользователем');
+        if (!res || !res.approved) return deny(res ? 'The user closed the question without an answer' : interrupted);
         answers[questionText] = this.normalizeQuestionAnswer(res.text);
       }
       return allow({ ...input, questions, answers });
@@ -668,28 +673,15 @@ class ClaudeBridgeService extends EventEmitter {
         recordAuto('allow', 'question', { filePath });
         return allow();
       }
-      const reason = verdict.rule === 'read-excluded'
-        ? `Файл ${filePath} находится в списке исключений для чтения.`
-        : verdict.rule === 'read-outside' ? `Файл ${filePath} находится вне корня проекта.` : 'Чтение файлов требует подтверждения по настройкам.';
+      const code: HitlTextCode = verdict.rule === 'read-excluded' ? 'read_excluded' : verdict.rule === 'read-outside' ? 'read_outside' : 'read';
       const res = await ask({
         id: newId(), sessionId, projectPath, type: 'question', filePath,
-        title: 'Чтение защищенного файла',
-        details: `${reason} Разрешить Claude Code доступ?`,
-        questionData: {
-          title: 'Чтение защищенного файла',
-          subtitle: `Разрешить Claude Code прочитать ${filePath}?`,
-          options: [
-            { id: 'allow', label: 'Разрешить чтение', description: 'Предоставить доступ к файлу' },
-            { id: 'deny', label: 'Запретить чтение', description: 'Заблокировать чтение' }
-          ],
-          isMultiSelect: false,
-          allowOther: false
-        },
+        ...keyedHitlText({ code, target: filePath }, { options: ['allow', 'deny'] }),
         createdAt: Date.now()
       });
-      if (res === null) return deny('Сессия прервана пользователем');
-      if (!res.approved || res.text?.includes('deny') || res.text?.includes('Запретить')) {
-        return deny(`Пользователь запретил чтение файла ${filePath}`);
+      if (res === null) return deny(interrupted);
+      if (!res.approved || readAnswerDenied(res.text)) {
+        return deny(`The user denied reading the file ${filePath}`);
       }
       return allow();
     }
@@ -706,30 +698,40 @@ class ClaudeBridgeService extends EventEmitter {
       const diff = await this.buildCliWriteDiff(workDir, toolName, filePath, input);
       const res = await ask({
         id: newId(), sessionId, projectPath, type: 'file_write',
-        title: isExcluded ? `⚠️ Файл в списке исключений: ${filePath}` : `Разрешение на запись файла: ${filePath}`,
+        ...keyedHitlText({
+          code: isExcluded ? 'file_write_excluded' : 'file_write',
+          target: filePath,
+          lines: [isExcluded ? { code: 'writeExcluded' } : { code: 'writeByTool', params: { tool: toolName } }]
+        }),
         filePath,
-        details: isExcluded ? 'Файл защищен списком исключений авто-одобрения' : `Claude Code (${toolName}) запрашивает изменение файла`,
         diff,
         createdAt: Date.now()
       });
-      return decide(res, `запись файла ${filePath}`);
+      return decide(res, `writing the file ${filePath}`);
     }
 
     if (toolName === 'Bash' || toolName === 'PowerShell') {
       const cmd = commandOf();
       const isDenied = verdict.rule === 'command-denied';
+      const description = input.description ? String(input.description) : '';
       if (verdict.verdict === 'allow') {
         recordAuto('allow', 'command', { command: cmd });
         return allow();
       }
       const res = await ask({
         id: newId(), sessionId, projectPath, type: 'command',
-        title: isDenied ? `⚠️ Заблокированная команда требует подтверждения: ${cmd}` : `Разрешение на запуск команды: ${cmd}`,
+        ...keyedHitlText(
+          {
+            code: isDenied ? 'command_denied' : 'command',
+            target: cmd,
+            ...(description ? { ownDetails: true } : isDenied ? { lines: [{ code: 'commandDenied' }] } : {})
+          },
+          { details: description || undefined }
+        ),
         command: cmd,
-        details: input.description || (isDenied ? 'Команда находится в списке запрещенных для авто-запуска' : 'Выполнение команды терминала'),
         createdAt: Date.now()
       });
-      return decide(res, 'запуск команды');
+      return decide(res, 'running the command');
     }
 
     if (toolName === 'Agent' || toolName === 'Task') {
@@ -739,14 +741,14 @@ class ClaudeBridgeService extends EventEmitter {
         recordAuto('allow', 'subagent_dispatch');
         return allow();
       }
-      const description = String(input.description || input.prompt || 'Подзадача').slice(0, 200);
+      const description = String(input.description || input.prompt || '').slice(0, 200);
+      const prompt = String(input.prompt || '').slice(0, 1000);
       const res = await ask({
         id: newId(), sessionId, projectPath, type: 'subagent_dispatch',
-        title: `Запуск подагента: ${description}`,
-        details: String(input.prompt || '').slice(0, 1000) || 'Claude Code запрашивает запуск подагента',
+        ...keyedHitlText({ code: 'subagent', ...(description ? { target: description } : {}), ...(prompt ? { ownDetails: true } : {}) }, { details: prompt || undefined }),
         createdAt: Date.now()
       });
-      return decide(res, 'запуск подагента');
+      return decide(res, 'running a subagent');
     }
 
     // Прочие инструменты (WebFetch, WebSearch, MCP-инструменты и т.п.).
@@ -761,13 +763,17 @@ class ClaudeBridgeService extends EventEmitter {
       inputPreview = String(input);
     }
     const preview = inputPreview.length > 600 ? `${inputPreview.slice(0, 600)}…` : inputPreview;
+    const browserHost = verdict.rule === 'browser-host';
+    const lines: HitlTextLine[] = [
+      ...(browserHost && verdict.reasonLine ? [verdict.reasonLine] : []),
+      { code: 'text', params: { text: preview } }
+    ];
     const res = await ask({
       id: newId(), sessionId, projectPath, type: 'command',
-      title: verdict.rule === 'browser-host' ? `Браузер Playwright MCP выходит за пределы браузера: ${toolName}` : `Инструмент Claude Code: ${toolName}`,
-      details: verdict.rule === 'browser-host' && verdict.reason ? `${verdict.reason}\n${preview}` : preview,
+      ...keyedHitlText({ code: browserHost ? 'browser_host' : 'tool', target: toolName, lines }),
       createdAt: Date.now()
     });
-    return decide(res, `инструмент ${toolName}`);
+    return decide(res, `the tool ${toolName}`);
   }
 
   /** Ответ карточки → значение для AskUserQuestion: свободный текст вместо «Other: …». */
@@ -1215,7 +1221,8 @@ class ClaudeBridgeService extends EventEmitter {
   }
 
   public parseQuestionData(args: Record<string, any>): QuestionData {
-    const title = args.title || 'Вопрос от ассистента';
+    // Без заголовка — пусто: карточка возьмёт заголовок по коду на языке интерфейса (TASK-202.8).
+    const title = typeof args.title === 'string' ? args.title : '';
     let subtitle = args.question || args.prompt || args.subtitle || args.description || '';
     let isMultiSelect = Boolean(args.is_multi_select || args.isMultiSelect || args.multiple);
     let rawOptions: any[] = [];
@@ -1249,7 +1256,7 @@ class ClaudeBridgeService extends EventEmitter {
       } else if (typeof opt === 'object' && opt !== null) {
         return {
           id: opt.id || `opt-${idx}`,
-          label: opt.label || opt.text || opt.title || opt.name || `Вариант ${idx + 1}`,
+          label: opt.label || opt.text || opt.title || opt.name || `Option ${idx + 1}`,
           description: opt.description || opt.desc || opt.detail
         };
       }

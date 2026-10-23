@@ -18,6 +18,8 @@ import {
   type DocBranchResolutions
 } from './docBranches.js';
 import type { DocResolution } from './docSectionMerge.js';
+import type { HitlTextLine } from './hitlTypes.js';
+import { keyedHitlText } from './hitlText.js';
 import type { ProjectToolContext, ProjectToolDeps, ProjectToolResult } from './projectAgentTools.js';
 
 export const DOC_BRANCH_TOOL_NAMES = [
@@ -139,6 +141,29 @@ export function formatDiff(diff: DocBranchDiff, full = false): string {
   return lines.join('\n');
 }
 
+/** Изменения ветки строками карточки HITL (TASK-202.8): вид изменения и пометки — кодом словаря. */
+export function docMergeHitlLines(diff: DocBranchDiff, files: DocBranchDiff['files']): HitlTextLine[] {
+  const mark = (change: string) => (change === 'added' ? ' (+)' : change === 'removed' ? ' (−)' : '');
+  const lines: HitlTextLine[] = [];
+  if (diff.branch.proposal) lines.push({ code: 'docProposal', params: { text: diff.branch.proposal } });
+  lines.push({ code: 'docCount', params: { count: String(files.length) } });
+  for (const f of files) {
+    const change = f.change === 'added' || f.change === 'removed' ? f.change : 'modified';
+    lines.push({ code: 'docFile', params: { doc: f.docId, title: f.title, change: { code: `docChange.${change}` } } });
+    if (f.parts.length) {
+      const parts = f.parts.map((p) => ({ code: p.scope === 'frontmatter' ? 'docField' : 'docPart', params: { label: p.label, mark: mark(p.change) } }));
+      lines.push({ code: 'docParts', params: { parts } });
+    }
+    const notes: HitlTextLine[] = [
+      ...(f.renumberedFrom ? [{ code: 'docRenumbered', params: { from: f.renumberedFrom, to: f.docId } }] : []),
+      ...(f.mainChanged ? [{ code: 'docMainChanged' }] : []),
+      ...(f.conflicts.length ? [{ code: 'docConflicts', params: { count: String(f.conflicts.length) } }] : [])
+    ];
+    if (notes.length) lines.push({ code: 'docNotes', params: { notes } });
+  }
+  return lines;
+}
+
 /** `doc_list` с `branch`: документы, изменённые в ветке. */
 export async function listBranchDocs(root: string, branch: string, env?: DocBranchEnv): Promise<ProjectToolResult> {
   const diff = await diffDocBranch(root, branch, env);
@@ -167,8 +192,7 @@ async function approveMerge(scope: Scope, diff: DocBranchDiff, docs: string[]): 
       sessionId: ctx.sessionId,
       projectPath: root,
       type: 'file_write',
-      title: `Принять ветку документации ${diff.branch.id}: ${diff.branch.title}`,
-      details: formatDiff({ ...diff, files: selected }),
+      ...keyedHitlText({ code: 'doc_merge', params: { id: diff.branch.id, title: diff.branch.title }, lines: docMergeHitlLines(diff, selected) }),
       origin: ctx.origin,
       engine: ctx.engine,
       ...(ctx.agentId ? { agentId: ctx.agentId } : {}),

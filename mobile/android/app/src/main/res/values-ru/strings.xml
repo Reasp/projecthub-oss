@@ -40,6 +40,26 @@
     <string name="hitl_code_read">Чтение</string>
     <string name="hitl_code_read_outside">Чтение</string>
     <string name="hitl_code_question">Вопрос от Claude Code</string>
+    <string name="hitl_code_read_excluded">⚠️ Файл в списке исключений для чтения</string>
+    <string name="hitl_code_subagent">Запуск подагента</string>
+    <string name="hitl_code_tool">Инструмент</string>
+    <string name="hitl_code_browser_host">Браузер Playwright MCP выходит за пределы браузера</string>
+    <string name="hitl_code_assistant_question">Вопрос от ассистента</string>
+    <string name="hitl_code_merge_security">Слить кандидата «{candidate}» в {base}: секретов {secrets}, пакетов {packages}</string>
+    <string name="hitl_code_merge_security_many">Собрать результат из {count} кандидатов в {base}: нужны решения по безопасности</string>
+    <string name="hitl_code_merge_renumber">Перенумеровать backlog кандидата {candidate} перед слиянием в {base}</string>
+    <string name="hitl_code_plan_conflict">Конфликт слияния подзадачи {task}</string>
+    <string name="hitl_code_plan_renumber">Совпали номера backlog в подзадаче {task}</string>
+    <string name="hitl_code_ci_rerun">Агент просит перезапустить упавшие задания в CI</string>
+    <string name="hitl_code_ci_play">Агент просит запустить ручное задание «{job}» в CI</string>
+    <string name="hitl_code_task_create">Агент заводит задачу</string>
+    <string name="hitl_code_tracker_sync">Агент запускает синхронизацию задач с трекером</string>
+    <string name="hitl_code_doc_merge">Принять ветку документации {id}: {title}</string>
+    <string name="hitl_code_task_claim">Агент берёт задачу {task} на origin</string>
+    <string name="hitl_code_task_release">Агент отдаёт задачу {task} на origin</string>
+    <string name="hitl_code_pr_publish">Опубликовать ревью PR #{number} «{title}»</string>
+    <string name="hitl_code_computer_action">Действие на компьютере</string>
+    <string name="hitl_code_computer_dangerous">⚠️ Опасное действие на компьютере</string>
 
     <!-- Итог нажатия кнопки в уведомлении -->
     <string name="outcome_push_off">Push для этого компьютера выключен — откройте приложение</string>

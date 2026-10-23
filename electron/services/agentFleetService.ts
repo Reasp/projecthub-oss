@@ -13,6 +13,7 @@ import { CLAUDE_ACCOUNT_SOURCE_LABEL, cliAccountEnv, type OtherCliAccountEngine 
 import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_MCP_TOOL_TIMEOUT_MS } from './claudeBridgeService.js';
 import { studioLiveRuns } from './studioLiveRuns.js';
 import { hitlService } from './hitlService.js';
+import { keyedHitlText } from './hitlText.js';
 import { applyRolePermissions } from './hitlPolicy.js';
 import { appEventBus } from './eventBus.js';
 import type { HitlOrigin } from './hitlTypes.js';
@@ -78,7 +79,7 @@ import { findTaskFile } from './taskFileLookup.js';
 import {
   computeSlotSecurity,
   enrichSlotSecurityFromRegistry,
-  mergeApprovalText,
+  mergeApprovalKey,
   mergeNeedsApproval,
   securityForFiles,
   securityNotifyKey,
@@ -831,16 +832,23 @@ export class AgentFleetService extends EventEmitter {
     if (scoped.length === 0) return { ok: true };
     if (automatic) return { ok: false, ...appErrorFields(new AppError('swarm.mergeAutoBlocked')) };
 
-    const texts = scoped.map(({ agent, report }) => mergeApprovalText(report, agent.config.name, session.baseBranch));
+    const keys = scoped.map(({ agent, report }) => mergeApprovalKey(report, agent.config.name, session.baseBranch));
     const first = scoped[0].agent;
+    // Один кандидат — его заголовок; несколько — общий заголовок и по кандидату блок строк (TASK-202.8).
+    const text = keys.length === 1
+      ? keyedHitlText({ code: 'merge_security', params: keys[0].params, lines: keys[0].lines })
+      : keyedHitlText({
+          code: 'merge_security_many',
+          params: { count: String(keys.length), base: session.baseBranch },
+          lines: keys.flatMap((k, i) => [...(i > 0 ? [{ code: 'text', params: { text: '' } }] : []), { code: 'mergeCandidate', params: k.params }, ...k.lines])
+        });
     const requestId = hitlService.newRequestId('merge');
     const request = {
       id: requestId,
       sessionId: `merge-${session.id}`,
       projectPath: session.projectPath,
       type: 'command' as const,
-      title: texts.length === 1 ? texts[0].title : `Собрать результат из ${texts.length} кандидатов в ${session.baseBranch}: нужны решения по безопасности`,
-      details: texts.map((t) => (texts.length === 1 ? t.details : `${t.title}\n${t.details}`)).join('\n\n'),
+      ...text,
       command: first.worktreeBranch ? `git merge --no-ff ${first.worktreeBranch}` : undefined,
       tool: 'merge',
       origin: this.hitlOrigin(session),
@@ -884,9 +892,8 @@ export class AgentFleetService extends EventEmitter {
       sessionId: `merge-${session.id}`,
       projectPath: session.projectPath,
       type: 'command' as const,
-      title: `Перенумеровать backlog кандидата ${agent.config.name} перед слиянием в ${session.baseBranch}`,
-      details: summary.text,
-      command: agent.worktreeBranch ? `git merge --no-ff ${agent.worktreeBranch} (с перенумерацией backlog)` : undefined,
+      ...keyedHitlText({ code: 'merge_renumber', params: { candidate: agent.config.name, base: session.baseBranch }, lines: summary.lines ?? [{ code: 'text', params: { text: summary.text } }] }),
+      command: agent.worktreeBranch ? `git merge --no-ff ${agent.worktreeBranch} (with backlog renumbering)` : undefined,
       tool: 'merge',
       origin: this.hitlOrigin(session),
       agentId: agent.id,
@@ -2112,7 +2119,7 @@ export class AgentFleetService extends EventEmitter {
         projectPath: session.projectPath,
         origin: this.hitlOrigin(session),
         type: 'command',
-        title: `Авто-мердж кандидата ${agent?.config.name || agentId || '—'} в ${session.baseBranch}`,
+        title: `Auto-merge of candidate ${agent?.config.name || agentId || '—'} into ${session.baseBranch}`,
         command: agent?.worktreeBranch ? `git merge --no-ff ${agent.worktreeBranch}` : undefined,
         ...(agent
           ? { engine: agent.config.engine, agentId: agent.id, agentName: agent.config.name, role: agent.config.role }

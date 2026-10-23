@@ -7,6 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import treeKill from 'tree-kill';
 import { ApprovalCancelledError, hitlService } from './hitlService.js';
+import { keyedHitlText } from './hitlText.js';
 import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 import type { HitlEngine, HitlOrigin, HitlRequest } from './hitlTypes.js';
 import {
@@ -597,11 +598,14 @@ class ComputerUseService extends EventEmitter {
       context: policyContext()
     });
     const summary = summarizeComputerAction(runtimeName, callArgs, target);
-    const classLabel = verdict.actionClass === 'dangerous' ? 'Опасное действие' : 'Действие';
+    const textKey = {
+      code: verdict.actionClass === 'dangerous' ? ('computer_dangerous' as const) : ('computer_action' as const),
+      target: `${meta.tool}${target ? ` → ${describeTarget(target)}` : ''}`
+    };
     const info = {
       ...meta,
       type: 'computer_action' as const,
-      title: `${classLabel} на компьютере: ${meta.tool}${target ? ` → ${describeTarget(target)}` : ''}`,
+      ...keyedHitlText(textKey),
       command: summary
     };
 
@@ -614,17 +618,22 @@ class ComputerUseService extends EventEmitter {
     if (verdict.verdict === 'allow') {
       requestId = hitlService.recordAutoDecision(info, 'allow', verdict.rule);
     } else {
-      const reasons: string[] = [];
-      if (verdict.rule === 'computer-dangerous') reasons.push('Инструмент отнесён к опасным — требуется подтверждение.');
-      if (verdict.rule === 'computer-file-dialog') reasons.push('Действие в файловом диалоге.');
-      if (verdict.rule === 'computer-outside-allowlist') reasons.push('Приложение не входит в allowlist.');
-      if (verdict.rule === 'computer-no-target') reasons.push('Целевое окно не определено.');
-      if (verdict.rule === 'computer-manual') reasons.push('Роль требует ручного подтверждения.');
-      if (mapped.mapped) reasons.push('Координаты пересчитаны со скриншота.');
+      // Причины карточки — строками словаря на языке интерфейса (TASK-202.8).
+      const reasonCode: Record<string, string> = {
+        'computer-dangerous': 'computerDangerous',
+        'computer-file-dialog': 'computerFileDialog',
+        'computer-outside-allowlist': 'computerOutsideAllowlist',
+        'computer-no-target': 'computerNoTarget',
+        'computer-manual': 'computerManual'
+      };
+      const lines = [
+        ...(reasonCode[verdict.rule] ? [{ code: reasonCode[verdict.rule] }] : []),
+        ...(mapped.mapped ? [{ code: 'computerMapped' }] : [])
+      ];
       const request: HitlRequest = {
         ...info,
+        ...(lines.length ? keyedHitlText({ ...textKey, lines }) : {}),
         id: hitlService.newRequestId('comp'),
-        details: reasons.join(' ') || undefined,
         createdAt: Date.now()
       };
       ctx.onApprovalRequest?.(request);

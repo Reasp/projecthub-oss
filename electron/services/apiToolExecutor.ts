@@ -3,6 +3,7 @@ import { planApiToolCall, type ApiToolKind, type ApiToolPlan } from './apiToolPo
 import { truncateToolResult, type ToolExecutionResult } from './apiToolLoop.js';
 import type { AIProviderConfig, AIToolCall } from './aiAgentService.js';
 import { baseSyncAction, baseSyncCommand, type BaseSyncAction } from './baseSync.js';
+import { readAnswerDenied } from './hitlText.js';
 import type {
   ApprovalResponse,
   HitlEngine,
@@ -137,9 +138,7 @@ function commandTimeoutMs(config: AIProviderConfig): number {
 
 /** Ответ на карточку чтения: одобрение, если человек не выбрал «запретить» явно. */
 function approvedRead(res: ApprovalResponse): boolean {
-  if (!res.approved) return false;
-  const t = (res.text || '').toLowerCase();
-  return !(t.includes('deny') || t.includes('запретить'));
+  return res.approved && !readAnswerDenied(res.text);
 }
 
 export class ApiToolExecutor {
@@ -328,7 +327,15 @@ export class ApiToolExecutor {
       }
       case 'question': {
         const questionData = this.deps.parseQuestion(args);
-        return { ...base, type: 'question', title: `${who}${questionData.title}`, details: questionData.subtitle, questionData };
+        if (questionData.title) return { ...base, type: 'question', title: `${who}${questionData.title}`, details: questionData.subtitle, questionData };
+        // Модель не дала заголовок — заголовок кодом на языке интерфейса (TASK-202.8).
+        const fallbackTitle = 'Question from the assistant';
+        return {
+          ...base,
+          type: 'question',
+          ...keyed('assistant_question', undefined, fallbackTitle, questionData.subtitle ?? '', true),
+          questionData: { ...questionData, title: fallbackTitle }
+        };
       }
       default: {
         const target = plan.filePath || String(args.query || '');

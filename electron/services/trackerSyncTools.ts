@@ -1,4 +1,5 @@
-import type { HitlEngine, HitlOrigin, HitlRequest } from './hitlTypes.js';
+import type { HitlEngine, HitlLineParam, HitlOrigin, HitlRequest, HitlTextLine } from './hitlTypes.js';
+import { keyedHitlText } from './hitlText.js';
 import type { TrackerRunSummary, TrackerSyncStatusView } from './trackerTypes.js';
 import { findOwningProject } from './pathGuard.js';
 
@@ -92,6 +93,22 @@ export function formatRunSummary(summary: TrackerRunSummary, limit = 40): string
   return [head, counts || 'изменений нет', ...lines, ...more].join('\n');
 }
 
+/** План синхронизации строками карточки HITL (TASK-202.8): виды записей — кодом словаря, данные задач как есть. */
+export function trackerHitlLines(summary: TrackerRunSummary, limit = 40): HitlTextLine[] {
+  const kind = (k: string): HitlLineParam => (k in KIND_LABELS ? { code: `trackerKind.${k}` } : k);
+  const counts = Object.entries(summary.counts).map(([k, v]) => ({ code: 'trackerCount', params: { kind: kind(k), count: String(v) } }));
+  const entries = summary.entries.slice(0, limit).map((e) => {
+    const who = [e.taskId, e.externalId ? `#${e.externalId}` : ''].filter(Boolean).join(' ');
+    const fields = e.fields?.length ? ` [${e.fields.join(', ')}]` : '';
+    return { code: 'trackerEntry', params: { kind: kind(e.kind), rest: `${who}${e.title ? ` «${e.title}»` : ''}${fields}${e.detail ? ` — ${e.detail}` : ''}` } };
+  });
+  return [
+    counts.length ? { code: 'trackerCounts', params: { list: counts } } : { code: 'trackerNoChanges' },
+    ...entries,
+    ...(summary.entries.length > limit ? [{ code: 'trackerMore', params: { count: String(summary.entries.length - limit) } }] : [])
+  ];
+}
+
 /** Есть ли в плане запись в трекер или в проект. */
 function hasChanges(summary: TrackerRunSummary): boolean {
   return ['import', 'export', 'push', 'pull'].some((k) => (summary.counts as Record<string, number>)[k]);
@@ -136,8 +153,7 @@ export async function callTrackerTool(name: string, _args: Record<string, unknow
       sessionId: ctx.sessionId,
       projectPath: root,
       type: 'command' as const,
-      title: 'Агент запускает синхронизацию задач с трекером',
-      details: formatRunSummary(plan, 25),
+      ...keyedHitlText({ code: 'tracker_sync', lines: trackerHitlLines(plan, 25) }),
       command: 'tracker_sync_run',
       origin: ctx.origin,
       engine: ctx.engine,
