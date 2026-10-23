@@ -1,4 +1,6 @@
 import type { RemoteQueueItem, RemoteQueueView, RemoteTaskSummary } from '../types/remote';
+import type { AppErrorLabels } from '../i18n/appErrorText';
+import { appFailureText } from '../lib/appErrorText';
 
 /**
  * Клиент участника общего хоста (TASK-142.5, decision-84 п. 3, 6): чистые правила для телефона и ПК в hub-режиме —
@@ -49,11 +51,11 @@ export function myQueueItems(view: RemoteQueueView | null | undefined, me: strin
 
 /**
  * Почему задачу вернули: причина очереди, конфликт, упавшие проверки, неотмеченные критерии, секреты, слова ревьюера —
- * по строке на причину, как в заметке задачи.
+ * по строке на причину, как в заметке задачи. Причина очереди — по коду на языке клиента (`labels`), без кода — текст хоста.
  */
-export function returnReasons(item: RemoteQueueItem): string[] {
+export function returnReasons(item: RemoteQueueItem, labels: AppErrorLabels): string[] {
   const out: string[] = [];
-  if (item.report) out.push(item.report);
+  if (item.report) out.push(appFailureText({ error: item.report, errorKey: item.reportKey }, labels));
   if (item.conflicts?.length) out.push(`${item.base}: ${item.conflicts.join(', ')}`);
   for (const c of item.checks ?? []) {
     if (c.blocking && /^(failed|timeout|error)$/.test(c.status)) out.push(`${c.name}${c.summary ? `: ${c.summary}` : ''}`);
@@ -62,4 +64,9 @@ export function returnReasons(item: RemoteQueueItem): string[] {
   if (item.secrets) out.push(item.secrets);
   if (item.review && !item.review.approved && item.review.comment) out.push(`${item.review.by}: ${item.review.comment}`);
   return [...new Set(out)];
+}
+
+/** Почему очередь на паузе — на языке клиента. */
+export function pausedReason(paused: { reason: string; reasonKey?: unknown }, labels: AppErrorLabels): string {
+  return appFailureText({ error: paused.reason, errorKey: paused.reasonKey }, labels);
 }

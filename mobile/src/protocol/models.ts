@@ -1,6 +1,7 @@
 import type { DeviceRights, RemotePendingAgentTask, RemoteHitlRisk, RemotePendingApproval, RemoteTaskSummary } from '../../../src/types/remote';
 import type { HitlLineParam, HitlTextKey, HitlTextLine } from '../../../src/types/electron';
 import { describeHitlRequest, type HitlText, type HitlTextLabels } from '../../../src/lib/agentStatusText';
+import { appFailureText } from '../../../src/lib/appErrorText';
 import { t } from '../i18n';
 
 /**
@@ -291,12 +292,16 @@ export function replaceHitl(items: HitlItem[]): HitlItem[] {
   return items.filter((i) => (seen.has(i.requestId) ? false : (seen.add(i.requestId), true)));
 }
 
-/** Причина отказа `hitl_decision` на языке интерфейса. */
-export function hitlRejectReason(reason: string | undefined): string {
+/**
+ * Причина отказа `hitl_decision` на языке интерфейса. `reasonKey` — код причины хоста (чужой запрос участника,
+ * decision-165): по нему текст на языке телефона, без него — английский текст хоста как есть.
+ */
+export function hitlRejectReason(reason: string | undefined, reasonKey?: unknown): string {
   const text = t().models.reject;
   if (reason === 'already_decided') return text.alreadyDecided;
   if (reason === 'not_found') return text.notFound;
   if (reason === 'confirmation_required') return text.confirmationRequired;
+  if (reasonKey) return text.hostRejectedWith(appFailureText({ error: reason, errorKey: reasonKey }, t().models.appErrors));
   return reason ? text.hostRejectedWith(reason) : text.hostRejected;
 }
 

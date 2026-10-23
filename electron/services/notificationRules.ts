@@ -424,14 +424,14 @@ export function describeBusEvent(event: AppBusEvent, lang: Language = 'en'): App
         hostId: event.hostId,
         action: { type: 'openRemote', tab: 'devices' }
       };
-    // ── Ограничения расходов (decision-124): текст готовит модуль-источник ──
+    // ── Ограничения расходов (decision-124): текст готовит модуль-источник, по коду — на языке хоста ──
     case 'limits:notice':
       return {
         id: `limits-${event.limitId}-${event.at}`,
         kind: 'spendLimit',
         severity: event.level === 'block' ? 'critical' : 'warning',
-        title: trim(event.title, 120),
-        body: [trim(event.body, 200), projectName(event.projectPath)].filter(Boolean).join(' · '),
+        title: trim((event.titleKey && formatAppError(event.titleKey, tx.appErrors)) || event.title, 120),
+        body: [trim((event.bodyKey && formatAppError(event.bodyKey, tx.appErrors)) || event.body, 200), projectName(event.projectPath)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `limits:${event.dedupKey}`,
         ...(event.projectPath ? { projectPath: event.projectPath, projectName: projectName(event.projectPath) } : {}),
@@ -443,8 +443,8 @@ export function describeBusEvent(event: AppBusEvent, lang: Language = 'en'): App
         id: `queue-${event.itemId}-${event.at}`,
         kind: 'mergeQueue',
         severity: event.level === 'warn' ? 'warning' : 'info',
-        title: trim(event.title, 120),
-        body: [trim(event.body, 200), projectName(event.projectPath)].filter(Boolean).join(' · '),
+        title: trim((event.titleKey && formatAppError(event.titleKey, tx.appErrors)) || event.title, 120),
+        body: [trim((event.bodyKey && formatAppError(event.bodyKey, tx.appErrors)) || event.body, 200), projectName(event.projectPath)].filter(Boolean).join(' · '),
         at: event.at,
         dedupKey: `queue:${event.dedupKey}`,
         ...(event.projectPath ? { projectPath: event.projectPath, projectName: projectName(event.projectPath) } : {}),

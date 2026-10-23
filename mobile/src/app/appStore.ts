@@ -429,7 +429,7 @@ export class AppStore {
   private async sendHitlDecision(requestId: string, approve: boolean, extra: Record<string, unknown>): Promise<boolean> {
     const item = this.state.hitl.find((h) => h.requestId === requestId);
     this.set({ hitl: dropHitl(this.state.hitl, requestId) });
-    const res = await this.call<{ ok: boolean; reason?: string }>('hitl_decision', {
+    const res = await this.call<{ ok: boolean; reason?: string; reasonKey?: unknown }>('hitl_decision', {
       requestId,
       sessionId: item?.sessionId,
       decision: approve ? 'allow' : 'deny',
@@ -443,7 +443,7 @@ export class AppStore {
     if (res.ok === false) {
       // Хост не принял одобрение по классу риска — запрос по-прежнему ждёт, возвращаем его в список.
       if (res.reason === 'confirmation_required' && item) this.set({ hitl: addHitl(this.state.hitl, item) });
-      this.showToast(hitlRejectReason(res.reason), 'error');
+      this.showToast(hitlRejectReason(res.reason, res.reasonKey), 'error');
       return false;
     }
     this.showToast(approve ? t().store.approved : t().store.rejected, 'success');
@@ -995,7 +995,12 @@ export class AppStore {
         return;
       // Очередь слияния (TASK-142.5): итог автору и просьба о ревью приходят только адресатам.
       case 'queue:notice':
-        if (typeof d.title === 'string') this.showToast(`${d.title}${typeof d.body === 'string' && d.body ? ` — ${d.body}` : ''}`, d.kind === 'returned' || d.kind === 'paused' ? 'error' : 'info');
+        if (typeof d.title === 'string') {
+          // Коды текста (TASK-202.10) — на языке телефона; хост без кодов присылает текст как есть.
+          const title = failureText({ error: d.title, errorKey: d.titleKey });
+          const body = typeof d.body === 'string' && d.body ? failureText({ error: d.body, errorKey: d.bodyKey }) : '';
+          this.showToast(`${title}${body ? ` — ${body}` : ''}`, d.kind === 'returned' || d.kind === 'paused' ? 'error' : 'info');
+        }
         this.debounced('queue', () => void this.refreshQueue());
         this.debounced('tasks', () => void this.refreshTasks());
         return;

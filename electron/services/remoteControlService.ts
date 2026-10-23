@@ -21,7 +21,7 @@ import type {
   FederationProject,
   RemoteEnrollment
 } from '../../src/types/remote.js';
-import type { HitlRequest } from './hitlTypes.js';
+import type { HitlDecideResult, HitlRequest } from './hitlTypes.js';
 import { generateSecretKey, generatePairingPin, encryptPayload, decryptPayload } from '../../src/utils/remoteCryptoNode.js';
 import {
   HOST_SESSION_PROTOCOLS,
@@ -301,6 +301,19 @@ export function deriveFederationOwnerId(secret: string): string {
   const value = String(secret || '').trim();
   if (!value) return '';
   return crypto.createHash('sha256').update(`projecthub-federation-owner:${value}`, 'utf8').digest('hex');
+}
+
+/**
+ * Отказ в решении HITL для телефона, push и Telegram: `reason` — код отказа или английская причина `not_owner` для
+ * старых клиентов, `reasonKey` — её код, клиент показывает причину на своём языке (decision-165).
+ */
+function hitlRefusal(result: Extract<HitlDecideResult, { ok: false }>) {
+  return {
+    ok: false as const,
+    reason: result.reason === 'not_owner' ? result.message : result.reason,
+    ...(result.reason === 'not_owner' && result.messageKey ? { reasonKey: result.messageKey } : {}),
+    ...(result.risk ? { risk: result.risk } : {})
+  };
 }
 
 /** Стабильный непрозрачный идентификатор пути проекта: наружу уходит хэш, не сам путь. */
@@ -1592,7 +1605,7 @@ class RemoteControlService {
       { approved: action.decision === 'allow' },
       { kind: 'remote', deviceId: action.deviceId, deviceName: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), confirm: action.confirm }
     );
-    if (!result.ok) return { status: 409, result: { ok: false, reason: result.reason === 'not_owner' ? result.message : result.reason, ...(result.risk ? { risk: result.risk } : {}) } };
+    if (!result.ok) return { status: 409, result: hitlRefusal(result) };
     this.notifyRenderer('remote:hitlDecisionMade', {
       requestId: action.requestId,
       sessionId: result.request.sessionId,
@@ -2386,7 +2399,7 @@ class RemoteControlService {
             res.writeHead(result.ok ? 200 : 409, { 'Content-Type': 'application/json' });
             res.end(
               JSON.stringify(
-                result.ok ? { ok: true, requestId: payload.requestId } : { ok: false, reason: result.reason === 'not_owner' ? result.message : result.reason, ...(result.risk ? { risk: result.risk } : {}) }
+                result.ok ? { ok: true, requestId: payload.requestId } : hitlRefusal(result)
               )
             );
           } catch {
@@ -3510,7 +3523,7 @@ class RemoteControlService {
     }
     const deviceRef = { id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights };
     const denied = editionRegistry.checkRpc(method, deviceRef);
-    if (denied) throw new Error(denied);
+    if (denied) throw denied;
 
     // Права устройства на проект вызова (TASK-180, decision-144): `none` — проекта для устройства нет, `readOnly` и
     // `hitl` сужают запись так же, как права устройства на хост.
@@ -3756,7 +3769,7 @@ class RemoteControlService {
           { kind: 'remote', deviceId: device.id, deviceName: device.name, ...(device.memberId ? { memberId: device.memberId } : {}), confirm, confirmVerified }
         );
         if (!result.ok) {
-          return { ok: false, decision: approved, reason: result.reason === 'not_owner' ? result.message : result.reason, ...(result.risk ? { risk: result.risk } : {}) };
+          return { decision: approved, ...hitlRefusal(result) };
         }
         this.notifyRenderer('remote:hitlDecisionMade', {
           requestId,
@@ -4049,7 +4062,7 @@ class RemoteControlService {
         // Чужой рой участника останавливает только он сам или старшая роль (TASK-142.3).
         const swarm = agentFleetService.getSwarm(swarmId);
         const denied = swarm ? editionRegistry.checkOwnership(swarm.memberId, device.memberId, 'session') : null;
-        if (denied) throw new Error(denied);
+        if (denied) throw denied;
         return { stopped: agentFleetService.stopSwarm(swarmId) };
       }
 

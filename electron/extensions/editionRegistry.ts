@@ -283,8 +283,8 @@ export interface EditionMainApi {
   saveHtmlAsPdf(options: SaveHtmlAsPdfOptions): Promise<SaveTextFileResult>;
   /** Сузить права устройства (роль участника). Расширить нельзя: берётся меньшее из исходных и возвращённых. */
   addDeviceRightsLimit(limit: (device: RemoteDeviceRef) => DeviceRightsName): void;
-  /** Запрет метода RPC для устройства: строка — причина отказа. */
-  addRpcGuard(guard: (method: string, device: RemoteDeviceRef) => string | null): void;
+  /** Запрет метода RPC для устройства: ошибка с кодом — причина отказа (decision-165). */
+  addRpcGuard(guard: (method: string, device: RemoteDeviceRef) => AppError | null): void;
   /**
    * Сузить доступ устройства к проекту (TASK-180): проекты участника общего хоста. Расширить нельзя — берётся меньшее
    * из прав устройства на проект и возвращённого.
@@ -300,8 +300,8 @@ export interface EditionMainApi {
   setLauncherProvider(provider: LauncherProvider): void;
   /** Кому из устройств показывать запрос HITL и когда звать старших. */
   setHitlRouting(routing: HitlRouting): void;
-  /** Запрет действия над работой другого участника: строка — причина отказа. */
-  addOwnershipGuard(guard: (ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => string | null): void;
+  /** Запрет действия над работой другого участника: ошибка с кодом — причина отказа (decision-165). */
+  addOwnershipGuard(guard: (ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => AppError | null): void;
   /** Событие и push только тем устройствам, которым оно адресовано (очередь слияния: автору, ревьюерам). */
   notifyDevices(notice: DeviceNotice, audience: (device: RemoteDeviceRef) => boolean): void;
   /** Инструмент агентов во встроенном MCP рядом с `task_*`/`doc_*`. Имя встроенного инструмента не перекрывается. */
@@ -341,7 +341,7 @@ const noWindowSave = async (): Promise<SaveTextFileResult> => ({ success: false,
 let textFileSaver: (options: SaveTextFileOptions) => Promise<SaveTextFileResult> = noWindowSave;
 let pdfSaver: (options: SaveHtmlAsPdfOptions) => Promise<SaveTextFileResult> = noWindowSave;
 const rightsLimits: Array<(device: RemoteDeviceRef) => DeviceRightsName> = [];
-const rpcGuards: Array<(method: string, device: RemoteDeviceRef) => string | null> = [];
+const rpcGuards: Array<(method: string, device: RemoteDeviceRef) => AppError | null> = [];
 const projectAccessLimits: Array<(device: RemoteDeviceRef, projectPath: string) => ProjectAccessName> = [];
 let pairingRedeemer: ((input: { code: string; deviceId: string; deviceName: string }) => Promise<PairingRedemption | null>) | null = null;
 const remoteMethods = new Map<string, RemoteMethodSpec>();
@@ -349,7 +349,7 @@ const emptyDirectory: DeviceDirectory = { list: () => [], revoke: () => undefine
 let deviceDirectory: DeviceDirectory = emptyDirectory;
 let launcherProvider: LauncherProvider | null = null;
 let hitlRouting: HitlRouting | null = null;
-const ownershipGuards: Array<(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => string | null> = [];
+const ownershipGuards: Array<(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => AppError | null> = [];
 let deviceNotifier: DeviceNotifier = () => undefined;
 const agentTools = new Map<string, EditionAgentTool>();
 
@@ -460,14 +460,14 @@ export const editionRegistry = {
     }
   },
 
-  /** Причина запрета действия над чужой работой или `null`. Сбой проверки — запрет. */
-  checkOwnership(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction): string | null {
+  /** Причина запрета действия над чужой работой (ошибка с кодом) или `null`. Сбой проверки — запрет. */
+  checkOwnership(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction): AppError | null {
     for (const guard of ownershipGuards) {
       try {
         const reason = guard(ownerMemberId, actorMemberId, action);
         if (reason) return reason;
       } catch (err) {
-        return `Ownership check failed: ${err instanceof Error ? err.message : String(err)}`;
+        return new AppError('edition.ownershipCheckFailed', { detail: err instanceof Error ? err.message : String(err) });
       }
     }
     return null;
@@ -504,14 +504,14 @@ export const editionRegistry = {
     return access;
   },
 
-  /** Причина запрета метода RPC или `null`. */
-  checkRpc(method: string, device: RemoteDeviceRef): string | null {
+  /** Причина запрета метода RPC (ошибка с кодом) или `null`. */
+  checkRpc(method: string, device: RemoteDeviceRef): AppError | null {
     for (const guard of rpcGuards) {
       try {
         const reason = guard(method, device);
         if (reason) return reason;
       } catch (err) {
-        return `Rights check failed: ${err instanceof Error ? err.message : String(err)}`;
+        return new AppError('edition.rightsCheckFailed', { detail: err instanceof Error ? err.message : String(err) });
       }
     }
     return null;

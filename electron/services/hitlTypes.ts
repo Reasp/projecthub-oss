@@ -201,8 +201,8 @@ export interface HitlDecisionSource {
 export type HitlDecideResult =
   | { ok: true; request: HitlRequest }
   | { ok: false; reason: 'not_found' | 'already_decided' | 'invalid_source' | 'confirmation_required'; risk?: HitlRisk }
-  /** Запрос чужого агента: решает запустивший участник или maintainer (TASK-142.3). */
-  | { ok: false; reason: 'not_owner'; message: string; risk?: undefined };
+  /** Запрос чужого агента: решает запустивший участник или maintainer (TASK-142.3). `messageKey` — код причины (decision-165). */
+  | { ok: false; reason: 'not_owner'; message: string; messageKey?: import('../../src/lib/appError.js').AppErrorKey; risk?: undefined };
 
 export type HitlOutcome = 'executed' | 'failed' | 'not_executed' | 'session_gone';
 
@@ -526,8 +526,11 @@ export type AppBusEvent =
       type: 'limits:notice';
       limitId: string;
       level: 'warn' | 'block';
+      /** Английский текст для журнала и правил; `titleKey`/`bodyKey` — коды, уведомление собирает их на языке хоста. */
       title: string;
+      titleKey?: import('../../src/lib/appError.js').AppErrorKey;
       body: string;
+      bodyKey?: import('../../src/lib/appError.js').AppErrorKey;
       /** Ключ дедупликации: один порог одного лимита за один период — одно уведомление. */
       dedupKey: string;
       projectPath?: string;
@@ -541,8 +544,11 @@ export type AppBusEvent =
       type: 'queue:notice';
       itemId: string;
       level: 'info' | 'warn';
+      /** Английские заголовок и текст для журнала; `titleKey`/`bodyKey` — их коды, уведомление собирает их на языке хоста. */
       title: string;
       body: string;
+      titleKey?: import('../../src/lib/appError.js').AppErrorKey;
+      bodyKey?: import('../../src/lib/appError.js').AppErrorKey;
       dedupKey: string;
       projectPath?: string;
       at: number;

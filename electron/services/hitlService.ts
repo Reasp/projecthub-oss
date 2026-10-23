@@ -272,7 +272,7 @@ export class HitlService extends EventEmitter {
     // Запрос агента участника решает он сам или старшая роль (decision-84 п. 5); окно хоста — владелец.
     if (source.kind === 'remote') {
       const denied = editionRegistry.checkOwnership(entry.request.memberId, source.memberId, 'hitl');
-      if (denied) return { ok: false, reason: 'not_owner', message: denied };
+      if (denied) return { ok: false, reason: 'not_owner', message: denied.message, messageKey: denied.appErrorKey };
     }
     // Одобрение с удалённого устройства перепроверяется по классу, посчитанному здесь, а не присланному клиентом
     // (decision-112 п. 3). Запрос остаётся в очереди: его можно одобрить на ПК или отклонить.

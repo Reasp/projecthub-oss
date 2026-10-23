@@ -546,13 +546,15 @@ export interface RemoteQueueItem {
   dependencies?: string[];
   conflicts?: string[];
   review?: { by: string; approved: boolean; comment?: string; at: number };
+  /** Причина выбытия: английский текст; `reportKey` — её код, клиент показывает на своём языке. */
   report?: string;
+  reportKey?: AppErrorKey;
   prUrl?: string;
 }
 
 /** Ответ `queue_list`: настройки очереди проекта, активные элементы по порядку и недавние завершённые. */
 export interface RemoteQueueView {
-  settings: { mode: 'local' | 'pr'; allowSelfReview: boolean; paused?: { reason: string; at: number } };
+  settings: { mode: 'local' | 'pr'; allowSelfReview: boolean; paused?: { reason: string; reasonKey?: AppErrorKey; at: number } };
   active: RemoteQueueItem[];
   finished: RemoteQueueItem[];
 }

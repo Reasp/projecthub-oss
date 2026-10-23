@@ -151,7 +151,7 @@ function TaskSheet({ task, onClose }: { task: RemoteTaskSummary | null; onClose:
   const claim = useClaim(current?.id);
   const claimedElsewhere = Boolean(claim && !claim.mine);
   const qs = current ? taskQueueState(queue, current.id) : {};
-  const reasons = qs.last?.status === 'returned' && !qs.active ? returnReasons(qs.last) : [];
+  const reasons = qs.last?.status === 'returned' && !qs.active ? returnReasons(qs.last, tr.models.appErrors) : [];
   const run = async (op: () => Promise<boolean>) => {
     setBusy(true);
     await op();

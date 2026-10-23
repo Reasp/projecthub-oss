@@ -43,14 +43,14 @@ export class InboxActions {
     if (this.offline(source)) return false;
     if (source.active) return this.store.decideHitl(item.requestId, approve);
     try {
-      const res = await this.rpc<{ ok: boolean; reason?: string }>(source, 'hitl_decision', {
+      const res = await this.rpc<{ ok: boolean; reason?: string; reasonKey?: unknown }>(source, 'hitl_decision', {
         requestId: item.requestId,
         sessionId: item.sessionId,
         decision: approve ? 'allow' : 'deny',
         confirm: 'app'
       });
       if (res?.ok === false) {
-        this.store.showToast(hitlRejectReason(res.reason), 'error');
+        this.store.showToast(hitlRejectReason(res.reason, res.reasonKey), 'error');
         return false;
       }
       this.store.showToast(approve ? t().inbox.approvedOn(source.machineName) : t().inbox.rejectedOn(source.machineName), 'success');

@@ -27,7 +27,7 @@ import { appFailureText } from '../../lib/appErrorText';
 import { useDialog } from '../../hooks/useDialog';
 import { parseAssignee } from '../../utils/assignee';
 import type { FederationPeerState, FederationTransport, RemoteQueueItem } from '../../types/remote';
-import { isMyTask, myQueueItems, returnReasons, reviewableByMe, taskHolder, taskQueueState } from '../../utils/teamQueue';
+import { isMyTask, myQueueItems, pausedReason, returnReasons, reviewableByMe, taskHolder, taskQueueState } from '../../utils/teamQueue';
 
 /**
  * Hub-режим федерации (TASK-66, decision-11 п.4): проекты, задачи, процессы, агенты и очередь
@@ -294,7 +294,7 @@ export const RemoteHostsModal: React.FC = () => {
                       </div>
                       {!qs.active && qs.last?.status === 'returned' && mine && (
                         <div className="mt-1 text-[11px] text-rose-300" data-testid="remote-task-returned">
-                          {t.federation.queueReturnedWhy}: {returnReasons(qs.last).join(' · ')}
+                          {t.federation.queueReturnedWhy}: {returnReasons(qs.last, t.appErrors).join(' · ')}
                         </div>
                       )}
                     </div>
@@ -381,7 +381,7 @@ export const RemoteHostsModal: React.FC = () => {
           )}
           {item.status === 'returned' && (
             <div className="mt-1 text-[11px] text-rose-300">
-              {t.federation.queueReturnedWhy}: {returnReasons(item).join(' · ')}
+              {t.federation.queueReturnedWhy}: {returnReasons(item, t.appErrors).join(' · ')}
             </div>
           )}
           {canReview.has(item.id) && (
@@ -434,7 +434,7 @@ export const RemoteHostsModal: React.FC = () => {
       return (
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {teamError && <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">{teamError}</div>}
-          {queue?.settings.paused && <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">{t.federation.queuePaused.replace('{reason}', queue.settings.paused.reason)}</div>}
+          {queue?.settings.paused && <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">{t.federation.queuePaused.replace('{reason}', pausedReason(queue.settings.paused, t.appErrors))}</div>}
           {!queue || (queue.active.length === 0 && queue.finished.length === 0) ? (
             <p className="text-xs text-slate-500">{t.federation.queueEmpty}</p>
           ) : (

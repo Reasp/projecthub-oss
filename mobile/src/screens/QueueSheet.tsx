@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowUUpLeftIcon, CheckIcon, GitMergeIcon, PauseIcon } from '@phosphor-icons/react';
 import type { RemoteQueueItem } from '../../../src/types/remote';
-import { myQueueItems, returnReasons, reviewableByMe } from '../../../src/utils/teamQueue';
+import { myQueueItems, pausedReason, returnReasons, reviewableByMe } from '../../../src/utils/teamQueue';
 import { useAppState, useServices } from '../app/context';
 import { Badge, Button, Card, Sheet } from '../components/ui';
 import { fieldProps } from '../components/FieldEditor';
@@ -27,7 +27,7 @@ function QueueCard({ item, position, review }: { item: RemoteQueueItem; position
   const [mode, setMode] = useState<'view' | 'return'>('view');
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
-  const reasons = item.status === 'returned' ? returnReasons(item) : [];
+  const reasons = item.status === 'returned' ? returnReasons(item, tr.models.appErrors) : [];
   const act = async (approved: boolean) => {
     setBusy(true);
     const ok = await store.reviewQueueItem(item.id, approved, comment);
@@ -134,7 +134,7 @@ export function QueueSheet({ open, onClose }: { open: boolean; onClose: () => vo
     >
       {queue?.settings.paused && (
         <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-500/10 p-2 text-[12px] text-amber-200">
-          <PauseIcon size={16} /> {tr.tasks.paused(queue.settings.paused.reason)}
+          <PauseIcon size={16} /> {tr.tasks.paused(pausedReason(queue.settings.paused, tr.models.appErrors))}
         </div>
       )}
       {!queue || (queue.active.length === 0 && myFinished.length === 0) ? (
