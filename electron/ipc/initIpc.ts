@@ -22,20 +22,22 @@ import {
 import { previewSaveProject, saveProjectAsTemplate, type SaveTemplateOptions } from '../services/templateSaveService';
 import { assertRegisteredProject } from '../services/projectPathGuard';
 import { isIndexProfileId } from '../services/codeIndexProfiles';
+import { AppError } from '../../src/lib/appError';
+import { toIpcFailure, type IpcFailure } from './appErrorIpc';
 
-/** Результат IPC без исключений: рендерер показывает текст ошибки в окне. */
-type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string };
+/** Результат IPC без исключений: рендерер показывает текст ошибки по коду на языке окна (decision-165). */
+type IpcResult<T> = { ok: true; value: T } | IpcFailure;
 
 async function wrap<T>(fn: () => Promise<T>): Promise<IpcResult<T>> {
   try {
     return { ok: true, value: await fn() };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return toIpcFailure(err);
   }
 }
 
 function asRequest(raw: unknown): InitRequest {
-  if (!raw || typeof raw !== 'object') throw new Error('Некорректный запрос инициализации');
+  if (!raw || typeof raw !== 'object') throw new Error('Invalid initialization request');
   const r = raw as Record<string, unknown>;
   const bools = (v: unknown) =>
     v && typeof v === 'object' ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, b]) => typeof b === 'boolean')) as Record<string, boolean> : undefined;
@@ -128,7 +130,7 @@ export function registerInitIpc(ctx: IpcContext) {
   ipcMain.handle('templates:openFolder', (_event, id: unknown) =>
     wrap(async () => {
       const entry = (await listTemplates()).find((t) => t.id === String(id ?? ''));
-      if (!entry) throw new Error('Шаблон не найден');
+      if (!entry) throw new AppError('templates.notFound', { id: String(id ?? '') });
       const error = await shell.openPath(entry.dir);
       if (error) throw new Error(error);
       return true;

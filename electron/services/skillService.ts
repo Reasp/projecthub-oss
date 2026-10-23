@@ -11,6 +11,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
 import {
   buildSkillCatalog,
   hashSkillFileContent,
@@ -65,8 +66,9 @@ export interface SkillImportItem {
   name?: string;
   description?: string;
   problems: SkillProblem[];
-  /** Почему скилл нельзя скопировать (слишком большой, ссылки, нет SKILL.md). */
+  /** Почему скилл нельзя скопировать (слишком большой, ссылки, нет SKILL.md): английский текст и код для окна. */
   blocker?: string;
+  blockerKey?: AppErrorKey;
   /** В источнике копии этого скилла в двух корнях различаются — показываются обе. */
   sourceDiverged: boolean;
   /** Что произойдёт в каждом корне текущего проекта. */
@@ -89,8 +91,11 @@ export interface SkillCopyRequest {
 
 export type SkillCopyOutcome = 'created' | 'overwritten' | 'unchanged' | 'skipped';
 
+/** Почему корень пропущен: та же копия, на месте скилла файл, скилл отличается и нужна явная перезапись. */
+export type SkillSkipReason = 'same-copy' | 'file-in-place' | 'needs-overwrite';
+
 export interface SkillCopyResult {
-  results: Array<{ root: SkillRoot; outcome: SkillCopyOutcome; reason?: string }>;
+  results: Array<{ root: SkillRoot; outcome: SkillCopyOutcome; reason?: SkillSkipReason }>;
   listing: ProjectSkillListing;
 }
 
@@ -271,7 +276,7 @@ interface ResolvedSource {
 async function resolveSource(ref: SkillSourceRef, d: SkillServiceDeps): Promise<ResolvedSource> {
   if (ref.kind === 'template') {
     const base = await d.templatePath();
-    if (!base) throw new Error('Путь к шаблону ProjectTemplate не задан');
+    if (!base) throw new AppError('skills.templatePathMissing');
     return {
       info: { kind: 'template', path: base, label: path.basename(base), available: await isDir(base) },
       dirs: { claude: rootDir(base, 'claude'), agents: rootDir(base, 'agents') }
@@ -289,7 +294,7 @@ async function resolveSource(ref: SkillSourceRef, d: SkillServiceDeps): Promise<
       dirs: { claude: rootDir(base, 'claude'), agents: rootDir(base, 'agents') }
     };
   }
-  throw new Error('Неизвестный источник скиллов');
+  throw new AppError('skills.unknownSource');
 }
 
 /** Источники для импорта: шаблон, личные скиллы и остальные зарегистрированные проекты. */
@@ -329,7 +334,7 @@ export async function listSourceSkills(ref: SkillSourceRef, targetProject: strin
         ...(copy.name ? { name: copy.name } : {}),
         ...(copy.description ? { description: copy.description } : {}),
         problems: copy.problems,
-        ...(blocker ? { blocker } : {}),
+        ...(blocker ? { blocker: blocker.message, blockerKey: blocker.appErrorKey } : {}),
         sourceDiverged: diverged,
         actions: {
           claude: skillCopyAction(copy, existing?.copies.claude),
@@ -351,7 +356,7 @@ async function assertNoLinkOnPath(base: string, segments: string[]): Promise<voi
     } catch {
       return;
     }
-    if (st.isSymbolicLink()) throw new Error(`${segments.slice(0, i).join('/')} — символическая ссылка, запись в неё запрещена`);
+    if (st.isSymbolicLink()) throw new AppError('skills.symlinkOnPath', { path: segments.slice(0, i).join('/') });
   }
 }
 
@@ -393,7 +398,7 @@ async function replaceSkillDir(sourceDir: string, source: SkillCopy, targetDir: 
   try {
     await copyTree(sourceDir, tmp);
     const copied = await readSkillCopy(tmp, source.root, source.id);
-    if (copied.hash !== source.hash) throw new Error('источник изменился во время копирования, повторите');
+    if (copied.hash !== source.hash) throw new AppError('skills.sourceChanged');
     let hadOld = false;
     try {
       await fs.lstat(targetDir);
@@ -421,22 +426,22 @@ async function replaceSkillDir(sourceDir: string, source: SkillCopy, targetDir: 
 export async function copySkill(targetProject: string, request: SkillCopyRequest, deps?: SkillServiceDeps): Promise<SkillCopyResult> {
   const d = deps ?? (await defaultDeps());
   const idError = validateSkillId(request.id);
-  if (idError) throw new Error(idError);
-  if (!isSkillRoot(request.fromRoot)) throw new Error('Неизвестный корень скиллов источника');
+  if (idError) throw idError;
+  if (!isSkillRoot(request.fromRoot)) throw new AppError('skills.unknownSourceRoot');
   const source = await resolveSource(request.source, d);
   const fromDir = source.dirs[request.fromRoot];
-  if (!fromDir) throw new Error('В этом источнике нет такого корня скиллов');
+  if (!fromDir) throw new AppError('skills.rootMissingInSource');
   const sourceDir = path.join(fromDir, ...request.id.split('/'));
-  if (!(await isDir(sourceDir))) throw new Error(`Скилл ${request.id} не найден в источнике`);
+  if (!(await isDir(sourceDir))) throw new AppError('skills.notFoundInSource', { id: request.id });
   const sourceCopy = await readSkillCopy(sourceDir, request.fromRoot, request.id);
   const blocker = skillCopyBlocker(sourceCopy);
-  if (blocker) throw new Error(`Скилл ${request.id} нельзя скопировать: ${blocker}`);
+  if (blocker) throw blocker;
 
   const results: SkillCopyResult['results'] = [];
   for (const root of [...new Set(request.toRoots)].filter(isSkillRoot)) {
     const targetDir = path.join(rootDir(targetProject, root), ...request.id.split('/'));
     if (samePath(targetDir, sourceDir)) {
-      results.push({ root, outcome: 'skipped', reason: 'это та же копия' });
+      results.push({ root, outcome: 'skipped', reason: 'same-copy' });
       continue;
     }
     await assertNoLinkOnPath(targetProject, [...SKILL_ROOTS[root].split('/'), ...request.id.split('/')]);
@@ -444,7 +449,7 @@ export async function copySkill(targetProject: string, request: SkillCopyRequest
     try {
       const st = await fs.lstat(targetDir);
       if (!st.isDirectory()) {
-        results.push({ root, outcome: 'skipped', reason: 'на месте скилла лежит файл' });
+        results.push({ root, outcome: 'skipped', reason: 'file-in-place' });
         continue;
       }
       existing = await readSkillCopy(targetDir, root, request.id);
@@ -457,7 +462,7 @@ export async function copySkill(targetProject: string, request: SkillCopyRequest
       continue;
     }
     if (action === 'overwrite' && !request.overwrite) {
-      results.push({ root, outcome: 'skipped', reason: 'скилл уже есть и отличается — нужна явная перезапись' });
+      results.push({ root, outcome: 'skipped', reason: 'needs-overwrite' });
       continue;
     }
     await replaceSkillDir(sourceDir, sourceCopy, targetDir);

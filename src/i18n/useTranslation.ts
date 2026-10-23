@@ -1,7 +1,7 @@
 import { useProjectStore } from '../store/useProjectStore';
 import { getDictionary } from './index';
 import type { Language, TranslationDictionary } from './types';
-import { appErrorText } from '../lib/appErrorText';
+import { appErrorText, appFailureText } from '../lib/appErrorText';
 
 export function useTranslation(): {
   language: Language;
@@ -21,4 +21,9 @@ export function useTranslation(): {
  */
 export function ipcErrorText(err: unknown): string {
   return appErrorText(err, getDictionary(useProjectStore.getState().language).appErrors);
+}
+
+/** Результат `{ ok: false, error, errorKey }` на текущем языке интерфейса — для эффектов и обработчиков вне рендера. */
+export function ipcFailureText(failure: { error?: string | null; errorKey?: unknown }): string {
+  return appFailureText(failure, getDictionary(useProjectStore.getState().language).appErrors);
 }

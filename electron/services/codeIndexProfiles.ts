@@ -9,6 +9,7 @@
  *
  * Чистый модуль без Electron и без чтения диска (правило 17).
  */
+import { AppError } from '../../src/lib/appError.js';
 import type { StackId } from './initStack.js';
 
 export type IndexProfileId = 'unreal' | 'unity' | 'godot' | 'node' | 'python' | 'dotnet' | 'go' | 'rust' | 'java' | 'flutter' | 'cpp';
@@ -609,9 +610,9 @@ export function parseGitnexusIgnore(text: string | null): ParsedGitnexusIgnore {
   return { hasBlock: true, broken: false, settings, userText: userLines.join('\n') };
 }
 
-export class BrokenIndexBlockError extends Error {
+export class BrokenIndexBlockError extends AppError {
   constructor() {
-    super('В .gitnexusignore начало блока projecthub:generated без конца — поправьте файл вручную');
+    super('graph.brokenIndexBlock');
     this.name = 'BrokenIndexBlockError';
   }
 }

@@ -1244,8 +1244,11 @@ export interface IElectronAPI {
   listSourceSkills: (
     projectPath: string,
     source: SkillSourceRef
-  ) => Promise<{ success: true; listing: SkillSourceListing } | { success: false; error: string }>;
-  copySkill: (projectPath: string, request: SkillCopyRequest) => Promise<{ success: true; result: SkillCopyResult } | { success: false; error: string }>;
+  ) => Promise<{ success: true; listing: SkillSourceListing } | { success: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
+  copySkill: (
+    projectPath: string,
+    request: SkillCopyRequest
+  ) => Promise<{ success: true; result: SkillCopyResult } | { success: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
 
   // Git Advanced
   getGitRepoDetails: (projectPath: string) => Promise<GitRepoDetails | null>;
@@ -2161,6 +2164,7 @@ export interface SkillImportItem {
   description?: string;
   problems: SkillProblem[];
   blocker?: string;
+  blockerKey?: import('../lib/appError').AppErrorKey;
   sourceDiverged: boolean;
   actions: Record<SkillRoot, SkillCopyAction>;
 }
@@ -2179,7 +2183,7 @@ export interface SkillCopyRequest {
 }
 
 export interface SkillCopyResult {
-  results: Array<{ root: SkillRoot; outcome: 'created' | 'overwritten' | 'unchanged' | 'skipped'; reason?: string }>;
+  results: Array<{ root: SkillRoot; outcome: 'created' | 'overwritten' | 'unchanged' | 'skipped'; reason?: 'same-copy' | 'file-in-place' | 'needs-overwrite' }>;
   listing: ProjectSkillListing;
 }
 
@@ -4351,7 +4355,7 @@ export type ProjectGraphUnavailable = 'no-index' | 'no-cli' | 'not-registered' |
 
 export type ProjectGraphResult =
   | { ok: true; graph: ProjectGraph; indexedAt?: string; repo?: string }
-  | { ok: false; reason: ProjectGraphUnavailable; error?: string };
+  | { ok: false; reason: ProjectGraphUnavailable; error?: string; errorKey?: import('../lib/appError').AppErrorKey };
 
 export interface SecurityReport {
   version: number;

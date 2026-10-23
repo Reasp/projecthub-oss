@@ -27,7 +27,7 @@ import {
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import type {
   InitAction,
   InitGroup,
@@ -174,7 +174,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
           if (status.gitHooks !== undefined) setGitHooks(status.gitHooks);
         } else {
           setTemplateId('builtin');
-          setError(res.error);
+          setError(ipcFailureText(res));
         }
         setUpdateReady(true);
       });
@@ -230,7 +230,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
         setError(null);
       } else {
         setPreview(null);
-        setError(res.error);
+        setError(ipcFailureText(res));
       }
     }, 250);
     return () => clearTimeout(timer);
@@ -354,7 +354,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
       confirmTemplateHash: needsTrust && trustConfirmed ? tpl?.entry.hash : undefined
     });
     if (!res.ok) {
-      setError(res.error);
+      setError(ipcFailureText(res));
       setStep('preview');
       return;
     }
@@ -367,7 +367,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
       try {
         await setProjectClaudeAccount(res.value.projectPath, claudeAccountId || null);
       } catch (err) {
-        setAccountWarning(ti.claudeAccountFailed.replace('{error}', err instanceof Error ? err.message : String(err)));
+        setAccountWarning(ti.claudeAccountFailed.replace('{error}', ipcErrorText(err)));
       }
     }
   };

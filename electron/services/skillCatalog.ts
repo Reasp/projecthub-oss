@@ -11,6 +11,7 @@
  */
 import crypto from 'node:crypto';
 import matter from 'gray-matter';
+import { AppError } from '../../src/lib/appError.js';
 
 export const SKILL_ROOTS = { claude: '.claude/skills', agents: '.agents/skills' } as const;
 export type SkillRoot = keyof typeof SKILL_ROOTS;
@@ -96,15 +97,15 @@ const ID_SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
 /**
  * Проверка id скилла, пришедшего из рендерера: один или два сегмента (`name` или `group/name`), без `..`,
- * разделителей Windows, скрытых и служебных каталогов. Возвращает null для допустимого id, иначе причину.
+ * разделителей Windows, скрытых и служебных каталогов. Возвращает null для допустимого id, иначе причину кодом.
  */
-export function validateSkillId(id: unknown): string | null {
-  if (typeof id !== 'string' || !id) return 'id скилла не задан';
+export function validateSkillId(id: unknown): AppError | null {
+  if (typeof id !== 'string' || !id) return new AppError('skills.idEmpty');
   const segments = id.split('/');
-  if (segments.length > 2) return 'id скилла глубже двух уровней';
+  if (segments.length > 2) return new AppError('skills.idTooDeep');
   for (const s of segments) {
-    if (!ID_SEGMENT_RE.test(s) || s.endsWith('.')) return `недопустимое имя каталога скилла: "${s}"`;
-    if (SKILL_IGNORED_NAMES.has(s)) return `служебный каталог: "${s}"`;
+    if (!ID_SEGMENT_RE.test(s) || s.endsWith('.')) return new AppError('skills.idInvalidSegment', { segment: s });
+    if (SKILL_IGNORED_NAMES.has(s)) return new AppError('skills.idReserved', { segment: s });
   }
   return null;
 }
@@ -239,13 +240,13 @@ export function skillCopyAction(source: Pick<SkillCopy, 'hash'>, target: Pick<Sk
   return sameSkillContent(source, target) ? 'unchanged' : 'overwrite';
 }
 
-/** Почему копию нельзя использовать как источник копирования; null — можно. */
-export function skillCopyBlocker(copy: Pick<SkillCopy, 'problems' | 'hash'>): string | null {
+/** Почему копию нельзя использовать как источник копирования (кодом); null — можно. */
+export function skillCopyBlocker(copy: Pick<SkillCopy, 'problems' | 'hash'>): AppError | null {
   if (copy.problems.includes('tooLarge')) {
-    return `скилл больше ${SKILL_LIMITS.maxFiles} файлов или ${SKILL_LIMITS.maxBytes / 1024 / 1024} МБ`;
+    return new AppError('skills.tooLarge', { files: SKILL_LIMITS.maxFiles, mb: SKILL_LIMITS.maxBytes / 1024 / 1024 });
   }
-  if (copy.problems.includes('symlinks')) return 'в скилле есть символические ссылки';
-  if (copy.problems.includes('noSkillMd')) return 'в каталоге нет SKILL.md';
-  if (!copy.hash) return 'содержимое скилла не прочитано';
+  if (copy.problems.includes('symlinks')) return new AppError('skills.hasSymlinks');
+  if (copy.problems.includes('noSkillMd')) return new AppError('skills.noSkillMd');
+  if (!copy.hash) return new AppError('skills.unreadable');
   return null;
 }

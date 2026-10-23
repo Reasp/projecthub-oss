@@ -17,4 +17,5 @@ export type { TemplateEntry, TemplateOrigin } from '../../electron/services/temp
 export type { TemplateRisks, Placement } from '../../electron/services/initTemplateLayer';
 export type { SaveTemplatePreview, SaveTemplateFile } from '../../electron/services/templateSaveService';
 
-export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string };
+/** Ошибка — английский текст и код для текста на языке окна (decision-165, `appFailureText`). */
+export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey };

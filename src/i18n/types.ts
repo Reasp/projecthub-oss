@@ -827,6 +827,7 @@ export interface TranslationDictionary {
     sourceEmpty: string;
     nothingToDo: string;
     outcome: Record<'created' | 'overwritten' | 'unchanged' | 'skipped', string>;
+    skipReason: Record<'same-copy' | 'file-in-place' | 'needs-overwrite', string>;
     selectHint: string;
   };
   createTask: {
@@ -2133,6 +2134,7 @@ export interface TranslationDictionary {
     addZip: string;
     gitUrlPrompt: string;
     duplicate: string;
+    copyName: string;
     remove: string;
     update: string;
     openFolder: string;

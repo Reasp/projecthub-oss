@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, AlertTriangle, CheckCircle2, Loader2, RefreshCw, Sliders, X } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import type { CodeIndexSettings, CodeIndexState, IndexDirCount, IndexProfileId, IndexScanResult } from '../../types/codeIndex';
 
 interface CodeIndexSettingsModalProps {
@@ -47,7 +47,7 @@ export const CodeIndexSettingsModal: React.FC<CodeIndexSettingsModalProps> = ({ 
     void window.api.codeIndexState(projectPath).then((res) => {
       if (cancelled) return;
       if (!res.ok) {
-        setError(ci.loadError.replace('{error}', res.error));
+        setError(ci.loadError.replace('{error}', ipcFailureText(res)));
         return;
       }
       setState(res.value);
@@ -75,7 +75,7 @@ export const CodeIndexSettingsModal: React.FC<CodeIndexSettingsModalProps> = ({ 
       if (seq !== previewSeq.current) return;
       setCounting(false);
       if (res.ok) setPreview(res.value);
-      else setError(res.error);
+      else setError(ipcFailureText(res));
     }, PREVIEW_DELAY_MS);
     return () => clearTimeout(timer);
   }, [isOpen, draft, projectPath, language, state?.broken]);
@@ -120,7 +120,7 @@ export const CodeIndexSettingsModal: React.FC<CodeIndexSettingsModalProps> = ({ 
     const res = await window.api.codeIndexSave(projectPath, draft, language);
     setSaving(false);
     if (!res.ok) {
-      setError(res.error);
+      setError(ipcFailureText(res));
       return;
     }
     if (reindex) {

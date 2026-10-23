@@ -16,9 +16,9 @@ import {
   CheckCircle2,
   Loader2
 } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
-import type { SaveTemplatePreview, TemplateEntry, TemplateOrigin } from '../../types/projectInit';
+import type { IpcResult, SaveTemplatePreview, TemplateEntry, TemplateOrigin } from '../../types/projectInit';
 
 interface TemplatesModalProps {
   isOpen: boolean;
@@ -45,7 +45,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
   const reload = async () => {
     const res = await window.api.templatesList(language);
     if (res.ok) setTemplates(res.value);
-    else setError(res.error);
+    else setError(ipcFailureText(res));
   };
 
   useEffect(() => {
@@ -70,7 +70,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
 
   if (!isOpen) return null;
 
-  const run = async <T,>(fn: () => Promise<{ ok: true; value: T } | { ok: false; error: string }>, after?: (value: T) => void) => {
+  const run = async <T,>(fn: () => Promise<IpcResult<T>>, after?: (value: T) => void) => {
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -80,7 +80,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
         after?.(res.value);
         await reload();
       } else {
-        setError(res.error);
+        setError(ipcFailureText(res));
       }
     } finally {
       setBusy(false);
@@ -201,7 +201,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
                       {entry.trusted ? <ShieldAlert className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
                     </button>
                   )}
-                  <button type="button" disabled={busy} onClick={() => run(() => window.api.templatesDuplicate(entry.id))} className={iconButton} title={tt.duplicate}>
+                  <button type="button" disabled={busy} onClick={() => run(() => window.api.templatesDuplicate(entry.id, tt.copyName.replace('{name}', entry.name)))} className={iconButton} title={tt.duplicate}>
                     <Copy className="w-3.5 h-3.5" />
                   </button>
                   <button type="button" onClick={() => run(() => window.api.templatesOpenFolder(entry.id))} className={iconButton} title={tt.openFolder}>

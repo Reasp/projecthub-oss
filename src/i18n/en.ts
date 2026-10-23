@@ -848,6 +848,11 @@ export const en: TranslationDictionary = {
     sourceEmpty: 'The source has no skills.',
     nothingToDo: 'Nothing to copy: the skill is already the same in the selected folders.',
     outcome: { created: 'created', overwritten: 'overwritten', unchanged: 'unchanged', skipped: 'skipped' },
+    skipReason: {
+      'same-copy': 'it is the same copy',
+      'file-in-place': 'a file is in place of the skill',
+      'needs-overwrite': 'the skill already exists and differs — explicit overwrite is needed'
+    },
     selectHint: 'Select a skill to see its files and SKILL.md.'
   },
   createTask: {
@@ -2252,6 +2257,7 @@ export const en: TranslationDictionary = {
     addZip: 'From zip',
     gitUrlPrompt: 'Git repository URL (https or ssh)',
     duplicate: 'Duplicate',
+    copyName: '{name} (copy)',
     remove: 'Remove',
     update: 'Update (git pull)',
     openFolder: 'Open folder',

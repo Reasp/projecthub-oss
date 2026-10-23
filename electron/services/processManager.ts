@@ -5,6 +5,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import treeKill from 'tree-kill';
 import { BrowserWindow, shell } from 'electron';
 import type { ManagedProcess } from '../../src/types/electron';
+import { AppError } from '../../src/lib/appError.js';
 import { appEventBus } from './eventBus.js';
 import { isPidAlive, type EnvEntryStatus } from './envRegistryIdentity';
 import { envToolsEntryStatuses } from './processSweep';
@@ -438,7 +439,7 @@ class HubProcessManager {
     const id = buildProcessId(workspaceRoot, name);
     const workingDir = resolveWorkingDir(workspaceRoot, options.cwd);
     if (!existsSync(workingDir)) {
-      throw new Error(`Рабочий каталог не найден: ${workingDir}`);
+      throw new AppError('processes.cwdNotFound', { path: workingDir });
     }
 
     // If already running in Hub, return or fail
@@ -627,10 +628,7 @@ class HubProcessManager {
     // Свежий снимок: по устаревшей записи pid может принадлежать чужому процессу.
     const [status] = await envToolsEntryStatuses([entry], { fresh: true });
     if (status === 'unknown' && keepUnknown) {
-      throw new Error(
-        `Процесс ${name} (pid ${entry.pid}): идентичность не подтверждена — запись создана до сверки времени старта. ` +
-          'Остановите процесс вручную или удалите запись.'
-      );
+      throw new AppError('processes.identityUnconfirmed', { name, pid: String(entry.pid) });
     }
     if (status === 'running' && entry.pid) {
       try {
@@ -680,7 +678,7 @@ class HubProcessManager {
     if (item) {
       if (item.info.status === 'running') {
         const stopped = await this.stopProcess(id);
-        if (!stopped) throw new Error(`Не удалось остановить процесс ${item.info.name}`);
+        if (!stopped) throw new AppError('processes.stopFailed', { name: item.info.name });
       }
       return this.startProcess(
         item.info.cwd,
@@ -691,12 +689,12 @@ class HubProcessManager {
     }
 
     const parsed = parseProcessId(id);
-    if (!parsed) throw new Error(`Некорректный идентификатор процесса: ${id}`);
+    if (!parsed) throw new AppError('processes.invalidId', { id });
     const registry = await readEnvToolsRegistry(parsed.projectPath).catch(
       () => ({}) as Record<string, EnvToolsRegistryEntry>
     );
     const entry = registry[parsed.name];
-    if (!entry?.command) throw new Error(`Процесс ${parsed.name} не найден в реестре env-tools`);
+    if (!entry?.command) throw new AppError('processes.notInRegistry', { name: parsed.name });
     // Процесс с неподтверждённой идентичностью, возможно, ещё работает: запуск копии упёрся бы в тот же порт.
     await this.stopEnvToolsProcess(id, { keepUnknown: true });
     return this.startProcess(parsed.projectPath, entry.command, parsed.name, { cwd: entry.cwd });

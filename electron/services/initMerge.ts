@@ -173,7 +173,7 @@ export function mergeMcpServers(
   remove: string[] = []
 ): string {
   const base = existing === null || !existing.trim() ? {} : parseJsonObject(existing);
-  if (!base) throw new Error('Файл не является JSON-объектом');
+  if (!base) throw new Error('The file is not a JSON object');
   const current = isObject(base.mcpServers) ? { ...base.mcpServers } : {};
   for (const key of remove) delete current[key];
   for (const [key, value] of Object.entries(servers)) current[key] = value;
@@ -195,7 +195,7 @@ function sameJson(text: string, value: unknown): boolean {
  */
 export function mergeClaudeSettings(existing: string | null, template: JsonObject): string {
   const base = existing === null || !existing.trim() ? {} : parseJsonObject(existing);
-  if (!base) throw new Error('Файл не является JSON-объектом');
+  if (!base) throw new Error('The file is not a JSON object');
   const next: JsonObject = { ...base };
 
   for (const [key, value] of Object.entries(template)) {

@@ -13,6 +13,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import crypto from 'node:crypto';
 import { simpleGit } from 'simple-git';
+import { AppError } from '../../src/lib/appError';
 import {
   buildFoundationPlan,
   DEFAULT_RULE_TARGETS,
@@ -168,16 +169,16 @@ async function isEmptyOrMissing(dir: string): Promise<boolean> {
  * новую или пустую папку мастера. Любая другая папка (путь, пришедший из рендерера) отклоняется.
  */
 async function assertInitTarget(dir: string): Promise<{ root: string; registered: boolean; isNew: boolean }> {
-  if (typeof dir !== 'string' || !dir.trim()) throw new Error('Не указана папка проекта');
+  if (typeof dir !== 'string' || !dir.trim()) throw new AppError('init.targetMissing');
   const root = path.resolve(dir);
-  if (path.parse(root).root === root) throw new Error('Нельзя инициализировать корень диска');
+  if (path.parse(root).root === root) throw new AppError('init.driveRoot');
   const projects = (await projectRegistry.getProjects()).map((p) => p.path);
   const registered = isRegisteredProjectRoot(projects, root);
   const isNew = await isEmptyOrMissing(root);
   if (!registered && !isNew && !approvedTargets.has(normalizeKey(root))) {
-    throw new Error('Папка не зарегистрирована в ProjectHub. Выберите её в окне «Инициализировать папку».');
+    throw new AppError('init.targetNotApproved');
   }
-  if (existsSync(root) && !(await fs.stat(root)).isDirectory()) throw new Error(`Это не папка: ${root}`);
+  if (existsSync(root) && !(await fs.stat(root)).isDirectory()) throw new AppError('init.notADirectory', { path: root });
   return { root, registered, isNew };
 }
 
@@ -285,7 +286,7 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
     const loaded = await loadTemplate(request.templateId, locale);
     const { manifest } = loaded.input;
     const placement: Placement = request.placement ?? (isNew ? 'root' : 'subfolder');
-    if (placement === 'root' && !isNew && !manifest.placement.allowRoot) throw new Error('Шаблон нельзя положить в корень существующего проекта');
+    if (placement === 'root' && !isNew && !manifest.placement.allowRoot) throw new AppError('init.rootPlacementNotAllowed');
     const textPaths = templateStateTextPaths(loaded.input, placement);
     extraTexts = textPaths;
     const texts: Record<string, string | null> = {};
@@ -451,14 +452,14 @@ export async function applyInit(request: InitApplyRequest, onEvent: (event: Init
   const root = preview.targetDir;
 
   if (preview.template?.requiresConfirmation && request.confirmTemplateHash !== preview.template.entry.hash) {
-    throw new Error('Шаблон не доверенный: подтвердите команды, MCP-серверы и git-хуки в предпросмотре');
+    throw new AppError('init.templateNotTrusted');
   }
 
   const chosen = preview.items.map((item) => {
     const requested = request.choices?.[item.id];
     const action = requested ?? item.action;
     if (!item.options.includes(action) && action !== item.action) {
-      throw new Error(`Недопустимое действие «${action}» для ${item.path}`);
+      throw new AppError('init.invalidAction', { action, path: item.path });
     }
     return { item, action };
   });
@@ -502,12 +503,12 @@ export async function applyInit(request: InitApplyRequest, onEvent: (event: Init
         backupUsed = true;
       }
       if (item.copyFrom) {
-        if (!templateDir) throw new Error('Файл шаблона без каталога шаблона');
+        if (!templateDir) throw new Error('Template file without a template directory');
         const source = assertInsideProject(templateDir, path.join(templateDir, item.copyFrom));
         await fs.copyFile(source, target);
       } else {
         const content = item.contents?.[action];
-        if (content === undefined) throw new Error(`Нет содержимого для «${action}» ${item.path}`);
+        if (content === undefined) throw new Error(`No content for "${action}" ${item.path}`);
         await fs.writeFile(target, content, 'utf-8');
       }
     }

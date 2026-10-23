@@ -2,20 +2,22 @@ import { ipcMain } from 'electron';
 import { assertRegisteredProject } from '../services/projectPathGuard';
 import { copySkill, listProjectSkills, listSkillSources, listSourceSkills, type SkillCopyRequest, type SkillSourceRef } from '../services/skillService';
 import { isSkillRoot } from '../services/skillCatalog';
+import { AppError } from '../../src/lib/appError';
+import { toIpcFailure } from './appErrorIpc';
 
 /** Источник из рендерера: только известные виды, путь — только у проекта (проверяется по реестру в сервисе). */
 function sourceRef(raw: unknown): SkillSourceRef {
   const r = (raw && typeof raw === 'object' ? raw : {}) as { kind?: unknown; path?: unknown };
   if (r.kind === 'template' || r.kind === 'personal') return { kind: r.kind };
   if (r.kind === 'project' && typeof r.path === 'string') return { kind: 'project', path: r.path };
-  throw new Error('Неизвестный источник скиллов');
+  throw new AppError('skills.unknownSource');
 }
 
 function copyRequest(raw: unknown): SkillCopyRequest {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  if (!isSkillRoot(r.fromRoot)) throw new Error('Неизвестный корень скиллов источника');
+  if (!isSkillRoot(r.fromRoot)) throw new AppError('skills.unknownSourceRoot');
   const toRoots = Array.isArray(r.toRoots) ? r.toRoots.filter(isSkillRoot) : [];
-  if (toRoots.length === 0) throw new Error('Не выбран каталог назначения');
+  if (toRoots.length === 0) throw new AppError('skills.noTargetRoot');
   return { source: sourceRef(r.source), fromRoot: r.fromRoot, id: typeof r.id === 'string' ? r.id : '', toRoots, overwrite: r.overwrite === true };
 }
 
@@ -36,7 +38,8 @@ export function registerSkillsIpc() {
     try {
       return { success: true, listing: await listSourceSkills(sourceRef(source), safeProject) };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      const { error, errorKey } = toIpcFailure(err);
+      return { success: false, error, errorKey };
     }
   });
 
@@ -46,7 +49,8 @@ export function registerSkillsIpc() {
       return { success: true, result: await copySkill(safeProject, copyRequest(request)) };
     } catch (err) {
       console.error('[SkillsIpc] Failed to copy skill:', err instanceof Error ? err.message : String(err));
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      const { error, errorKey } = toIpcFailure(err);
+      return { success: false, error, errorKey };
     }
   });
 }

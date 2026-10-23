@@ -6,6 +6,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { AppError } from '../../src/lib/appError';
 import { detectSecrets } from './secretPatterns';
 import { ALLOW_SECRET_MARKER } from './diffSecretScan';
 import { MANIFEST_FILE, type TemplateManifest } from './templateManifest';
@@ -150,13 +151,13 @@ export async function previewSaveProject(projectPath: string, options: SaveTempl
 /** Сохраняет обвязку проекта шаблоном. Найденный секрет останавливает сохранение целиком. */
 export async function saveProjectAsTemplate(projectPath: string, options: SaveTemplateOptions): Promise<TemplateEntry> {
   const name = options.name.trim();
-  if (!name) throw new Error('Не указано название шаблона');
+  if (!name) throw new AppError('templates.nameRequired');
   const preview = await previewSaveProject(projectPath, options);
   const withSecrets = preview.files.filter((f) => f.secrets.length > 0);
   if (withSecrets.length > 0) {
-    throw new Error(`Похоже на секреты: ${withSecrets.map((f) => `${f.projectPath} (${f.secrets.join(', ')})`).join('; ')}. Уберите их или снимите файлы.`);
+    throw new AppError('templates.secretsFound', { files: withSecrets.map((f) => `${f.projectPath} (${f.secrets.join(', ')})`).join('; ') });
   }
-  if (preview.files.length === 0) throw new Error('В проекте нет обвязки для шаблона');
+  if (preview.files.length === 0) throw new AppError('templates.nothingToSave');
 
   const id = await allocateTemplateId(name);
   const dest = path.join(templatesRoot(), id);

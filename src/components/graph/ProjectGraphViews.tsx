@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Loader2, Network, RefreshCw, ShareNetwork, Sliders } from '../common/icons';
 import { samePath, useProjectStore } from '../../store/useProjectStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
+import { appFailureText } from '../../lib/appErrorText';
 import { useDocRefs } from '../../hooks/useDocRefs';
 import { docRefKind } from '../../utils/docRefs';
 import { DOC_EDGE_COLORS, DOC_KIND_COLORS } from '../../utils/docLinkGraph';
@@ -40,7 +41,7 @@ function useCodeReindex(projectPath: string, onDone: () => void) {
     const res = await window.api.codeIndexReindex(projectPath, false);
     if (!res.ok) {
       setRunning(false);
-      setFailed(res.error);
+      setFailed(ipcFailureText(res));
       return;
     }
     // Процесс мог завершиться раньше, чем пришёл ответ: тогда события уже не будет.
@@ -126,7 +127,7 @@ const ProjectGraphTab: React.FC<{ kind: GraphKind }> = ({ kind }) => {
           break;
         default:
           message = g.loadError;
-          hint = result.error;
+          hint = result.error === undefined ? undefined : appFailureText(result, t.appErrors);
       }
     }
     // Индекс строится из вкладки, если GitNexus установлен: без CLI кнопка только упадёт.
@@ -244,7 +245,7 @@ export const DocsGraphView: React.FC = () => {
     try {
       setLinks({ graph: await window.api.getDocLinkGraph(projectPath), loadId: Date.now() });
     } catch (err) {
-      setLinks({ error: err instanceof Error ? err.message : String(err) });
+      setLinks({ error: ipcErrorText(err) });
     }
   }, [projectPath]);
 

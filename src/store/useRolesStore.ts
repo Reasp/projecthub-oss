@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { RoleDefinition } from '../types/electron';
+import { ipcErrorText } from '../i18n/useTranslation';
 
 interface RolesState {
   /** Роли по projectPath (''= без проекта, только global/builtin). */
@@ -44,7 +45,7 @@ export const useRolesStore = create<RolesState>((set, get) => ({
       return result;
     } catch (err) {
       console.error('[RolesStore] Failed to save role:', err);
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return { success: false, error: ipcErrorText(err) };
     }
   },
 

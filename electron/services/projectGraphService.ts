@@ -10,13 +10,20 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, promises as fs } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { AppError, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import { findGitNexusRepo, fromGitNexusGraph, parseLightRagGraphml, type ProjectGraph } from './projectGraph';
 
 export type ProjectGraphUnavailable = 'no-index' | 'no-cli' | 'not-registered' | 'disabled' | 'error';
 
 export type ProjectGraphResult =
   | { ok: true; graph: ProjectGraph; indexedAt?: string; repo?: string }
-  | { ok: false; reason: ProjectGraphUnavailable; error?: string };
+  | { ok: false; reason: ProjectGraphUnavailable; error?: string; errorKey?: AppErrorKey };
+
+/** Ошибка загрузки графа: английский текст и код для окна (decision-165). */
+export function graphErrorResult(err: unknown): ProjectGraphResult {
+  const errorKey = appErrorKeyOf(err);
+  return { ok: false, reason: 'error', error: err instanceof Error ? err.message : String(err), ...(errorKey ? { errorKey } : {}) };
+}
 
 const READY_TIMEOUT_MS = 30_000;
 const GRAPH_TIMEOUT_MS = 120_000;
@@ -36,14 +43,14 @@ function freePort(): Promise<number> {
     server.listen({ port: 0, host: '127.0.0.1' }, () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
-      server.close(() => (port ? resolve(port) : reject(new Error('Не удалось выбрать порт'))));
+      server.close(() => (port ? resolve(port) : reject(new AppError('graph.portPickFailed'))));
     });
   });
 }
 
 async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
   const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-  if (!res.ok) throw new Error(`GitNexus ответил ${res.status} на ${new URL(url).pathname}`);
+  if (!res.ok) throw new AppError('graph.httpError', { status: res.status, path: new URL(url).pathname });
   return res.json();
 }
 
@@ -110,9 +117,9 @@ class GitNexusServer {
       if (ex) {
         // cmd сообщает о ненайденной команде кодом 1 и текстом «is not recognized», shell Unix — кодом 127.
         if (ex.spawnError?.code === 'ENOENT' || ex.code === 127 || /not recognized|не является|not found/i.test(output)) {
-          throw new CliMissingError('gitnexus не найден в PATH');
+          throw new CliMissingError('gitnexus not found in PATH');
         }
-        throw new Error(`gitnexus serve завершился с кодом ${ex.code ?? '?'}: ${output.trim().slice(-500)}`);
+        throw new AppError('graph.serveExited', { code: ex.code ?? '?', output: output.trim().slice(-500) });
       }
       try {
         await fetchJson(`${url}/api/health`, 1500);
@@ -124,7 +131,7 @@ class GitNexusServer {
       }
     }
     this.stop();
-    throw new Error('gitnexus serve не ответил за 30 с');
+    throw new AppError('graph.serveTimeout');
   }
 
   private touch() {
@@ -197,7 +204,7 @@ class ProjectGraphService {
       return result;
     } catch (err) {
       if (err instanceof CliMissingError) return { ok: false, reason: 'no-cli' };
-      return { ok: false, reason: 'error', error: err instanceof Error ? err.message : String(err) };
+      return graphErrorResult(err);
     }
   }
 
@@ -212,7 +219,7 @@ class ProjectGraphService {
       return { ok: false, reason: features && features.lightrag !== true ? 'disabled' : 'no-index' };
     }
     if (stat.size > MAX_GRAPHML_BYTES) {
-      return { ok: false, reason: 'error', error: `Граф LightRAG слишком большой: ${Math.round(stat.size / 1048576)} МБ` };
+      return graphErrorResult(new AppError('graph.lightragTooLarge', { size: Math.round(stat.size / 1048576) }));
     }
     const stamp = `${stat.mtimeMs}|${stat.size}`;
     const cached = this.docsCache.get(root);
@@ -222,7 +229,7 @@ class ProjectGraphService {
       this.remember(this.docsCache, root, stamp, result);
       return result;
     } catch (err) {
-      return { ok: false, reason: 'error', error: err instanceof Error ? err.message : String(err) };
+      return graphErrorResult(err);
     }
   }
 

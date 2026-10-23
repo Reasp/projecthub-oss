@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { simpleGit } from 'simple-git';
+import { AppError } from '../../src/lib/appError';
 import { getUserDataDir } from './appPaths';
 import { resolveTemplatePath } from './templateWizard';
 import { isInsideProject } from './pathGuard';
@@ -203,19 +204,19 @@ export async function loadTemplate(id: string, locale = 'ru'): Promise<LoadedTem
   let record: CatalogRecord | undefined;
   if (id === BUILTIN_TEMPLATE_ID) {
     const builtin = await builtinDir();
-    if (!builtin) throw new Error('Встроенный шаблон не найден в сборке');
+    if (!builtin) throw new AppError('templates.builtinMissing');
     ({ dir, origin } = builtin);
   } else {
-    if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Некорректный id шаблона: ${id}`);
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new AppError('templates.invalidId', { id });
     const catalog = await readCatalog();
     record = catalog.templates[id];
     dir = path.join(templatesRoot(), id);
-    if (!record || !existsSync(dir)) throw new Error(`Шаблон ${id} не найден в каталоге`);
+    if (!record || !existsSync(dir)) throw new AppError('templates.notFound', { id });
     origin = record.origin;
   }
   const { entry, manifest, compatServers, walked } = await describe(id, dir, origin, record, locale);
   if (!manifest) {
-    throw new Error(`Манифест шаблона ${entry.name} с ошибками: ${entry.issues.map((i) => `${i.path || '(корень)'} — ${i.message}`).join('; ')}`);
+    throw new AppError('templates.manifestInvalid', { name: entry.name, issues: entry.issues.map((i) => `${i.path || '(root)'} — ${i.message}`).join('; ') });
   }
 
   // Текст нужен только файлам, которые сливаются или собираются: правила и merge-правила манифеста.
@@ -232,10 +233,10 @@ export async function loadTemplate(id: string, locale = 'ru'): Promise<LoadedTem
 }
 
 export async function setTemplateTrusted(id: string, trusted: boolean): Promise<TemplateEntry> {
-  if (id === BUILTIN_TEMPLATE_ID) throw new Error('Встроенный шаблон доверенный всегда');
+  if (id === BUILTIN_TEMPLATE_ID) throw new AppError('templates.builtinAlwaysTrusted');
   const catalog = await readCatalog();
   const record = catalog.templates[id];
-  if (!record) throw new Error(`Шаблон ${id} не найден`);
+  if (!record) throw new AppError('templates.notFound', { id });
   const dir = path.join(templatesRoot(), id);
   const walked = await walkTemplate(dir);
   if (trusted) record.trustedHash = walked.hash;
@@ -296,8 +297,8 @@ async function suggestedId(dir: string, fallback: string): Promise<string> {
 
 export async function addTemplateFromFolder(folder: string): Promise<TemplateEntry> {
   const src = path.resolve(folder);
-  if (!existsSync(src)) throw new Error(`Папка не найдена: ${src}`);
-  if (isInsideProject(templatesRoot(), src)) throw new Error('Папка уже лежит в каталоге шаблонов');
+  if (!existsSync(src)) throw new AppError('templates.folderNotFound', { path: src });
+  if (isInsideProject(templatesRoot(), src)) throw new AppError('templates.folderInsideCatalog');
   const id = await suggestedId(src, path.basename(src));
   await copyTemplateTree(src, path.join(templatesRoot(), id));
   return register(id, 'folder', src);
@@ -311,7 +312,7 @@ export function isAcceptableGitUrl(url: string): boolean {
 }
 
 export async function addTemplateFromGit(url: string): Promise<TemplateEntry> {
-  if (!isAcceptableGitUrl(url)) throw new Error('Некорректный адрес git-репозитория');
+  if (!isAcceptableGitUrl(url)) throw new AppError('templates.gitUrlInvalid');
   const repoName = url.trim().replace(/\.git$/, '').split(/[/:]/).filter(Boolean).pop() ?? 'template';
   const id = uniqueTemplateId(repoName, await takenIds());
   const dest = path.join(templatesRoot(), id);
@@ -320,7 +321,7 @@ export async function addTemplateFromGit(url: string): Promise<TemplateEntry> {
     await simpleGit(templatesRoot()).clone(url.trim(), dest, ['--depth', '1']);
   } catch (err) {
     await fs.rm(dest, { recursive: true, force: true });
-    throw new Error(`Не удалось клонировать ${url}: ${(err as Error).message}`, { cause: err });
+    throw Object.assign(new AppError('templates.cloneFailed', { url, detail: (err as Error).message }), { cause: err });
   }
   return register(id, 'git', url.trim());
 }
@@ -329,7 +330,7 @@ export async function addTemplateFromGit(url: string): Promise<TemplateEntry> {
 export async function updateTemplateFromGit(id: string): Promise<TemplateEntry> {
   const catalog = await readCatalog();
   const record = catalog.templates[id];
-  if (!record || record.origin !== 'git') throw new Error('Обновить можно только шаблон из git');
+  if (!record || record.origin !== 'git') throw new AppError('templates.updateGitOnly');
   const dir = path.join(templatesRoot(), id);
   await simpleGit(dir).pull(['--ff-only']);
   return (await describe(id, dir, record.origin, record, 'ru')).entry;
@@ -341,7 +342,7 @@ function run(command: string, args: string[], cwd: string): Promise<void> {
     let stderr = '';
     child.stderr.on('data', (chunk) => (stderr += String(chunk)));
     child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(stderr.trim() || `${command} завершился с кодом ${code}`))));
+    child.on('close', (code) => (code === 0 ? resolve() : reject(stderr.trim() ? new Error(stderr.trim()) : new AppError('templates.commandFailed', { command, code: String(code) }))));
   });
 }
 
@@ -355,9 +356,9 @@ async function extractZip(zipPath: string, dest: string): Promise<void> {
   const check = async (current: string) => {
     for (const entry of await fs.readdir(current, { withFileTypes: true })) {
       const abs = path.join(current, entry.name);
-      if (entry.isSymbolicLink()) throw new Error(`В архиве ссылка: ${path.relative(dest, abs)}`);
+      if (entry.isSymbolicLink()) throw new AppError('templates.zipLink', { path: path.relative(dest, abs) });
       const real = await fs.realpath(abs);
-      if (!isInsideProject(realDest, real)) throw new Error(`Файл архива вне каталога: ${entry.name}`);
+      if (!isInsideProject(realDest, real)) throw new AppError('templates.zipOutside', { name: entry.name });
       if (entry.isDirectory()) await check(abs);
     }
   };
@@ -366,7 +367,7 @@ async function extractZip(zipPath: string, dest: string): Promise<void> {
 
 export async function addTemplateFromZip(zipPath: string): Promise<TemplateEntry> {
   const src = path.resolve(zipPath);
-  if (!existsSync(src)) throw new Error(`Архив не найден: ${src}`);
+  if (!existsSync(src)) throw new AppError('templates.zipNotFound', { path: src });
   const staging = path.join(templatesRoot(), `.staging-${crypto.randomBytes(4).toString('hex')}`);
   try {
     await extractZip(src, staging);
@@ -388,15 +389,15 @@ export async function duplicateTemplate(id: string, name?: string): Promise<Temp
   const dest = path.join(templatesRoot(), newId);
   await copyTemplateTree(source.entry.dir, dest);
   if (!source.entry.compat) {
-    const manifest = { ...source.input.manifest, id: newId, name: name?.trim() || `${source.entry.name} (копия)` };
+    const manifest = { ...source.input.manifest, id: newId, name: name?.trim() || `${source.entry.name} (copy)` };
     await fs.writeFile(path.join(dest, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
   }
   return register(newId, 'copy', id);
 }
 
 export async function removeTemplate(id: string): Promise<void> {
-  if (id === BUILTIN_TEMPLATE_ID) throw new Error('Встроенный шаблон удалить нельзя');
-  if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Некорректный id шаблона: ${id}`);
+  if (id === BUILTIN_TEMPLATE_ID) throw new AppError('templates.builtinNotRemovable');
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new AppError('templates.invalidId', { id });
   const catalog = await readCatalog();
   delete catalog.templates[id];
   await writeCatalog(catalog);

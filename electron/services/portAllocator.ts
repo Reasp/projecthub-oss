@@ -1,6 +1,7 @@
 import net from 'node:net';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import { AppError } from '../../src/lib/appError.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -75,7 +76,7 @@ export async function findFreePort(
   for (let port = from; port < from + range && port <= 65535; port++) {
     if (await probe(port)) return port;
   }
-  throw new Error(`Не найден свободный порт в диапазоне ${from}–${from + range - 1}`);
+  throw new AppError('processes.noFreePort', { from, to: from + range - 1 });
 }
 
 /**

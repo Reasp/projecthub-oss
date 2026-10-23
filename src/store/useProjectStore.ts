@@ -1185,7 +1185,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return proc;
     } catch (e: any) {
       console.error(`Failed to start process ${name}:`, e);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.processError, { name, message: e.message }));
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.processError, { name, message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return null;
     }
   },
@@ -1287,7 +1287,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return proc;
     } catch (e: any) {
       console.error('Failed to restart process:', e);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.processRestartError, { processId, message: e.message }));
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.processRestartError, { processId, message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return null;
     }
   },

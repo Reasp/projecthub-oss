@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Sparkles, Download, ArrowRightLeft, TriangleAlert, FileText } from '../../common/icons';
 import { useTranslation } from '../../../i18n';
+import { ipcErrorText, ipcFailureText } from '../../../i18n/useTranslation';
+import { appFailureText } from '../../../lib/appErrorText';
 import { useDialog } from '../../../hooks/useDialog';
 import { collapseUnchanged, lineDiff, lineDiffStats } from '../../../lib/lineDiff';
 import { entryCopyActions, importPlan, SKILL_ROOT_ORDER } from './skillsView';
@@ -79,7 +81,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
     try {
       applyListing(await window.api.listProjectSkills(projectPath));
     } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+      setMessage({ kind: 'error', text: ipcErrorText(err) });
     }
   }, [projectPath, applyListing]);
 
@@ -108,7 +110,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
     if (res.success) setSourceListing(res.listing);
     else {
       setSourceListing(null);
-      setMessage({ kind: 'error', text: res.error });
+      setMessage({ kind: 'error', text: ipcFailureText(res) });
     }
   }, [projectPath, selectedSource]);
 
@@ -133,14 +135,14 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
     try {
       const res = await window.api.copySkill(projectPath, { ...request, overwrite: overwriteRoots.length > 0 });
       if (!res.success) {
-        setMessage({ kind: 'error', text: res.error });
+        setMessage({ kind: 'error', text: appFailureText(res, t.appErrors) });
         return;
       }
       const result: SkillCopyResult = res.result;
       applyListing(result.listing);
       setMessage({
         kind: result.results.some((r) => r.outcome === 'skipped') ? 'error' : 'ok',
-        text: `${request.id}: ${result.results.map((r) => `${s.rootPath[r.root]} — ${s.outcome[r.outcome]}${r.reason ? ` (${r.reason})` : ''}`).join('; ')}`
+        text: `${request.id}: ${result.results.map((r) => `${s.rootPath[r.root]} — ${s.outcome[r.outcome]}${r.reason ? ` (${s.skipReason[r.reason]})` : ''}`).join('; ')}`
       });
       if (tab === 'import') await loadSource();
     } finally {
@@ -381,7 +383,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ projectPath, onDriftCh
                     )}
                   </div>
                   {item.description && <div className="text-[11px] text-muted-foreground truncate" title={item.description}>{item.description}</div>}
-                  {item.blocker && <div className="text-[11px] text-amber-400">{item.blocker}</div>}
+                  {item.blocker && <div className="text-[11px] text-amber-400">{appFailureText({ error: item.blocker, errorKey: item.blockerKey }, t.appErrors)}</div>}
                 </div>
                 <div className="shrink-0 flex items-center gap-1">
                   {SKILL_ROOT_ORDER.filter((r) => toRoots.includes(r)).map((r) => (

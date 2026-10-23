@@ -9,22 +9,20 @@ import { assertRegisteredProject } from '../services/projectPathGuard';
 import { projectGraphService } from '../services/projectGraphService';
 import { getCodeIndexState, previewCodeIndex, reindexCodeGraph, saveCodeIndexSettings } from '../services/codeIndexService';
 import { findIndexDocsDir } from '../services/docsReindex';
+import { graphErrorResult } from '../services/projectGraphService';
+import { toIpcFailure, type IpcFailure } from './appErrorIpc';
 
-type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string };
+type IpcResult<T> = { ok: true; value: T } | IpcFailure;
 
 async function wrap<T>(fn: () => Promise<T>): Promise<IpcResult<T>> {
   try {
     return { ok: true, value: await fn() };
   } catch (err) {
-    return { ok: false, error: errorText(err) };
+    return toIpcFailure(err);
   }
 }
 
 const localeOf = (value: unknown) => (value === 'en' ? 'en' : 'ru');
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 export function registerGraphIpc() {
   ipcMain.handle('graph:getCode', async (_event, projectPath: unknown, force: unknown) => {
@@ -32,7 +30,7 @@ export function registerGraphIpc() {
       const root = await assertRegisteredProject(String(projectPath ?? ''));
       return await projectGraphService.getCodeGraph(root, force === true);
     } catch (err) {
-      return { ok: false, reason: 'error', error: errorText(err) };
+      return graphErrorResult(err);
     }
   });
 
@@ -64,7 +62,7 @@ export function registerGraphIpc() {
       const root = await assertRegisteredProject(String(projectPath ?? ''));
       return await projectGraphService.getDocsGraph(root);
     } catch (err) {
-      return { ok: false, reason: 'error', error: errorText(err) };
+      return graphErrorResult(err);
     }
   });
 }

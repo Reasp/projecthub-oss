@@ -5,6 +5,7 @@
  * пишет в `.lightrag-index/graph_chunk_entity_relation.graphml`, приводятся к одному компактному виду.
  * Рендерер получает его через IPC и рисует sigma.js — свой разбор форматов в рендерере не нужен.
  */
+import { AppError } from '../../src/lib/appError.js';
 
 export interface ProjectGraphNode {
   id: string;
@@ -70,7 +71,7 @@ const pairKey = (source: string, target: string) => `${source}\u0000${target}`;
  * (связь MEMBER_OF), процессы отбрасываются. `content` (исходный код при `includeContent`) не берётся.
  */
 export function fromGitNexusGraph(raw: unknown): ProjectGraph {
-  if (!isRecord(raw) || !Array.isArray(raw.nodes)) throw new Error('GitNexus вернул граф без списка узлов');
+  if (!isRecord(raw) || !Array.isArray(raw.nodes)) throw new AppError('graph.noNodes');
   const relationships = Array.isArray(raw.relationships) ? raw.relationships : [];
 
   const communityName = new Map<string, string>();
@@ -173,7 +174,7 @@ const splitSep = (v: string | number | undefined) => (typeof v === 'string' ? v.
  * номерам `d0…dN`: номера зависят от версии LightRAG. Тип узла — `entity_type`, подпись — `entity_id`.
  */
 export function parseLightRagGraphml(xml: string): ProjectGraph {
-  if (typeof xml !== 'string' || !/<graphml\b/.test(xml)) throw new Error('Файл не похож на GraphML');
+  if (typeof xml !== 'string' || !/<graphml\b/.test(xml)) throw new AppError('graph.notGraphml');
 
   const keyNames = new Map<string, { name: string; type: string }>();
   for (const m of xml.matchAll(/<key\b([^>]*?)\/?>/g)) {

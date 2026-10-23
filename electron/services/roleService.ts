@@ -54,23 +54,23 @@ export function parseRoleFile(raw: string, filePath: string, source: RoleSource)
     content = parsed.content;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { error: `Ошибка YAML frontmatter: ${message}`, filePath };
+    return { error: `Invalid YAML frontmatter: ${message}`, filePath };
   }
 
   const slug = fmString(data.slug);
   if (!slug || !SLUG_RE.test(slug)) {
-    return { error: 'Поле "slug" обязательно и должно состоять из строчных латинских букв, цифр, "-"/"_"', filePath };
+    return { error: 'Field "slug" is required and must consist of lowercase Latin letters, digits, "-"/"_"', filePath };
   }
   const name = fmString(data.name);
   if (!name) {
-    return { error: 'Поле "name" обязательно', filePath };
+    return { error: 'Field "name" is required', filePath };
   }
 
   let engine: RoleEngine | undefined;
   if (data.engine !== undefined && data.engine !== null && data.engine !== '') {
     const raw = fmString(data.engine);
     if (!raw || !ROLE_ENGINES.includes(raw as RoleEngine)) {
-      return { error: `Поле "engine" должно быть одним из: ${ROLE_ENGINES.join(', ')}`, filePath };
+      return { error: `Field "engine" must be one of: ${ROLE_ENGINES.join(', ')}`, filePath };
     }
     engine = raw as RoleEngine;
   }
@@ -80,7 +80,7 @@ export function parseRoleFile(raw: string, filePath: string, source: RoleSource)
     const arr = fmStringArray(data.tools) || [];
     const invalid = arr.filter((t) => !ALL_TOOL_CATEGORIES.includes(t as ToolCategory));
     if (invalid.length > 0) {
-      return { error: `Поле "tools" содержит неизвестные категории: ${invalid.join(', ')} (допустимо: ${ALL_TOOL_CATEGORIES.join(', ')})`, filePath };
+      return { error: `Field "tools" has unknown categories: ${invalid.join(', ')} (allowed: ${ALL_TOOL_CATEGORIES.join(', ')})`, filePath };
     }
     tools = arr as ToolCategory[];
   }
@@ -97,7 +97,7 @@ export function parseRoleFile(raw: string, filePath: string, source: RoleSource)
   const rawTier = fmString(data.modelTier ?? data.model_tier);
   if (rawTier !== undefined) {
     if (!isModelTier(rawTier)) {
-      return { error: `Поле "modelTier" должно быть одним из: ${MODEL_TIERS.join(', ')}`, filePath };
+      return { error: `Field "modelTier" must be one of: ${MODEL_TIERS.join(', ')}`, filePath };
     }
     modelTier = rawTier;
   }
@@ -105,7 +105,7 @@ export function parseRoleFile(raw: string, filePath: string, source: RoleSource)
   let permissions: RoleDefinition['permissions'];
   if (data.permissions !== undefined && data.permissions !== null) {
     if (typeof data.permissions !== 'object' || Array.isArray(data.permissions)) {
-      return { error: 'Поле "permissions" должно быть объектом', filePath };
+      return { error: 'Field "permissions" must be an object', filePath };
     }
     const p = data.permissions as Record<string, unknown>;
     permissions = {
@@ -166,7 +166,7 @@ async function readRolesFromDir(dir: string, source: RoleSource): Promise<{ role
       else roles.push(parsed);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      errors.push({ error: `Не удалось прочитать файл: ${message}`, filePath: fullPath });
+      errors.push({ error: `Could not read the file: ${message}`, filePath: fullPath });
     }
   }
   return { roles, errors };
@@ -217,7 +217,7 @@ function roleFilePath(scope: 'global' | 'project', slug: string, projectPath?: s
 
 /** Сохраняет роль (создание/редактирование) в global или project. */
 export async function saveRole(scope: 'global' | 'project', role: RoleDefinition, projectPath?: string): Promise<string> {
-  if (scope === 'project' && !projectPath) throw new Error('projectPath обязателен для сохранения проектной роли');
+  if (scope === 'project' && !projectPath) throw new Error('projectPath is required to save a project role');
   const dir = scope === 'global' ? getRolesDir() : getProjectRolesDir(projectPath!);
   await fs.mkdir(dir, { recursive: true });
   const filePath = roleFilePath(scope, role.slug, projectPath);

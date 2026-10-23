@@ -849,6 +849,11 @@ export const ru: TranslationDictionary = {
     sourceEmpty: 'В источнике нет скиллов.',
     nothingToDo: 'Нечего копировать: в выбранных каталогах скилл уже такой же.',
     outcome: { created: 'создан', overwritten: 'перезаписан', unchanged: 'без изменений', skipped: 'пропущен' },
+    skipReason: {
+      'same-copy': 'это та же копия',
+      'file-in-place': 'на месте скилла лежит файл',
+      'needs-overwrite': 'скилл уже есть и отличается — нужна явная перезапись'
+    },
     selectHint: 'Выберите скилл, чтобы увидеть файлы и SKILL.md.'
   },
   createTask: {
@@ -2254,6 +2259,7 @@ export const ru: TranslationDictionary = {
     addZip: 'Из zip',
     gitUrlPrompt: 'Адрес git-репозитория (https или ssh)',
     duplicate: 'Дублировать',
+    copyName: '{name} (копия)',
     remove: 'Удалить',
     update: 'Обновить (git pull)',
     openFolder: 'Открыть папку',

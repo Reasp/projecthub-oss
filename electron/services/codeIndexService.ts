@@ -6,6 +6,7 @@
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { AppError } from '../../src/lib/appError.js';
 import { detectStacks } from './initStack';
 import {
   defaultIndexSettings,
@@ -121,7 +122,7 @@ export async function getCodeIndexState(root: string): Promise<CodeIndexState> {
 
 function requireSettings(raw: unknown): CodeIndexSettings {
   const settings = normalizeIndexSettings(raw);
-  if (!settings) throw new Error('Некорректные настройки индексации');
+  if (!settings) throw new AppError('graph.invalidIndexSettings');
   return settings;
 }
 
