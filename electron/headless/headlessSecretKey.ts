@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { PhAgentError } from './phAgentText';
 
 /**
  * Шифр секретов ph-agent без `safeStorage` (TASK-130, [[decision-119]] п. 3): AES-256-GCM, ключ 32 байта под защитой
@@ -41,7 +42,7 @@ function readKey(file: string): Buffer {
   const text = raw.toString('utf8').trim();
   const fromHex = /^[0-9a-f]{64}$/i.test(text) ? Buffer.from(text, 'hex') : null;
   const key = fromHex ?? Buffer.from(text, 'base64');
-  if (key.length !== 32) throw new Error(`Key ${file} must be 32 bytes (raw, hex or base64)`);
+  if (key.length !== 32) throw new PhAgentError('keyWrongSize', { file });
   return key;
 }
 
@@ -57,7 +58,7 @@ function dpapi(op: 'Protect' | 'Unprotect', data: Buffer): Buffer {
     windowsHide: true,
     timeout: 30_000
   });
-  if (res.status !== 0) throw new Error(`DPAPI ${op} failed: ${(res.stderr || res.error?.message || '').trim().slice(0, 200)}`);
+  if (res.status !== 0) throw new PhAgentError('keyDpapiFailed', { op, detail: (res.stderr || res.error?.message || '').trim().slice(0, 200) });
   return Buffer.from(res.stdout.trim(), 'base64');
 }
 

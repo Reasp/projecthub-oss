@@ -4,8 +4,10 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { agentDataDir, agentHomeDir, secretKeySource } from './electronShim.js';
+import type { Language } from '../../src/i18n/types';
+import type { AppErrorParams } from '../../src/lib/appError';
+import { PhAgentError, phAgentDebug, phAgentErrorText, phAgentLanguage, phAgentText, rawFlagValue, type PhAgentTextKey } from './phAgentText.js';
 import {
-  HELP,
   WINDOWS_TASK_NAME,
   applyProjectRightsEdit,
   describeProjectRights,
@@ -30,13 +32,27 @@ import {
 const PID_FILE = 'ph-agent.pid';
 const PAIRING_FILE = 'pairing.txt';
 
+// Язык и отладка — до разбора аргументов: ошибку самого разбора тоже печатаем на языке вывода (TASK-212).
+const argv = process.argv.slice(2);
+const lang: Language = phAgentLanguage(rawFlagValue(argv, '--lang'), process.env);
+const debug = phAgentDebug(argv, process.env);
+
+function t(key: PhAgentTextKey, params?: AppErrorParams): string {
+  return phAgentText(lang, key, params);
+}
+
 function out(line = ''): void {
   process.stdout.write(`${line}\n`);
 }
 
-function fail(message: string): never {
-  process.stderr.write(`ph-agent: ${message}\n`);
+/** Ошибка без стека; стек — с `--debug` или `PH_AGENT_DEBUG=1`. */
+function fail(err: unknown): never {
+  process.stderr.write(`ph-agent: ${phAgentErrorText(err, lang, debug)}\n`);
   process.exit(1);
+}
+
+function failWith(key: PhAgentTextKey, params?: AppErrorParams): never {
+  fail(new PhAgentError(key, params));
 }
 
 function pidFile(): string {
@@ -73,12 +89,14 @@ function writePairing(text: string): string {
 
 async function start(args: PhAgentArgs): Promise<void> {
   const other = runningPid();
-  if (other) fail(`уже запущен (pid ${other}) с каталогом данных ${agentDataDir()}`);
+  if (other) failWith('alreadyRunning', { pid: other, dir: agentDataDir() });
   fs.mkdirSync(agentDataDir(), { recursive: true, mode: 0o700 });
   fs.writeFileSync(pidFile(), String(process.pid));
 
   const { logger, remoteControlService, projectRegistry } = await loadServices();
   logger.captureConsole();
+  // Язык, выбранный явно, — и язык хоста: на нём ph-agent пишет push, Telegram и уведомления (decision-161 п. 8).
+  if (args.lang || process.env.PH_AGENT_LANG) (await import('../services/hostLanguage.js')).setHostLanguage(lang);
   const [{ hitlService }, { agentFleetService }, { claudeBridgeService }, { mcpServerService }] = await Promise.all([
     import('../services/hitlService.js'),
     import('../services/agentFleetService.js'),
@@ -95,7 +113,7 @@ async function start(args: PhAgentArgs): Promise<void> {
   await loadEditionModules();
   claudeBridgeService.setCliPermissionBroker({ ensureEndpoint: () => mcpServerService.ensurePermissionEndpoint() });
   await mcpServerService.init();
-  if (!(await mcpServerService.start())) logger.warn('[ph-agent] MCP-сервер не запустился: HITL агентов Claude CLI недоступен');
+  if (!(await mcpServerService.start())) logger.warn(`[ph-agent] ${t('mcpNotStarted')}`);
 
   await remoteControlService.initOnStartup();
   await remoteControlService.updateConfig({
@@ -118,21 +136,27 @@ async function start(args: PhAgentArgs): Promise<void> {
   const addresses = remoteControlService.getPhoneEndpoints().filter((e) => e.kind === 'lan' || e.kind === 'vpn');
   const lines = [
     `hostId: ${status.hostId}`,
-    `Имя: ${status.machineName}`,
+    t('pairingName', { name: status.machineName }),
     `PIN: ${status.pairingPin}`,
-    ...addresses.map((e) => `Ссылка (${e.kind}): ${pairingLink({ address: new URL(e.url).host, hostId: status.hostId, secretKey: status.secretKey, hostKey: status.hostKey ?? '' })}`)
+    ...addresses.map((e) =>
+      t('pairingLink', {
+        kind: e.kind,
+        link: pairingLink({ address: new URL(e.url).host, hostId: status.hostId, secretKey: status.secretKey, hostKey: status.hostKey ?? '' })
+      })
+    )
   ];
   const pairing = writePairing(`${lines.join('\n')}\n`);
-  logger.info(`[ph-agent] Хост ${status.machineName} (${status.hostId}) слушает порт ${status.port}; отпечаток ключа ${status.hostKeyFingerprint}`);
-  logger.info(`[ph-agent] Данные для сопряжения: ${pairing} (или ph-agent pair-info)`);
+  logger.info(`[ph-agent] ${t('hostListening', { name: status.machineName, hostId: status.hostId, port: status.port, fingerprint: status.hostKeyFingerprint ?? '' })}`);
+  logger.info(`[ph-agent] ${t('pairingSaved', { file: pairing })}`);
 
   let stopping = false;
   const shutdown = async (signal: string) => {
     if (stopping) return;
     stopping = true;
-    logger.info(`[ph-agent] Остановка (${signal})`);
+    logger.info(`[ph-agent] ${t('stopping', { signal })}`);
     try {
-      await hitlService.shutdown('ph-agent остановлен');
+      // Причина отмены ожидающих запросов уходит агенту — английская.
+      await hitlService.shutdown('ph-agent is stopping');
       claudeBridgeService.killAll();
       await agentFleetService.shutdown();
       await mcpServerService.stop();
@@ -155,54 +179,54 @@ async function start(args: PhAgentArgs): Promise<void> {
 
 async function pairInfo(): Promise<void> {
   const file = path.join(agentDataDir(), PAIRING_FILE);
-  if (!fs.existsSync(file)) fail('ph-agent ещё не запускался с этим каталогом данных: выполните ph-agent start');
+  if (!fs.existsSync(file)) failWith('notStartedYet');
   out(fs.readFileSync(file, 'utf8').trim());
   out();
-  out('Управляющий ProjectHub: «Удалённые хосты» → «Добавить» → вставьте ссылку и при необходимости PIN.');
-  if (!runningPid()) out('ph-agent сейчас не запущен.');
+  out(t('pairHint'));
+  if (!runningPid()) out(t('notRunning'));
 }
 
 async function projects(args: PhAgentArgs): Promise<void> {
   const { projectRegistry } = await loadServices();
   if (args.command === 'add-project' || args.command === 'remove-project') {
     const target = args.rest[0] ? path.resolve(args.rest[0]) : '';
-    if (!target) fail(`укажите путь: ph-agent ${args.command} <путь>`);
+    if (!target) failWith('pathRequired', { command: args.command });
     if (args.command === 'add-project') {
-      if (!fs.existsSync(target)) fail(`нет каталога ${target}`);
+      if (!fs.existsSync(target)) failWith('noDirectory', { path: target });
       await projectRegistry.addProject(target);
-      out(`Добавлен: ${target}`);
+      out(t('projectAdded', { path: target }));
     } else {
       await projectRegistry.removeProject(target);
-      out(`Убран: ${target}`);
+      out(t('projectRemoved', { path: target }));
     }
-    if (runningPid()) out('Работающий ph-agent увидит изменение при следующем запросе списка проектов.');
+    if (runningPid()) out(t('runningSeesChange'));
     return;
   }
   const list = await projectRegistry.getProjects();
-  if (list.length === 0) out('Проектов нет: ph-agent add-project <путь>');
+  if (list.length === 0) out(t('noProjects'));
   for (const p of list) out(p.path);
 }
 
 async function devices(args: PhAgentArgs): Promise<void> {
   if (args.command === 'revoke') {
     const pid = runningPid();
-    if (pid) fail(`остановите ph-agent (pid ${pid}) перед отзывом: работающий процесс перезапишет список устройств`);
+    if (pid) failWith('stopBeforeRevoke', { pid });
   }
   const { remoteControlService } = await loadServices();
   await remoteControlService.initOnStartup();
   if (args.command === 'revoke') {
     const id = args.rest[0];
-    if (!id) fail('укажите deviceId: ph-agent revoke <deviceId>');
+    if (!id) failWith('revokeIdRequired');
     const removed = remoteControlService.revokeDeviceToken(id);
     // Запись токенов асинхронная — даём ей завершиться до выхода.
     await new Promise((r) => setTimeout(r, 300));
-    out(removed.length > 0 ? `Отозвано: ${removed.join(', ')}` : `Устройства ${id} нет`);
+    out(removed.length > 0 ? t('revoked', { ids: removed.join(', ') }) : t('noSuchDevice', { id }));
     return;
   }
   const list = remoteControlService.getPairedDevices();
-  if (list.length === 0) out('Сопряжённых устройств нет');
+  if (list.length === 0) out(t('noDevices'));
   for (const d of list) {
-    const scoped = d.projectRights ? '  права по проектам: ph-agent device-projects ' + d.deviceId : '';
+    const scoped = d.projectRights ? `  ${t('deviceProjectsHint', { id: d.deviceId })}` : '';
     out(`${d.deviceId}  ${d.rights}  ${d.name}  ${new Date(d.createdAt).toISOString().slice(0, 16)}${scoped}`);
   }
 }
@@ -210,28 +234,28 @@ async function devices(args: PhAgentArgs): Promise<void> {
 /** Права устройства по проектам (decision-144, decision-147): показать или изменить (при остановленном ph-agent). */
 async function deviceProjects(args: PhAgentArgs): Promise<void> {
   const id = args.rest[0];
-  if (!id) fail('укажите deviceId: ph-agent device-projects <deviceId> [--default …] [--project <путь>=…] [--reset]');
+  if (!id) failWith('deviceProjectsIdRequired');
   const edit = hasProjectRightsEdit(args.projectRights);
   if (edit) {
     const pid = runningPid();
-    if (pid) fail(`остановите ph-agent (pid ${pid}) перед сменой прав: работающий процесс перезапишет список устройств`);
+    if (pid) failWith('stopBeforeRights', { pid });
   }
   const { projectRegistry, remoteControlService } = await loadServices();
   await remoteControlService.initOnStartup();
   const device = remoteControlService.getPairedDevices().find((d) => d.deviceId === id);
-  if (!device) fail(`устройства ${id} нет: список — ph-agent devices`);
+  if (!device) failWith('deviceNotFound', { id });
   let rights = device.projectRights;
   if (edit) {
     rights = applyProjectRightsEdit(rights, args.projectRights, (p) => path.resolve(p));
     remoteControlService.setDeviceProjectRights(id, rights ?? null, 'cli');
     // Запись токенов асинхронная — даём ей завершиться до выхода.
     await new Promise((r) => setTimeout(r, 300));
-    out(rights ? 'Права по проектам сохранены.' : 'Настройки по проектам сняты: снова права устройства на все проекты.');
+    out(rights ? t('rightsSaved') : t('rightsCleared'));
   }
-  out(`${device.name} (${device.deviceId}), права устройства: ${device.rights}`);
+  out(t('deviceHeader', { name: device.name, id: device.deviceId, rights: device.rights }));
   const registry = (await projectRegistry.getProjects()).map((p) => p.path);
-  for (const line of describeProjectRights(device.rights, rights, registry)) out(`  ${line}`);
-  if (device.memberId) out(`  Участник ${device.memberId}: действует ещё потолок его роли в команде.`);
+  for (const line of describeProjectRights(device.rights, rights, registry, lang)) out(`  ${line}`);
+  if (device.memberId) out(`  ${t('memberCeiling', { member: device.memberId })}`);
 }
 
 async function status(): Promise<void> {
@@ -239,19 +263,19 @@ async function status(): Promise<void> {
   await remoteControlService.initOnStartup();
   const key = secretKeySource();
   const pid = runningPid();
-  out(`Каталог данных: ${agentDataDir()}`);
-  out(`Реестр проектов: ${path.join(agentHomeDir(), '.projecthub', 'projects.json')}`);
-  out(`Ключ секретов: ${key ? `${key.kind} (${key.path})` : 'нет'}`);
+  out(t('statusDataDir', { dir: agentDataDir() }));
+  out(t('statusRegistry', { file: path.join(agentHomeDir(), '.projecthub', 'projects.json') }));
+  out(t('statusKey', { key: key ? `${key.kind} (${key.path})` : t('none') }));
   out(`hostId: ${remoteControlService.getHostId()}`);
-  out(`Запущен: ${pid ? `да, pid ${pid}` : 'нет'}`);
-  out(`Проектов: ${(await projectRegistry.getProjects()).length}, устройств: ${remoteControlService.getPairedDevices().length}`);
+  out(t('statusRunning', { value: pid ? t('statusRunningPid', { pid }) : t('no') }));
+  out(t('statusCounts', { projects: (await projectRegistry.getProjects()).length, devices: remoteControlService.getPairedDevices().length }));
 }
 
 async function claudeLogin(): Promise<void> {
   const { defaultClaudeAccountDir } = await import('../services/claudeAccountService.js');
   const dir = defaultClaudeAccountDir();
   fs.mkdirSync(dir, { recursive: true });
-  out(`Вход в Claude Code для агентов ph-agent (CLAUDE_CONFIG_DIR=${dir}). В открывшемся claude выполните /login.`);
+  out(t('claudeLogin', { dir }));
   const child = spawn('claude', [], { stdio: 'inherit', env: { ...process.env, CLAUDE_CONFIG_DIR: dir }, shell: process.platform === 'win32' });
   await new Promise<void>((resolve) => child.on('exit', () => resolve()));
 }
@@ -268,12 +292,12 @@ function run(cmd: string, argv: string[], dryRun: boolean): void {
   out(`$ ${cmd} ${argv.join(' ')}`);
   if (dryRun) return;
   const res = spawnSync(cmd, argv, { stdio: 'inherit', windowsHide: true });
-  if (res.status !== 0) fail(`${cmd} завершился с кодом ${res.status ?? res.error?.message}`);
+  if (res.status !== 0) failWith('commandFailed', { command: cmd, code: res.status ?? res.error?.message ?? '' });
 }
 
 async function service(args: PhAgentArgs): Promise<void> {
   const action = args.rest[0];
-  if (action !== 'install' && action !== 'uninstall' && action !== 'status') fail('ph-agent service install|uninstall|status');
+  if (action !== 'install' && action !== 'uninstall' && action !== 'status') failWith('serviceUsage');
   const spec = serviceSpec(args);
   const dry = args.dryRun;
 
@@ -286,11 +310,11 @@ async function service(args: PhAgentArgs): Promise<void> {
       else {
         fs.mkdirSync(unitDir, { recursive: true });
         fs.writeFileSync(unit, text);
-        out(`Unit: ${unit}`);
+        out(t('unitWritten', { file: unit }));
       }
       run('systemctl', ['--user', 'daemon-reload'], dry);
       run('systemctl', ['--user', 'enable', '--now', 'ph-agent.service'], dry);
-      out(`Чтобы служба работала без входа в систему: sudo loginctl enable-linger ${os.userInfo().username}`);
+      out(t('lingerHint', { user: os.userInfo().username }));
     } else if (action === 'uninstall') {
       run('systemctl', ['--user', 'disable', '--now', 'ph-agent.service'], dry);
       if (!dry) fs.rmSync(unit, { force: true });
@@ -336,20 +360,20 @@ async function service(args: PhAgentArgs): Promise<void> {
     } else run('schtasks', ['/Query', '/TN', WINDOWS_TASK_NAME, '/V', '/FO', 'LIST'], dry);
     return;
   }
-  fail(`служба для ${process.platform} не поддерживается — запускайте ph-agent start своим супервизором`);
+  failWith('serviceUnsupported', { platform: process.platform });
 }
 
 async function main(): Promise<void> {
   let args: PhAgentArgs;
   try {
-    args = parseArgs(process.argv.slice(2));
+    args = parseArgs(argv);
   } catch (err) {
-    fail(err instanceof Error ? err.message : String(err));
+    fail(err);
   }
   if (args.data) process.env.PH_AGENT_DATA = path.resolve(args.data);
   switch (args.command) {
     case 'help':
-      out(HELP);
+      out(t('help'));
       return;
     case 'start':
       return start(args);
@@ -375,7 +399,7 @@ async function main(): Promise<void> {
 
 let keepAlive = false;
 try {
-  keepAlive = parseArgs(process.argv.slice(2)).command === 'start';
+  keepAlive = parseArgs(argv).command === 'start';
 } catch {
   // ошибку аргументов покажет main
 }
@@ -384,5 +408,5 @@ main().then(
     // Команды, кроме start, не держат процесс: сервисы оставляют таймеры, поэтому выходим явно.
     if (!keepAlive) setTimeout(() => process.exit(0), 200);
   },
-  (err) => fail(err instanceof Error ? err.stack || err.message : String(err))
+  (err) => fail(err)
 );

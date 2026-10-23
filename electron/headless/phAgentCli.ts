@@ -3,6 +3,8 @@
  * и файлы службы для systemd, launchd и планировщика Windows. Без файловой системы и процессов — тестируются unit.
  */
 import type { DeviceRights } from '../../src/types/remote';
+import type { Language } from '../../src/i18n/types';
+import { PhAgentError, phAgentText, type PhAgentTextKey } from './phAgentText';
 import {
   isProjectAccess,
   projectAccessFor,
@@ -35,6 +37,10 @@ export interface PhAgentArgs {
   relay?: string;
   data?: string;
   dryRun: boolean;
+  /** Язык вывода (`--lang`); без флага — `PH_AGENT_LANG` и язык системы (`phAgentLanguage`). */
+  lang?: Language;
+  /** Печатать стек ошибки (`--debug`). */
+  debug: boolean;
   /** Автозапуск назначенных этому хосту задач по `git pull` (decision-19 п. 5). */
   autoAssigned: boolean;
   /** Правка прав устройства по проектам (`device-projects`, decision-147). */
@@ -57,30 +63,35 @@ const COMMANDS = new Set<PhAgentCommand>(['start', 'pair-info', 'status', 'add-p
 
 function parseAccessEdit(raw: string, flag: string): ProjectAccessEdit {
   if (raw === 'inherit' || isProjectAccess(raw)) return raw;
-  throw new Error(`${flag}: none | readOnly | hitl | full | inherit`);
+  throw new PhAgentError('argAccess', { flag });
 }
 
 export function parseArgs(argv: readonly string[]): PhAgentArgs {
-  const out: PhAgentArgs = { command: 'start', rest: [], dryRun: false, autoAssigned: false, projectRights: { reset: false, projects: [] } };
+  const out: PhAgentArgs = { command: 'start', rest: [], dryRun: false, debug: false, autoAssigned: false, projectRights: { reset: false, projects: [] } };
   let commandSet = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const value = () => {
       const v = argv[++i];
-      if (v === undefined || v.startsWith('--')) throw new Error(`A value is required for ${a}`);
+      if (v === undefined || v.startsWith('--')) throw new PhAgentError('argValueRequired', { flag: a });
       return v;
     };
     if (a === '--help' || a === '-h') out.command = 'help';
     else if (a === '--name') out.name = value();
     else if (a === '--port') {
       const p = Number(value());
-      if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('--port: a number 1–65535');
+      if (!Number.isInteger(p) || p < 1 || p > 65535) throw new PhAgentError('argPort');
       out.port = p;
     } else if (a === '--relay') {
       const r = value();
-      if (!/^wss?:\/\/\S+$/i.test(r)) throw new Error('--relay: an address like wss://relay.example.com');
+      if (!/^wss?:\/\/\S+$/i.test(r)) throw new PhAgentError('argRelay');
       out.relay = r;
     } else if (a === '--data') out.data = value();
+    else if (a === '--lang') {
+      const l = value();
+      if (l !== 'en' && l !== 'ru') throw new PhAgentError('argLang');
+      out.lang = l;
+    } else if (a === '--debug') out.debug = true;
     else if (a === '--dry-run') out.dryRun = true;
     else if (a === '--auto-assigned') out.autoAssigned = true;
     else if (a === '--reset') out.projectRights.reset = true;
@@ -89,9 +100,9 @@ export function parseArgs(argv: readonly string[]): PhAgentArgs {
       // <путь>=<право>: путь может содержать «=», право — нет, поэтому делим по последнему.
       const v = value();
       const at = v.lastIndexOf('=');
-      if (at <= 0) throw new Error('--project: <path>=<none|readOnly|hitl|full|inherit>');
+      if (at <= 0) throw new PhAgentError('argProject');
       out.projectRights.projects.push({ path: v.slice(0, at), access: parseAccessEdit(v.slice(at + 1), a) });
-    } else if (a.startsWith('--')) throw new Error(`Unknown flag ${a}`);
+    } else if (a.startsWith('--')) throw new PhAgentError('argUnknownFlag', { flag: a });
     else if (!commandSet && COMMANDS.has(a as PhAgentCommand)) {
       if (out.command !== 'help') out.command = a as PhAgentCommand;
       commandSet = true;
@@ -99,28 +110,6 @@ export function parseArgs(argv: readonly string[]): PhAgentArgs {
   }
   return out;
 }
-
-export const HELP = `ph-agent — хост федерации ProjectHub без окна (decision-119)
-
-Команды:
-  start [--name N] [--port P] [--relay wss://…] [--auto-assigned]   запустить хост (по умолчанию)
-  pair-info                    адрес, PIN и ссылка сопряжения для «Удалённых хостов» управляющего ProjectHub
-  status                       каталог данных, ключ секретов, проекты, устройства
-  add-project <путь>           добавить проект в реестр хоста
-  remove-project <путь>        убрать проект из реестра
-  projects                     список проектов
-  devices                      сопряжённые устройства и их права
-  device-projects <deviceId>   права устройства по проектам хоста (decision-144)
-      [--default none|readOnly|hitl|full|inherit]     право для остальных и новых проектов
-      [--project <путь>=none|readOnly|hitl|full|inherit]   переопределение проекта (флаг повторяется)
-      [--reset]                снять все настройки — снова права устройства на все проекты
-      С флагами меняет права (ph-agent должен быть остановлен), без флагов — показывает их.
-  revoke <deviceId>            отозвать устройство (ph-agent должен быть остановлен)
-  claude-login                 войти в Claude Code для агентов этого хоста
-  service install|uninstall|status [--dry-run]   служба: systemd (Linux), LaunchAgent (macOS), планировщик (Windows)
-
-Окружение: PH_AGENT_DATA — каталог данных (~/.projecthub-agent), PH_AGENT_HOME — домашний каталог реестра проектов,
-PH_AGENT_KEY_FILE — ключ секретов, PH_AGENT_FEDERATION_SECRET — общий секрет федерации для каталога и LAN.`;
 
 /** Ссылка сопряжения в формате окна Remote Control: её понимает поле «Ссылка сопряжения» в «Удалённых хостах». */
 export function pairingLink(o: { address: string; hostId: string; secretKey: string; hostKey: string }): string {
@@ -138,6 +127,9 @@ export interface ServiceSpec {
   env: Record<string, string>;
 }
 
+/** Описание службы в файлах ОС — английское: файлы службы не зависят от языка установившего. */
+const SERVICE_DESCRIPTION = 'ProjectHub ph-agent — windowless federation host';
+
 function shellQuote(s: string): string {
   return /^[A-Za-z0-9_./:=@%+-]+$/.test(s) ? s : `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
 }
@@ -149,7 +141,7 @@ export function systemdUnit(spec: ServiceSpec): string {
     .map(([k, v]) => `Environment=${shellQuote(`${k}=${v}`)}`)
     .join('\n');
   return `[Unit]
-Description=ProjectHub ph-agent — хост федерации без окна
+Description=${SERVICE_DESCRIPTION}
 After=network-online.target
 Wants=network-online.target
 
@@ -159,7 +151,7 @@ ExecStart=${exec}
 ${env}
 Restart=always
 RestartSec=5
-# Ключ секретов можно передать как зашифрованный credential (systemd-creds encrypt):
+# The secret key can be passed as an encrypted credential (systemd-creds encrypt):
 # LoadCredentialEncrypted=ph-agent.key:%h/.config/ph-agent/ph-agent.key.cred
 NoNewPrivileges=yes
 
@@ -219,7 +211,7 @@ export function windowsTaskXml(spec: ServiceSpec, userId: string): string {
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>ProjectHub ph-agent — хост федерации без окна</Description>
+    <Description>${xml(SERVICE_DESCRIPTION)}</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -280,18 +272,24 @@ export function applyProjectRightsEdit(
 }
 
 /** Строки «право  путь  (откуда)» по проектам реестра и по переопределениям проектов, которых в реестре нет. */
-export function describeProjectRights(deviceRights: DeviceRights, rights: DeviceProjectRights | undefined, registry: readonly string[]): string[] {
+export function describeProjectRights(
+  deviceRights: DeviceRights,
+  rights: DeviceProjectRights | undefined,
+  registry: readonly string[],
+  lang: Language = 'en'
+): string[] {
+  const t = (key: PhAgentTextKey, params?: Record<string, string>) => phAgentText(lang, key, params);
   const lines: string[] = [];
   const known = new Set(registry.map(projectAccessKey));
   for (const p of registry) {
     const own = rights?.projects?.[projectAccessKey(p)];
-    const source = own ? 'переопределение' : rights?.defaultAccess ? 'для остальных проектов' : 'права устройства';
+    const source = own ? t('rightsOverride') : rights?.defaultAccess ? t('rightsForOthers') : t('rightsOfDevice');
     lines.push(`${projectAccessFor(deviceRights, rights, p).padEnd(8)}  ${p}  (${source})`);
   }
   for (const [key, access] of Object.entries(rights?.projects ?? {})) {
-    if (!known.has(key)) lines.push(`${access.padEnd(8)}  ${key}  (переопределение, проекта нет в реестре)`);
+    if (!known.has(key)) lines.push(`${access.padEnd(8)}  ${key}  (${t('rightsOverrideMissing')})`);
   }
-  lines.push(`Остальные и новые проекты: ${rights?.defaultAccess ?? `права устройства (${deviceRights})`}`);
+  lines.push(t('rightsOthers', { access: rights?.defaultAccess ?? t('rightsOthersDevice', { rights: deviceRights }) }));
   return lines;
 }
 

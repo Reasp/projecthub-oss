@@ -89,7 +89,7 @@ export const safeStorage = {
 
 export const shell = {
   openExternal: async () => false,
-  openPath: async () => 'Нет окна',
+  openPath: async () => 'No window',
   showItemInFolder: noop
 };
 

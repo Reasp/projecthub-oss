@@ -155,7 +155,7 @@ export class SecretStorageService {
         const buffer = this.cipher.encrypt(plainText);
         return `${ENCRYPTION_PREFIX}${buffer.toString('base64')}`;
       } catch (err) {
-        console.warn('[SecretStorage] safeStorage.encryptString failed, using plain fallback:', err);
+        console.warn('[SecretStorage] safeStorage.encryptString failed, using plain fallback:', err instanceof Error ? err.message : err);
         return plainText;
       }
     }
