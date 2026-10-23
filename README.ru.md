@@ -229,7 +229,7 @@ npx electron-builder --win --dir             # быстрая распакова
 
 | ОС | Файлы в релизе | Автообновление |
 |---|---|---|
-| Windows | установщик `nsis` (`ProjectHub Setup <версия>.exe`), `portable` (`ProjectHub <версия>.exe`) | да (nsis) |
+| Windows | установщик `nsis` (`ProjectHub-Setup-<версия>.exe`), `portable` (`ProjectHub-<версия>.exe`) | да (nsis) |
 | macOS | `dmg` и `zip`, arm64 и x64 | нет — ad-hoc-подпись без сертификата (decision-14); приложение показывает ссылку на релиз вместо автоустановки |
 | Linux | `AppImage` | да |
 

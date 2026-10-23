@@ -229,7 +229,7 @@ quality gate local (`npm run build`, git hooks — decision-148). The mirror has
 
 | OS | Files in the release | Auto-update |
 |---|---|---|
-| Windows | `nsis` installer (`ProjectHub Setup <version>.exe`), `portable` (`ProjectHub <version>.exe`) | yes (nsis) |
+| Windows | `nsis` installer (`ProjectHub-Setup-<version>.exe`), `portable` (`ProjectHub-<version>.exe`) | yes (nsis) |
 | macOS | `dmg` and `zip`, arm64 and x64 | no — ad-hoc signed build without a certificate (decision-14); the app shows a link to the release instead of installing automatically |
 | Linux | `AppImage` | yes |
 

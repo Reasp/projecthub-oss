@@ -33,10 +33,48 @@ env:
   PROJECTHUB_EDITION: open
 
 jobs:
+  # The GitHub Release is created once, before the OS matrix: when three electron-builder jobs run
+  # `--publish always` in parallel and no release exists yet, each creates its own and the tag ends up
+  # with duplicate releases (happened with v0.1.36). With the release in place, every job only uploads
+  # its files into it. On a re-run the release already exists and is reused.
+  release:
+    name: github release
+    if: github.repository == 'Reasp/projecthub-oss' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # A release is published for the version in package.json (electron-builder looks the release up by
+      # `v<version>`), so the tag must match it exactly: `git tag v$(node -p "require('./package.json').version")`.
+      - name: Tag matches package.json version
+        shell: bash
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_NAME}" != "${expected}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version (${expected}); tag the commit whose version you release"
+            exit 1
+          fi
+
+      - name: Create the GitHub Release once
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "release ${GITHUB_REF_NAME} already exists, the build jobs upload into it"
+          else
+            gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --verify-tag \
+              --title "ProjectHub ${GITHUB_REF_NAME}" \
+              --notes "Open edition of ProjectHub ${GITHUB_REF_NAME}. Windows: ProjectHub-Setup-<version>.exe (installer) or ProjectHub-<version>.exe (portable). macOS: .dmg or .zip, arm64 and x64, unsigned build. Linux: .AppImage. The latest*.yml files are used by the in-app updater."
+          fi
+
   build:
     name: ${{ matrix.name }}
-    # Only in the public mirror: the source repository builds locally (decision-148).
-    if: github.repository == 'Reasp/projecthub-oss'
+    needs: release
+    # Only in the public mirror: the source repository builds locally (decision-148). `release` is skipped
+    # for branch builds and must have succeeded for tag builds.
+    if: ${{ !cancelled() && github.repository == 'Reasp/projecthub-oss' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -76,18 +114,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # A release is published for the version in package.json (electron-builder names the GitHub Release
-      # after it), so the tag must match it exactly: `git tag v$(node -p "require('./package.json').version")`.
-      - name: Tag matches package.json version
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          expected="v$(node -p "require('./package.json').version")"
-          if [ "${GITHUB_REF_NAME}" != "${expected}" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version (${expected}); tag the commit whose version you release"
-            exit 1
-          fi
-
       - name: Build stamp (build/build-info.json)
         run: node scripts/build-info.mjs
 
@@ -101,8 +127,8 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: npx electron-builder ${{ matrix.builder }} --publish never
 
-      # `--publish always` builds the distributables and uploads them with latest*.yml to the GitHub
-      # Release of the tag in the mirror (package.json → build.publish), creating the release if needed.
+      # `--publish always` builds the distributables and uploads them with latest*.yml into the GitHub
+      # Release of the tag in the mirror (package.json → build.publish), created by the `release` job above.
       - name: Package and publish to GitHub Release (${{ matrix.builder }})
         if: startsWith(github.ref, 'refs/tags/v')
         run: npx electron-builder ${{ matrix.builder }} --publish always
