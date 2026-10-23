@@ -1,0 +1,124 @@
+# Open edition of ProjectHub: the only workflow that runs in the public mirror `Reasp/projecthub-oss`
+# (decision-158 п. 2, decision-167, TASK-213). The mirror holds just what is needed to build the free
+# edition, so this workflow does not run the full local gate of the source (`npm run build`: docs, tests,
+# ESLint) — that gate runs locally in the source repository (decision-148). Here: install → build stamp →
+# `npm run build:open` (main, preload, renderer, ph-agent without ee/, bundle check) → electron-builder.
+#
+#   push to main / pull request  → distributables as workflow artifacts (14 days), nothing is published
+#   tag v*                       → the same build, published to the tag's GitHub Release of the mirror
+#                                  together with latest.yml / latest-mac.yml / latest-linux.yml
+#
+# The private source repository has `.github/workflows/ci.yml` and `release.yml` of its own and they are
+# not copied into the mirror (`scripts/release/mirror-paths.json`); this file is copied into the mirror and
+# skipped in the source by the `if:` below.
+name: Open edition
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: open-edition-${{ github.ref }}
+  # A release build must never be cancelled by a newer push; branch builds may be.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: write
+
+env:
+  PROJECTHUB_EDITION: open
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    # Only in the public mirror: the source repository builds locally (decision-148).
+    if: github.repository == 'Reasp/projecthub-oss'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            builder: --win
+          - os: macos-latest
+            name: macos
+            builder: --mac
+          - os: ubuntu-latest
+            name: linux
+            builder: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache electron-builder
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-builder-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-builder-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A release is published for the version in package.json (electron-builder names the GitHub Release
+      # after it), so the tag must match it exactly: `git tag v$(node -p "require('./package.json').version")`.
+      - name: Tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_NAME}" != "${expected}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version (${expected}); tag the commit whose version you release"
+            exit 1
+          fi
+
+      - name: Build stamp (build/build-info.json)
+        run: node scripts/build-info.mjs
+
+      - name: Build open edition (main, preload, renderer, ph-agent, bundle check)
+        run: npm run build:open
+
+      - name: Heavy dependencies stay external to main.js
+        run: node scripts/check-bundle.mjs
+
+      - name: Package (${{ matrix.builder }})
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npx electron-builder ${{ matrix.builder }} --publish never
+
+      # `--publish always` builds the distributables and uploads them with latest*.yml to the GitHub
+      # Release of the tag in the mirror (package.json → build.publish), creating the release if needed.
+      - name: Package and publish to GitHub Release (${{ matrix.builder }})
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npx electron-builder ${{ matrix.builder }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload distributables
+        uses: actions/upload-artifact@v4
+        with:
+          name: projecthub-open-${{ matrix.name }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.yml
+            release/*.blockmap
+          retention-days: 14
+          if-no-files-found: error

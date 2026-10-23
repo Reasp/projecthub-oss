@@ -1,6 +1,6 @@
 {
   "name": "project-hub",
-  "version": "0.1.35",
+  "version": "0.1.36",
   "private": true,
   "description": "ProjectHub — Единая десктопная панель управления проектами с обвязкой ProjectTemplate (Backlog.md, Git, RAG, MCP, Dev-окружение)",
   "main": "dist-electron/main.js",
@@ -104,7 +104,8 @@
     "publish": {
       "provider": "github",
       "owner": "Reasp",
-      "repo": "ProjectHub"
+      "repo": "projecthub-oss",
+      "releaseType": "release"
     },
     "win": {
       "icon": "build/icon.ico",

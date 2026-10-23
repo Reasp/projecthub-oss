@@ -210,39 +210,45 @@ npx electron-builder --linux AppImage        # Linux
 npx electron-builder --win --dir             # quick unpacked build: release/win-unpacked/
 ```
 
-The mirror is regenerated from the private source on every release; pull requests are accepted there and transferred into the source (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+The same steps run in the mirror's GitHub Actions (`.github/workflows/open-edition.yml`, see [CI/CD and releases](#cicd-and-releases)). The mirror is regenerated from the private source on every release; pull requests are accepted there and transferred into the source (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ---
 
 ## CI/CD and releases
 
-CI (`.github/workflows/ci.yml`) runs the full local gate (`npm run build`: validate-docs,
-check-index, ESLint, Vitest, `tsc`, `vite build`, `check-bundle`) on a
-`windows-latest` / `macos-latest` / `ubuntu-latest` matrix for every PR and push to `master`, and
-also builds an unpacked `--dir` build on each OS as an artifact (for quick manual checks, not
-for distribution).
+Builds and releases of the open edition run in the public mirror `projecthub-oss`, not in the private
+source (decision-167): GitHub Actions minutes are free for a public repository, and the source keeps its
+quality gate local (`npm run build`, git hooks — decision-148). The mirror has a single workflow,
+`.github/workflows/open-edition.yml`, on a `windows-latest` / `macos-latest` / `ubuntu-latest` matrix:
 
-The release workflow (`.github/workflows/release.yml`) is triggered by a `v*` tag (e.g. `v0.2.0`): on each
-OS the same gate runs, then `electron-builder --publish always` builds and publishes
-the distributables to the tag's GitHub Release along with `latest.yml` / `latest-mac.yml` / `latest-linux.yml`,
-which `electron-updater` uses to check for updates:
+- **push to `main` or a pull request** — `npm ci` → `build-info` → `npm run build:open` → `check-bundle` →
+  `electron-builder`; the distributables are kept as workflow artifacts for 14 days, nothing is published;
+- **tag `v*`** — the same build, then `electron-builder --publish always` uploads the distributables together
+  with `latest.yml` / `latest-mac.yml` / `latest-linux.yml` to the tag's GitHub Release of the mirror
+  (`package.json → build.publish`), which `electron-updater` uses to check for updates.
 
-| OS | Formats | Auto-update |
+| OS | Files in the release | Auto-update |
 |---|---|---|
-| Windows | `nsis` (installer), `portable` | yes (nsis) |
-| macOS | `dmg`, `zip` | no — unsigned build (decision-14); the app shows a link to the release instead of installing automatically |
+| Windows | `nsis` installer (`ProjectHub Setup <version>.exe`), `portable` (`ProjectHub <version>.exe`) | yes (nsis) |
+| macOS | `dmg` and `zip`, arm64 and x64 | no — ad-hoc signed build without a certificate (decision-14); the app shows a link to the release instead of installing automatically |
 | Linux | `AppImage` | yes |
 
-To cut a release: bump `version` in `package.json`, commit, and push a tag
-(`git tag v0.2.0 && git push origin v0.2.0`) — the workflow does the rest. The repository token
-(`GITHUB_TOKEN`) for publishing to Releases is provided by Actions automatically; there is nothing
-else to configure.
+The download page of the website links to these release assets (`https://github.com/Reasp/projecthub-oss/releases`).
+The mobile client is not part of the release yet: its APK is signed with a debug key only.
 
-**`master` branch protection**: in GitHub → Settings → Branches, add a rule for `master` with
-`Require a pull request before merging` and `Require status checks to pass`, requiring the
-`build (ubuntu-latest)` / `build (windows-latest)` / `build (macos-latest)` checks from CI.
-Merges into `master` go only through PRs with green CI; agents do not commit or merge into `master`
-on their own (rule 9 of CLAUDE.md) — that is up to the user.
+To cut a release, in the source repository: the version is bumped automatically on every commit with code
+(decision-148), so tag the commit whose `package.json` version you release and publish the mirror — the script
+transfers `main` and the `v*` tags, and the tag starts the release workflow:
+
+```bash
+git tag v$(node -p "require('./package.json').version")
+node scripts/release/publish-mirror.mjs
+```
+
+The workflow refuses a tag that does not match the `package.json` version. The repository token
+(`GITHUB_TOKEN`) for publishing to Releases is provided by Actions automatically; there is nothing else
+to configure. Pull requests to the mirror get the same build as a status check; merges into the source go
+only through its local gate, and agents do not commit or merge on their own (rule 9 of CLAUDE.md).
 
 On-site diagnostics: the "Diagnostics" tab (icon in the header next to MCP) shows the version,
 checks for updates on demand and at startup, and collects a log archive (`main.log` + rotations +

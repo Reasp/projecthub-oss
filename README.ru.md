@@ -210,39 +210,45 @@ npx electron-builder --linux AppImage        # Linux
 npx electron-builder --win --dir             # быстрая распакованная сборка: release/win-unpacked/
 ```
 
-Зеркало пересобирается из приватного источника при каждом выпуске; pull request'ы принимаются в нём и переносятся в источник (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
+Те же шаги выполняет GitHub Actions зеркала (`.github/workflows/open-edition.yml`, см. [CI/CD и релизы](#cicd-и-релизы)). Зеркало пересобирается из приватного источника при каждом выпуске; pull request'ы принимаются в нём и переносятся в источник (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ---
 
 ## CI/CD и релизы
 
-CI (`.github/workflows/ci.yml`) гоняет полный локальный гейт (`npm run build`: validate-docs,
-check-index, ESLint, Vitest, `tsc`, `vite build`, `check-bundle`) на матрице
-`windows-latest` / `macos-latest` / `ubuntu-latest` на каждый PR и push в `master`, плюс
-собирает распакованный `--dir`-билд на каждой ОС как артефакт (для быстрой ручной проверки, не
-для распространения).
+Сборки и релизы открытой редакции идут в публичном зеркале `projecthub-oss`, а не в приватном
+источнике (decision-167): у публичного репозитория минуты GitHub Actions бесплатны, а источник держит
+гейт качества локально (`npm run build`, git-хуки — decision-148). В зеркале один workflow,
+`.github/workflows/open-edition.yml`, на матрице `windows-latest` / `macos-latest` / `ubuntu-latest`:
 
-Релиз (`.github/workflows/release.yml`) запускается на тег `v*` (например `v0.2.0`): на каждой
-ОС проходит тот же гейт, затем `electron-builder --publish always` собирает и публикует
-дистрибутивы в GitHub Release тега вместе с `latest.yml` / `latest-mac.yml` / `latest-linux.yml`,
-по которым `electron-updater` проверяет обновления:
+- **push в `main` или pull request** — `npm ci` → `build-info` → `npm run build:open` → `check-bundle` →
+  `electron-builder`; дистрибутивы хранятся как артефакты workflow 14 дней, ничего не публикуется;
+- **тег `v*`** — та же сборка, затем `electron-builder --publish always` загружает дистрибутивы вместе с
+  `latest.yml` / `latest-mac.yml` / `latest-linux.yml` в GitHub Release тега в зеркале
+  (`package.json → build.publish`), по которым `electron-updater` проверяет обновления.
 
-| ОС | Форматы | Автообновление |
+| ОС | Файлы в релизе | Автообновление |
 |---|---|---|
-| Windows | `nsis` (установщик), `portable` | да (nsis) |
-| macOS | `dmg`, `zip` | нет — сборка без подписи (decision-14); приложение показывает ссылку на релиз вместо автоустановки |
+| Windows | установщик `nsis` (`ProjectHub Setup <версия>.exe`), `portable` (`ProjectHub <версия>.exe`) | да (nsis) |
+| macOS | `dmg` и `zip`, arm64 и x64 | нет — ad-hoc-подпись без сертификата (decision-14); приложение показывает ссылку на релиз вместо автоустановки |
 | Linux | `AppImage` | да |
 
-Чтобы выпустить релиз: поднять `version` в `package.json`, закоммитить, поставить тег
-(`git tag v0.2.0 && git push origin v0.2.0`) — остальное делает workflow. Токен репозитория
-(`GITHUB_TOKEN`) для публикации в Releases пробрасывается Actions автоматически, отдельно
-настраивать нечего.
+Страница загрузок сайта ссылается на файлы этих релизов (`https://github.com/Reasp/projecthub-oss/releases`).
+Мобильный клиент в релиз пока не входит: его APK подписан только отладочным ключом.
 
-**Защита ветки `master`**: включить в GitHub → Settings → Branches → правило для `master` —
-`Require a pull request before merging` и `Require status checks to pass` с обязательной
-проверкой `build (ubuntu-latest)` / `build (windows-latest)` / `build (macos-latest)` из CI.
-Слияние в `master` идёт только через PR с зелёным CI; агент не коммитит и не мержит в `master`
-самостоятельно (правило 9 CLAUDE.md) — это делает пользователь.
+Чтобы выпустить релиз, в репозитории-источнике: версия поднимается автоматически в каждом коммите с кодом
+(decision-148), поэтому поставьте тег на коммит с той версией `package.json`, которую выпускаете, и
+опубликуйте зеркало — скрипт переносит `main` и теги `v*`, а тег запускает workflow релиза:
+
+```bash
+git tag v$(node -p "require('./package.json').version")
+node scripts/release/publish-mirror.mjs
+```
+
+Тег, не совпадающий с версией `package.json`, workflow отклоняет. Токен репозитория
+(`GITHUB_TOKEN`) для публикации в Releases пробрасывается Actions автоматически, отдельно
+настраивать нечего. Pull request'ы в зеркало получают ту же сборку как проверку статуса; слияние в источник
+идёт только через его локальный гейт, агент не коммитит и не мержит самостоятельно (правило 9 CLAUDE.md).
 
 Диагностика на месте: вкладка «Диагностика» (иконка в шапке рядом с MCP) показывает версию,
 проверяет обновления по кнопке и на старте, и собирает архив логов (`main.log` + ротации +
