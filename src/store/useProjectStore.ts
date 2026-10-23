@@ -55,7 +55,7 @@ export function isProcessOfAction(p: ManagedProcess, workspaceRoot: string, def:
 }
 import { getDictionary, type Language } from '../i18n';
 import { LANGUAGE_STORAGE_KEY, resolveInitialLanguage } from '../i18n/initialLanguage';
-import { appErrorText } from '../lib/appErrorText';
+import { appErrorText, appFailureText } from '../lib/appErrorText';
 import { fallbackStatusConfig, type BacklogProjectConfig } from '../utils/taskStatus';
 import { buildRenumberMessage } from '../utils/renumberMessage';
 import { useDialogStore } from './useDialogStore';
@@ -79,15 +79,18 @@ async function mergeWithRenumberConfirm(
   target: string,
   language: Language
 ): Promise<MergeWorktreeResult> {
+  // Текст ошибки — сразу на языке интерфейса: его показывают окно слияния, инспектор git и журнал терминала.
+  const localized = (res: MergeWorktreeResult): MergeWorktreeResult =>
+    res.success || !res.error ? res : { ...res, error: appFailureText(res, getDictionary(language).appErrors) };
   const first = await merge();
-  if (!first.renumberRequired) return first;
+  if (!first.renumberRequired) return localized(first);
   const t = getDictionary(language).git;
   const ok = await useDialogStore.getState().confirm({
     title: t.renumberTitle,
     message: buildRenumberMessage(first.renumberRequired, branch, target, t),
     confirmText: t.renumberConfirm
   });
-  return ok ? merge({ renumber: true }) : first;
+  return localized(ok ? await merge({ renumber: true }) : first);
 }
 
 export interface RunActionOptions {
@@ -1766,7 +1769,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return res;
     } catch (e: any) {
       console.error('Failed to merge branch:', e);
-      return { success: false, error: e?.message || String(e) };
+      return { success: false, error: appErrorText(e, getDictionary(get().language).appErrors) };
     }
   },
 
@@ -2121,7 +2124,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return res;
     } catch (e: any) {
       console.error('Failed to merge worktree:', e);
-      return { success: false, error: e.message || String(e) };
+      return { success: false, error: appErrorText(e, getDictionary(get().language).appErrors) };
     }
   },
 
@@ -2309,7 +2312,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       set({ docContent: content, isDocDirty: false });
     } catch (e) {
       console.error('Failed to read doc content:', e);
-      set({ docContent: 'Не удалось загрузить содержимое документа.' });
+      set({ docContent: getDictionary(get().language).docs.loadFailed });
     } finally {
       set({ isDocLoading: false });
     }
@@ -2401,7 +2404,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return created;
     } catch (e: any) {
       console.error('Failed to create doc:', e);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.docCreateError, { message: e.message }));
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.docCreateError, { message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return null;
     }
   },

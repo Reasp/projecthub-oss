@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { AppError, type AppErrorParam } from '../../src/lib/appError.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 
 /**
  * Проверка принадлежности путей корню проекта (TASK-32).
@@ -11,9 +13,10 @@ import path from 'node:path';
 /** Windows и macOS сравнивают пути без учёта регистра. */
 const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
 
-export class PathOutsideProjectError extends Error {
-  constructor(message: string) {
-    super(message);
+/** Отказ охраны путей: код `access.*` (decision-165) — окно и телефон показывают его на своём языке. */
+export class PathOutsideProjectError extends AppError {
+  constructor(code: AppErrorCode, params?: Record<string, AppErrorParam>) {
+    super(code, params);
     this.name = 'PathOutsideProjectError';
   }
 }
@@ -47,9 +50,7 @@ export function isInsideProject(projectPath: string, targetPath: string): boolea
  */
 export function assertInsideProject(projectPath: string, filePath: string): string {
   if (!isInsideProject(projectPath, filePath)) {
-    throw new PathOutsideProjectError(
-      `Доступ запрещён: путь "${filePath}" находится вне корня проекта "${projectPath}"`
-    );
+    throw new PathOutsideProjectError('access.outsideProject', { path: filePath, root: projectPath });
   }
   return path.resolve(path.resolve(projectPath), filePath);
 }

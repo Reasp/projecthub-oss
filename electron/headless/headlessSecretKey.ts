@@ -26,7 +26,7 @@ export function sealSecret(key: Buffer, plain: string): Buffer {
 }
 
 export function openSecret(key: Buffer, sealed: Buffer): string {
-  if (sealed.length < MAGIC.length + IV + TAG || !sealed.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('Неизвестный формат секрета');
+  if (sealed.length < MAGIC.length + IV + TAG || !sealed.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('Unknown secret format');
   const iv = sealed.subarray(MAGIC.length, MAGIC.length + IV);
   const tag = sealed.subarray(MAGIC.length + IV, MAGIC.length + IV + TAG);
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
@@ -41,7 +41,7 @@ function readKey(file: string): Buffer {
   const text = raw.toString('utf8').trim();
   const fromHex = /^[0-9a-f]{64}$/i.test(text) ? Buffer.from(text, 'hex') : null;
   const key = fromHex ?? Buffer.from(text, 'base64');
-  if (key.length !== 32) throw new Error(`Ключ ${file} должен быть 32 байта (raw, hex или base64)`);
+  if (key.length !== 32) throw new Error(`Key ${file} must be 32 bytes (raw, hex or base64)`);
   return key;
 }
 
@@ -57,7 +57,7 @@ function dpapi(op: 'Protect' | 'Unprotect', data: Buffer): Buffer {
     windowsHide: true,
     timeout: 30_000
   });
-  if (res.status !== 0) throw new Error(`DPAPI ${op} не удался: ${(res.stderr || res.error?.message || '').trim().slice(0, 200)}`);
+  if (res.status !== 0) throw new Error(`DPAPI ${op} failed: ${(res.stderr || res.error?.message || '').trim().slice(0, 200)}`);
   return Buffer.from(res.stdout.trim(), 'base64');
 }
 

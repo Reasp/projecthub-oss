@@ -7,6 +7,7 @@
  * у записи может быть `source` — откуда она взялась (правка в UI или импорт OpenRouter).
  */
 
+import { AppError } from '../../src/lib/appError.js';
 import { isValidPriceValue, normalizeModelId, type ModelPrice } from './agentCost.js';
 
 export type PriceOverrideSource = 'manual' | 'openrouter';
@@ -104,7 +105,7 @@ function perMillion(value: unknown): number | undefined | null {
 export function parseOpenRouterModels(json: unknown): OpenRouterImportResult {
   const result: OpenRouterImportResult = { entries: [], skipped: { variant: 0, dynamic: 0, invalid: 0, duplicate: 0 }, total: 0 };
   const data = json && typeof json === 'object' ? (json as { data?: unknown }).data : undefined;
-  if (!Array.isArray(data)) throw new Error('Неожиданный ответ OpenRouter: нет массива data.');
+  if (!Array.isArray(data)) throw new AppError('pricing.openRouterUnexpected');
   const byId = new Map<string, { entry: OpenRouterImportedPrice; canonical: boolean }>();
   for (const item of data) {
     result.total += 1;

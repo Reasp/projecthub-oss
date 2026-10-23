@@ -1,4 +1,5 @@
 import type { ProcessEntry } from './processSweep';
+import { AppError } from '../../src/lib/appError.js';
 
 /**
  * Идентичность процессов из реестра env-tools `.env-state/processes.json` (TASK-111, decision-59, decision-60).
@@ -112,7 +113,7 @@ export async function resolveEntryStatuses(
   } catch (err) {
     if (strict) {
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Не удалось проверить время старта процессов: ${message}`, { cause: err });
+      throw Object.assign(new AppError('processes.startTimeCheckFailed', { detail: message }), { cause: err });
     }
     startTimes = new Map([...alivePids].map((pid) => [pid, null]));
   }

@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import matter from 'gray-matter';
+import { AppError } from '../../src/lib/appError';
 import type { DocItem, CreateDocParams, DocFileType, DecisionStatus, DocLinkIndex, ProjectGraph } from '../../src/types/electron';
 import { normalizeSection, sectionFromRelativePath } from '../../src/utils/docTree';
 import { buildDocLinkIndex, type DocLinkSource } from '../../src/utils/docBacklinks';
@@ -319,7 +320,7 @@ async function collectDocLinkSources(projectPath: string): Promise<DocGraphSourc
 export async function readDocFile(filePath: string): Promise<string> {
   const normalized = path.normalize(filePath);
   if (!existsSync(normalized)) {
-    throw new Error(`Файл не найден: ${normalized}`);
+    throw new AppError('docs.fileNotFound', { path: normalized });
   }
   return await fs.readFile(normalized, 'utf-8');
 }
@@ -395,7 +396,7 @@ export async function createProjectDoc(
   const prefix = idPrefix(category);
   const cleanTitle = params.title.trim();
   if (!cleanTitle) {
-    throw new Error('Название документа не может быть пустым');
+    throw new AppError('docs.titleEmpty');
   }
 
   const targetDir = path.join(normalizedProject, 'backlog', category === 'decision' ? 'decisions' : 'docs');
@@ -452,7 +453,7 @@ export interface RenderedDocFile {
 export function renderNewDocFile(params: CreateDocParams, id: string): RenderedDocFile {
   const category: DocCategory = params.type === 'decision' ? 'decision' : 'doc';
   const cleanTitle = params.title.trim();
-  if (!cleanTitle) throw new Error('Название документа не может быть пустым');
+  if (!cleanTitle) throw new AppError('docs.titleEmpty');
   const user = splitUserContent(params.content);
   const tags = (params.tags && params.tags.length > 0 ? params.tags : toStringList(user.data.tags))
     .map((t) => t.trim())

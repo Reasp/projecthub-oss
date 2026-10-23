@@ -9,6 +9,8 @@ import type {
   RemoteReviewReport,
   RemoteReviewScreenshot
 } from '../../src/types/remote.js';
+import { asAppErrorKey, formatAppError, type AppErrorKey } from '../../src/lib/appError.js';
+import { appErrorTextEn } from '../../src/i18n/appErrorText.js';
 
 /**
  * «Входящие» телефона на стороне хоста (TASK-140.5, [[decision-117]]): чистые функции без Electron — какие события
@@ -25,6 +27,21 @@ const FEED_ORIGINS = new Set(['swarm', 'handoff', 'assigned', 'automation']);
 
 const BODY_MAX = 1000;
 
+/** Заголовок по коду: английский текст для старых клиентов и код рядом. */
+function keyed(key: AppErrorKey): { text: string; key: AppErrorKey } {
+  return { text: formatAppError(key, appErrorTextEn) ?? key.code, key };
+}
+
+/** Имя агента или «Агент» кодом — на языке телефона. */
+function agentParam(name: string | undefined): AppErrorKey | string {
+  return name || { code: 'inbox.agentFallback' };
+}
+
+function titled(key: AppErrorKey): { title: string; titleKey: AppErrorKey } {
+  const { text } = keyed(key);
+  return { title: text, titleKey: key };
+}
+
 function cut(text: string | undefined, max = BODY_MAX): string | undefined {
   if (!text) return undefined;
   const t = text.trim();
@@ -40,7 +57,7 @@ export function inboxEventFromBus(event: AppBusEvent): Omit<RemoteInboxEvent, 'i
       return {
         kind: 'agent_done',
         at: event.at,
-        title: `${event.agentName || event.role || 'Агент'} завершил работу`,
+        ...titled({ code: 'inbox.agentDone', params: { agent: agentParam(event.agentName || event.role) } }),
         projectPath: event.projectPath,
         ...(event.agentName ? { agentName: event.agentName } : {}),
         ...(event.role ? { role: event.role } : {}),
@@ -51,7 +68,7 @@ export function inboxEventFromBus(event: AppBusEvent): Omit<RemoteInboxEvent, 'i
       return {
         kind: 'agent_failed',
         at: event.at,
-        title: `${event.agentName || event.role || 'Агент'} упал`,
+        ...titled({ code: 'inbox.agentFailed', params: { agent: agentParam(event.agentName || event.role) } }),
         body: cut(event.error),
         projectPath: event.projectPath,
         ...(event.agentName ? { agentName: event.agentName } : {}),
@@ -63,7 +80,7 @@ export function inboxEventFromBus(event: AppBusEvent): Omit<RemoteInboxEvent, 'i
       return {
         kind: 'automation_failed',
         at: event.at,
-        title: `Automations: «${event.ruleName}» не выполнено`,
+        ...titled({ code: 'inbox.automationFailed', params: { rule: event.ruleName } }),
         body: cut(event.detail),
         ...(event.projectPath ? { projectPath: event.projectPath } : {}),
         ...(event.swarmId ? { swarmId: event.swarmId } : {})
@@ -72,8 +89,8 @@ export function inboxEventFromBus(event: AppBusEvent): Omit<RemoteInboxEvent, 'i
       return {
         kind: 'automation_suspended',
         at: event.at,
-        title: `Automations: «${event.ruleName}» приостановлено до полуночи`,
-        body: event.reason === 'budget' ? 'Исчерпан дневной бюджет' : 'Исчерпано дневное число запусков',
+        ...titled({ code: 'inbox.automationSuspended', params: { rule: event.ruleName } }),
+        ...((key: AppErrorKey) => ({ body: keyed(key).text, bodyKey: key }))({ code: event.reason === 'budget' ? 'inbox.dailyBudgetSpent' : 'inbox.dailyRunsSpent' }),
         ...(event.projectPath ? { projectPath: event.projectPath } : {})
       };
     default:
@@ -143,6 +160,10 @@ export function normalizeInboxEvents(raw: unknown): RemoteInboxEvent[] {
       if (value) entry[key] = value;
     }
     if (LEVELS.has(level)) entry.level = level;
+    const titleKey = asAppErrorKey(v.titleKey);
+    if (titleKey) entry.titleKey = titleKey;
+    const bodyKey = asAppErrorKey(v.bodyKey);
+    if (bodyKey) entry.bodyKey = bodyKey;
     out.push(entry);
   }
   return out;
@@ -255,14 +276,15 @@ export const NOTIFY_TOOL_NAME = 'projecthub_notify';
 export const NOTIFY_TOOL_DEFINITION = {
   name: NOTIFY_TOOL_NAME,
   description:
-    'Позвать человека: короткое сообщение во «Входящие» его телефона и зашифрованный push. Для того, что человек '
-    + 'просил сообщить («напиши, когда тесты пройдут»), итога долгой работы или проблемы, без которой не продолжить. '
-    + 'Не для обычного хода работы и не вместо вопроса с выбором. Не чаще раза в 30 секунд и 10 раз в час на сессию.',
+    'Call the person: a short message to the Inbox on their phone and an encrypted push. For what the person '
+    + 'asked to be told about ("tell me when the tests pass"), the result of long work or a problem you cannot continue '
+    + 'without. Not for the normal course of work and not instead of a question with choices. At most once per 30 seconds '
+    + 'and 10 times per hour per session.',
   input_schema: {
     type: 'object',
     properties: {
-      text: { type: 'string', description: 'Текст сообщения, до 500 символов: что случилось и что нужно от человека' },
-      level: { type: 'string', enum: ['info', 'success', 'warning', 'error'], description: 'Важность: info по умолчанию' }
+      text: { type: 'string', description: 'Message text, up to 500 characters: what happened and what is needed from the person' },
+      level: { type: 'string', enum: ['info', 'success', 'warning', 'error'], description: 'Importance: info by default' }
     },
     required: ['text']
   } as Record<string, unknown>
@@ -315,10 +337,14 @@ export class NoteRateLimiter {
   }
 }
 
-export function noteTitle(level: RemoteNoteLevel, who: string | undefined): string {
-  const name = who || 'Агент';
-  if (level === 'error') return `${name}: ошибка`;
-  if (level === 'warning') return `${name}: нужно внимание`;
-  if (level === 'success') return `${name}: готово`;
-  return `${name}: сообщение`;
+const NOTE_TITLE_CODE = {
+  error: 'inbox.noteError',
+  warning: 'inbox.noteWarning',
+  success: 'inbox.noteSuccess',
+  info: 'inbox.noteInfo'
+} as const satisfies Record<RemoteNoteLevel, AppErrorKey['code']>;
+
+/** Заголовок сообщения агента: английский запасной и код для телефона. */
+export function noteTitle(level: RemoteNoteLevel, who: string | undefined): { title: string; titleKey: AppErrorKey } {
+  return titled({ code: NOTE_TITLE_CODE[level], params: { agent: agentParam(who) } });
 }

@@ -244,10 +244,10 @@ export class HitlService extends EventEmitter {
       riskReason: assessed.reason
     };
     if (this.closed) {
-      return Promise.reject(new ApprovalCancelledError('Приложение закрывается'));
+      return Promise.reject(new ApprovalCancelledError('The application is closing'));
     }
     if (this.pending.has(request.id)) {
-      return Promise.reject(new Error(`HITL: запрос ${request.id} уже в очереди`));
+      return Promise.reject(new Error(`HITL: request ${request.id} is already queued`));
     }
     return new Promise<ApprovalResponse>((resolve, reject) => {
       const entry: PendingEntry = { request, resolve, reject };
@@ -311,7 +311,7 @@ export class HitlService extends EventEmitter {
    * Завершение приложения: промисы отклоняются, но записи остаются на диске как `orphaned`,
    * чтобы после перезапуска попасть в панель и аудит.
    */
-  public async shutdown(reason = 'Приложение закрывается'): Promise<void> {
+  public async shutdown(reason = 'The application is closing'): Promise<void> {
     if (this.closed) return;
     for (const entry of this.pending.values()) {
       if (entry.timer) clearTimeout(entry.timer);

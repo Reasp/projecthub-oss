@@ -25,6 +25,7 @@ import {
 import { useHitlStore } from '../../store/useHitlStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { accountDisplayName } from '../../lib/cliAccountEngines';
 import { useToast } from '../../hooks/useTimeoutState';
 import { InteractiveApprovalCard } from '../ai/InteractiveApprovalCard';
 import { RiskBadge } from './RiskBadge';
@@ -173,7 +174,7 @@ export const HitlCenterModal: React.FC = () => {
                     </span>
                     {req.claudeAccount && (
                       <span className="text-[11px] text-amber-300/80" title={t.claudeAccounts.accountLabel}>
-                        {req.claudeAccount}
+                        {accountDisplayName({ name: req.claudeAccount }, t.claudeAccounts.defaultName)}
                       </span>
                     )}
                     {req.tool && <span className="text-[11px] font-mono text-slate-500 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">{req.tool}</span>}
@@ -272,7 +273,7 @@ export const HitlCenterModal: React.FC = () => {
           </div>
           <div className="text-[11px] text-slate-500 truncate" title={e.projectPath}>
             {projectName(e.projectPath)}
-            {e.claudeAccount ? <span className="text-amber-300/70"> · {e.claudeAccount}</span> : null}
+            {e.claudeAccount ? <span className="text-amber-300/70"> · {accountDisplayName({ name: e.claudeAccount }, t.claudeAccounts.defaultName)}</span> : null}
           </div>
         </td>
         <td className="px-2 py-1.5 text-slate-200 max-w-[360px]">

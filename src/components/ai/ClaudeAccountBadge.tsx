@@ -4,7 +4,7 @@ import { Check, ChevronDown, User } from '../common/icons';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useTranslation } from '../../i18n/useTranslation';
-import { CLI_ENGINE_NAME, OTHER_CLI_ACCOUNT_ENGINES, accountsForEngine } from '../../lib/cliAccountEngines';
+import { CLI_ENGINE_NAME, OTHER_CLI_ACCOUNT_ENGINES, accountDisplayName, accountsForEngine } from '../../lib/cliAccountEngines';
 import type { OtherCliAccountEngine } from '../../types/electron';
 
 interface ClaudeAccountBadgeProps {
@@ -82,12 +82,12 @@ export const ClaudeAccountBadge: React.FC<ClaudeAccountBadgeProps> = ({ projectP
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={t.claudeAccounts.badgeTitle.replace('{name}', current?.name ?? '…')}
+        title={t.claudeAccounts.badgeTitle.replace('{name}', current ? accountDisplayName(current, t.claudeAccounts.defaultName) : '…')}
         className="flex items-center gap-1.5 h-7 px-2 rounded-md text-xs text-slate-300 hover:bg-ph-hover hover:text-white transition whitespace-nowrap shrink-0"
         data-testid="claude-account-badge"
       >
         <User className="w-3.5 h-3.5 text-amber-300" />
-        <span className="max-w-[120px] truncate">{current?.name ?? '…'}</span>
+        <span className="max-w-[120px] truncate">{current ? accountDisplayName(current, t.claudeAccounts.defaultName) : '…'}</span>
         <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
       {open && position &&
@@ -114,7 +114,7 @@ export const ClaudeAccountBadge: React.FC<ClaudeAccountBadgeProps> = ({ projectP
                   }`}
                 >
                   <Check className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-indigo-300' : 'opacity-0'}`} />
-                  <span className="truncate flex-1">{account.name}</span>
+                  <span className="truncate flex-1">{accountDisplayName(account, t.claudeAccounts.defaultName)}</span>
                   {account.isDefault && <span className="text-[10px] text-slate-500">{t.claudeAccounts.defaultBadge}</span>}
                 </button>
               );

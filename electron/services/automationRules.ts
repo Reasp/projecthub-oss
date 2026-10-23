@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { AppBusEvent } from './hitlTypes.js';
 import { validateCron } from './cronExpr.js';
+import { AppError, type AppErrorKey, type AppErrorParam } from '../../src/lib/appError.js';
 import { addedAssignees } from './taskSnapshot.js';
 import { isAwaitingApproval } from './agentTaskPolicy.js';
 
@@ -126,9 +127,16 @@ function isTaskTrigger(trigger: AutomationTrigger): boolean {
   return trigger.kind === 'event' && trigger.event.startsWith('task.');
 }
 
+const RULE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/** Нарушение правила с кодом: английский текст для журнала, ключ — в `params` проблемы zod. */
+function addRuleIssue(ctx: z.RefinementCtx, path: (string | number)[], err: AppError): void {
+  ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: err.message, params: { appErrorKey: err.appErrorKey } });
+}
+
 export const AutomationRuleSchema = z
   .object({
-    id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/, 'id: латиница, цифры, «.», «_», «-», до 64 символов'),
+    id: z.string().regex(RULE_ID_RE, 'Latin letters, digits, “.”, “_”, “-”, up to 64 characters'),
     name: z.string().trim().min(1).max(120),
     enabled: z.boolean().default(false),
     trigger: TriggerSchema,
@@ -139,38 +147,26 @@ export const AutomationRuleSchema = z
   .superRefine((rule, ctx) => {
     if (rule.trigger.kind === 'cron') {
       const error = validateCron(rule.trigger.expr);
-      if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['trigger', 'expr'], message: error });
+      if (error) addRuleIssue(ctx, ['trigger', 'expr'], error);
     }
     if (rule.action.type === 'reviewPr' && !(rule.trigger.kind === 'event' && PR_TRIGGERS.has(rule.trigger.event))) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['trigger'], message: 'Ревью PR запускается только событием PR (pr.opened, pr.updated, pr.created)' });
+      addRuleIssue(ctx, ['trigger'], new AppError('automations.reviewNeedsPrEvent'));
     }
     if (isAgentAction(rule.action.type)) {
       if (!rule.limits.dailyBudgetUsd) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['limits', 'dailyBudgetUsd'],
-          message: 'Для запуска агента нужен дневной бюджет правила'
-        });
+        addRuleIssue(ctx, ['limits', 'dailyBudgetUsd'], new AppError('automations.agentNeedsBudget'));
       }
       if (rule.limits.cooldownMin < MIN_AGENT_COOLDOWN_MIN) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['limits', 'cooldownMin'],
-          message: `Cooldown для запуска агента — не меньше ${MIN_AGENT_COOLDOWN_MIN} мин`
-        });
+        addRuleIssue(ctx, ['limits', 'cooldownMin'], new AppError('automations.agentCooldownTooShort', { min: MIN_AGENT_COOLDOWN_MIN }));
       }
     }
     if (rule.action.type === 'runAgent') {
       const taskFromEvent = isTaskTrigger(rule.trigger);
       if (rule.action.mode === 'doneLoop' && !taskFromEvent && !rule.action.taskId) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['action', 'taskId'],
-          message: 'Цикл «до готовности» требует задачу: триггер задачи или taskId'
-        });
+        addRuleIssue(ctx, ['action', 'taskId'], new AppError('automations.doneLoopNeedsTask'));
       }
       if (!taskFromEvent && !rule.action.taskId && !rule.action.prompt?.trim()) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['action', 'prompt'], message: 'Без задачи нужен промпт агента' });
+        addRuleIssue(ctx, ['action', 'prompt'], new AppError('automations.promptRequired'));
       }
     }
   });
@@ -182,14 +178,41 @@ export type AutomationAction = AutomationRule['action'];
 export type AutomationConditions = AutomationRule['conditions'];
 export type AutomationLimits = AutomationRule['limits'];
 
-export interface RuleParseIssue {
-  index: number;
-  id?: string;
+/** Причина, по которой правило не принято: английский текст и код (decision-165) — окно показывает её на своём языке. */
+export interface RuleProblem {
   message: string;
+  messageKey?: AppErrorKey;
 }
 
-function formatZodError(error: z.ZodError): string {
-  return error.issues.map((i) => (i.path.length ? `${i.path.join('.')}: ${i.message}` : i.message)).join('; ');
+export interface RuleParseIssue extends RuleProblem {
+  index: number;
+  id?: string;
+}
+
+function problemOf(err: AppError): RuleProblem {
+  return { message: err.message, messageKey: err.appErrorKey };
+}
+
+/** Причина одной проблемы zod: код из `params` или английский текст zod (поле `id` — своим кодом). */
+function issueReason(issue: z.ZodIssue): AppErrorParam {
+  const key = issue.code === z.ZodIssueCode.custom ? (issue.params as { appErrorKey?: AppErrorKey } | undefined)?.appErrorKey : undefined;
+  if (key) return key;
+  if (issue.code === z.ZodIssueCode.invalid_string && issue.path.length === 1 && issue.path[0] === 'id') return { code: 'automations.ruleIdInvalid' };
+  return issue.message;
+}
+
+/** Все проблемы — английским текстом; в коде — первая с путём и числом остальных. */
+function formatZodError(error: z.ZodError): RuleProblem {
+  const message = error.issues.map((i) => (i.path.length ? `${i.path.join('.')}: ${i.message}` : i.message)).join('; ');
+  const [first] = error.issues;
+  if (!first) return { message };
+  const reason = issueReason(first);
+  const issue: AppErrorParam = first.path.length ? { code: 'automations.ruleIssue', params: { path: first.path.join('.'), reason } } : reason;
+  const more = error.issues.length - 1;
+  const messageKey: AppErrorKey | undefined = more > 0
+    ? { code: 'automations.ruleIssueMore', params: { issue, more } }
+    : typeof issue === 'object' ? issue : undefined;
+  return messageKey ? { message, messageKey } : { message };
 }
 
 /** Разбор списка правил: неверные правила возвращаются ошибками, а не роняют остальные. */
@@ -197,17 +220,17 @@ export function parseRules(raw: unknown): { rules: AutomationRule[]; issues: Rul
   const rules: AutomationRule[] = [];
   const issues: RuleParseIssue[] = [];
   if (raw === undefined || raw === null) return { rules, issues };
-  if (!Array.isArray(raw)) return { rules, issues: [{ index: -1, message: 'automations: ожидается массив правил' }] };
+  if (!Array.isArray(raw)) return { rules, issues: [{ index: -1, ...problemOf(new AppError('automations.rulesNotArray')) }] };
   const seen = new Set<string>();
   raw.forEach((item, index) => {
     const id = item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id : undefined;
     const parsed = AutomationRuleSchema.safeParse(item);
     if (!parsed.success) {
-      issues.push({ index, id, message: formatZodError(parsed.error) });
+      issues.push({ index, id, ...formatZodError(parsed.error) });
       return;
     }
     if (seen.has(parsed.data.id)) {
-      issues.push({ index, id, message: `Повторяющийся id правила «${parsed.data.id}»` });
+      issues.push({ index, id, ...problemOf(new AppError('automations.ruleIdDuplicate', { id: parsed.data.id })) });
       return;
     }
     seen.add(parsed.data.id);
@@ -217,9 +240,11 @@ export function parseRules(raw: unknown): { rules: AutomationRule[]; issues: Rul
 }
 
 /** Проверка одного правила (форма редактора, IPC сохранения). */
-export function validateRule(raw: unknown): { ok: true; rule: AutomationRule } | { ok: false; error: string } {
+export function validateRule(raw: unknown): { ok: true; rule: AutomationRule } | { ok: false; error: string; errorKey?: AppErrorKey } {
   const parsed = AutomationRuleSchema.safeParse(raw);
-  return parsed.success ? { ok: true, rule: parsed.data } : { ok: false, error: formatZodError(parsed.error) };
+  if (parsed.success) return { ok: true, rule: parsed.data };
+  const { message, messageKey } = formatZodError(parsed.error);
+  return messageKey ? { ok: false, error: message, errorKey: messageKey } : { ok: false, error: message };
 }
 
 // ─────────────────────────── Область и ключи ───────────────────────────
@@ -255,12 +280,12 @@ export function ruleKey(scope: RuleScope, id: string): string {
  * Проверки, зависящие от области: глобальному правилу без события (cron, ручной запуск) нужен
  * явный проект для всех действий, кроме уведомления.
  */
-export function validateRuleForScope(rule: AutomationRule, scope: RuleScope): string | null {
+export function validateRuleForScope(rule: AutomationRule, scope: RuleScope): RuleProblem | null {
   if (scope.kind === 'project' && rule.conditions.projects?.length) {
-    return 'Проектное правило всегда относится к своему проекту: условие projects не используется';
+    return problemOf(new AppError('automations.projectRuleHasProjects'));
   }
   if (scope.kind === 'global' && rule.trigger.kind !== 'event' && rule.action.type !== 'notify' && !rule.conditions.projects?.length) {
-    return 'Глобальному правилу по расписанию или ручному нужен список проектов (conditions.projects)';
+    return problemOf(new AppError('automations.globalRuleNeedsProjects'));
   }
   return null;
 }

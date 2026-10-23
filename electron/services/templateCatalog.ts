@@ -21,6 +21,7 @@ import {
   compatMcpServers,
   localize,
   MANIFEST_FILE,
+  manifestIssuesParam,
   parseManifest,
   type ManifestIssue,
   type McpServerDef,
@@ -216,7 +217,7 @@ export async function loadTemplate(id: string, locale = 'ru'): Promise<LoadedTem
   }
   const { entry, manifest, compatServers, walked } = await describe(id, dir, origin, record, locale);
   if (!manifest) {
-    throw new AppError('templates.manifestInvalid', { name: entry.name, issues: entry.issues.map((i) => `${i.path || '(root)'} — ${i.message}`).join('; ') });
+    throw new AppError('templates.manifestInvalid', { name: entry.name, issues: manifestIssuesParam(entry.issues) });
   }
 
   // Текст нужен только файлам, которые сливаются или собираются: правила и merge-правила манифеста.

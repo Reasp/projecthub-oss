@@ -6,6 +6,7 @@
  * `infra-dev.md` целиком, MCP-серверы — из `.mcp.json` шаблона.
  */
 import { z } from 'zod';
+import type { AppErrorKey, AppErrorParam } from '../../src/lib/appError.js';
 
 export const MANIFEST_FILE = 'projecthub-template.json';
 export const DEFAULT_SUBFOLDER = '.projecthub/infra';
@@ -24,17 +25,19 @@ const McpServerDef = z
     headers: z.record(z.string(), z.string()).optional()
   })
   .passthrough()
-  .refine((def) => Boolean(def.command || def.url), { message: 'нужен command или url' });
+  .refine((def) => Boolean(def.command || def.url), { message: 'command or url is required', params: { appErrorKey: { code: 'templates.mcpNeedsCommandOrUrl' } } });
 export type McpServerDef = z.infer<typeof McpServerDef>;
 
-const Id = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/, 'латиница, цифры, - и _');
+const ID_CHARS_MESSAGE = 'Latin letters, digits, - and _';
+const Id = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/, ID_CHARS_MESSAGE);
 
 /** Путь внутри шаблона или проекта: относительный, без `..`, через `/`. */
 const RelPath = z
   .string()
   .min(1)
   .refine((p) => !p.startsWith('/') && !/^[A-Za-z]:/.test(p) && !p.split(/[\\/]/).includes('..'), {
-    message: 'путь должен быть относительным и без ..'
+    message: 'the path must be relative and without ..',
+    params: { appErrorKey: { code: 'templates.pathNotRelative' } }
   });
 
 const FileRule = z.object({
@@ -123,7 +126,32 @@ export type ManifestFeature = TemplateManifest['features'][number];
 
 export interface ManifestIssue {
   path: string;
+  /** Английский текст для журнала и запасной показ. */
   message: string;
+  /** Код текста (decision-165): окно показывает проблему на своём языке. */
+  messageKey?: AppErrorKey;
+}
+
+function keyedIssue(path: string, key: AppErrorKey, message: string): ManifestIssue {
+  return { path, message, messageKey: key };
+}
+
+/** Проблема zod: код из `params` проверки или своего сообщения, иначе английский текст zod. */
+function zodIssue(issue: z.ZodIssue): ManifestIssue {
+  const path = issue.path.join('.');
+  const key = issue.code === z.ZodIssueCode.custom ? (issue.params as { appErrorKey?: AppErrorKey } | undefined)?.appErrorKey : undefined;
+  if (key) return keyedIssue(path, key, issue.message);
+  if (issue.code === z.ZodIssueCode.invalid_string && issue.message === ID_CHARS_MESSAGE) return keyedIssue(path, { code: 'templates.idChars' }, issue.message);
+  return { path, message: issue.message };
+}
+
+/** Проблемы манифеста параметром ошибки: первая — с путём и кодом, остальные — числом. */
+export function manifestIssuesParam(issues: ManifestIssue[]): AppErrorParam {
+  const [first] = issues;
+  if (!first) return '';
+  const reason: AppErrorParam = first.messageKey ?? first.message;
+  const issue: AppErrorParam = { code: 'templates.manifestIssue', params: { path: first.path || '(root)', reason } };
+  return issues.length > 1 ? { code: 'templates.manifestIssueMore', params: { issue, more: issues.length - 1 } } : issue;
 }
 
 export type ManifestParseResult =
@@ -136,13 +164,14 @@ export function parseManifest(raw: string): ManifestParseResult {
   try {
     json = JSON.parse(raw.replace(/^\uFEFF/, ''));
   } catch (err) {
-    return { ok: false, issues: [{ path: '', message: `не JSON: ${(err as Error).message}` }] };
+    const detail = (err as Error).message;
+    return { ok: false, issues: [keyedIssue('', { code: 'templates.manifestNotJson', params: { detail } }, `not JSON: ${detail}`)] };
   }
   const parsed = ManifestSchema.safeParse(json);
   if (!parsed.success) {
     return {
       ok: false,
-      issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }))
+      issues: parsed.error.issues.map(zodIssue)
     };
   }
   const issues = crossCheck(parsed.data);
@@ -156,12 +185,14 @@ function crossCheck(manifest: TemplateManifest): ManifestIssue[] {
   const ids = new Set<string>();
   for (const [kind, list] of [['features', manifest.features], ['sets', manifest.sets]] as const) {
     list.forEach((item, index) => {
-      if (ids.has(item.id) || item.id === 'subfolder') issues.push({ path: `${kind}.${index}.id`, message: `повторяющийся id ${item.id}` });
+      if (ids.has(item.id) || item.id === 'subfolder') {
+        issues.push(keyedIssue(`${kind}.${index}.id`, { code: 'templates.duplicateId', params: { id: item.id } }, `duplicate id ${item.id}`));
+      }
       ids.add(item.id);
     });
   }
   const checkWhen = (when: string | undefined, where: string) => {
-    if (when && !ids.has(when)) issues.push({ path: where, message: `нет фичи или набора ${when}` });
+    if (when && !ids.has(when)) issues.push(keyedIssue(where, { code: 'templates.unknownWhen', params: { when } }, `no feature or set ${when}`));
   };
   manifest.files.forEach((rule, index) => checkWhen(rule.when, `files.${index}.when`));
   manifest.commands.forEach((cmd, index) => checkWhen(cmd.when, `commands.${index}.when`));

@@ -29,7 +29,7 @@ import { findProfileByRef, slotProviderFromChoice, slotProviderFromRole } from '
 import type { AgentSlotConfig, DoneLoopSettings, LlmProfileView, SwarmMode } from '../../../types/electron';
 import { useClaudeAccountsStore } from '../../../store/useClaudeAccountsStore';
 import { swarmQuotaPlan } from '../../../lib/subscriptionQuota';
-import { CLI_ENGINE_NAME, hasAccountChoice } from '../../../lib/cliAccountEngines';
+import { CLI_ENGINE_NAME, accountDisplayName, hasAccountChoice } from '../../../lib/cliAccountEngines';
 import { SubscriptionQuotaNotice } from '../SubscriptionQuotaNotice';
 
 /** Слот исполнителя цикла «до готовности» по умолчанию — роль `implementer`, если она есть. */
@@ -668,7 +668,7 @@ export const NewSwarmModal: React.FC = () => {
                         >
                           <option value="">{t.claudeAccounts.slotAccountInherit}</option>
                           {slotAccounts.map((account) => (
-                            <option key={account.id} value={account.id}>{account.name}</option>
+                            <option key={account.id} value={account.id}>{accountDisplayName(account, t.claudeAccounts.defaultName)}</option>
                           ))}
                         </select>
                       );

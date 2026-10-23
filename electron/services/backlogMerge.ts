@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { AppError } from '../../src/lib/appError';
 import { execGit, sanitizeRefSegment, type GitRunner } from './checkpointGit';
 import { backlogPathsAtCommit } from './backlogIdAllocator';
 import {
@@ -87,8 +88,8 @@ export async function previewBacklogMerge(repoDir: string, incoming: string, opt
   const target = options.target ?? 'HEAD';
   const targetSha = await revParse(git, repoDir, target);
   const incomingSha = await revParse(git, repoDir, incoming);
-  if (!targetSha) throw new Error(`Не найдена целевая ветка или коммит: ${target}`);
-  if (!incomingSha) throw new Error(`Не найдена входящая ветка или коммит: ${incoming}`);
+  if (!targetSha) throw new AppError('git.targetRefNotFound', { ref: target });
+  if (!incomingSha) throw new AppError('git.incomingRefNotFound', { ref: incoming });
   const mergeBase = await mergeBaseOf(git, repoDir, targetSha, incomingSha);
   const projectPrefix = (await git(['rev-parse', '--show-prefix'], { cwd: repoDir })).trim().replace(/\\/g, '/');
   const backlogPrefix = `${projectPrefix}backlog/`;
@@ -165,7 +166,7 @@ export async function createRenumberedBranch(
   preview: BacklogMergePreview,
   options: { git?: GitRunner; tmpRoot?: string } = {}
 ): Promise<RenumberedBranch> {
-  if (preview.renumber.length === 0) throw new Error('Перенумеровывать нечего');
+  if (preview.renumber.length === 0) throw new Error('Nothing to renumber');
   const git = options.git ?? execGit;
   const repo = preview.repoDir;
   const wt = fs.mkdtempSync(path.join(options.tmpRoot ?? os.tmpdir(), 'ph-renumber-'));

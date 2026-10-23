@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { AppError, appErrorFields } from '../../src/lib/appError.js';
 import { simpleGit } from 'simple-git';
 import matter from 'gray-matter';
 import type {
@@ -386,7 +387,7 @@ export class WorktreeService {
         return {
           success: false,
           uncleanWorkingTree: true,
-          error: 'Working tree has uncommitted changes. Please commit or stash changes before merging.'
+          ...appErrorFields(new AppError('git.workingTreeDirty'))
         };
       }
 
@@ -397,7 +398,7 @@ export class WorktreeService {
         return {
           success: false,
           renumberRequired: summarizeRenumber(prepared.preview),
-          error: `Номера backlog в ${worktreeBranch} совпали с ${targetBranch}: нужна перенумерация входящей ветки`
+          ...appErrorFields(new AppError('git.renumberRequired', { branch: worktreeBranch, target: targetBranch }))
         };
       }
       const renumbered = prepared.status === 'renumbered' ? prepared.preview.renumber : [];
@@ -434,15 +435,15 @@ export class WorktreeService {
         }
         if (prepared.status === 'renumbered') await this.finishRenumbered(projectPath, prepared.mergeRef, false);
 
-        const conflictMsg = conflictedFiles.length > 0
-          ? `Merge conflict in: ${conflictedFiles.join(', ')}`
-          : (mergeErr?.message || String(mergeErr));
+        const failure = conflictedFiles.length > 0
+          ? appErrorFields(new AppError('git.mergeConflictIn', { files: conflictedFiles.join(', ') }))
+          : appErrorFields(mergeErr);
 
         return {
           success: false,
           wasAborted: true,
           conflictedFiles,
-          error: conflictMsg
+          ...failure
         };
       }
     } catch (err: any) {
@@ -453,7 +454,7 @@ export class WorktreeService {
         } catch {}
       }
       if (prepared?.status === 'renumbered') await this.finishRenumbered(projectPath, prepared.mergeRef, false);
-      return { success: false, error: err?.message || String(err) };
+      return { success: false, ...appErrorFields(err) };
     }
   }
 

@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
+import { AppError, type AppErrorKey, type AppErrorParam } from '../../src/lib/appError.js';
+import { DEFAULT_ACCOUNT_BUILTIN_NAME } from '../../src/lib/cliAccountEngines.js';
 
 /**
  * Профили аккаунтов Claude Code (TASK-152, decision-87). Чистый модуль без Electron: формат файла
@@ -12,7 +13,7 @@ import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
  */
 
 export const DEFAULT_CLAUDE_ACCOUNT_ID = 'default';
-export const DEFAULT_CLAUDE_ACCOUNT_NAME = 'По умолчанию';
+export const DEFAULT_CLAUDE_ACCOUNT_NAME = DEFAULT_ACCOUNT_BUILTIN_NAME;
 export const CLAUDE_ACCOUNTS_VERSION = 1;
 export const CLAUDE_ACCOUNT_NAME_MAX_LENGTH = 40;
 
@@ -297,6 +298,11 @@ export function newClaudeAccountId(existingIds: Iterable<string>, now = Date.now
   throw new AppError('accounts.noFreeId');
 }
 
+/** Имя профиля в параметре ошибки: встроенное имя профиля по умолчанию окно и телефон показывают на своём языке. */
+function accountNameParam(account: ClaudeAccountProfile): AppErrorParam {
+  return account.id === DEFAULT_CLAUDE_ACCOUNT_ID && account.name === DEFAULT_CLAUDE_ACCOUNT_NAME ? { code: 'accounts.defaultName' } : account.name;
+}
+
 /** Ошибка проверки имени профиля или `null`. Имена уникальны без учёта регистра. */
 export function validateClaudeAccountName(name: unknown, accounts: ClaudeAccountProfile[], selfId?: string): AppError | null {
   const clean = cleanName(name);
@@ -348,7 +354,7 @@ export function addClaudeAccount(
     configDir = managedCliAccountDir(ctx.homeDir, engine, id);
   }
   const duplicate = accounts.find((a) => sameDir(a.configDir, configDir, ctx.platform));
-  if (duplicate) throw new AppError('accounts.dirAlreadyConnected', { name: duplicate.name });
+  if (duplicate) throw new AppError('accounts.dirAlreadyConnected', { name: accountNameParam(duplicate) });
 
   const account: ClaudeAccountProfile = {
     id,

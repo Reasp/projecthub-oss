@@ -6,7 +6,7 @@ import { useDialogStore } from '../../store/useDialogStore';
 import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { appFailureText } from '../../lib/appErrorText';
 import type { ClaudeAccountView, CliAccountEngine } from '../../types/electron';
-import { CLI_ENGINE_NAME, CLI_ENGINE_ENV, accountEngineOf } from '../../lib/cliAccountEngines';
+import { CLI_ENGINE_NAME, CLI_ENGINE_ENV, accountDisplayName, accountEngineOf } from '../../lib/cliAccountEngines';
 import { ConnectionRow, connectionBadge } from './ConnectionRow';
 
 /** Текст ошибки main на языке окна (decision-165); имя сохранено для соседних компонентов. */
@@ -68,8 +68,9 @@ export function useClaudeAccountActions() {
   };
 
   const rename = async (account: ClaudeAccountView) => {
-    const name = await askName(t.claudeAccounts.rename, account.name);
-    if (!name?.trim() || name.trim() === account.name) return;
+    const shown = accountDisplayName(account, t.claudeAccounts.defaultName);
+    const name = await askName(t.claudeAccounts.rename, shown);
+    if (!name?.trim() || name.trim() === shown) return;
     await run(`rename:${account.id}`, () => window.api.claudeAccounts.rename(account.id, name));
   };
 
@@ -79,7 +80,7 @@ export function useClaudeAccountActions() {
       ? fill(t.claudeAccounts.cliRemoveMessage, engine)
       : account.kind === 'external' ? t.claudeAccounts.removeExternalMessage : t.claudeAccounts.removeManagedMessage;
     const ok = await dialog.confirm({
-      title: t.claudeAccounts.removeTitle.replace('{name}', account.name),
+      title: t.claudeAccounts.removeTitle.replace('{name}', accountDisplayName(account, t.claudeAccounts.defaultName)),
       message: template.replace('{dir}', account.configDir).replace('{count}', String(account.projectCount)),
       confirmText: t.claudeAccounts.remove,
       danger: true
@@ -90,7 +91,7 @@ export function useClaudeAccountActions() {
 
   const logout = async (account: ClaudeAccountView) => {
     const ok = await dialog.confirm({
-      title: t.claudeAccounts.logoutTitle.replace('{name}', account.name),
+      title: t.claudeAccounts.logoutTitle.replace('{name}', accountDisplayName(account, t.claudeAccounts.defaultName)),
       message: account.kind === 'external'
         ? t.claudeAccounts.logoutExternalMessage.replace('{dir}', account.configDir)
         : account.engine ? t.claudeAccounts.cliLogoutMessage : t.claudeAccounts.logoutMessage,
@@ -115,7 +116,10 @@ export const ClaudeAccountWarnings: React.FC<{ actions: ClaudeAccountActions }> 
   const { t } = useTranslation();
   const { overview, sharedLogin } = useClaudeAccountsStore();
   const accounts = overview?.accounts ?? [];
-  const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
+  const nameOf = (id: string) => {
+    const account = accounts.find((a) => a.id === id);
+    return account ? accountDisplayName(account, t.claudeAccounts.defaultName) : id;
+  };
   const processDir = overview?.processConfigDir;
   const processDirConnected = Boolean(overview?.processConfigDirAccountId);
 
@@ -176,7 +180,7 @@ export const ClaudeAccountRow: React.FC<{ account: ClaudeAccountView; actions: C
     <ConnectionRow
       icon={engine === 'claude-cli' ? 'claude' : 'cli'}
       providerLabel={engine === 'claude-cli' ? t.aiConnections.providerClaudeCode : CLI_ENGINE_NAME[engine]}
-      name={account.name}
+      name={accountDisplayName(account, t.claudeAccounts.defaultName)}
       title={account.configDir}
       testId={`claude-account-${account.id}`}
       badges={

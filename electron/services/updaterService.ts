@@ -5,6 +5,7 @@ import https from 'node:https';
 // берём default-экспорт и деструктурируем вручную (обнаружено запуском `npm run dev` вживую).
 import electronUpdaterPkg from 'electron-updater';
 import { logger } from './logger.js';
+import { AppError, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import { isNewerVersion } from './versionCompare.js';
 
 const { autoUpdater } = electronUpdaterPkg;
@@ -30,6 +31,8 @@ export interface UpdaterStatus {
   percent?: number;
   releaseUrl?: string;
   error?: string;
+  /** Код ошибки (decision-165): окно показывает её на своём языке. */
+  errorKey?: AppErrorKey;
   /** false на macOS без подписи: там доступна только ссылка на релиз, не авто-установка. */
   supportsAutoInstall: boolean;
 }
@@ -51,6 +54,10 @@ class UpdaterService {
     return this.status;
   }
 
+  private setError(err: unknown): void {
+    this.setStatus({ state: 'error', error: err instanceof Error ? err.message : String(err), errorKey: appErrorKeyOf(err) });
+  }
+
   private setStatus(patch: Partial<UpdaterStatus>): void {
     this.status = { ...this.status, ...patch };
     for (const win of BrowserWindow.getAllWindows()) {
@@ -64,11 +71,11 @@ class UpdaterService {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
-    autoUpdater.on('checking-for-update', () => this.setStatus({ state: 'checking', error: undefined }));
+    autoUpdater.on('checking-for-update', () => this.setStatus({ state: 'checking', error: undefined, errorKey: undefined }));
     autoUpdater.on('update-available', (info) => {
       this.setStatus({ state: 'available', latestVersion: info.version });
       autoUpdater.downloadUpdate().catch((err) => {
-        this.setStatus({ state: 'error', error: err?.message || String(err) });
+        this.setError(err);
       });
     });
     autoUpdater.on('update-not-available', () => this.setStatus({ state: 'not-available' }));
@@ -76,7 +83,7 @@ class UpdaterService {
     autoUpdater.on('update-downloaded', (info) => this.setStatus({ state: 'downloaded', latestVersion: info.version }));
     autoUpdater.on('error', (err) => {
       logger.warn(`[Updater] ${err?.message || err}`);
-      this.setStatus({ state: 'error', error: err?.message || String(err) });
+      this.setError(err);
     });
   }
 
@@ -94,15 +101,15 @@ class UpdaterService {
 
     this.configure();
     try {
-      this.setStatus({ state: 'checking', error: undefined });
+      this.setStatus({ state: 'checking', error: undefined, errorKey: undefined });
       await autoUpdater.checkForUpdates();
     } catch (err: any) {
-      this.setStatus({ state: 'error', error: err?.message || String(err) });
+      this.setError(err);
     }
   }
 
   private async checkGithubReleaseManually(): Promise<void> {
-    this.setStatus({ state: 'checking', error: undefined });
+    this.setStatus({ state: 'checking', error: undefined, errorKey: undefined });
     try {
       const release = await this.fetchLatestRelease();
       const latest = release.tag_name?.replace(/^v/, '');
@@ -112,7 +119,7 @@ class UpdaterService {
         this.setStatus({ state: 'not-available' });
       }
     } catch (err: any) {
-      this.setStatus({ state: 'error', error: err?.message || String(err) });
+      this.setError(err);
     }
   }
 
@@ -126,7 +133,7 @@ class UpdaterService {
           res.on('data', (c) => (body += c));
           res.on('end', () => {
             if (res.statusCode !== 200) {
-              reject(new Error(`GitHub API вернул статус ${res.statusCode}`));
+              reject(new AppError('updater.githubStatus', { status: String(res.statusCode) }));
               return;
             }
             try {
@@ -138,7 +145,7 @@ class UpdaterService {
         }
       );
       req.on('error', reject);
-      req.setTimeout(10000, () => req.destroy(new Error('Таймаут запроса к GitHub API')));
+      req.setTimeout(10000, () => req.destroy(new AppError('updater.githubTimeout')));
     });
   }
 

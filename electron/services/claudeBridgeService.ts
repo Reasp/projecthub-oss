@@ -1102,7 +1102,7 @@ class ClaudeBridgeService extends EventEmitter {
 
   /** Остановка всего при выходе из приложения (performGracefulShutdown). */
   public killAll(): void {
-    this.rejectPendingApprovals(undefined, 'Приложение закрывается');
+    this.rejectPendingApprovals(undefined, 'The application is closing');
     for (const sessionId of Array.from(this.activeSessions.keys())) {
       aiAgentService.abortStream(sessionId);
     }

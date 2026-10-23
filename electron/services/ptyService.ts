@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { existsSync } from 'node:fs';
 import { BrowserWindow } from 'electron';
+import { AppError } from '../../src/lib/appError.js';
 import { claudeAccountService } from './claudeAccountService.js';
 import { accountEngine, cliAccountEnv, type CliAccountEngine } from './claudeAccounts.js';
 import {
@@ -111,7 +112,7 @@ class PtyService {
       ? await claudeAccountService.getAnyAccount(String(options.claudeAccountId ?? ''))
       : undefined;
     if (options.type === 'claude-login' && !loginAccount) {
-      throw new Error('Профиль аккаунта Claude Code не найден.');
+      throw new AppError('accounts.profileNotFound');
     }
     const loginEngine = loginAccount ? accountEngine(loginAccount) : 'claude-cli';
 

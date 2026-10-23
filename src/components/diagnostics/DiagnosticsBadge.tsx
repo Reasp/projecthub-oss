@@ -4,6 +4,7 @@ import { Activity, X, RefreshCw, Download, FileArchive, ExternalLink, KeyRound }
 
 import type { DiagnosticsInfo, UpdaterStatus } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { appFailureText } from '../../lib/appErrorText';
 import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
 
 export const DiagnosticsBadge: React.FC = () => {
@@ -78,7 +79,7 @@ export const DiagnosticsBadge: React.FC = () => {
       case 'downloaded':
         return t.diagnostics.updateDownloaded.replace('{version}', updater.latestVersion || '?');
       case 'error':
-        return t.diagnostics.updateError.replace('{error}', updater.error || '');
+        return t.diagnostics.updateError.replace('{error}', appFailureText(updater, t.appErrors));
       default:
         return null;
     }

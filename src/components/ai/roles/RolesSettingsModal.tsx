@@ -9,7 +9,7 @@ import { ProviderProfileSelect, useLlmProfiles, useProfileModels } from '../Prov
 import { ModelTierSelect } from '../ModelTierSelect';
 import { RoleSyncPanel } from './RoleSyncPanel';
 import { useClaudeAccountsStore } from '../../../store/useClaudeAccountsStore';
-import { CLI_ENGINE_NAME, accountsForEngine, hasAccountChoice } from '../../../lib/cliAccountEngines';
+import { CLI_ENGINE_NAME, accountDisplayName, accountsForEngine, hasAccountChoice } from '../../../lib/cliAccountEngines';
 import { SkillsPanel } from './SkillsPanel';
 import { AgentTaskLimitsPanel } from './AgentTaskLimitsPanel';
 import type { RoleDefinition, RoleEngine, ToolCategory } from '../../../types/electron';
@@ -372,7 +372,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
                     >
                       <option value="">{t.claudeAccounts.roleAccountInherit}</option>
                       {roleAccountsList.map((account) => (
-                        <option key={account.id} value={account.id}>{account.name}</option>
+                        <option key={account.id} value={account.id}>{accountDisplayName(account, t.claudeAccounts.defaultName)}</option>
                       ))}
                     </select>
                   </div>

@@ -114,7 +114,7 @@ export function nextTopNumber(kind: BacklogIdKind, taken: Iterable<string>): num
 /** Следующий номер подзадачи родителя (`TASK-80` → 4 для `TASK-80.4`). */
 export function nextSubtaskNumber(parentId: string, taken: Iterable<string>): number {
   const parent = parseBacklogId(parentId);
-  if (!parent || parent.kind !== 'task') throw new Error(`Не задача: ${parentId}`);
+  if (!parent || parent.kind !== 'task') throw new Error(`Not a task: ${parentId}`);
   let max = 0;
   for (const id of taken) {
     const ref = parseBacklogId(id);

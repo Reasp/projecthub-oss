@@ -225,7 +225,7 @@ export function createWindowsSnapshotSource(deps: WindowsSnapshotSourceDeps): Wi
       if (current !== req) return;
       finish();
       stopHelper();
-      req.reject(new Error(`снимок процессов не уложился в ${req.timeoutMs} мс`));
+      req.reject(new Error(`the process snapshot did not finish within ${req.timeoutMs} ms`));
       pump();
     }, req.timeoutMs);
     h.proc.stdin?.write('\n');

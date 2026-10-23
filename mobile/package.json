@@ -1,6 +1,6 @@
 {
   "name": "projecthub-mobile",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "private": true,
   "type": "module",
   "description": "Мобильный клиент ProjectHub (TASK-140). Маркер корня для Capacitor CLI: он ищет нативные плагины в dependencies этого файла, а модули берёт из корневого node_modules. Ставить зависимости только в корне (npm install там); версии здесь держать равными корневым devDependencies — их сверяет scripts/mobile/android.mjs.",

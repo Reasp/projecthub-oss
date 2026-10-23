@@ -26,7 +26,7 @@ import {
 } from './backlogTaskFormat.js';
 import { summarizeCheckResult } from './arenaChecks.js';
 import { executeCheck, pendingCheckResult, setCheckDetail } from './checkRunner.js';
-import { AppError } from '../../src/lib/appError.js';
+import { AppError, appErrorFields } from '../../src/lib/appError.js';
 import { visualArtifactService } from './visualArtifactService.js';
 import { iterationScreenshots } from './visualArtifacts.js';
 import {
@@ -358,7 +358,7 @@ export class DoneLoopService {
 
     try {
       const filePath = state.task?.filePath ?? (await findTaskFile(session.projectPath, session.taskId!))?.filePath;
-      if (!filePath || !existsSync(filePath)) throw new Error('файл задачи не найден');
+      if (!filePath || !existsSync(filePath)) throw new AppError('swarm.doneLoopTaskFileMissing');
       const file = await readTaskFile(filePath);
 
       let body = file.content;
@@ -418,8 +418,8 @@ export class DoneLoopService {
         `[Done-loop] ✅ Готово: отмечено критериев ${checked.length}${reviewStatus ? `, задача переведена в ${reviewStatus}` : ''}, Final Summary записан.`
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      state.task = { ...(state.task ?? { criteriaChecked: [] }), criteriaChecked: checked, error: message };
+      const { error: message, errorKey } = appErrorFields(err);
+      state.task = { ...(state.task ?? { criteriaChecked: [] }), criteriaChecked: checked, error: message, errorKey };
       hooks.log(`[Done-loop] Цикл успешен, но записать итог в задачу не удалось: ${message}`);
     }
     hooks.onUpdate();

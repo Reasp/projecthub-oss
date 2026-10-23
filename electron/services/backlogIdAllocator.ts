@@ -161,7 +161,7 @@ async function allocateNow(key: string, projectPath: string, kind: BacklogIdKind
   let id: string;
   if (kind === 'task' && options.parentTaskId) {
     const parent = parseBacklogId(options.parentTaskId);
-    if (!parent || parent.kind !== 'task') throw new Error(`Родитель подзадачи — не задача: ${options.parentTaskId}`);
+    if (!parent || parent.kind !== 'task') throw new Error(`The subtask parent is not a task: ${options.parentTaskId}`);
     id = `${parent.id}.${nextSubtaskNumber(parent.id, taken)}`;
   } else {
     id = formatBacklogId(kind, [nextTopNumber(kind, taken)]);

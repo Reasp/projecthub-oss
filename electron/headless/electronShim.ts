@@ -118,7 +118,7 @@ export class Notification {
 /** Голосовой стек (GigaAM в utilityProcess) на ph-agent недоступен: голосовой промпт идёт на ПК с окном. */
 export const utilityProcess = {
   fork: (): never => {
-    throw new Error('utilityProcess недоступен в ph-agent');
+    throw new Error('utilityProcess is not available in ph-agent');
   }
 };
 

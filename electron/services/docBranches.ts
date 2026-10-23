@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
+import { AppError } from '../../src/lib/appError.js';
 import path from 'node:path';
 import { execGit, splitNul, type GitRunner } from './checkpointGit';
 import { allocateBacklogId, insideGitRepo, listDiskBacklogPaths } from './backlogIdAllocator';
@@ -177,7 +178,7 @@ async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 async function openRepo(projectRoot: string, env: DocBranchEnv = {}): Promise<Repo> {
   const root = path.resolve(projectRoot);
-  if (!insideGitRepo(root)) throw new Error('Ветки документации работают только в git-репозитории: в проекте нет .git.');
+  if (!insideGitRepo(root)) throw new AppError('docs.branchesNeedGit');
   const git = env.git ?? execGit;
   const top = path.resolve((await git(['rev-parse', '--show-toplevel'], { cwd: root })).trim());
   const prefix = (await git(['rev-parse', '--show-prefix'], { cwd: root })).trim().replace(/\\/g, '/');
@@ -337,19 +338,19 @@ async function commitToBranch(
 function findMeta(store: StoreFile, repo: Repo, id: string): DocBranchMeta {
   const wanted = id.trim().toLowerCase();
   const meta = store.branches.find((b) => b.id.toLowerCase() === wanted && b.prefix === repo.prefix);
-  if (!meta) throw new Error(`Ветка документации ${id} не найдена. Список — doc_branch_list.`);
+  if (!meta) throw new AppError('docs.branchNotFound', { id });
   return meta;
 }
 
 function requireActive(meta: DocBranchMeta): void {
-  if (meta.status === 'merged') throw new Error(`Ветка ${meta.id} уже принята в основную. Открой новую: doc_branch_open.`);
-  if (meta.status === 'closed') throw new Error(`Ветка ${meta.id} закрыта. Открой новую: doc_branch_open.`);
+  if (meta.status === 'merged') throw new AppError('docs.branchMerged', { id: meta.id });
+  if (meta.status === 'closed') throw new AppError('docs.branchClosed', { id: meta.id });
 }
 
 async function activeTip(repo: Repo, meta: DocBranchMeta): Promise<string> {
   requireActive(meta);
   const tip = await refTip(repo, meta.id);
-  if (!tip) throw new Error(`У ветки ${meta.id} нет ref ${refOf(meta.id)}: её удалили вручную.`);
+  if (!tip) throw new AppError('docs.branchRefMissing', { id: meta.id, ref: refOf(meta.id) });
   return tip;
 }
 
@@ -425,7 +426,7 @@ export interface OpenDocBranchParams {
 export async function openDocBranch(projectRoot: string, params: OpenDocBranchParams, env: DocBranchEnv = {}): Promise<DocBranchMeta> {
   const repo = await openRepo(projectRoot, env);
   const title = params.title.trim();
-  if (!title) throw new Error('Не указано название ветки (title): что меняется в документации.');
+  if (!title) throw new Error('The branch title is not set: describe what changes in the documentation.');
   return withLock(lockKey(repo), async () => {
     const store = await readStore(repo);
     const id = `db-${store.next}`;
@@ -506,7 +507,7 @@ export async function updateDocInBranch(
     const repoPath = await findDocPath(repo, tip, doc);
     const raw = repoPath ? await readBlob(repo, tip, repoPath) : null;
     if (repoPath === null || raw === null) {
-      throw new Error(`Документа ${doc} нет в ветке ${meta.id}. Если его создали в основной позже, подтяни её: doc_branch_resolve.`);
+      throw new Error(`Document ${doc} is not in branch ${meta.id}. If it was created in the main branch later, pull it in: doc_branch_resolve.`);
     }
     // Изменение предложенной ветки возвращает её в работу: предложение устарело.
     const next = transform(raw);
@@ -704,7 +705,7 @@ export async function proposeDocBranch(projectRoot: string, id: string, message:
     const meta = findMeta(await readStore(repo), repo, id);
     const tip = await activeTip(repo, meta);
     const diff = await computeDiff(repo, meta, tip);
-    if (diff.files.length === 0) throw new Error(`В ветке ${meta.id} нет изменений: предлагать нечего.`);
+    if (diff.files.length === 0) throw new Error(`Branch ${meta.id} has no changes: nothing to propose.`);
     const stamp = repo.now().toISOString();
     const updated = await touch(repo, meta.id, { status: 'proposed', proposal: message.trim() || meta.title, proposedAt: stamp });
     return { ...diff, branch: updated };
@@ -748,7 +749,7 @@ export async function mergeDocBranch(
     const selected = wanted.length
       ? diff.files.filter((f) => [f.docId, f.path, f.branchPath].some((k) => wanted.includes(k.toLowerCase())))
       : diff.files;
-    if (wanted.length && selected.length === 0) throw new Error(`Таких документов нет среди изменений ветки ${meta.id}: ${options.docs!.join(', ')}.`);
+    if (wanted.length && selected.length === 0) throw new AppError('docs.branchDocsNotChanged', { id: meta.id, docs: options.docs!.join(', ') });
     if (selected.length === 0) return { status: 'nothing', written: [], removed: [], renumbered: [], conflicts: [], branch: meta };
 
     const conflicts = flattenConflicts(selected);
@@ -760,7 +761,7 @@ export async function mergeDocBranch(
     const accepted = { ...(meta.accepted ?? {}) };
     for (const f of selected) {
       const abs = path.resolve(repo.root, ...f.path.split('/'));
-      if (!abs.startsWith(backlogDir + path.sep)) throw new Error(`Путь вне backlog/: ${f.path}`);
+      if (!abs.startsWith(backlogDir + path.sep)) throw new AppError('docs.branchPathOutsideBacklog', { path: f.path });
       if (f.merged === null) {
         if (f.main !== null) {
           await fs.rm(abs, { force: true });

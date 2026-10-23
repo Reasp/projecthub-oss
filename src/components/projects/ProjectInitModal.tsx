@@ -28,6 +28,7 @@ import {
 import { useProjectStore } from '../../store/useProjectStore';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
+import { accountDisplayName } from '../../lib/cliAccountEngines';
 import type {
   InitAction,
   InitGroup,
@@ -415,7 +416,8 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
   const stepIndex = { setup: 1, preview: 2, applying: 3, done: 3 }[step];
   const stepName = { setup: ti.stepSetup, preview: ti.stepPreview, applying: ti.stepApply, done: ti.stepDone }[step];
   const busy = step === 'applying';
-  const chosenAccountName = claudeAccountId ? claudeAccounts.find((a) => a.id === claudeAccountId)?.name ?? null : null;
+  const chosenAccount = claudeAccountId ? claudeAccounts.find((a) => a.id === claudeAccountId) : undefined;
+  const chosenAccountName = chosenAccount ? accountDisplayName(chosenAccount, t.claudeAccounts.defaultName) : null;
 
   const toggle = (setter: React.Dispatch<React.SetStateAction<Record<string, boolean>>>, id: string, current: boolean) =>
     setter((prev) => ({ ...prev, [id]: !current }));
@@ -620,7 +622,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
                     {claudeAccounts
                       .filter((account) => account.id !== 'default')
                       .map((account) => (
-                        <option key={account.id} value={account.id}>{account.name}</option>
+                        <option key={account.id} value={account.id}>{accountDisplayName(account, t.claudeAccounts.defaultName)}</option>
                       ))}
                   </select>
                 </section>

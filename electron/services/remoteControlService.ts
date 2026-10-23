@@ -38,7 +38,8 @@ import { projectRegistry } from './projectRegistry.js';
 import { assertRegisteredProject, assertWorkspaceRoot } from './projectPathGuard.js';
 import { studioRemoteBridge } from './studioRemoteBridge.js';
 import { aiSessionStore } from './aiSessionStore.js';
-import { hitlTitleIn } from '../i18n/hostText.js';
+import { hitlTitleIn, hostText } from '../i18n/hostText.js';
+import { getHostLanguage } from './hostLanguage.js';
 import { AppError, appErrorKeyOf, withAppErrorKey, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
 import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 import { llmProfileService } from './llmProfileService.js';
@@ -3225,12 +3226,12 @@ class RemoteControlService {
     if (typeof params.peerHostId === 'string') return this.enrollIntroducedPeer(params, caller);
     const requested = parseDeviceRights(params.rights) ?? 'full';
     const rights = minDeviceRights(this.effectiveDeviceRights(caller), requested);
-    const baseName = (typeof params.deviceName === 'string' && params.deviceName.trim() ? params.deviceName.trim() : 'Телефон').slice(0, 60);
+    const baseName = (typeof params.deviceName === 'string' && params.deviceName.trim() ? params.deviceName.trim() : hostText(getHostLanguage()).remote.phoneName).slice(0, 60);
     const deviceId = `fed_${crypto.randomBytes(8).toString('hex')}`;
     const record: DeviceTokenRecord = {
       token: crypto.randomBytes(32).toString('hex'),
       rights,
-      deviceName: `${baseName} · через ${caller.name}`.slice(0, 120),
+      deviceName: hostText(getHostLanguage()).remote.viaPeer(baseName, caller.name).slice(0, 120),
       createdAt: Date.now(),
       rightsExplicit: true,
       approved: true,

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Save, X } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useRolesStore } from '../../store/useRolesStore';
 import {
@@ -57,9 +57,9 @@ export const AutomationRuleEditor: React.FC<Props> = ({ rule, onSaved, onCancel 
     try {
       const res = await window.api.saveAutomationRule(ruleFromForm(form));
       if (res.ok) onSaved();
-      else setError(res.error);
+      else setError(ipcFailureText(res));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(ipcErrorText(err));
     } finally {
       setSaving(false);
     }

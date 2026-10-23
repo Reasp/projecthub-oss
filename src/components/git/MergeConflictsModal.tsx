@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, CheckCircle, FileText, GitMerge, RefreshCw, RotateCcw, Sparkles, X } from '../common/icons';
 import { MarkdownViewer } from '../common/MarkdownViewer';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText as errorText, useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { applyConflictChoices, countConflicts, frontmatterLoss, hasConflictMarkers } from '../../../electron/services/conflictMarkers';
@@ -27,7 +27,6 @@ type View = 'blocks' | 'result' | 'preview';
 type Notice = { kind: 'ok' | 'error' | 'info'; text: string };
 
 const CHOICES: ConflictChoice[] = ['ours', 'theirs', 'both'];
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export const MergeConflictsModal: React.FC<MergeConflictsModalProps> = ({ root, projectPath, onClose }) => {
   const { t } = useTranslation();

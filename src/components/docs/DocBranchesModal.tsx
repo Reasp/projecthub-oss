@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, GitBranch, GitMerge, XCircle, AlertTriangle, ShieldCheck, FileText } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText as errorText, useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { InitDiffView } from '../projects/InitDiffView';
 import type { DocBranchDiff, DocBranchFile, DocBranchesOverview, DocResolution } from '../../types/electron';
@@ -17,7 +17,6 @@ interface DocBranchesModalProps {
 
 type Resolutions = Record<string, Record<string, DocResolution>>;
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /**
  * Ветки документации (TASK-194, decision-151): список веток, документы ветки, итог принятия в основной построчно,

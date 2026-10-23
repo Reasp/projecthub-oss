@@ -180,7 +180,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
                   </div>
                   {entry.issues.length > 0 && (
                     <div className="text-[11px] text-rose-300 mt-1">
-                      {entry.issues.map((issue) => `${issue.path || '·'}: ${issue.message}`).join('; ')}
+                      {entry.issues.map((issue) => `${issue.path || '·'}: ${ipcFailureText({ error: issue.message, errorKey: issue.messageKey })}`).join('; ')}
                     </div>
                   )}
                 </div>

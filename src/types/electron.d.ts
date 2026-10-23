@@ -255,6 +255,7 @@ export interface ComputerUseDiagnostics {
   } | null;
   status: ComputerUseStatus;
   error?: string;
+  errorKey?: unknown;
 }
 
 /** Статус встроенного MCP HTTP/SSE-сервера (main → renderer через getMcpStatus/onMcpStatusChanged). */
@@ -294,6 +295,8 @@ export interface UpdaterStatus {
   percent?: number;
   releaseUrl?: string;
   error?: string;
+  /** Код ошибки (decision-165). */
+  errorKey?: unknown;
   supportsAutoInstall: boolean;
 }
 
@@ -1569,7 +1572,7 @@ export interface IElectronAPI {
 
   // Automations (TASK-74, decision-52): правила, доверие к проектным, журнал, запуск сейчас
   listAutomations: () => Promise<AutomationListResult>;
-  saveAutomationRule: (rule: AutomationRuleInput) => Promise<{ ok: true; rule: AutomationRule } | { ok: false; error: string }>;
+  saveAutomationRule: (rule: AutomationRuleInput) => Promise<{ ok: true; rule: AutomationRule } | { ok: false; error: string; errorKey?: unknown }>;
   deleteAutomationRule: (id: string) => Promise<boolean>;
   setAutomationEnabled: (key: string, enabled: boolean, hash?: string) => Promise<{ ok: true } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
   runAutomationNow: (key: string) => Promise<AutomationRunNowResult>;
@@ -1680,7 +1683,7 @@ export interface IElectronAPI {
   releaseComputerKillSwitch: () => Promise<ComputerUseStatus>;
   startComputerUseRuntime: () => Promise<ComputerUseStatus>;
   runComputerUseDiagnostics: () => Promise<ComputerUseDiagnostics>;
-  takeComputerTestScreenshot: () => Promise<{ ok: boolean; dataUrl?: string; text?: string; error?: string }>;
+  takeComputerTestScreenshot: () => Promise<{ ok: boolean; dataUrl?: string; text?: string; error?: string; errorKey?: unknown }>;
   onComputerUseStatusChanged: (callback: (status: ComputerUseStatus) => void) => () => void;
   onComputerOverlayState: (callback: (state: ComputerOverlayState) => void) => () => void;
   onRemoteAction: (callback: (action: { type: string; payload: any }) => void) => () => void;
@@ -2592,6 +2595,7 @@ export interface AutomationRuleView {
   rule?: AutomationRule;
   raw?: unknown;
   issue?: string;
+  issueKey?: unknown;
   state: AutomationRuleStateView;
   builtinLimits?: { dailyBudgetUsd: number; maxRunsPerDay: number };
 }
@@ -3214,6 +3218,8 @@ export interface MergeOptions {
 export interface MergeWorktreeResult {
   success: boolean;
   error?: string;
+  /** Код ошибки (decision-165): окно показывает её на своём языке. */
+  errorKey?: unknown;
   conflictedFiles?: string[];
   wasAborted?: boolean;
   uncleanWorkingTree?: boolean;
@@ -4115,6 +4121,7 @@ export interface DoneLoopState {
     previousStatus?: string;
     finalSummaryWritten?: boolean;
     error?: string;
+    errorKey?: unknown;
   };
 }
 

@@ -104,6 +104,8 @@ export interface HostText {
   studio: { cancelledByUser: string };
   /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
   chat: { testTitle: string; testBody: string; usageLabel: string };
+  /** Имя устройства, которое привёл соседний ПК федерации (decision-111): сохраняется в записи токена. */
+  remote: { phoneName: string; viaPeer: (device: string, peer: string) => string };
 }
 
 const en: HostText = {
@@ -197,7 +199,8 @@ const en: HostText = {
     }
   },
   studio: { cancelledByUser: '*(Cancelled by the user)*' },
-  chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' }
+  chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' },
+  remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}` }
 };
 
 const ru: HostText = {
@@ -291,7 +294,8 @@ const ru: HostText = {
     }
   },
   studio: { cancelledByUser: '*(Отменено пользователем)*' },
-  chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' }
+  chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' },
+  remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}` }
 };
 
 const TEXTS: Record<Language, HostText> = { en, ru };

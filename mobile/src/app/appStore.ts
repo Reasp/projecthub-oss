@@ -48,7 +48,7 @@ import { sendVoice } from '../protocol/voice';
 import type { OverviewSessionKind, RemoteOverview } from '../../../src/utils/fleetOverview';
 import { t } from '../i18n';
 import { parseScope, SCOPE_PREF, serializeScope, type Scope } from '../protocol/scope';
-import { errorText } from './errorText';
+import { errorText, failureText } from './errorText';
 
 /**
  * Состояние экранов и действия мобильного клиента (TASK-140.1). Без React: экраны читают его
@@ -560,9 +560,9 @@ export class AppStore {
 
   /** Взять задачу себе: исполнитель — я, статус «в работе», на хосте — моя ветка и worktree (decision-126 п. 7). */
   async takeTask(task: RemoteTaskSummary): Promise<boolean> {
-    const res = await this.call<{ claimError?: string }>('take_task', this.withProject({ taskId: task.id }));
+    const res = await this.call<{ claimError?: string; claimErrorKey?: unknown }>('take_task', this.withProject({ taskId: task.id }));
     // Origin недоступен: задача взята только на хосте, другие копии её занятой не увидят (decision-153).
-    if (res?.claimError) this.showToast(t().tasks.takenHostOnly(res.claimError), 'error');
+    if (res?.claimError) this.showToast(t().tasks.takenHostOnly(failureText({ error: res.claimError, errorKey: res.claimErrorKey })), 'error');
     else if (res) this.showToast(t().tasks.taken, 'success');
     await Promise.all([this.refreshTasks(), this.refreshTeam(), this.refreshClaims()]);
     return Boolean(res);

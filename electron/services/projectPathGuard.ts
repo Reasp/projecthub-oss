@@ -25,14 +25,12 @@ import {
  */
 export async function assertInsideRegisteredProject(filePath: string): Promise<string> {
   if (typeof filePath !== 'string' || !filePath.trim()) {
-    throw new PathOutsideProjectError('Доступ запрещён: путь к файлу не задан');
+    throw new PathOutsideProjectError('access.filePathEmpty');
   }
   const projects = await projectRegistry.getProjects();
   const owner = findOwningProject(projects.map((p) => p.path), filePath);
   if (!owner) {
-    throw new PathOutsideProjectError(
-      `Доступ запрещён: путь "${filePath}" не принадлежит ни одному зарегистрированному проекту`
-    );
+    throw new PathOutsideProjectError('access.notInRegisteredProject', { path: filePath });
   }
   return path.resolve(filePath);
 }
@@ -43,13 +41,11 @@ export async function assertInsideRegisteredProject(filePath: string): Promise<s
  */
 export async function assertRegisteredProject(projectPath: string): Promise<string> {
   if (typeof projectPath !== 'string' || !projectPath.trim()) {
-    throw new PathOutsideProjectError('Доступ запрещён: путь к проекту не задан');
+    throw new PathOutsideProjectError('access.projectPathEmpty');
   }
   const projects = await projectRegistry.getProjects();
   if (!isRegisteredProjectRoot(projects.map((p) => p.path), projectPath)) {
-    throw new PathOutsideProjectError(
-      `Доступ запрещён: "${projectPath}" не является зарегистрированным проектом`
-    );
+    throw new PathOutsideProjectError('access.notRegisteredProject', { path: projectPath });
   }
   return path.resolve(projectPath);
 }
@@ -80,7 +76,7 @@ export function isProjectWorktreeRoot(projectPath: string, candidate: string): b
  */
 export async function assertWorkspaceRoot(workspacePath: string): Promise<string> {
   if (typeof workspacePath !== 'string' || !workspacePath.trim()) {
-    throw new PathOutsideProjectError('Доступ запрещён: путь к рабочему дереву не задан');
+    throw new PathOutsideProjectError('access.workspacePathEmpty');
   }
   const projects = await projectRegistry.getProjects();
   const roots = projects.map((p) => p.path);
@@ -89,7 +85,5 @@ export async function assertWorkspaceRoot(workspacePath: string): Promise<string
   const owner = findOwningProject(roots, workspacePath);
   if (owner && isProjectWorktreeRoot(owner, workspacePath)) return path.resolve(workspacePath);
 
-  throw new PathOutsideProjectError(
-    `Доступ запрещён: "${workspacePath}" не является ни корнем проекта, ни его worktree`
-  );
+  throw new PathOutsideProjectError('access.notWorkspace', { path: workspacePath });
 }

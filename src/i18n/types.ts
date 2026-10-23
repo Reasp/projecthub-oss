@@ -1092,6 +1092,7 @@ export interface TranslationDictionary {
   };
   docs: {
     title: string;
+    loadFailed: string;
     newDoc: string;
     newDecision: string;
     allDocs: string;
@@ -2874,6 +2875,7 @@ export interface TranslationDictionary {
     deviceProjectsUseDevice: string;
     projectAccessNone: string;
     deviceProjectsSave: string;
+    deviceProjectsSaveFailed: string;
     deviceProjectsCancel: string;
     deviceProjectsCeiling: string;
     pairedDevicesTitle: string;
@@ -3725,6 +3727,7 @@ export interface TranslationDictionary {
     accountLabel: string;
     usageAccountsLabel: string;
     defaultBadge: string;
+    defaultName: string;
     externalBadge: string;
     projectsCount: string;
     loggedInAs: string;

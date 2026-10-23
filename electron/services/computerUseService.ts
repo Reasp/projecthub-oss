@@ -7,6 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import treeKill from 'tree-kill';
 import { ApprovalCancelledError, hitlService } from './hitlService.js';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 import type { HitlEngine, HitlOrigin, HitlRequest } from './hitlTypes.js';
 import {
   buildProxyInputSchema,
@@ -467,7 +468,7 @@ class ComputerUseService extends EventEmitter {
 
   private async callRuntime(name: string, args: Record<string, unknown>): Promise<RuntimeCallResult> {
     const client = this.client;
-    if (!client) throw new Error('Рантайм управления компьютером не запущен');
+    if (!client) throw new AppError('computer.runtimeNotRunning');
     const res = (await client.callTool({ name, arguments: args }, undefined, { timeout: RUNTIME_CALL_TIMEOUT_MS })) as RuntimeCallResult;
     return { content: Array.isArray(res.content) ? res.content : [], isError: Boolean(res.isError), structuredContent: res.structuredContent };
   }
@@ -960,7 +961,7 @@ class ComputerUseService extends EventEmitter {
   // ─────────────────────────────── Диагностика ───────────────────────────────
 
   /** `doctor` рантайма + состояние прокси (AC #8). */
-  public async diagnostics(): Promise<{ ok: boolean; runtime: unknown; status: ComputerUseStatus; error?: string }> {
+  public async diagnostics(): Promise<{ ok: boolean; runtime: unknown; status: ComputerUseStatus; error?: string; errorKey?: AppErrorKey }> {
     if (!(await this.ensureRuntime())) {
       return { ok: false, runtime: null, status: this.getStatus(), error: this.runtimeError ?? 'Рантайм недоступен' };
     }
@@ -969,12 +970,12 @@ class ComputerUseService extends EventEmitter {
       const data = structuredOf(res);
       return { ok: data?.ok === true && !res.isError, runtime: data, status: this.getStatus() };
     } catch (err) {
-      return { ok: false, runtime: null, status: this.getStatus(), error: err instanceof Error ? err.message : String(err) };
+      return { ok: false, runtime: null, status: this.getStatus(), ...appErrorFields(err) };
     }
   }
 
   /** Тестовый скриншот из настроек: проверка захвата экрана без агента и без аудита. */
-  public async testScreenshot(): Promise<{ ok: boolean; dataUrl?: string; text?: string; error?: string }> {
+  public async testScreenshot(): Promise<{ ok: boolean; dataUrl?: string; text?: string; error?: string; errorKey?: AppErrorKey }> {
     if (this.killSwitch.engaged) return { ok: false, error: 'Kill-switch активен — снимите блокировку.' };
     if (!(await this.ensureRuntime())) return { ok: false, error: this.runtimeError ?? 'Рантайм недоступен' };
     try {
@@ -989,7 +990,7 @@ class ComputerUseService extends EventEmitter {
         text: mapping ? describeScreenshotForModel(mapping) : firstText(res)
       };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return { ok: false, ...appErrorFields(err) };
     }
   }
 }

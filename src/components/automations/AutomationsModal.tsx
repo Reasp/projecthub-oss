@@ -89,7 +89,7 @@ export const AutomationsModal: React.FC = () => {
   if (!isOpen) return null;
 
   const statusOf = (r: AutomationRuleView): { key: keyof typeof a.status; text: string; hint?: string } => {
-    if (r.issue) return { key: 'invalid', text: a.status.invalid, hint: r.issue };
+    if (r.issue) return { key: 'invalid', text: a.status.invalid, hint: ipcFailureText({ error: r.issue, errorKey: r.issueKey }) };
     const paused = (r.state.pausedUntil ?? 0) > Date.now();
     if (paused) {
       return {

@@ -30,6 +30,7 @@ import { useAIStudioStore, type AISession } from '../../store/useAIStudioStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSwarmStore } from '../../store/useSwarmStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { accountDisplayName } from '../../lib/cliAccountEngines';
 import { useDialog } from '../../hooks/useDialog';
 import { AISettingsModal } from './AISettingsModal';
 import { RolesSettingsModal } from './roles/RolesSettingsModal';
@@ -231,7 +232,8 @@ export const AIStudioView: React.FC = () => {
             const tabNumber = idx + 1;
             const tabAgent = effectiveSessionAgent(config, session.agent);
             const tabAccount = sessionClaudeAccountId(session.agent);
-            const tabAccountName = tabAccount ? claudeAccounts?.find((a) => a.id === tabAccount)?.name : undefined;
+            const tabAccountView = tabAccount ? claudeAccounts?.find((a) => a.id === tabAccount) : undefined;
+            const tabAccountName = tabAccountView ? accountDisplayName(tabAccountView, t.claudeAccounts.defaultName) : undefined;
             const tabAgentLabel = [tabAgent.model, tabAccountName].filter(Boolean).join(' · ');
             const tabWaiting = allProjectApprovals.some((r) => r.sessionId === session.id);
             const tabAnswering = !!streamingSessions[session.id];

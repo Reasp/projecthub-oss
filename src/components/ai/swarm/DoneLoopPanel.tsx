@@ -127,7 +127,7 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                 )}
               </div>
             )}
-            {loop.task?.error && <div>{d.taskWriteError.replace('{error}', loop.task.error)}</div>}
+            {loop.task?.error && <div>{d.taskWriteError.replace('{error}', ipcFailureText(loop.task))}</div>}
           </div>
         </div>
       )}

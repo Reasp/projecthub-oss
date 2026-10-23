@@ -17,6 +17,7 @@ import {
 } from '../common/icons';
 import type { ClaudeUsageData } from '../../types/electron';
 import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
+import { accountDisplayName } from '../../lib/cliAccountEngines';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 
 interface ClaudeUsageModalProps {
@@ -197,7 +198,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                     : 'bg-ph-panel border-ph-line text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {account.name}
+                {accountDisplayName(account, t.claudeAccounts.defaultName)}
               </button>
             ))}
           </div>

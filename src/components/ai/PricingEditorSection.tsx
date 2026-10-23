@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, CheckCircle2, CloudDownload, Loader2, Pencil, Plus, RotateCcw, Search, Trash2, X } from '../common/icons';
 import type { AgentPricingState, OpenRouterImportResult, PriceOverrides } from '../../types/electron';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import {
   applyImportSelection,
   buildPriceRows,
@@ -184,7 +184,7 @@ export const PricingEditorSection: React.FC = () => {
       const result = await window.api.fetchOpenRouterPrices();
       setImportState({ loading: false, result });
     } catch (err) {
-      setImportState({ loading: false, error: String((err as Error)?.message ?? err) });
+      setImportState({ loading: false, error: ipcErrorText(err) });
     }
   };
 

@@ -1,6 +1,7 @@
 import type { RemoteEndpoint } from '../utils/remoteEndpoints';
 import type { DeviceProjectRights } from '../utils/projectAccess';
 import type { HitlTextKey } from './electron';
+import type { AppErrorKey } from '../lib/appError';
 
 /** LAN Direct и Relay (decision-11 п.2) — WebRTC выведен из scope, `RTCPeerConnection` в коде не было. */
 export type RemoteConnectionMode = 'lan' | 'relay';
@@ -800,9 +801,14 @@ export interface RemoteInboxEvent {
   id: string;
   kind: RemoteInboxEventKind;
   at: number;
+  /** Английский запасной заголовок: его показывает старый клиент. */
   title: string;
+  /** Код заголовка (decision-161): телефон собирает его по общему словарю на своём языке. */
+  titleKey?: AppErrorKey;
   /** Ошибка, причина сбоя или текст сообщения агента. */
   body?: string;
+  /** Код текста `body`, если его пишет хост, а не агент. */
+  bodyKey?: AppErrorKey;
   level?: RemoteNoteLevel;
   projectPath?: string;
   agentName?: string;

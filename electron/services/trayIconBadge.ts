@@ -45,7 +45,7 @@ function blend(pixels: Uint8Array, offset: number, color: Rgb, alpha: number): v
  */
 export function drawBadge(pixels: Uint8Array, size: number, color: Rgb): void {
   if (!Number.isInteger(size) || size <= 0 || pixels.length !== size * size * 4) {
-    throw new Error(`Иконка ${size}×${size} не соответствует буферу из ${pixels.length} байт`);
+    throw new Error(`Icon ${size}×${size} does not match a buffer of ${pixels.length} bytes`);
   }
 
   const radius = size * 0.25;

@@ -3,6 +3,7 @@ import { User } from '../common/icons';
 import type { AIProviderConfig, StudioSessionAgent } from '../../types/electron';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { accountDisplayName } from '../../lib/cliAccountEngines';
 import { sessionRequestConfig, withClaudeAccount, withSelection } from '../../lib/studioSessionAgent';
 import { ModelSelectorDropdown } from './ModelSelectorDropdown';
 import { ComposerMenu } from './ComposerMenu';
@@ -36,8 +37,8 @@ export const SessionAgentPicker: React.FC<SessionAgentPickerProps> = ({ projectP
   const accounts = overview?.accounts ?? [];
   const showAccount = agent.provider === 'anthropic' && accounts.length > 1;
   const own = agent.claudeAccountId ? accounts.find((a) => a.id === agent.claudeAccountId) : undefined;
-  const projectName = projectAccount?.account.name ?? '…';
-  const label = own?.name ?? projectName;
+  const projectName = projectAccount ? accountDisplayName(projectAccount.account, t.claudeAccounts.defaultName) : '…';
+  const label = own ? accountDisplayName(own, t.claudeAccounts.defaultName) : projectName;
 
   return (
     <>
@@ -67,7 +68,7 @@ export const SessionAgentPicker: React.FC<SessionAgentPickerProps> = ({ projectP
             },
             ...accounts.map((account) => ({
               key: account.id,
-              label: account.name,
+              label: accountDisplayName(account, t.claudeAccounts.defaultName),
               checked: own?.id === account.id,
               onSelect: () => onChange(withClaudeAccount(agent, account.id))
             })),

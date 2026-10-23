@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { AppError } from '../../src/lib/appError.js';
 import { BUILTIN_PRICE_TABLE, mergePriceTables, type PriceTable } from './agentCost.js';
 import { parseOpenRouterModels, sanitizePriceOverrides, type OpenRouterImportResult, type PriceOverrides } from './agentPricing.js';
 import { getUserDataDir } from './appPaths.js';
@@ -97,7 +98,7 @@ export class PricingService {
       signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS)
     });
     if (!response.ok) {
-      throw new Error(`OpenRouter ответил ${response.status}: ${(await response.text()).slice(0, 300)}`);
+      throw new AppError('pricing.openRouterStatus', { status: response.status, detail: (await response.text()).slice(0, 300) });
     }
     return parseOpenRouterModels(await response.json());
   }

@@ -24,6 +24,7 @@ import { checksSummary, criteriaDone, projectName, timeAgo, type FeedSource } fr
 import { inScope } from '../protocol/scope';
 import { canApproveInApp, capabilitiesFor, hitlText, type AgentTaskGroup, type HitlItem } from '../protocol/models';
 import { useT } from '../i18n/react';
+import { failureText } from '../app/errorText';
 import type { Dict } from '../i18n';
 import type { RemoteInboxEvent, RemoteReviewItem } from '../../../src/types/remote';
 
@@ -239,8 +240,8 @@ function EventRow({ source, event, multi }: { source: FeedSource; event: RemoteI
     <div className="mb-2 flex items-start gap-2 rounded-xl border border-ph-line bg-ph-elevated p-3" data-testid={`inbox-event-${event.kind}`}>
       {note && warn ? <WarningIcon size={18} className="shrink-0 text-amber-400" /> : EVENT_ICON[event.kind]}
       <div className="min-w-0 flex-1">
-        <div className="text-[14px] font-medium leading-snug">{event.title}</div>
-        {event.body && <div className={clsx('selectable mt-0.5 whitespace-pre-wrap break-words text-[13px]', note ? 'text-slate-200' : 'text-slate-400')}>{event.body}</div>}
+        <div className="text-[14px] font-medium leading-snug">{failureText({ error: event.title, errorKey: event.titleKey })}</div>
+        {event.body && <div className={clsx('selectable mt-0.5 whitespace-pre-wrap break-words text-[13px]', note ? 'text-slate-200' : 'text-slate-400')}>{failureText({ error: event.body, errorKey: event.bodyKey })}</div>}
         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
           <HostTag source={source} multi={multi} />
           {event.projectPath && <Badge>{projectName(event.projectPath)}</Badge>}

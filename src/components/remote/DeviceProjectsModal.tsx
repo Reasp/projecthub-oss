@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FolderLock, X } from '../common/icons';
 import { useTranslation } from '../../i18n';
+import { ipcErrorText } from '../../i18n/useTranslation';
 import { useProjectStore } from '../../store/useProjectStore';
 import type { DeviceRights, PairedDevice, RemoteControlStatus } from '../../types/electron';
 import {
@@ -33,6 +34,7 @@ export const DeviceProjectsModal: React.FC<{
   const [other, setOther] = useState<Choice>(initial?.defaultAccess ?? INHERIT);
   const [perProject, setPerProject] = useState<Record<string, Choice>>(() => ({ ...(initial?.projects ?? {}) }));
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const label = (a: ProjectAccess) =>
     a === 'none' ? t.remote.projectAccessNone : a === 'readOnly' ? t.remote.rightsReadOnly : a === 'hitl' ? t.remote.rightsHitl : t.remote.rightsFull;
@@ -43,6 +45,7 @@ export const DeviceProjectsModal: React.FC<{
   const save = async () => {
     if (!window.api?.setRemoteDeviceProjectRights) return;
     setBusy(true);
+    setError(null);
     try {
       let next: DeviceProjectRights | null = null;
       if (restricted) {
@@ -57,6 +60,7 @@ export const DeviceProjectsModal: React.FC<{
       onClose();
     } catch (e) {
       console.error('Failed to set device project rights:', e);
+      setError(t.remote.deviceProjectsSaveFailed.replace('{error}', ipcErrorText(e)));
     } finally {
       setBusy(false);
     }
@@ -121,6 +125,11 @@ export const DeviceProjectsModal: React.FC<{
             </div>
           </div>
         </div>
+        {error && (
+          <div className="border-t border-ph-line px-4 py-2 text-[11px] text-rose-300" data-testid="device-projects-error">
+            {error}
+          </div>
+        )}
         <div className="flex justify-end gap-2 border-t border-ph-line px-4 py-3">
           <button type="button" onClick={onClose} className="rounded-md px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">
             {t.remote.deviceProjectsCancel}

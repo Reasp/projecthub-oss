@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { GitRunner } from './checkpointGit';
+import { AppError, type AppErrorParam } from '../../src/lib/appError';
+import type { AppErrorCode } from '../../src/i18n/appErrorText';
 import { conflictFileKind, hasConflictMarkers, parseConflictSegments, type ConflictFileKind, type ConflictSegment } from './conflictMarkers';
 import { MEMORY_INDEX_PATH, RAG_INDEX_DIR, splitConflicts, writeMemoryIndex, type GeneratedKind } from './backlogGenerated';
 import { findIndexDocsDir } from './docsReindex';
@@ -118,9 +120,10 @@ export interface MergeFailure {
   detail?: string;
 }
 
-export class MergeConflictError extends Error {
-  constructor(message: string, readonly failure: MergeFailure) {
-    super(message);
+/** Отказ окна конфликтов: код отказа для окна (`failure`) и код текста (decision-165) — для показа исключения. */
+export class MergeConflictError extends AppError {
+  constructor(code: AppErrorCode, params: Record<string, AppErrorParam> | undefined, readonly failure: MergeFailure) {
+    super(code, params);
     this.name = 'MergeConflictError';
   }
 }
@@ -142,7 +145,7 @@ export function mergeFailureOf(err: unknown): MergeFailure {
 /** Путь из окна должен быть среди неразрешённых: окно не читает и не пишет произвольные файлы репозитория. */
 async function assertUnmerged(git: GitRunner, top: string, file: string): Promise<Set<number>> {
   const stages = (await unmergedStages(git, top)).get(file);
-  if (!stages) throw new MergeConflictError(`Файл не в конфликте слияния: ${file}`, { code: 'not-in-conflict', detail: file });
+  if (!stages) throw new MergeConflictError('git.notInConflict', { file }, { code: 'not-in-conflict', detail: file });
   return stages;
 }
 
@@ -171,7 +174,7 @@ export async function resolveConflictFile(git: GitRunner, projectRoot: string, f
   const { top } = await repoPaths(git, projectRoot);
   const stages = await assertUnmerged(git, top, file);
   if (resolution.kind === 'content') {
-    if (hasConflictMarkers(resolution.content)) throw new MergeConflictError('В итоге остались маркеры конфликта <<<<<<< ======= >>>>>>>', { code: 'markers-left' });
+    if (hasConflictMarkers(resolution.content)) throw new MergeConflictError('git.markersLeft', undefined, { code: 'markers-left' });
     await fs.writeFile(path.join(top, file), resolution.content, 'utf8');
     await git(['add', '--', file], { cwd: top });
     return;
@@ -252,7 +255,7 @@ export async function finishMergeResolution(git: GitRunner, projectRoot: string,
     await git(['commit', '--no-edit'], { cwd: top });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `Коммит слияния не удался: ${detail}`, failure: { code: 'commit-failed', detail }, memoryRebuilt, index };
+    return { ok: false, error: `Merge commit failed: ${detail}`, failure: { code: 'commit-failed', detail }, memoryRebuilt, index };
   }
   const sha = (await git(['rev-parse', 'HEAD'], { cwd: top })).trim();
   return { ok: true, sha, memoryRebuilt, index };
@@ -260,6 +263,6 @@ export async function finishMergeResolution(git: GitRunner, projectRoot: string,
 
 export async function abortMerge(git: GitRunner, projectRoot: string): Promise<void> {
   const { top } = await repoPaths(git, projectRoot);
-  if (!(await inMergeAt(git, top))) throw new MergeConflictError('Слияние не идёт: отменять нечего', { code: 'not-merging' });
+  if (!(await inMergeAt(git, top))) throw new MergeConflictError('git.notMerging', undefined, { code: 'not-merging' });
   await git(['merge', '--abort'], { cwd: top });
 }

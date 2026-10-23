@@ -5,6 +5,7 @@
  * unit-тестами. Зеркало для рендерера — `src/types/electron.d.ts`.
  */
 import type { CheckDefinition, CheckRunResult } from './arenaTypes.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
 
 /** Что цикл делает прямо сейчас — для прогресса в UI. */
 export type DoneLoopPhase = 'running_agent' | 'checking' | 'verifying' | 'finished' | 'failed' | 'stopped';
@@ -139,5 +140,7 @@ export interface DoneLoopState {
     previousStatus?: string;
     finalSummaryWritten?: boolean;
     error?: string;
+    /** Код ошибки записи (decision-165): окно показывает её на своём языке. */
+    errorKey?: AppErrorKey;
   };
 }

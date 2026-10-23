@@ -117,7 +117,7 @@ class NativeKeyHook {
     try {
       const mod = await import('uiohook-napi');
       this.hook = mod.uIOhook ?? (mod as { default?: { uIOhook?: HookEmitter } }).default?.uIOhook ?? null;
-      if (!this.hook) throw new Error('модуль не экспортирует uIOhook');
+      if (!this.hook) throw new Error('the module does not export uIOhook');
       return { ok: true, hook: this.hook };
     } catch (err) {
       return { ok: false, problem: 'module', detail: errorText(err) };

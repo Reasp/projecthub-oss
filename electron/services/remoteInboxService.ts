@@ -166,7 +166,7 @@ export class RemoteInboxService {
       {
         kind: 'agent_note',
         at: this.deps.now(),
-        title: noteTitle(parsed.level, who),
+        ...noteTitle(parsed.level, who),
         body: parsed.text,
         level: parsed.level,
         ...(ctx.projectPath ? { projectPath: ctx.projectPath } : {}),

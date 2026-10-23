@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { AppError } from '../../src/lib/appError.js';
 import { gitService } from '../services/gitService';
 import { worktreeService } from '../services/worktreeService';
 import { prService } from '../services/prServiceInstance';
@@ -167,7 +168,7 @@ export function registerGitIpc() {
   ipcMain.handle('git:worktree:pullBase', async (_event, projectPath: string, worktreePath: string, targetBranch: string): Promise<BaseSyncResult> => {
     const safeProject = await assertRegisteredProject(projectPath);
     if (typeof worktreePath !== 'string' || !isProjectWorktreeRoot(safeProject, worktreePath)) {
-      throw new Error(`Доступ запрещён: "${worktreePath}" не является worktree проекта`);
+      throw new AppError('access.notProjectWorktree', { path: String(worktreePath) });
     }
     return await runBaseSync(execGit, { workDir: path.resolve(worktreePath), action: 'start', base: String(targetBranch) });
   });
@@ -216,7 +217,7 @@ export function registerGitIpc() {
     if (!wanted) return await prService.setMergeStatus(safeProject, null);
     // Только статус из конфига проекта, в его написании: иначе задача ушла бы в колонку, которой нет.
     const known = (await readBacklogConfig(safeProject)).statuses.find((s) => s.toLowerCase() === wanted.toLowerCase());
-    if (!known) throw new Error(`Статуса «${wanted}» нет в конфиге проекта`);
+    if (!known) throw new AppError('pr.statusNotInConfig', { status: wanted });
     return await prService.setMergeStatus(safeProject, known);
   });
 

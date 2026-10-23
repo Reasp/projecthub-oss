@@ -1011,7 +1011,7 @@ const api: IElectronAPI = {
   getEditionInfo: () => ipcRenderer.invoke('edition:info'),
   checkAgentLaunch: (ctx: unknown) => ipcRenderer.invoke('agents:launchCheck', ctx),
   editionInvoke: (channel: string, ...args: unknown[]) => {
-    if (typeof channel !== 'string' || !channel.startsWith('ee:')) return Promise.reject(new Error('Канал платного модуля должен начинаться с ee:'));
+    if (typeof channel !== 'string' || !channel.startsWith('ee:')) return Promise.reject(new Error('A paid module channel must start with ee:'));
     return ipcRenderer.invoke(channel, ...args);
   }
 };

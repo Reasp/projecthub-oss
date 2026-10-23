@@ -4,11 +4,15 @@
  * Чистый модуль без зависимостей: стандартные 5 полей (минута, час, день месяца, месяц, день
  * недели), `*`, списки, диапазоны, шаги, имена месяцев и дней, макросы `@hourly` … `@monthly`.
  * Время — локальное время машины. Секунд, `L`, `W`, `#` и `@reboot` нет намеренно.
+ *
+ * Ошибка разбора — код `automations.cron*` (decision-165): редактор правил показывает её на языке окна.
  */
+import { AppError, type AppErrorKey, type AppErrorParam } from '../../src/lib/appError.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 
-export class CronParseError extends Error {
-  constructor(message: string) {
-    super(message);
+export class CronParseError extends AppError {
+  constructor(code: AppErrorCode, params?: Record<string, AppErrorParam>) {
+    super(code, params);
     this.name = 'CronParseError';
   }
 }
@@ -43,7 +47,8 @@ const MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'se
 const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
 interface FieldSpec {
-  name: string;
+  /** Имя поля в ошибке — кодом словаря. */
+  name: AppErrorKey;
   min: number;
   max: number;
   names?: string[];
@@ -52,12 +57,12 @@ interface FieldSpec {
 }
 
 const FIELDS: FieldSpec[] = [
-  { name: 'минута', min: 0, max: 59 },
-  { name: 'час', min: 0, max: 23 },
-  { name: 'день месяца', min: 1, max: 31 },
-  { name: 'месяц', min: 1, max: 12, names: MONTH_NAMES, nameOffset: 1 },
+  { name: { code: 'automations.cronFieldMinute' }, min: 0, max: 59 },
+  { name: { code: 'automations.cronFieldHour' }, min: 0, max: 23 },
+  { name: { code: 'automations.cronFieldDayOfMonth' }, min: 1, max: 31 },
+  { name: { code: 'automations.cronFieldMonth' }, min: 1, max: 12, names: MONTH_NAMES, nameOffset: 1 },
   // 7 допускается как воскресенье и сворачивается в 0 после разбора.
-  { name: 'день недели', min: 0, max: 7, names: DAY_NAMES, nameOffset: 0 }
+  { name: { code: 'automations.cronFieldDayOfWeek' }, min: 0, max: 7, names: DAY_NAMES, nameOffset: 0 }
 ];
 
 function parseValue(raw: string, spec: FieldSpec): number {
@@ -66,10 +71,10 @@ function parseValue(raw: string, spec: FieldSpec): number {
     const idx = spec.names.indexOf(lower);
     if (idx >= 0) return idx + (spec.nameOffset ?? 0);
   }
-  if (!/^\d+$/.test(raw)) throw new CronParseError(`Поле «${spec.name}»: неверное значение «${raw}»`);
+  if (!/^\d+$/.test(raw)) throw new CronParseError('automations.cronBadValue', { field: spec.name, value: raw });
   const value = Number(raw);
   if (value < spec.min || value > spec.max) {
-    throw new CronParseError(`Поле «${spec.name}»: значение ${value} вне диапазона ${spec.min}–${spec.max}`);
+    throw new CronParseError('automations.cronOutOfRange', { field: spec.name, value, min: spec.min, max: spec.max });
   }
   return value;
 }
@@ -78,13 +83,13 @@ function parseField(raw: string, spec: FieldSpec): { values: boolean[]; star: bo
   const values = new Array<boolean>(spec.max + 1).fill(false);
   let star = false;
   for (const part of raw.split(',')) {
-    if (!part) throw new CronParseError(`Поле «${spec.name}»: пустой элемент списка`);
+    if (!part) throw new CronParseError('automations.cronEmptyItem', { field: spec.name });
     const [rangePart, stepPart, extra] = part.split('/');
-    if (extra !== undefined) throw new CronParseError(`Поле «${spec.name}»: лишний «/» в «${part}»`);
+    if (extra !== undefined) throw new CronParseError('automations.cronExtraSlash', { field: spec.name, part });
     let step = 1;
     if (stepPart !== undefined) {
       if (!/^\d+$/.test(stepPart) || Number(stepPart) < 1) {
-        throw new CronParseError(`Поле «${spec.name}»: неверный шаг «${stepPart}»`);
+        throw new CronParseError('automations.cronBadStep', { field: spec.name, step: stepPart });
       }
       step = Number(stepPart);
     }
@@ -96,12 +101,12 @@ function parseField(raw: string, spec: FieldSpec): { values: boolean[]; star: bo
       to = spec.max === 7 ? 6 : spec.max;
     } else if (rangePart.includes('-')) {
       const [a, b, more] = rangePart.split('-');
-      if (more !== undefined || !a || !b) throw new CronParseError(`Поле «${spec.name}»: неверный диапазон «${rangePart}»`);
+      if (more !== undefined || !a || !b) throw new CronParseError('automations.cronBadRange', { field: spec.name, range: rangePart });
       from = parseValue(a, spec);
       to = parseValue(b, spec);
       // `sat-sun`: воскресенье в конце диапазона дней недели — это 7, а не 0.
       if (spec.max === 7 && to === 0 && from > 0) to = 7;
-      if (from > to) throw new CronParseError(`Поле «${spec.name}»: диапазон «${rangePart}» задом наперёд`);
+      if (from > to) throw new CronParseError('automations.cronReversedRange', { field: spec.name, range: rangePart });
     } else {
       from = parseValue(rangePart, spec);
       // `5/15` — от 5 до конца диапазона с шагом, как в Vixie cron.
@@ -115,12 +120,12 @@ function parseField(raw: string, spec: FieldSpec): { values: boolean[]; star: bo
 /** Разбирает выражение; бросает `CronParseError` с понятной причиной. */
 export function parseCron(expression: string): ParsedCron {
   const trimmed = String(expression ?? '').trim();
-  if (!trimmed) throw new CronParseError('Пустое cron-выражение');
+  if (!trimmed) throw new CronParseError('automations.cronEmpty');
   const source = MACROS[trimmed.toLowerCase()] ?? trimmed;
-  if (source.startsWith('@')) throw new CronParseError(`Неизвестный макрос «${trimmed}»`);
+  if (source.startsWith('@')) throw new CronParseError('automations.cronUnknownMacro', { macro: trimmed });
   const parts = source.split(/\s+/);
   if (parts.length !== 5) {
-    throw new CronParseError(`Нужно 5 полей (минута час день месяц день-недели), получено ${parts.length}`);
+    throw new CronParseError('automations.cronFieldCount', { count: parts.length });
   }
   const [minute, hour, dom, month, dow] = parts.map((p, i) => parseField(p, FIELDS[i]));
   const dayOfWeek = dow.values.slice(0, 7);
@@ -137,13 +142,13 @@ export function parseCron(expression: string): ParsedCron {
   };
 }
 
-/** Проверка без исключения — для zod-схемы и формы редактора. */
-export function validateCron(expression: string): string | null {
+/** Проверка без исключения — для zod-схемы и формы редактора: ошибка с кодом или `null`. */
+export function validateCron(expression: string): AppError | null {
   try {
     parseCron(expression);
     return null;
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    return err instanceof AppError ? err : new CronParseError('automations.cronEmpty');
   }
 }
 

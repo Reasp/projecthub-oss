@@ -8,6 +8,7 @@ import type {
   ComputerUseStatus
 } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { appFailureText } from '../../lib/appErrorText';
 
 interface ComputerUseSettingsModalProps {
   isOpen: boolean;
@@ -28,7 +29,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
   const [hotkeyDraft, setHotkeyDraft] = useState('');
   const [diagnostics, setDiagnostics] = useState<ComputerUseDiagnostics | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
-  const [screenshot, setScreenshot] = useState<{ dataUrl?: string; text?: string; error?: string } | null>(null);
+  const [screenshot, setScreenshot] = useState<{ dataUrl?: string; text?: string; error?: string; errorKey?: unknown } | null>(null);
   const [isShooting, setIsShooting] = useState(false);
 
   useEffect(() => {
@@ -333,7 +334,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
               </div>
               {diagnostics && (
                 <div className="space-y-1">
-                  {diagnostics.error && <div className="text-rose-300 break-words">{t.computerUse.runtimeUnavailable.replace('{error}', diagnostics.error)}</div>}
+                  {diagnostics.error && <div className="text-rose-300 break-words">{t.computerUse.runtimeUnavailable.replace('{error}', appFailureText(diagnostics, t.appErrors))}</div>}
                   {summary && (
                     <div className={diagnostics.ok ? 'text-emerald-300' : 'text-amber-300'}>
                       {t.computerUse.diagnosticsSummary
@@ -354,7 +355,7 @@ export const ComputerUseSettingsModal: React.FC<ComputerUseSettingsModalProps> =
               )}
               {screenshot && (
                 <div className="space-y-1">
-                  {screenshot.error && <div className="text-rose-300 break-words">{screenshot.error}</div>}
+                  {screenshot.error && <div className="text-rose-300 break-words">{appFailureText(screenshot, t.appErrors)}</div>}
                   {screenshot.dataUrl && <img src={screenshot.dataUrl} alt={t.computerUse.testScreenshot} className="w-full rounded-lg border border-slate-800" />}
                   {screenshot.text && <pre className="text-[11px] text-slate-500 whitespace-pre-wrap">{screenshot.text}</pre>}
                 </div>

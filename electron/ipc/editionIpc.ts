@@ -31,7 +31,7 @@ async function launchContextFromRenderer(raw: unknown): Promise<AgentLaunchConte
  */
 export function registerEditionIpc(ctx: IpcContext): void {
   editionRegistry.setIpcRegistrar((channel, handler) => {
-    if (!channel.startsWith('ee:')) throw new Error(`Канал платного модуля должен начинаться с ee: (${channel})`);
+    if (!channel.startsWith('ee:')) throw new Error(`A paid module channel must start with ee: (${channel})`);
     ipcMain.handle(channel, (_event, ...args) => handler(...args));
   });
   editionRegistry.setTextFileSaver(async (options) => {

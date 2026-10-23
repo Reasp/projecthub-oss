@@ -1135,6 +1135,7 @@ export const ru: TranslationDictionary = {
   },
   docs: {
     title: 'База знаний и RAG',
+    loadFailed: 'Не удалось загрузить содержимое документа.',
     newDoc: 'Новый документ',
     newDecision: 'Новое решение (ADR)',
     allDocs: 'Все статьи',
@@ -3131,6 +3132,7 @@ export const ru: TranslationDictionary = {
     deviceProjectsUseDevice: 'Как у устройства',
     projectAccessNone: 'Нет доступа',
     deviceProjectsSave: 'Сохранить',
+    deviceProjectsSaveFailed: 'Не удалось сохранить: {error}',
     deviceProjectsCancel: 'Отмена',
     deviceProjectsCeiling: 'Права устройства: {rights}',
     pairedDevicesTitle: 'Сопряжённые устройства (не в сети)',
@@ -4097,6 +4099,7 @@ export const ru: TranslationDictionary = {
     accountLabel: 'Аккаунт',
     usageAccountsLabel: 'Аккаунты Claude Code',
     defaultBadge: 'по умолчанию',
+    defaultName: 'По умолчанию',
     externalBadge: 'внешний каталог',
     projectsCount: 'проектов: {count}',
     loggedInAs: 'Вход: {email}',

@@ -67,18 +67,18 @@ export function parseArgs(argv: readonly string[]): PhAgentArgs {
     const a = argv[i];
     const value = () => {
       const v = argv[++i];
-      if (v === undefined || v.startsWith('--')) throw new Error(`Нужно значение для ${a}`);
+      if (v === undefined || v.startsWith('--')) throw new Error(`A value is required for ${a}`);
       return v;
     };
     if (a === '--help' || a === '-h') out.command = 'help';
     else if (a === '--name') out.name = value();
     else if (a === '--port') {
       const p = Number(value());
-      if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('--port: число 1–65535');
+      if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('--port: a number 1–65535');
       out.port = p;
     } else if (a === '--relay') {
       const r = value();
-      if (!/^wss?:\/\/\S+$/i.test(r)) throw new Error('--relay: адрес вида wss://relay.example.com');
+      if (!/^wss?:\/\/\S+$/i.test(r)) throw new Error('--relay: an address like wss://relay.example.com');
       out.relay = r;
     } else if (a === '--data') out.data = value();
     else if (a === '--dry-run') out.dryRun = true;
@@ -89,9 +89,9 @@ export function parseArgs(argv: readonly string[]): PhAgentArgs {
       // <путь>=<право>: путь может содержать «=», право — нет, поэтому делим по последнему.
       const v = value();
       const at = v.lastIndexOf('=');
-      if (at <= 0) throw new Error('--project: <путь>=<none|readOnly|hitl|full|inherit>');
+      if (at <= 0) throw new Error('--project: <path>=<none|readOnly|hitl|full|inherit>');
       out.projectRights.projects.push({ path: v.slice(0, at), access: parseAccessEdit(v.slice(at + 1), a) });
-    } else if (a.startsWith('--')) throw new Error(`Неизвестный флаг ${a}`);
+    } else if (a.startsWith('--')) throw new Error(`Unknown flag ${a}`);
     else if (!commandSet && COMMANDS.has(a as PhAgentCommand)) {
       if (out.command !== 'help') out.command = a as PhAgentCommand;
       commandSet = true;

@@ -1134,6 +1134,7 @@ export const en: TranslationDictionary = {
   },
   docs: {
     title: 'Knowledge Base & RAG',
+    loadFailed: 'Could not load the document content.',
     newDoc: 'New Document',
     newDecision: 'New Decision (ADR)',
     allDocs: 'All Articles',
@@ -3129,6 +3130,7 @@ export const en: TranslationDictionary = {
     deviceProjectsUseDevice: 'Same as device',
     projectAccessNone: 'No access',
     deviceProjectsSave: 'Save',
+    deviceProjectsSaveFailed: 'Could not save: {error}',
     deviceProjectsCancel: 'Cancel',
     deviceProjectsCeiling: 'Device rights: {rights}',
     pairedDevicesTitle: 'Paired devices (offline)',
@@ -4095,6 +4097,7 @@ export const en: TranslationDictionary = {
     accountLabel: 'Account',
     usageAccountsLabel: 'Claude Code accounts',
     defaultBadge: 'default',
+    defaultName: 'Default',
     externalBadge: 'external directory',
     projectsCount: 'projects: {count}',
     loggedInAs: 'Signed in: {email}',

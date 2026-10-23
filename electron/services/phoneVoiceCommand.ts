@@ -30,7 +30,7 @@ function cleanName(value: unknown): string {
 export function parsePhoneVoiceRequest(params: unknown): PhoneVoiceCommandRequest {
   const p = params && typeof params === 'object' ? (params as Record<string, unknown>) : {};
   const text = typeof p.text === 'string' ? p.text.trim().slice(0, PHONE_VOICE_MAX_TEXT) : '';
-  if (!text) throw new Error('voice_command: пустой текст');
+  if (!text) throw new Error('voice_command: empty text');
   const computers: PhoneVoiceComputer[] = [];
   for (const raw of Array.isArray(p.computers) ? p.computers.slice(0, PHONE_VOICE_MAX_COMPUTERS) : []) {
     const c = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};

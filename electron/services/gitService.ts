@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 import { simpleGit, type SimpleGit } from 'simple-git';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { BrowserWindow } from 'electron';
@@ -498,7 +499,7 @@ class GitService {
     projectPath: string,
     branchName: string,
     options: MergeOptions = {}
-  ): Promise<{ success: boolean; error?: string; renumberRequired?: BacklogRenumberSummary; renumbered?: BacklogRenumbering[] }> {
+  ): Promise<{ success: boolean; error?: string; errorKey?: AppErrorKey; renumberRequired?: BacklogRenumberSummary; renumbered?: BacklogRenumbering[] }> {
     let prepared: PreparedIncoming | null = null;
     try {
       prepared = await prepareIncomingForMerge(projectPath, branchName, { approved: options.renumber === true });
@@ -506,7 +507,7 @@ class GitService {
         return {
           success: false,
           renumberRequired: summarizeRenumber(prepared.preview),
-          error: `Номера backlog в ${branchName} совпали с текущей веткой: нужна перенумерация входящей ветки`
+          ...appErrorFields(new AppError('git.renumberRequiredCurrent', { branch: branchName }))
         };
       }
       const git = simpleGit(projectPath);
@@ -527,7 +528,7 @@ class GitService {
       // замен — в MERGE_MSG. Временную ветку можно убрать.
       if (prepared?.status === 'renumbered') await dropRenumberedBranch(projectPath, prepared.mergeRef);
       this.broadcastGitChanged(projectPath);
-      return { success: false, error: e?.message || String(e) };
+      return { success: false, ...appErrorFields(e) };
     }
   }
 

@@ -39,3 +39,12 @@ export function accountsForEngine(overview: Pick<ClaudeAccountsOverview, 'accoun
 export function hasAccountChoice(accounts: readonly ClaudeAccountView[], engine: CliAccountEngine): boolean {
   return engine === 'claude-cli' ? accounts.length > 1 : accounts.length > 0;
 }
+
+/** Имя профиля Claude Code по умолчанию, пока его не переименовали: main хранит английское, окно показывает своё (TASK-202.5). */
+export const DEFAULT_ACCOUNT_BUILTIN_NAME = 'Default';
+
+/** Имя профиля для показа: встроенное имя профиля по умолчанию — на языке окна. Без `id` сверяется только имя. */
+export function accountDisplayName(account: { id?: string; name: string }, defaultName: string): string {
+  const isDefault = account.id === undefined || account.id === 'default';
+  return isDefault && account.name === DEFAULT_ACCOUNT_BUILTIN_NAME ? defaultName : account.name;
+}

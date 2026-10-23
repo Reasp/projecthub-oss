@@ -24,6 +24,8 @@ import {
   type AutomationLimits,
   type AutomationRule,
   type RuleRuntimeState,
+  type RuleParseIssue,
+  type RuleProblem,
   type RuleScope,
   type RunChain,
   type RunTrace,
@@ -109,6 +111,8 @@ export interface AutomationRuleView {
   rule?: AutomationRule;
   raw?: unknown;
   issue?: string;
+  /** Код причины `issue` (decision-165). */
+  issueKey?: AppErrorKey;
   state: AutomationRuleStateView;
   /** Лимиты встроенного правила. */
   builtinLimits?: AutomationsSettings['builtinAssigned'];
@@ -150,7 +154,7 @@ interface ProjectRulesCache {
   root: string;
   mtimeMs: number | null;
   rules: AutomationRule[];
-  issues: { id?: string; index: number; message: string; raw?: unknown }[];
+  issues: (RuleParseIssue & { raw?: unknown })[];
 }
 
 interface FireContext {
@@ -242,16 +246,16 @@ export class AutomationEngine {
 
   // ─────────────────────────── Источники правил ───────────────────────────
 
-  private globalEntries(): { entries: RuleEntry[]; invalid: { raw: unknown; id?: string; message: string }[] } {
+  private globalEntries(): { entries: RuleEntry[]; invalid: (RuleProblem & { raw: unknown; id?: string })[] } {
     const entries: RuleEntry[] = [];
-    const invalid: { raw: unknown; id?: string; message: string }[] = [];
+    const invalid: (RuleProblem & { raw: unknown; id?: string })[] = [];
     const { rules, issues } = parseRules(this.config.rules);
-    for (const issue of issues) invalid.push({ raw: this.config.rules[issue.index], id: issue.id, message: issue.message });
+    for (const issue of issues) invalid.push({ raw: this.config.rules[issue.index], id: issue.id, message: issue.message, messageKey: issue.messageKey });
     for (const rule of rules) {
       const scope: RuleScope = { kind: 'global' };
       const scopeIssue = validateRuleForScope(rule, scope);
       if (scopeIssue) {
-        invalid.push({ raw: rule, id: rule.id, message: scopeIssue });
+        invalid.push({ raw: rule, id: rule.id, ...scopeIssue });
         continue;
       }
       entries.push({ key: ruleKey(scope, rule.id), scope, rule });
@@ -305,7 +309,7 @@ export class AutomationEngine {
       const allIssues: ProjectRulesCache['issues'] = issues.map((i) => ({ ...i, raw: Array.isArray(rawList) ? rawList[i.index] : undefined }));
       for (const rule of rules) {
         const scopeIssue = validateRuleForScope(rule, { kind: 'project', projectRoot: root });
-        if (scopeIssue) allIssues.push({ index: -1, id: rule.id, message: scopeIssue, raw: rule });
+        if (scopeIssue) allIssues.push({ index: -1, id: rule.id, ...scopeIssue, raw: rule });
         else scoped.push(rule);
       }
       this.projectRules.set(key, { root, mtimeMs: mtime, rules: scoped, issues: allIssues });
@@ -784,7 +788,7 @@ export class AutomationEngine {
     }
     for (const bad of invalid) {
       const id = bad.id ?? '?';
-      views.push({ key: `global:${id}`, scope: 'global', id, name: id, active: false, enabled: false, raw: bad.raw, issue: bad.message, state: this.stateView(`global:${id}`, now) });
+      views.push({ key: `global:${id}`, scope: 'global', id, name: id, active: false, enabled: false, raw: bad.raw, issue: bad.message, issueKey: bad.messageKey, state: this.stateView(`global:${id}`, now) });
     }
     for (const cache of this.projectRules.values()) {
       const scope: RuleScope = { kind: 'project', projectRoot: cache.root };
@@ -817,6 +821,7 @@ export class AutomationEngine {
           enabled: false,
           raw: bad.raw,
           issue: bad.message,
+          issueKey: bad.messageKey,
           state: this.stateView(ruleKey(scope, id), now)
         });
       }
@@ -840,11 +845,11 @@ export class AutomationEngine {
     return this.getSettings();
   }
 
-  public async saveGlobalRule(raw: unknown): Promise<{ ok: true; rule: AutomationRule } | { ok: false; error: string }> {
+  public async saveGlobalRule(raw: unknown): Promise<{ ok: true; rule: AutomationRule } | { ok: false; error: string; errorKey?: AppErrorKey }> {
     const checked = validateRule(raw);
     if (!checked.ok) return checked;
     const scopeIssue = validateRuleForScope(checked.rule, { kind: 'global' });
-    if (scopeIssue) return { ok: false, error: scopeIssue };
+    if (scopeIssue) return { ok: false, error: scopeIssue.message, errorKey: scopeIssue.messageKey };
     const rules = this.config.rules.filter((r) => !(r && typeof r === 'object' && (r as { id?: unknown }).id === checked.rule.id));
     rules.push(checked.rule);
     this.config = { ...this.config, rules };
