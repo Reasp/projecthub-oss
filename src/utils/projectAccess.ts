@@ -85,13 +85,17 @@ export function sanitizeProjectRights(raw: unknown): DeviceProjectRights | undef
 
 /**
  * Можно ли RPC с таким доступом к проекту: `none` — ничего, `readOnly` — только чтение, `hitl` — чтение и решения
- * человека. Возвращает причину отказа или `null`.
+ * человека. Возвращает код причины отказа (`src/i18n/appErrorText.ts`, decision-165) или `null`.
  */
-export function projectAccessDenied(access: ProjectAccess, write: boolean, hitlMethod: boolean): string | null {
-  if (access === 'none') return 'нет доступа к проекту';
+export function projectAccessDenied(
+  access: ProjectAccess,
+  write: boolean,
+  hitlMethod: boolean
+): 'remote.projectNoAccess' | 'remote.projectReadOnly' | 'remote.projectHitlOnly' | null {
+  if (access === 'none') return 'remote.projectNoAccess';
   if (!write) return null;
-  if (access === 'readOnly') return 'проект открыт этому устройству только для чтения';
-  if (access === 'hitl' && !hitlMethod) return 'в этом проекте устройству доступны только решения HITL';
+  if (access === 'readOnly') return 'remote.projectReadOnly';
+  if (access === 'hitl' && !hitlMethod) return 'remote.projectHitlOnly';
   return null;
 }
 

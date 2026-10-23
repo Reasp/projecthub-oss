@@ -23,6 +23,7 @@ import {
 import clsx from 'clsx';
 import type { RemoteStudioSessionSummary, StudioMode } from '../../../src/types/remote';
 import { useAppState, useServices } from '../app/context';
+import { failureText } from '../app/errorText';
 import { useT } from '../i18n/react';
 import {
   formatTokens,
@@ -715,7 +716,9 @@ function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
                 {p.local ? tr.studio.local : ''}
               </SectionTitle>
               {p.models.length === 0 ? (
-                <div className="px-3 text-[12px] text-slate-500">{p.modelsError || tr.studio.noModels}</div>
+                <div className="px-3 text-[12px] text-slate-500">
+                  {p.modelsError ? failureText({ error: p.modelsError, errorKey: p.modelsErrorKey }) : tr.studio.noModels}
+                </div>
               ) : (
                 <div className="space-y-0.5">{p.models.map((m) => row(`p:${p.id}:${m}`, m, undefined, isSel('openai-compatible', m, p.id), () => pick('openai-compatible', m, p.id)))}</div>
               )}

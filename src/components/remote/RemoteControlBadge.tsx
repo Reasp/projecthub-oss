@@ -55,6 +55,7 @@ function qrAddresses(status: RemoteControlStatus): Array<{ kind: EndpointKind; h
   return list;
 }
 import { useTranslation } from '../../i18n';
+import { appErrorText, appFailureText } from '../../lib/appErrorText';
 import { useToast, useTimers } from '../../hooks/useTimeoutState';
 import { useRemoteControlStore } from '../../store/useRemoteControlStore';
 import type { RemoteControlStatus, DeviceRights } from '../../types/electron';
@@ -88,6 +89,8 @@ export const RemoteControlBadge: React.FC = () => {
   const [machineName, setMachineName] = useState<string>('');
   const [autoStart, setAutoStart] = useState<boolean>(false);
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
+  // Отказ main при сохранении (например, неверный адрес шлюза push) — на языке окна (decision-165).
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [startingTunnel, setStartingTunnel] = useState<boolean>(false);
 
   // Telegram settings state
@@ -212,6 +215,7 @@ export const RemoteControlBadge: React.FC = () => {
   const handleSaveConfig = async () => {
     if (!window.api?.updateRemoteConfig) return;
     setSavingSettings(true);
+    setSaveError(null);
     try {
       const updated = await window.api.updateRemoteConfig({
         port,
@@ -237,10 +241,16 @@ export const RemoteControlBadge: React.FC = () => {
       setTimer(() => setTestNotificationResult(null), 3000);
     } catch (e) {
       console.error('Failed to update remote config:', e);
+      setSaveError(appErrorText(e, t.appErrors));
     } finally {
       setSavingSettings(false);
     }
   };
+  const saveErrorNote = saveError && (
+    <p className="mt-2 text-[11px] text-rose-300" role="alert" data-testid="remote-save-error">
+      {saveError}
+    </p>
+  );
 
   const handleRestartTunnel = async () => {
     if (!window.api?.startRemoteTunnel) return;
@@ -270,7 +280,7 @@ export const RemoteControlBadge: React.FC = () => {
       }
     } catch (e: any) {
       setTestNotificationOk(false);
-      setTestNotificationResult(t.remote.testMsgPrefixError.replace('{msg}', e?.message || String(e)));
+      setTestNotificationResult(t.remote.testMsgPrefixError.replace('{msg}', appErrorText(e, t.appErrors)));
     } finally {
       setTestingNotification(false);
     }
@@ -861,6 +871,7 @@ export const RemoteControlBadge: React.FC = () => {
                         <Bot className="w-4 h-4" />
                       </button>
                     </div>
+                    {saveErrorNote}
 
                     {/* How to setup banner */}
                     <div className="p-3 rounded-lg bg-ph-panel border border-ph-line space-y-1 text-slate-400 text-[11px] leading-relaxed">
@@ -1122,7 +1133,11 @@ export const RemoteControlBadge: React.FC = () => {
                       {!status?.federationEnabled && (
                         <p className="mt-1 text-[11px] text-amber-400">{t.federation.federationDisabled}</p>
                       )}
-                      {status?.federationError && <p className="mt-1 text-[11px] text-red-400">{status.federationError}</p>}
+                      {status?.federationError && (
+                        <p className="mt-1 text-[11px] text-red-400">
+                          {appFailureText({ error: status.federationError, errorKey: status.federationErrorKey }, t.appErrors)}
+                        </p>
+                      )}
                     </div>
 
                     <label className="flex items-start gap-2 text-slate-300 cursor-pointer">
@@ -1148,6 +1163,7 @@ export const RemoteControlBadge: React.FC = () => {
                     >
                       {savingSettings ? t.remote.saving : t.remote.saveSettings}
                     </button>
+                    {saveErrorNote}
                   </div>
                 </div>
               )}

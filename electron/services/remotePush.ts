@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import net from 'node:net';
+import { AppError } from '../../src/lib/appError.js';
 import type { HitlRequest, HitlRisk } from './hitlTypes.js';
 import { WEB_PUSH_MAX_PLAINTEXT, parseWebPushKeys } from './webPushCrypto.js';
 
@@ -60,12 +61,12 @@ export function parsePushRegistration(params: Record<string, unknown>, now: numb
   const raw = params.kind;
   if (raw !== 'unifiedpush' && raw !== 'fcm' && raw !== 'apns') throw new Error('kind must be unifiedpush, fcm or apns');
   const kind: PushKind = raw;
-  if (!parseWebPushKeys(params.p256dh, params.auth)) throw new Error('Неверные ключи push (p256dh, auth)');
+  if (!parseWebPushKeys(params.p256dh, params.auth)) throw new AppError('remote.pushKeysInvalid');
   const actionKey = typeof params.actionKey === 'string' && /^[A-Za-z0-9_-]{43}$/.test(params.actionKey) ? params.actionKey : '';
   if (!actionKey) throw new Error('actionKey is required');
   const base = { kind, p256dh: String(params.p256dh), auth: String(params.auth), actionKey, regId: random().toString('base64url'), createdAt: now };
   if (kind === 'unifiedpush') {
-    if (!isAllowedPushEndpoint(params.endpoint)) throw new Error('Адрес UnifiedPush не подходит: нужен http(s) вне loopback и link-local');
+    if (!isAllowedPushEndpoint(params.endpoint)) throw new AppError('remote.unifiedPushEndpointInvalid');
     return { ...base, endpoint: params.endpoint };
   }
   const token = typeof params.token === 'string' ? params.token.trim() : '';
@@ -202,23 +203,23 @@ export function encodePushPayload(payload: PushPayload, limit = WEB_PUSH_MAX_PLA
   if (payload.t === 'prog') {
     const p: ProgressPushPayload = { ...payload, title: cut(payload.title, 120)!, step: cut(payload.step, 160)!, proj: cut(payload.proj, 60) };
     if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');
-    throw new Error('Push слишком большой');
+    throw new Error('Push payload is too large');
   }
   if (payload.t === 'note') {
     for (const n of [300, 120]) {
       const p: NotePushPayload = { ...payload, text: cut(payload.text, n)!, proj: cut(payload.proj, 60), agent: cut(payload.agent, 60) };
       if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');
     }
-    throw new Error('Push слишком большой');
+    throw new Error('Push payload is too large');
   }
-  if (payload.t !== 'hitl') throw new Error('Push слишком большой');
+  if (payload.t !== 'hitl') throw new Error('Push payload is too large');
   for (const n of [1200, 600, 300, 160, 80]) {
     const p: HitlPushPayload = { ...payload, title: cut(payload.title, n)!, ...cutKey(payload.tk, n), cmd: cut(payload.cmd, n), file: cut(payload.file, n), why: cut(payload.why, 120) };
     if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');
   }
   const bare: HitlPushPayload = { ...payload, title: cut(payload.title, 80)!, ...cutKey(payload.tk, 80), cmd: cut(payload.cmd, 80), file: cut(payload.file, 80), why: undefined, ep: [] };
   if (fits(bare)) return Buffer.from(JSON.stringify(bare), 'utf8');
-  throw new Error('Push слишком большой');
+  throw new Error('Push payload is too large');
 }
 
 /**

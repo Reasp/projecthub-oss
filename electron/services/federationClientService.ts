@@ -25,7 +25,8 @@ import { isHostKey } from '../../src/utils/remoteSessionV2Node.js';
 import { secretStorageService } from './secretStorageService.js';
 import { logger } from './logger.js';
 import { appEventBus } from './eventBus.js';
-import { describePeerConnectError } from './peerReachability.js';
+import { peerConnectError } from './peerReachability.js';
+import { AppError, appErrorKeyOf, withAppErrorKey, type AppErrorKey } from '../../src/lib/appError.js';
 
 /**
  * Hub-режим федерации (TASK-66, decision-11 п.4): ProjectHub как КЛИЕНТ другого ProjectHub.
@@ -75,6 +76,8 @@ interface PeerConnection {
   ws: WebSocket | null;
   status: PeerStatus;
   error?: string;
+  /** Код причины `error` (decision-165): окно показывает её на своём языке. */
+  errorKey?: AppErrorKey;
   rights?: DeviceRights;
   readOnly?: boolean;
   protocolVersion?: number;
@@ -103,6 +106,17 @@ interface PeerConnection {
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Причина в состоянии пира: английский текст и код, если он есть. `undefined` — причины нет. */
+function setPeerError(peer: PeerConnection, err: Error | undefined): void {
+  peer.error = err?.message;
+  peer.errorKey = err ? appErrorKeyOf(err) : undefined;
+}
+
+/** Причина из состояния пира как ошибка — с тем же кодом, чтобы окно и телефон показали её на своём языке. */
+function peerFailure(peer: PeerConnection): Error | null {
+  return peer.error ? withAppErrorKey(new Error(peer.error), peer.errorKey) : null;
 }
 
 const RPC_TIMEOUT_MS = 30_000;
@@ -134,7 +148,7 @@ class FederationClientService {
       } else if (peer.credentials.autoConnect) {
         // Без токена автоподключения нет: показываем причину, а не молчаливое «не в сети» (TASK-189).
         peer.status = 'error';
-        peer.error = 'Нет токена устройства: нажмите «Подключить» и подтвердите этот ПК на удалённом или добавьте хост заново по PIN';
+        setPeerError(peer, new AppError('federation.noDeviceToken'));
         logger.warn(`[Federation] No device token for ${peer.credentials.machineName}: pairing is needed again`);
       }
     }
@@ -204,6 +218,7 @@ class FederationClientService {
       address: peer.credentials.address,
       status: peer.status,
       error: peer.error,
+      ...(peer.errorKey ? { errorKey: peer.errorKey } : {}),
       rights: peer.rights,
       readOnly: peer.readOnly,
       protocolVersion: peer.protocolVersion,
@@ -235,10 +250,10 @@ class FederationClientService {
     autoConnect?: boolean;
   }): Promise<FederationPeerState> {
     await this.ensureLoaded();
-    if (!options.hostId?.trim()) throw new Error('hostId удалённого хоста обязателен');
+    if (!options.hostId?.trim()) throw new AppError('federation.hostIdRequired');
     const hostKey = options.hostKey?.trim();
-    if (hostKey && !isHostKey(hostKey)) throw new Error('Ключ хоста (hk) не похож на ключ ProjectHub — скопируйте его из ссылки сопряжения целиком');
-    if (options.hostId === this.localHostId) throw new Error('Нельзя добавить самого себя как удалённый хост');
+    if (hostKey && !isHostKey(hostKey)) throw new AppError('federation.hostKeyInvalid');
+    if (options.hostId === this.localHostId) throw new AppError('federation.selfPeer');
 
     const existing = this.peers.get(options.hostId);
     const credentials: PeerCredentials = {
@@ -292,7 +307,7 @@ class FederationClientService {
   public async connectPeer(hostId: string): Promise<FederationPeerState> {
     await this.ensureLoaded();
     const peer = this.peers.get(hostId);
-    if (!peer) throw new Error(`Хост ${hostId} не найден среди удалённых`);
+    if (!peer) throw new AppError('federation.peerNotFound', { hostId });
     peer.manualDisconnect = false;
     peer.fatal = false;
     await this.openConnection(peer);
@@ -302,11 +317,11 @@ class FederationClientService {
   public async disconnectPeer(hostId: string): Promise<FederationPeerState> {
     await this.ensureLoaded();
     const peer = this.peers.get(hostId);
-    if (!peer) throw new Error(`Хост ${hostId} не найден среди удалённых`);
+    if (!peer) throw new AppError('federation.peerNotFound', { hostId });
     peer.manualDisconnect = true;
     this.closeSocket(peer);
     peer.status = 'idle';
-    peer.error = undefined;
+    setPeerError(peer, undefined);
     this.notifyPeersChanged();
     return this.toState(peer);
   }
@@ -324,20 +339,20 @@ class FederationClientService {
   public async call<T = unknown>(hostId: string, method: string, params: Record<string, unknown> = {}): Promise<T> {
     await this.ensureLoaded();
     const peer = this.peers.get(hostId);
-    if (!peer) throw new Error(`Хост ${hostId} не найден среди удалённых`);
+    if (!peer) throw new AppError('federation.peerNotFound', { hostId });
 
     if (peer.status !== 'connected') {
       await this.openConnection(peer);
     }
     if (!peer.ws || peer.ws.readyState !== WebSocket.OPEN) {
-      throw new Error(peer.error || `Хост ${peer.credentials.machineName} недоступен (${peer.status})`);
+      throw peerFailure(peer) ?? new AppError('federation.peerUnavailable', { name: peer.credentials.machineName, status: peer.status });
     }
 
     const id = `rpc_${crypto.randomBytes(8).toString('hex')}`;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         peer.pending.delete(id);
-        reject(new Error(`Таймаут RPC ${method} на хосте ${peer.credentials.machineName}`));
+        reject(new AppError('federation.rpcTimeout', { name: peer.credentials.machineName, method }));
       }, RPC_TIMEOUT_MS);
 
       peer.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
@@ -374,12 +389,12 @@ class FederationClientService {
         peer.pendingHandshake = hs;
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(hs.hello));
       } catch (err) {
-        this.failPeer(peer, `Не удалось начать рукопожатие v2: ${errorText(err)}`, true);
+        this.failPeer(peer, new AppError('federation.handshakeStartFailed', { detail: errorText(err) }), true);
       }
       return;
     }
     if (!peer.credentials.secretKey) {
-      this.failPeer(peer, 'Нужен ключ хоста (hk) или ключ шифрования из ссылки сопряжения этого ПК', true);
+      this.failPeer(peer, new AppError('federation.keyRequired'), true);
       return;
     }
     this.sendHandshake(peer);
@@ -413,20 +428,20 @@ class FederationClientService {
       this.sendHandshake(peer);
     } catch (err) {
       const code = err instanceof HandshakeError ? err.code : 'malformed';
-      const message =
+      const failure =
         code === 'host_key_mismatch' || code === 'bad_signature' || code === 'host_id_mismatch'
-          ? `Ключ хоста ${peer.credentials.machineName} не совпал с закреплённым (${code}) — возможна подмена. Если ключ на том ПК перевыпущен, добавьте хост заново по ссылке сопряжения`
-          : `Рукопожатие v2 не удалось: ${errorText(err)}`;
-      this.failPeer(peer, message, true);
+          ? new AppError('federation.hostKeyMismatch', { name: peer.credentials.machineName, code })
+          : new AppError('federation.handshakeFailed', { detail: errorText(err) });
+      this.failPeer(peer, failure, true);
     }
   }
 
-  private failPeer(peer: PeerConnection, message: string, fatal: boolean): void {
-    peer.error = message;
+  private failPeer(peer: PeerConnection, err: Error, fatal: boolean): void {
+    setPeerError(peer, err);
     peer.status = 'error';
     peer.fatal = peer.fatal || fatal;
-    logger.warn(`[Federation] ${message}`);
-    this.rejectHandshakeWaiters(peer, new Error(message));
+    logger.warn(`[Federation] ${err.message}`);
+    this.rejectHandshakeWaiters(peer, err);
     this.notifyPeersChanged();
     if (fatal) {
       try {
@@ -456,10 +471,10 @@ class FederationClientService {
     peer.pendingHandshake = null;
     for (const [id, call] of peer.pending.entries()) {
       clearTimeout(call.timer);
-      call.reject(new Error('Соединение с хостом закрыто'));
+      call.reject(new AppError('federation.connectionClosed'));
       peer.pending.delete(id);
     }
-    this.rejectHandshakeWaiters(peer, new Error('Соединение с хостом закрыто'));
+    this.rejectHandshakeWaiters(peer, new AppError('federation.connectionClosed'));
   }
 
   /** Ping раз в heartbeatMs; не пришёл pong к следующему тику — соединение мёртвое, рвём его, close переподключит. */
@@ -519,7 +534,7 @@ class FederationClientService {
     this.closeSocket(peer);
 
     peer.status = 'connecting';
-    peer.error = undefined;
+    setPeerError(peer, undefined);
     this.notifyPeersChanged();
 
     const url = buildPeerSocketUrl({
@@ -538,7 +553,7 @@ class FederationClientService {
 
     const handshakeDone = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error(`Таймаут подключения к хосту ${peer.credentials.machineName}`));
+        reject(new AppError('federation.connectTimeout', { name: peer.credentials.machineName }));
       }, HANDSHAKE_TIMEOUT_MS);
       peer.handshakeWaiters.push({ resolve, reject, timer });
     });
@@ -559,10 +574,10 @@ class FederationClientService {
       // Отказ хоста без шанса на повтор (ключ, «только v2») остаётся ошибкой, а не «не в сети».
       peer.status = peer.manualDisconnect ? 'idle' : peer.fatal ? 'error' : 'offline';
       peer.connectedAt = undefined;
-      this.rejectHandshakeWaiters(peer, new Error(peer.error || 'Соединение с хостом закрыто'));
+      this.rejectHandshakeWaiters(peer, peerFailure(peer) ?? new AppError('federation.connectionClosed'));
       for (const [id, call] of peer.pending.entries()) {
         clearTimeout(call.timer);
-        call.reject(new Error('Соединение с хостом закрыто'));
+        call.reject(new AppError('federation.connectionClosed'));
         peer.pending.delete(id);
       }
       // Код и причина закрытия отличают разрыв сети (1006) от закрытия хостом (4001 — заменён новым соединением и т.п.).
@@ -573,7 +588,7 @@ class FederationClientService {
 
     ws.on('error', (err: Error) => {
       // Офлайн-хост — это статус, а не ошибка приложения (AC #5): сообщение кладём в состояние.
-      peer.error = describePeerConnectError(err);
+      setPeerError(peer, peerConnectError(err));
       if (peer.status !== 'connected') peer.status = 'offline';
       this.notifyPeersChanged();
     });
@@ -622,14 +637,15 @@ class FederationClientService {
     }
 
     if (type === 'error') {
-      const message = String((packet as PlainPacket).error || 'Хост отклонил подключение');
-      this.failPeer(peer, message, isFatalPeerError(message));
+      const error = (packet as PlainPacket).error;
+      const failure = error ? withAppErrorKey(new Error(String(error)), (packet as PlainPacket).errorKey) : new AppError('federation.hostRejected');
+      this.failPeer(peer, failure, isFatalPeerError(failure.message));
       return;
     }
 
     if (type === 'host_disconnected') {
       peer.status = 'offline';
-      peer.error = 'Хост отключился от релея';
+      setPeerError(peer, new AppError('federation.hostLeftRelay'));
       this.notifyPeersChanged();
       return;
     }
@@ -641,7 +657,8 @@ class FederationClientService {
       peer.pending.delete(id);
       clearTimeout(call.timer);
       const error = (packet as PlainPacket).error;
-      if (error) call.reject(new Error(String(error)));
+      // Код ошибки хоста едет дальше: окно и телефон за этим ПК покажут её на своём языке (decision-165).
+      if (error) call.reject(withAppErrorKey(new Error(String(error)), (packet as PlainPacket).errorKey));
       else call.resolve((packet as PlainPacket).result);
       return;
     }
@@ -658,10 +675,11 @@ class FederationClientService {
     peer.protocolVersion = check.peerVersion;
 
     if (!check.compatible) {
+      const failure = check.error ?? new Error('Incompatible protocol version');
       peer.status = 'error';
-      peer.error = check.error;
-      logger.warn(`[Federation] ${check.error} (host ${peer.credentials.machineName})`);
-      this.rejectHandshakeWaiters(peer, new Error(check.error || 'Несовместимая версия протокола'));
+      setPeerError(peer, failure);
+      logger.warn(`[Federation] ${failure.message} (host ${peer.credentials.machineName})`);
+      this.rejectHandshakeWaiters(peer, failure);
       this.closeSocket(peer);
       this.notifyPeersChanged();
       return;
@@ -678,10 +696,11 @@ class FederationClientService {
     }
 
     if (result.approved === false) {
+      const failure = new AppError('federation.approvalRequired');
       peer.status = 'error';
-      peer.error = 'Удалённый хост требует подтверждения устройства — подтвердите его в настройках того ПК';
+      setPeerError(peer, failure);
       logger.warn(`[Federation] Waiting for device approval on ${peer.credentials.machineName}`);
-      this.rejectHandshakeWaiters(peer, new Error(peer.error));
+      this.rejectHandshakeWaiters(peer, failure);
       this.notifyPeersChanged();
       return;
     }
@@ -704,7 +723,7 @@ class FederationClientService {
     peer.rights = (result.rights as DeviceRights) || peer.rights;
     peer.readOnly = Boolean(result.readOnly);
     peer.status = 'connected';
-    peer.error = undefined;
+    setPeerError(peer, undefined);
     peer.connectedAt = Date.now();
     peer.reconnectAttempt = 0;
     if (peer.ws) this.startHeartbeat(peer, peer.ws);

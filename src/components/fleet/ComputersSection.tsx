@@ -7,6 +7,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useSwarmStore } from '../../store/useSwarmStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { appFailureText } from '../../lib/appErrorText';
 import { useDialog } from '../../hooks/useDialog';
 import {
   fleetTotals,
@@ -236,7 +237,12 @@ export const ComputersSection: React.FC = () => {
     const name = host.machineName || (host.self ? t.fleet.thisPc : host.hostId);
     if (!host.online) {
       return (
-        <div key={host.hostId} className="pl-3 pr-2 h-6 flex items-center gap-1.5 text-slate-500" title={host.error || ''} data-testid={`fleet-host-${host.hostId}`}>
+        <div
+          key={host.hostId}
+          className="pl-3 pr-2 h-6 flex items-center gap-1.5 text-slate-500"
+          title={host.peer?.error ? appFailureText(host.peer, t.appErrors) : host.error || ''}
+          data-testid={`fleet-host-${host.hostId}`}
+        >
           <WifiOff className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate text-xs">{name}</span>
           <span className="truncate text-[11px] flex-1 text-right">

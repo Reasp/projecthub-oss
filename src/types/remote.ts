@@ -157,6 +157,8 @@ export interface FederationPeerState {
   status: FederationPeerStatus;
   /** Понятная причина ошибки, включая несовместимость версии протокола. */
   error?: string;
+  /** Код причины (decision-165): окно собирает текст по словарю на своём языке, `error` — английский запасной. */
+  errorKey?: { code: string; params?: Record<string, string | number> };
   /** Права, выданные нам удалённым хостом (его per-device токен). */
   rights?: DeviceRights;
   readOnly?: boolean;
@@ -208,6 +210,8 @@ export interface RemoteControlStatus {
   federationSecret?: string;
   /** Понятная ошибка федерации (например, несовместимая версия протокола релея). */
   federationError?: string | null;
+  /** Код `federationError` (decision-165): окно показывает её на своём языке. */
+  federationErrorKey?: { code: string; params?: Record<string, string | number> };
   useRelay?: boolean;
   localAddresses?: string[];
   secretToken?: string;
@@ -631,7 +635,15 @@ export interface RemoteStudioOptions {
   currentLabel: string;
   modes: StudioMode[];
   claudeModels: Array<{ id: string; name: string; description: string }>;
-  profiles: Array<{ id: string; name: string; local: boolean; models: string[]; modelsError?: string }>;
+  profiles: Array<{
+    id: string;
+    name: string;
+    local: boolean;
+    models: string[];
+    modelsError?: string;
+    /** Код `modelsError` (decision-165): телефон показывает её на своём языке. */
+    modelsErrorKey?: { code: string; params?: Record<string, string | number> };
+  }>;
   /** Быстрые промпты Agents Studio («Следующая задача», «Коммит», «Деплой»). */
   quickPrompts?: Array<{ id: string; label: string; prompt: string }>;
 }

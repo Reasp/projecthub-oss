@@ -23,6 +23,7 @@ import {
 } from '../common/icons';
 import { catalogDraft, discoveredHosts, useFederationStore, type RemoteHostTab } from '../../store/useFederationStore';
 import { useTranslation } from '../../i18n/useTranslation';
+import { appFailureText } from '../../lib/appErrorText';
 import { useDialog } from '../../hooks/useDialog';
 import { parseAssignee } from '../../utils/assignee';
 import type { FederationPeerState, FederationTransport, RemoteQueueItem } from '../../types/remote';
@@ -176,7 +177,7 @@ export const RemoteHostsModal: React.FC = () => {
       return (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-6">
           <AlertTriangle className="w-8 h-8 text-amber-400" />
-          <p className="text-sm text-slate-300">{selectedPeer.error || t.federation.notConnected}</p>
+          <p className="text-sm text-slate-300">{selectedPeer.error ? appFailureText(selectedPeer, t.appErrors) : t.federation.notConnected}</p>
           <p className="text-xs text-slate-500 max-w-md">{t.federation.offlineHint}</p>
           <button
             type="button"

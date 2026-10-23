@@ -1,5 +1,6 @@
 import type { EncryptedPacket, FederationTransport, PlainPacket } from '../../src/types/remote.js';
 import { encryptPayload, decryptPayload } from '../../src/utils/remoteCryptoNode.js';
+import { AppError } from '../../src/lib/appError.js';
 
 /**
  * Чистая часть hub-режима федерации (TASK-66, decision-11 п.4): сборка адреса подключения к
@@ -72,7 +73,7 @@ export function isFatalPeerError(message: string): boolean {
 /** Приводит адрес (`host:port`, `http://…`, `ws://…`) к ws-URL без пути. */
 export function normalizeWsBase(address: string): string {
   const value = String(address || '').trim();
-  if (!value) throw new Error('Адрес хоста не задан');
+  if (!value) throw new AppError('federation.addressMissing');
 
   let withScheme = value;
   if (!/^[a-z]+:\/\//i.test(value)) withScheme = `ws://${value}`;
@@ -80,7 +81,7 @@ export function normalizeWsBase(address: string): string {
 
   const url = new URL(withScheme);
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
-    throw new Error(`Неподдерживаемый протокол адреса: ${url.protocol}`);
+    throw new AppError('federation.addressProtocol', { protocol: url.protocol });
   }
   return `${url.protocol}//${url.host}${url.pathname === '/' ? '/' : url.pathname}`;
 }
@@ -88,7 +89,7 @@ export function normalizeWsBase(address: string): string {
 export interface ProtocolCheckResult {
   compatible: boolean;
   peerVersion: number;
-  error?: string;
+  error?: AppError;
 }
 
 /**
@@ -103,9 +104,7 @@ export function checkPeerProtocol(ack: { protocolVersion?: number } | null | und
   return {
     compatible: false,
     peerVersion,
-    error:
-      `Версия протокола удалённого хоста (${peerVersion}) несовместима с локальной `
-      + `(${FEDERATION_PROTOCOL_VERSION}). Обновите ProjectHub на обеих машинах.`
+    error: new AppError('federation.protocolMismatch', { peer: peerVersion, local: FEDERATION_PROTOCOL_VERSION })
   };
 }
 

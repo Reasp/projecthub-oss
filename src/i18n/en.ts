@@ -3630,6 +3630,7 @@ export const en: TranslationDictionary = {
     refresh: 'Refresh',
     loading: 'Loading…',
     notConnected: 'Host is not connected',
+    apiUnavailable: 'The ProjectHub API is unavailable',
     offlineHint: 'Host is offline. That is a status, not an error: the connection will be restored automatically.',
     protocolMismatch: 'Incompatible protocol version',
     selectHostHint: 'Select a host on the left',

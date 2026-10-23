@@ -39,7 +39,8 @@ import { assertRegisteredProject, assertWorkspaceRoot } from './projectPathGuard
 import { studioRemoteBridge } from './studioRemoteBridge.js';
 import { aiSessionStore } from './aiSessionStore.js';
 import { hitlTitleIn } from '../i18n/hostText.js';
-import { appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
+import { AppError, appErrorKeyOf, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 import { llmProfileService } from './llmProfileService.js';
 import { llmModelCatalogService } from './llmModelCatalogService.js';
 import {
@@ -117,7 +118,7 @@ import { resolveTunnelCommand } from './tunnelCommand.js';
 import treeKill from 'tree-kill';
 import { buildHostEndpoints, relayEndpoint, type RemoteEndpoint } from '../../src/utils/remoteEndpoints.js';
 import { isPeerIntroduction, peerAddressCandidates } from '../../src/utils/fleetIntroduce.js';
-import { firstReachableAddress } from './peerReachability.js';
+import { firstReachableAddress, PeerUnreachableError } from './peerReachability.js';
 import matter from 'gray-matter';
 import {
   MOBILE_CLIENT_DIST,
@@ -337,9 +338,9 @@ const HOST_WIDE_METHODS = new Set([
 const OPTIONAL_PROJECT_METHODS = new Set(['get_pending_agent_tasks', 'studio_get_usage', 'get_swarms']);
 
 /** Отказ по праву устройства на проект: журнал действий пишет его и для методов чтения (TASK-180). */
-class ProjectAccessError extends Error {
-  constructor(message: string, readonly projectPath: string) {
-    super(message);
+class ProjectAccessError extends AppError {
+  constructor(code: AppErrorCode, params: AppErrorParams, readonly projectPath: string) {
+    super(code, params);
     this.name = 'ProjectAccessError';
   }
 }
@@ -561,7 +562,7 @@ class RemoteControlService {
   /** Работающие прямо сейчас агенты (ключ — agentId/sessionId), считаются по шине событий. */
   private activeAgentSessions = new Set<string>();
   /** Понятная ошибка несовместимости версии протокола с релеем (AC #5), показывается в UI. */
-  private federationProtocolError: string | null = null;
+  private federationProtocolError: AppError | null = null;
   /** Последние адреса, о которых узнали телефоны (`host:endpoints`), — чтобы слать событие только при смене. */
   private announcedEndpointsKey = '';
 
@@ -891,7 +892,7 @@ class RemoteControlService {
    */
   public setDeviceProjectRights(deviceId: string, raw: unknown, actor: 'window' | 'cli' = 'window'): RemoteControlStatus {
     const record = this.deviceTokens.get(deviceId);
-    if (!record) throw new Error('Устройство не найдено');
+    if (!record) throw new AppError('remote.deviceNotFound');
     const rights = sanitizeProjectRights(raw);
     if (rights) record.projectRights = rights;
     else delete record.projectRights;
@@ -1281,7 +1282,8 @@ class RemoteControlService {
       autoStartAssignedTasks: this.autoStartAssignedTasks,
       federationOwnerId: this.federationOwnerId,
       federationSecret: this.federationSecret,
-      federationError: this.federationProtocolError,
+      federationError: this.federationProtocolError?.message ?? null,
+      ...(this.federationProtocolError ? { federationErrorKey: this.federationProtocolError.appErrorKey } : {}),
       localAddresses: localIps,
       secretToken: this.secretKey,
       useRelay: this.mode === 'relay' || Boolean(this.relayServerUrl),
@@ -1676,7 +1678,7 @@ class RemoteControlService {
     }
     if (patch.pushGatewayUrl !== undefined) {
       const url = patch.pushGatewayUrl.trim();
-      if (url && !/^https?:\/\/[^\s/]+/i.test(url)) throw new Error('Адрес шлюза push должен начинаться с http:// или https://');
+      if (url && !/^https?:\/\/[^\s/]+/i.test(url)) throw new AppError('remote.pushGatewayUrlInvalid');
       this.pushGatewayUrl = url;
     }
     if (patch.telegramBotToken !== undefined) {
@@ -2022,7 +2024,7 @@ class RemoteControlService {
             resolved = true;
             if (this.tunnelStatus === 'starting') {
               this.tunnelStatus = 'error';
-              this.tunnelError = 'Таймаут подключения туннеля Cloudflare (30s)';
+              this.tunnelError = 'Cloudflare tunnel connection timed out (30 s)';
               this.notifyStatusChanged();
             }
             resolve(this.tunnelUrl);
@@ -2276,8 +2278,8 @@ class RemoteControlService {
                 JSON.stringify({
                   error: 'protocol_version_mismatch',
                   message:
-                    `Версия протокола федерации хоста "${peer.machineName || peer.hostId}" (${peer.protocolVersion ?? 1}) `
-                    + `несовместима с локальной (${REMOTE_FEDERATION_PROTOCOL_VERSION}). Обновите ProjectHub на обеих машинах.`,
+                    `Federation protocol version of host "${peer.machineName || peer.hostId}" (${peer.protocolVersion ?? 1}) `
+                    + `is incompatible with the local one (${REMOTE_FEDERATION_PROTOCOL_VERSION}). Update ProjectHub on both machines.`,
                   localProtocolVersion: REMOTE_FEDERATION_PROTOCOL_VERSION,
                   peerProtocolVersion: peer.protocolVersion ?? 1
                 })
@@ -2754,10 +2756,11 @@ class RemoteControlService {
             // каталог (AC #5). Соединение не рвём: транспорт для телефона продолжает работать.
             const relayProtocol = Number(msg.protocolVersion ?? REMOTE_FEDERATION_PROTOCOL_VERSION);
             if (relayProtocol !== REMOTE_FEDERATION_PROTOCOL_VERSION) {
-              this.federationProtocolError =
-                `Версия протокола релея (${relayProtocol}) несовместима с версией приложения `
-                + `(${REMOTE_FEDERATION_PROTOCOL_VERSION}). Каталог хостов недоступен — обновите релей и ProjectHub.`;
-              logger.warn(`[RemoteControl] ${this.federationProtocolError}`);
+              this.federationProtocolError = new AppError('federation.relayProtocolMismatch', {
+                relay: relayProtocol,
+                local: REMOTE_FEDERATION_PROTOCOL_VERSION
+              });
+              logger.warn(`[RemoteControl] ${this.federationProtocolError.message}`);
             } else {
               this.federationProtocolError = null;
             }
@@ -3252,7 +3255,7 @@ class RemoteControlService {
   /** Знакомить ПК и принимать знакомство может только устройство владельца с полными правами (decision-143 п. 2, 3). */
   private assertOwnerFullDevice(caller: RemoteDevice): void {
     if (caller.memberId || this.effectiveDeviceRights(caller) !== 'full') {
-      throw new Error('Знакомить компьютеры может только устройство владельца с полными правами');
+      throw new AppError('remote.introduceOwnerOnly');
     }
   }
 
@@ -3263,8 +3266,8 @@ class RemoteControlService {
   private async enrollIntroducedPeer(params: Record<string, unknown>, caller: RemoteDevice): Promise<RemoteEnrollment> {
     this.assertOwnerFullDevice(caller);
     const peerHostId = String(params.peerHostId).trim();
-    if (!/^[A-Za-z0-9_.-]{3,128}$/.test(peerHostId)) throw new Error('peerHostId не похож на hostId ProjectHub');
-    if (peerHostId === this.hostId) throw new Error('Это тот же компьютер');
+    if (!/^[A-Za-z0-9_.-]{3,128}$/.test(peerHostId)) throw new Error('peerHostId does not look like a ProjectHub hostId');
+    if (peerHostId === this.hostId) throw new AppError('remote.sameComputer');
     const name = (typeof params.deviceName === 'string' && params.deviceName.trim() ? params.deviceName.trim() : peerHostId).slice(0, 120);
     for (const [id, record] of this.deviceTokens.entries()) {
       if (record.peerHostId === peerHostId) this.deviceTokens.delete(id);
@@ -3315,14 +3318,18 @@ class RemoteControlService {
     this.assertOwnerFullDevice(caller);
     const intro = params.introduction as { hostId?: unknown } | null;
     const peerHostId = typeof intro?.hostId === 'string' ? intro.hostId : '';
-    if (!isPeerIntroduction(intro, peerHostId)) throw new Error('Знакомство без ключа и токена соседа');
-    if (intro.hostId === this.hostId) throw new Error('Это тот же компьютер');
+    if (!isPeerIntroduction(intro, peerHostId)) throw new AppError('remote.introductionIncomplete');
+    if (intro.hostId === this.hostId) throw new AppError('remote.sameComputer');
     const peers = await federationClientService.listPeers();
     if (peers.some((p) => p.hostId === intro.hostId && p.paired && p.status === 'connected')) return { status: 'already', connected: true };
     const candidates = peerAddressCandidates(intro, getLocalIpAddresses());
-    if (!candidates.length) throw new Error(`У компьютера «${intro.machineName}» нет адреса, доступного этому ПК`);
+    if (!candidates.length) throw new AppError('remote.peerNoAddress', { name: intro.machineName });
     const address = await firstReachableAddress(candidates, INTRODUCE_PROBE_TIMEOUT_MS).catch((err: unknown) => {
-      throw new Error(`Нет связи с «${intro.machineName}»: ${err instanceof Error ? err.message : String(err)}`);
+      const blocked = err instanceof PeerUnreachableError && err.localNetworkBlocked;
+      throw new AppError(blocked ? 'remote.peerLocalNetworkBlocked' : 'remote.peerUnreachable', {
+        name: intro.machineName,
+        detail: err instanceof Error ? err.message : String(err)
+      });
     });
     const state = await federationClientService.addPeer({
       hostId: intro.hostId,
@@ -3351,21 +3358,19 @@ class RemoteControlService {
    */
   private async enrollDeviceOnPeer(hostId: string, phone: RemoteDevice): Promise<RemoteEnrollment> {
     if (!hostId) throw new Error('hostId is required');
-    if (hostId === this.hostId) throw new Error('Это тот же компьютер');
+    if (hostId === this.hostId) throw new AppError('remote.sameComputer');
     const peers = await federationClientService.listPeers();
     const peer = peers.find((p) => p.hostId === hostId && p.paired);
     if (!peer) {
       const name = this.knownFederationHosts.get(hostId)?.machineName || hostId;
-      throw new Error(
-        `Компьютер «${name}» не сопряжён с «${this.machineName}». Добавьте его в ProjectHub на этом компьютере (Remote → Удалённые хосты) или отсканируйте его QR-код.`
-      );
+      throw new AppError('remote.peerNotPaired', { name, machine: this.machineName });
     }
     const res = await federationClientService.call<RemoteEnrollment>(hostId, 'enroll_device', {
       deviceName: phone.name,
       rights: phone.rights ?? 'full'
     });
     if (!res || res.hostId !== hostId || !isHostKey(res.hostKey) || typeof res.deviceId !== 'string' || typeof res.deviceToken !== 'string') {
-      throw new Error(`Компьютер «${peer.machineName}» ответил без ключа: обновите на нём ProjectHub`);
+      throw new AppError('remote.peerNoKey', { name: peer.machineName });
     }
     logger.info(`[RemoteControl] Device ${phone.id} enrolled on federation host ${hostId}`);
     return {
@@ -3480,7 +3485,7 @@ class RemoteControlService {
     }
 
     if (params && typeof params === 'object' && FORBIDDEN_REMOTE_PARAMS.some((k) => k in params)) {
-      throw new Error('С удалённого устройства нельзя включить обход разрешений или auto-approve — только в окне ProjectHub');
+      throw new AppError('remote.permissionBypassForbidden');
     }
 
     // Права per-device токена (TASK-65, decision-11 п.1): readOnly — только чтение, hitl — чтение
@@ -3512,7 +3517,10 @@ class RemoteControlService {
     const target = await this.rpcTargetProject(method, params, device);
     if (target) {
       const reason = projectAccessDenied(this.projectAccessOf(device, target), writeMethods.has(method) || extraMethod?.write === true, hitlRightsMethods.has(method));
-      if (reason) throw new ProjectAccessError(`Метод ${method}: ${reason} «${path.basename(owningProject(target, this.projectRoots) ?? target)}»`, owningProject(target, this.projectRoots) ?? target);
+      if (reason) {
+        const owner = owningProject(target, this.projectRoots) ?? target;
+        throw new ProjectAccessError(reason, { method, project: path.basename(owner) }, owner);
+      }
     }
     const sees = (projectPath: string | undefined) => !projectPath || this.projectAccessOf(device, projectPath) !== 'none';
 
@@ -3715,7 +3723,7 @@ class RemoteControlService {
         });
         if (res.ok) return true;
         if (res.reason === 'secrets') {
-          throw new Error(`Коммит отклонён: похоже на секреты — ${summarizeSecretFindings(res.findings)}. Проверьте изменения и закоммитьте из окна ProjectHub.`);
+          throw new AppError('remote.commitSecrets', { findings: summarizeSecretFindings(res.findings) });
         }
         throw new Error(res.error);
       }
@@ -3843,11 +3851,19 @@ class RemoteControlService {
             try {
               const res = await Promise.race([
                 llmModelCatalogService.listModels(p.id),
-                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Список моделей не загрузился за 4 с')), 4000))
+                new Promise<never>((_, reject) => setTimeout(() => reject(new AppError('remote.modelListTimeout')), 4000))
               ]);
-              return { id: p.id, name: p.name, local: p.local, models: res.models.slice(0, 200), ...(res.error ? { modelsError: res.error } : {}) };
+              return {
+                id: p.id,
+                name: p.name,
+                local: p.local,
+                models: res.models.slice(0, 200),
+                ...(res.error ? { modelsError: res.error } : {}),
+                ...(res.errorKey ? { modelsErrorKey: res.errorKey } : {})
+              };
             } catch (err: any) {
-              return { id: p.id, name: p.name, local: p.local, models: [], modelsError: err?.message || String(err) };
+              const modelsErrorKey = appErrorKeyOf(err);
+              return { id: p.id, name: p.name, local: p.local, models: [], modelsError: err?.message || String(err), ...(modelsErrorKey ? { modelsErrorKey } : {}) };
             }
           })
         );
@@ -3875,7 +3891,7 @@ class RemoteControlService {
         await assertRegisteredProject(projectPath);
         await this.assertStudioWriter(projectPath, params.sessionId, device);
         const reply = await studioRemoteBridge.request({ kind: 'clear', projectPath, sessionId: String(params.sessionId || '') });
-        if (!reply.ok) throw new Error(reply.error || 'Не удалось очистить сессию');
+        if (!reply.ok) throw reply.error ? new Error(reply.error) : new AppError('remote.sessionClearFailed');
         return { ok: true };
       }
 
@@ -3890,7 +3906,7 @@ class RemoteControlService {
         const projectPath = String(params.projectPath || '');
         await assertRegisteredProject(projectPath);
         const session = await aiSessionStore.get(projectPath, String(params.sessionId || ''));
-        if (!session) throw new Error('Сессия не найдена');
+        if (!session) throw new AppError('remote.sessionNotFound');
         const profiles = await llmProfileService.listProfiles().catch(() => []);
         return studioSessionForPhone(session, {
           running: studioRemoteBridge.isRunning(session.id),
@@ -3906,7 +3922,7 @@ class RemoteControlService {
         const attachments = await resolvePromptAttachments(projectPath, params.attachments);
         const text = promptWithAttachments(typeof params.prompt === 'string' ? params.prompt : '', attachments);
         if (!text) throw new Error('prompt is required');
-        if (text.length > 100_000) throw new Error('Промпт слишком длинный');
+        if (text.length > 100_000) throw new AppError('remote.promptTooLong');
         const sessionId = typeof params.sessionId === 'string' && params.sessionId ? params.sessionId : undefined;
         if (sessionId) await this.assertStudioWriter(projectPath, sessionId, device);
         const reply = await studioRemoteBridge.request({
@@ -3920,7 +3936,7 @@ class RemoteControlService {
           // Новая сессия участника общего хоста — его (TASK-142.3): worktree, HITL и стоимость по нему.
           ...(device.memberId ? { memberId: device.memberId } : {})
         });
-        if (!reply.ok || !reply.sessionId) throw new Error(reply.error || 'Agents Studio не приняла промпт');
+        if (!reply.ok || !reply.sessionId) throw reply.error ? new Error(reply.error) : new AppError('remote.studioPromptRejected');
         this.phoneStudioSessions.add(reply.sessionId);
         this.refreshKeepAwake();
         return { sessionId: reply.sessionId, accepted: true };
@@ -3937,7 +3953,7 @@ class RemoteControlService {
         await assertRegisteredProject(projectPath);
         await this.assertStudioWriter(projectPath, params.sessionId, device, 'abort');
         const reply = await studioRemoteBridge.request({ kind: 'abort', projectPath, sessionId: String(params.sessionId || '') });
-        if (!reply.ok) throw new Error(reply.error || 'Не удалось остановить');
+        if (!reply.ok) throw reply.error ? new Error(reply.error) : new AppError('remote.studioStopFailed');
         return { ok: true };
       }
 
@@ -4006,7 +4022,7 @@ class RemoteControlService {
         // а не повод исполнять чужую работу (decision-11 п.5).
         const targetHostId = typeof params.hostId === 'string' && params.hostId ? params.hostId : this.hostId;
         if (targetHostId !== this.hostId) {
-          throw new Error(`Запрос адресован хосту ${targetHostId}, а это ${this.hostId}`);
+          throw new AppError('remote.wrongHost', { target: targetHostId, self: this.hostId });
         }
 
         const result = await agentFleetService.startAssignedAgent({
@@ -4041,7 +4057,7 @@ class RemoteControlService {
         const agentId = typeof params.agentId === 'string' ? params.agentId : '';
         if (!swarmId || !agentId) throw new Error('swarmId and agentId are required');
         const agent = agentFleetService.getSwarm(swarmId)?.agents.find((a) => a.id === agentId);
-        if (!agent) throw new Error('Агент не найден');
+        if (!agent) throw new AppError('remote.agentNotFound');
         const full = agent.finalOutput || agent.liveOutput || '';
         const text = full.length > AGENT_OUTPUT_TAIL_CHARS ? full.slice(full.length - AGENT_OUTPUT_TAIL_CHARS) : full;
         return {
@@ -4065,7 +4081,7 @@ class RemoteControlService {
       // Push на это устройство с этого ПК (TASK-140.3, decision-115): включается явно и отдельно для каждого ПК.
       case 'push_register': {
         const record = this.deviceTokens.get(device.id);
-        if (!record) throw new Error('Устройство не сопряжено с этим ПК');
+        if (!record) throw new AppError('remote.deviceNotPaired');
         record.push = parsePushRegistration(params, Date.now());
         await this.persistDeviceTokens();
         return { ok: true, kind: record.push.kind, regId: record.push.regId };
@@ -4087,9 +4103,9 @@ class RemoteControlService {
 
       case 'push_test': {
         const record = this.deviceTokens.get(device.id);
-        if (!record?.push) throw new Error('Push для этого ПК не включён');
+        if (!record?.push) throw new AppError('remote.pushNotEnabled');
         const res = await this.pushService.sendTest({ deviceId: device.id, registration: record.push, canDecide: false });
-        if (!res.ok) throw new Error(`Push не доставлен: ${res.error}`);
+        if (!res.ok) throw new AppError('remote.pushNotDelivered', { detail: res.error ?? '' });
         return { ok: true };
       }
 
@@ -4098,7 +4114,7 @@ class RemoteControlService {
         const requestId = typeof params.requestId === 'string' ? params.requestId : '';
         if (!requestId) throw new Error('requestId is required');
         const pendingRequest = hitlService.getPending(requestId);
-        if (!pendingRequest || !this.hitlVisibleTo(pendingRequest, device)) throw new Error('Запрос не найден — возможно, уже решён');
+        if (!pendingRequest || !this.hitlVisibleTo(pendingRequest, device)) throw new AppError('remote.hitlRequestNotFound');
         return hitlDetailForPhone(pendingRequest);
       }
 
@@ -4167,7 +4183,7 @@ class RemoteControlService {
         if (!name) throw new Error('name is required');
         const root = projectsRoot((await projectRegistry.getProjects()).map((p) => p.path), os.homedir());
         const target = path.join(root, projectFolderName(name));
-        if (existsSync(target)) throw new Error(`Папка уже есть: ${target}`);
+        if (existsSync(target)) throw new AppError('remote.projectFolderExists', { path: target });
         const report = await applyInit({
           targetDir: target,
           projectName: name,
@@ -4268,7 +4284,7 @@ class RemoteControlService {
       const rel = path.relative(norm(path.resolve(p.path)), norm(filePath));
       return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
     });
-    if (!inTasks || !owner) throw new Error('Файл задачи должен быть в backlog/tasks зарегистрированного проекта');
+    if (!inTasks || !owner) throw new AppError('remote.taskFileOutside');
     return filePath;
   }
 

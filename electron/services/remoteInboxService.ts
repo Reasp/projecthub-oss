@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { AppError } from '../../src/lib/appError.js';
 import type { AppBusEvent } from './hitlTypes.js';
 import type { SwarmSession } from './swarmTypes.js';
 import { stateFields, withVersion } from './stateFiles.js';
@@ -158,7 +159,7 @@ export class RemoteInboxService {
     const slot = this.limiter.take(ctx.sessionId || 'unknown');
     if (!slot.ok) {
       const sec = Math.ceil(slot.retryAfterMs / 1000);
-      return { isError: true, text: `Лимит сообщений этой сессии исчерпан: следующее можно через ${sec} с. Не повторяйте сообщение раньше.` };
+      return { isError: true, text: `The message limit of this session is used up: the next one is possible in ${sec} s. Do not repeat the message earlier.` };
     }
     const who = ctx.agentName || ctx.role;
     const entry = this.add(
@@ -183,8 +184,8 @@ export class RemoteInboxService {
     return {
       isError: false,
       text: pushed > 0
-        ? `Сообщение во «Входящих» телефона, push отправлен на устройств: ${pushed}.`
-        : 'Сообщение во «Входящих» телефона. Push не отправлен: он не включён, приложение открыто или человек у ПК.'
+        ? `The message is in the phone Inbox, push sent to devices: ${pushed}.`
+        : 'The message is in the phone Inbox. Push was not sent: it is off, the app is open or the person is at the PC.'
     };
   }
 
@@ -247,7 +248,7 @@ export class RemoteInboxService {
     const taskId = typeof taskIdRaw === 'string' ? taskIdRaw.trim() : '';
     if (!/^[A-Za-z]+-\d+(?:\.\d+)*$/.test(taskId)) throw new Error('taskId is required');
     const task = (await this.deps.tasks(projectPath)).find((t) => t.id.toUpperCase() === taskId.toUpperCase());
-    if (!task) throw new Error(`Задача ${taskId} не найдена`);
+    if (!task) throw new AppError('inbox.taskNotFound', { id: taskId });
     return { projectPath, task };
   }
 
@@ -260,11 +261,11 @@ export class RemoteInboxService {
     const action = params.action;
     if (action !== 'done' && action !== 'return') throw new Error('action must be done or return');
     const { projectPath, task } = await this.reviewTaskOf(params.projectPath, params.taskId);
-    if (!isReview(task.status)) throw new Error(`Задача ${task.id} уже не в Review (сейчас: ${task.status})`);
+    if (!isReview(task.status)) throw new AppError('inbox.notInReview', { id: task.id, status: task.status });
     const comment = typeof params.comment === 'string' ? params.comment.trim().slice(0, 4000) : '';
     const restart = action === 'return' && params.restart === true;
-    if (action === 'return' && !comment) throw new Error('Напишите, что исправить: комментарий уйдёт агенту');
-    if (restart && device.rights !== 'full') throw new Error('Перезапустить агента может только устройство с полным доступом');
+    if (action === 'return' && !comment) throw new AppError('inbox.commentRequired');
+    if (restart && device.rights !== 'full') throw new AppError('inbox.restartFullOnly');
 
     const status = action === 'done' ? 'Done' : 'In Progress';
     const who = device.name || 'телефон';
@@ -275,14 +276,14 @@ export class RemoteInboxService {
       data: { ...data, status },
       content: this.deps.applyNote(content, note)
     }));
-    if (!written) throw new Error(`Файл задачи ${task.id} не найден`);
+    if (!written) throw new AppError('inbox.taskFileNotFound', { id: task.id });
     this.deps.changed('review');
 
     if (!restart) return { ok: true, status };
     const sessions = this.deps.swarms(projectPath);
     const prior = lastRoleSession(sessions, task.id);
     const roleSlug = prior?.agents.find((a) => a.config.roleSlug)?.config.roleSlug;
-    if (!roleSlug) throw new Error('Задача возвращена, но агента перезапустить нельзя: по ней не работала роль. Назначьте агента на ПК');
+    if (!roleSlug) throw new AppError('inbox.noRoleToRestart');
     const prompt = [
       `Задача ${task.id} возвращена с проверки человеком.`,
       `Комментарий проверяющего:\n${comment}`,
@@ -298,7 +299,7 @@ export class RemoteInboxService {
       // Доработку по замечаниям запускает участник — агент в его worktree (TASK-142.3).
       ...(device.memberId ? { memberId: device.memberId } : {})
     });
-    if ('error' in res) throw new Error(`Задача возвращена, агент не запущен: ${res.error}`);
+    if ('error' in res) throw new AppError('inbox.agentNotStarted', { detail: res.error });
     return { ok: true, status, swarmId: res.swarmId };
   }
 
@@ -309,16 +310,16 @@ export class RemoteInboxService {
     const loop = latestDoneLoopSession(this.deps.swarms(projectPath), task.id);
     const report = loop ? reviewReportFromSession(loop) : undefined;
     if (!relPath || !reportScreenshotPaths(report, reviewCriteria(task.criteria, loop)).has(relPath)) {
-      throw new Error('Скриншот не из отчёта этой задачи');
+      throw new AppError('inbox.screenshotNotInReport');
     }
     const mime = MIME[path.extname(relPath).toLowerCase()];
-    if (!mime) throw new Error('Это не изображение');
+    if (!mime) throw new AppError('inbox.notAnImage');
     const abs = await this.deps.resolveVisual(relPath);
-    if (!abs) throw new Error('Скриншот удалён ротацией хранилища или вместе с сессией');
+    if (!abs) throw new AppError('inbox.screenshotRemoved');
     const st = await fs.stat(abs);
-    if (!st.isFile() || st.size > SCREENSHOT_MAX_BYTES) throw new Error('Скриншот слишком большой');
+    if (!st.isFile() || st.size > SCREENSHOT_MAX_BYTES) throw new AppError('inbox.screenshotTooLarge');
     const offset = Math.max(0, Math.floor(Number(params.offset) || 0));
-    if (offset > st.size) throw new Error('offset вне файла');
+    if (offset > st.size) throw new Error('offset is outside the file');
     const handle = await fs.open(abs, 'r');
     try {
       const length = Math.min(SCREENSHOT_CHUNK, st.size - offset);

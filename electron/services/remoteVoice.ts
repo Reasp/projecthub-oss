@@ -2,6 +2,7 @@
  * Голосовой промпт с телефона (TASK-140.7, [[decision-121]] п. 4): приём PCM 16 бит 16 кГц частями по RPC `voice_chunk`
  * и распознавание тем же движком, что голос в окне. Без Electron — движки приходят зависимостями.
  */
+import { AppError } from '../../src/lib/appError.js';
 
 export const VOICE_SAMPLE_RATE = 16_000;
 export const VOICE_MAX_SECONDS = 90;
@@ -22,13 +23,13 @@ export interface VoiceChunk {
 
 export function parseVoiceChunk(params: Record<string, unknown>): VoiceChunk {
   const id = typeof params.id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(params.id) ? params.id : '';
-  if (!id) throw new Error('id записи обязателен');
+  if (!id) throw new Error('recording id is required');
   const index = Number(params.index);
   const total = Number(params.total);
-  if (!Number.isInteger(total) || total < 1 || total > Math.ceil(VOICE_MAX_BYTES / VOICE_CHUNK_BYTES)) throw new Error(`Запись длиннее ${VOICE_MAX_SECONDS} секунд`);
-  if (!Number.isInteger(index) || index < 0 || index >= total) throw new Error('Неверный номер части');
+  if (!Number.isInteger(total) || total < 1 || total > Math.ceil(VOICE_MAX_BYTES / VOICE_CHUNK_BYTES)) throw new AppError('voice.tooLong', { seconds: VOICE_MAX_SECONDS });
+  if (!Number.isInteger(index) || index < 0 || index >= total) throw new Error('Invalid chunk index');
   const data = Buffer.from(typeof params.data === 'string' ? params.data : '', 'base64');
-  if (data.length === 0 || data.length > VOICE_CHUNK_BYTES || data.length % 2 !== 0) throw new Error('Неверная часть записи');
+  if (data.length === 0 || data.length > VOICE_CHUNK_BYTES || data.length % 2 !== 0) throw new Error('Invalid recording chunk');
   const language = params.language === 'en' || params.language === 'auto' ? params.language : 'ru';
   return { id, index, total, data, language };
 }
@@ -60,18 +61,18 @@ export class VoiceUploads {
     const now = this.now();
     for (const [id, u] of this.uploads) if (now - u.touched > UPLOAD_TTL_MS) this.uploads.delete(id);
     let upload = this.uploads.get(chunk.id);
-    if (upload && upload.owner !== owner) throw new Error('Запись принадлежит другому устройству');
+    if (upload && upload.owner !== owner) throw new Error('The recording belongs to another device');
     if (!upload) {
-      if ([...this.uploads.values()].filter((u) => u.owner === owner).length >= 3) throw new Error('Слишком много незаконченных записей');
+      if ([...this.uploads.values()].filter((u) => u.owner === owner).length >= 3) throw new AppError('voice.tooManyUploads');
       upload = { owner, parts: new Map(), total: chunk.total, bytes: 0, language: chunk.language, touched: now };
       this.uploads.set(chunk.id, upload);
     }
-    if (upload.total !== chunk.total) throw new Error('Число частей записи изменилось');
+    if (upload.total !== chunk.total) throw new Error('The number of recording chunks changed');
     const prev = upload.parts.get(chunk.index);
     upload.bytes += chunk.data.length - (prev?.length ?? 0);
     if (upload.bytes > VOICE_MAX_BYTES) {
       this.uploads.delete(chunk.id);
-      throw new Error(`Запись длиннее ${VOICE_MAX_SECONDS} секунд`);
+      throw new AppError('voice.tooLong', { seconds: VOICE_MAX_SECONDS });
     }
     upload.parts.set(chunk.index, chunk.data);
     upload.touched = now;

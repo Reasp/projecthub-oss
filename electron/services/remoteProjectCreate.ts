@@ -4,6 +4,7 @@
  * `applyInit`, как у мастера окна.
  */
 import path from 'node:path';
+import { AppError } from '../../src/lib/appError.js';
 
 const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
 
@@ -12,14 +13,14 @@ const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
  * зарезервированное имя — ошибка: создавать нечего.
  */
 export function projectFolderName(name: string): string {
-  if (/[\\/]|\.\./.test(name)) throw new Error('Имя проекта не может содержать путь');
+  if (/[\\/]|\.\./.test(name)) throw new AppError('remote.projectNameHasPath');
   const folder = [...name.trim()]
     .filter((ch) => ch.charCodeAt(0) >= 32 && !'<>:"|?*'.includes(ch))
     .join('')
     .replace(/\s+/g, '-')
     .replace(/^[.-]+|[.-]+$/g, '')
     .slice(0, 60);
-  if (!folder || RESERVED.test(folder)) throw new Error('Недопустимое имя проекта');
+  if (!folder || RESERVED.test(folder)) throw new AppError('remote.projectNameInvalid');
   return folder;
 }
 

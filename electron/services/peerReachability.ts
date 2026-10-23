@@ -4,21 +4,36 @@
  */
 
 import net from 'node:net';
+import { AppError, appErrorKeyOf } from '../../src/lib/appError.js';
 import { isLinkLocal, isPrivateLan } from './lanAddresses.js';
 
 const UNREACHABLE = new Set(['EHOSTUNREACH', 'ENETUNREACH']);
 
 /**
- * Текст ошибки соединения с соседом. macOS 15+ без разрешения «Конфиденциальность и безопасность → Локальная сеть»
- * отвечает на соединение с адресом в LAN `EHOSTUNREACH` — к такой ошибке добавляется, что включить.
+ * Ошибка соединения с соседом для человека. macOS 15+ без разрешения «Конфиденциальность и безопасность → Локальная
+ * сеть» отвечает на соединение с адресом в LAN `EHOSTUNREACH` — такая ошибка получает код с подсказкой, что включить
+ * (decision-165). Остальные — системный текст как есть.
  */
-export function describePeerConnectError(err: unknown, platform: NodeJS.Platform = process.platform): string {
+export function peerConnectError(err: unknown, platform: NodeJS.Platform = process.platform): Error {
   const e = (err ?? {}) as { message?: unknown; code?: unknown; address?: unknown };
-  const message = typeof e.message === 'string' && e.message ? e.message : 'Ошибка соединения';
+  if (typeof e.message !== 'string' || !e.message) return new AppError('federation.connectError');
   const address = typeof e.address === 'string' ? e.address : '';
-  if (platform !== 'darwin' || !UNREACHABLE.has(String(e.code)) || !(isPrivateLan(address) || isLinkLocal(address))) return message;
-  return `${message}. macOS не пускает ProjectHub в локальную сеть: включите ProjectHub в «Системные настройки → Конфиденциальность и безопасность → Локальная сеть» и перезапустите приложение`;
+  if (platform !== 'darwin' || !UNREACHABLE.has(String(e.code)) || !(isPrivateLan(address) || isLinkLocal(address))) return new Error(e.message);
+  return new AppError('federation.localNetworkBlocked', { detail: e.message });
 }
+
+/** Все адреса соседа недоступны; `localNetworkBlocked` — хотя бы один не пустила «Локальная сеть» macOS. */
+export class PeerUnreachableError extends Error {
+  constructor(
+    message: string,
+    readonly localNetworkBlocked: boolean
+  ) {
+    super(message);
+    this.name = 'PeerUnreachableError';
+  }
+}
+
+type ProbeResult = { ok: true } | { ok: false; error: string; localNetworkBlocked?: boolean };
 
 /** Хост и порт адреса пира: `ws://host:port`, `https://…`, `host:port`. `null` — не адрес. */
 export function peerSocketTarget(address: string): { host: string; port: number } | null {
@@ -35,20 +50,24 @@ export function peerSocketTarget(address: string): { host: string; port: number 
   return host && port > 0 && port < 65536 ? { host, port } : null;
 }
 
-/** Открывается ли TCP до адреса за `timeoutMs`. Ошибка — текстом `describePeerConnectError`. */
-export function probePeerAddress(address: string, timeoutMs: number): Promise<{ ok: true } | { ok: false; error: string }> {
+/** Открывается ли TCP до адреса за `timeoutMs`. Ошибка — системным текстом; отказ «Локальной сети» macOS помечен. */
+export function probePeerAddress(address: string, timeoutMs: number): Promise<ProbeResult> {
   const target = peerSocketTarget(address);
-  if (!target) return Promise.resolve({ ok: false, error: `Не адрес: ${address}` });
+  if (!target) return Promise.resolve({ ok: false, error: `Not an address: ${address}` });
   return new Promise((resolve) => {
     const socket = net.connect(target);
-    const done = (result: { ok: true } | { ok: false; error: string }) => {
+    const done = (result: ProbeResult) => {
       clearTimeout(timer);
       socket.destroy();
       resolve(result);
     };
-    const timer = setTimeout(() => done({ ok: false, error: `Нет ответа за ${Math.round(timeoutMs / 1000)} с` }), timeoutMs);
+    const timer = setTimeout(() => done({ ok: false, error: `No response within ${Math.round(timeoutMs / 1000)} s` }), timeoutMs);
     socket.once('connect', () => done({ ok: true }));
-    socket.once('error', (err) => done({ ok: false, error: describePeerConnectError(err) }));
+    socket.once('error', (err) => {
+      const key = appErrorKeyOf(peerConnectError(err));
+      if (key?.code === 'federation.localNetworkBlocked') done({ ok: false, error: String(key.params?.detail ?? err.message), localNetworkBlocked: true });
+      else done({ ok: false, error: err.message || 'Connection error' });
+    });
   });
 }
 
@@ -59,10 +78,13 @@ export function probePeerAddress(address: string, timeoutMs: number): Promise<{ 
 export async function firstReachableAddress<T extends { address: string }>(
   candidates: readonly T[],
   timeoutMs: number,
-  probe: (address: string, timeoutMs: number) => Promise<{ ok: true } | { ok: false; error: string }> = probePeerAddress
+  probe: (address: string, timeoutMs: number) => Promise<ProbeResult> = probePeerAddress
 ): Promise<T> {
   const results = await Promise.all(candidates.map((c) => probe(c.address, timeoutMs)));
   const index = results.findIndex((r) => r.ok);
   if (index >= 0) return candidates[index];
-  throw new Error(results.map((r, i) => `${candidates[i].address}: ${r.ok ? '' : r.error}`).join('; ') || 'Нет адресов');
+  throw new PeerUnreachableError(
+    results.map((r, i) => `${candidates[i].address}: ${r.ok ? '' : r.error}`).join('; ') || 'No addresses',
+    results.some((r) => !r.ok && r.localNetworkBlocked)
+  );
 }

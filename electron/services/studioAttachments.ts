@@ -1,5 +1,6 @@
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
+import { AppError } from '../../src/lib/appError.js';
 
 /**
  * Вложения в промпт Agents Studio с телефона (TASK-140.6, [[decision-114]] п. 5). Фото и файлы приходят частями по
@@ -97,7 +98,7 @@ export function parseAttachmentChunk(params: Record<string, unknown>): Attachmen
   if (!/^[A-Za-z0-9_-]{6,64}$/.test(uploadId)) throw new Error('uploadId is required');
   const size = Number(params.size);
   if (!Number.isInteger(size) || size <= 0) throw new Error('size is required');
-  if (size > ATTACHMENT_MAX_BYTES) throw new Error(`Файл больше ${ATTACHMENT_MAX_BYTES / 1024 / 1024} МБ`);
+  if (size > ATTACHMENT_MAX_BYTES) throw new AppError('attachments.tooLarge', { mb: ATTACHMENT_MAX_BYTES / 1024 / 1024 });
   const offset = Number(params.offset);
   if (!Number.isInteger(offset) || offset < 0) throw new Error('offset is required');
   const data = typeof params.data === 'string' ? params.data : '';
@@ -124,19 +125,19 @@ export class AttachmentUploads {
     const key = `${deviceId}\n${chunk.uploadId}`;
     let upload = this.uploads.get(key);
     if (!upload) {
-      if (chunk.offset !== 0) throw new Error('Загрузка не найдена — начните заново');
+      if (chunk.offset !== 0) throw new AppError('attachments.uploadNotFound');
       const mine = [...this.uploads.keys()].filter((k) => k.startsWith(`${deviceId}\n`)).length;
-      if (mine >= ATTACHMENT_MAX_UPLOADS) throw new Error('Слишком много загрузок одновременно');
+      if (mine >= ATTACHMENT_MAX_UPLOADS) throw new AppError('attachments.tooManyUploads');
       upload = { projectPath, name: chunk.name, size: chunk.size, parts: [], received: 0, touchedAt: this.deps.now() };
       this.uploads.set(key, upload);
     }
-    if (upload.projectPath !== projectPath || upload.size !== chunk.size) throw new Error('Загрузка относится к другому файлу');
-    if (chunk.offset !== upload.received) throw new Error(`Ожидалась часть с позиции ${upload.received}`);
+    if (upload.projectPath !== projectPath || upload.size !== chunk.size) throw new Error('The upload belongs to another file');
+    if (chunk.offset !== upload.received) throw new Error(`Expected a chunk at offset ${upload.received}`);
     const bytes = Buffer.from(chunk.data, 'base64');
-    if (bytes.length === 0 || bytes.length > ATTACHMENT_CHUNK_MAX) throw new Error('Неверный размер части');
+    if (bytes.length === 0 || bytes.length > ATTACHMENT_CHUNK_MAX) throw new Error('Invalid chunk size');
     if (upload.received + bytes.length > upload.size) {
       this.uploads.delete(key);
-      throw new Error('Файл больше заявленного размера');
+      throw new Error('The file is larger than its declared size');
     }
     upload.parts.push(bytes);
     upload.received += bytes.length;
@@ -167,7 +168,7 @@ export async function writeAttachmentFile(projectPath: string, relPath: string, 
   for (let i = 0; i < 100; i++) {
     const candidate = i === 0 ? relPath : `${parsed.dir}/${parsed.name}-${i}${parsed.ext}`;
     const abs = path.resolve(root, ...candidate.split('/'));
-    if (!abs.startsWith(dirRoot + path.sep)) throw new Error('Путь вложения вне каталога вложений');
+    if (!abs.startsWith(dirRoot + path.sep)) throw new Error('The attachment path is outside the attachments folder');
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     try {
       await fsp.writeFile(abs, data, { flag: 'wx' });
@@ -176,19 +177,19 @@ export async function writeAttachmentFile(projectPath: string, relPath: string, 
       if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
     }
   }
-  throw new Error('Не удалось подобрать имя файла');
+  throw new Error('Could not pick a free attachment file name');
 }
 
 /** Пути вложений из `studio_send`: только существующие файлы каталога вложений этого проекта. */
 export async function resolvePromptAttachments(projectPath: string, value: unknown): Promise<string[]> {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw new Error('attachments must be an array');
-  if (value.length > ATTACHMENT_MAX_PER_PROMPT) throw new Error(`Не больше ${ATTACHMENT_MAX_PER_PROMPT} вложений в промпте`);
+  if (value.length > ATTACHMENT_MAX_PER_PROMPT) throw new AppError('attachments.tooMany', { count: ATTACHMENT_MAX_PER_PROMPT });
   const out: string[] = [];
   for (const rel of value) {
-    if (!isAttachmentRelPath(rel)) throw new Error('Вложение вне каталога вложений');
+    if (!isAttachmentRelPath(rel)) throw new Error('The attachment is outside the attachments folder');
     const stat = await fsp.stat(path.resolve(projectPath, ...rel.split('/'))).catch(() => null);
-    if (!stat?.isFile()) throw new Error(`Вложение не найдено: ${rel}`);
+    if (!stat?.isFile()) throw new AppError('attachments.notFound', { path: rel });
     if (!out.includes(rel)) out.push(rel);
   }
   return out;

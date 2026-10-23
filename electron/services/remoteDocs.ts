@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { listProjectDocs } from './docsService';
+import { AppError } from '../../src/lib/appError';
 import type { RemoteDocContent, RemoteDocEntry } from '../../src/types/remote';
 
 /**
@@ -93,7 +94,7 @@ export async function listRemoteDocs(projectPath: string, cache: DocHashCache = 
 }
 
 /** Путь от телефона не принят: вне `backlog/docs`/`backlog/decisions`, не `.md` или выход наверх. */
-export class RemoteDocPathError extends Error {}
+export class RemoteDocPathError extends AppError {}
 
 function inside(root: string, target: string): boolean {
   const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
@@ -107,7 +108,7 @@ function inside(root: string, target: string): boolean {
  */
 export function resolveRemoteDocPath(projectPath: string, raw: unknown): { relative: string; absolute: string } {
   if (typeof raw !== 'string' || !raw.trim() || raw.length > 1024 || raw.includes('\0')) {
-    throw new RemoteDocPathError('Путь документа не задан');
+    throw new RemoteDocPathError('remote.docPathMissing');
   }
   const relative = raw.trim().replace(/\\/g, '/');
   const segments = relative.split('/');
@@ -119,12 +120,12 @@ export function resolveRemoteDocPath(projectPath: string, raw: unknown): { relat
     !DOC_ROOTS.some((root) => relative.toLowerCase().startsWith(root)) ||
     !relative.toLowerCase().endsWith('.md')
   ) {
-    throw new RemoteDocPathError('Документ должен быть .md в backlog/docs или backlog/decisions проекта');
+    throw new RemoteDocPathError('remote.docPathInvalid');
   }
   const root = path.resolve(projectPath);
   const absolute = path.resolve(root, ...segments);
   if (!inside(path.join(root, 'backlog'), absolute)) {
-    throw new RemoteDocPathError('Документ должен быть .md в backlog/docs или backlog/decisions проекта');
+    throw new RemoteDocPathError('remote.docPathInvalid');
   }
   return { relative, absolute };
 }
@@ -146,13 +147,13 @@ export async function readRemoteDoc(
     real = await fs.realpath(absolute);
     stat = await fs.stat(real);
   } catch {
-    throw new Error(`Документ не найден: ${relative}`);
+    throw new AppError('remote.docNotFound', { path: relative });
   }
   // Ссылка (symlink/junction) внутри backlog не должна вывести за его пределы.
   const realBacklog = await fs.realpath(path.join(path.resolve(projectPath), 'backlog'));
-  if (!inside(realBacklog, real)) throw new RemoteDocPathError('Документ ведёт за пределы backlog проекта');
-  if (!stat.isFile()) throw new Error(`Документ не найден: ${relative}`);
-  if (stat.size > REMOTE_DOC_MAX_BYTES) throw new Error(`Документ больше ${REMOTE_DOC_MAX_BYTES / 1024 / 1024} МБ — откройте его на ПК`);
+  if (!inside(realBacklog, real)) throw new RemoteDocPathError('remote.docOutsideBacklog');
+  if (!stat.isFile()) throw new AppError('remote.docNotFound', { path: relative });
+  if (stat.size > REMOTE_DOC_MAX_BYTES) throw new AppError('remote.docTooLarge', { mb: REMOTE_DOC_MAX_BYTES / 1024 / 1024 });
 
   const bytes = await fs.readFile(real);
   const hash = docContentHash(bytes);

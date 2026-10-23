@@ -4,6 +4,7 @@ import { compareHosts, type FleetHostEntry, type OverviewSession, type RemoteOve
 import { useFederationStore } from './useFederationStore';
 import { useHitlStore } from './useHitlStore';
 import { useProjectStore } from './useProjectStore';
+import { ipcErrorText } from '../i18n/useTranslation';
 
 /**
  * Дерево «Компьютеры» в сайдбаре (TASK-174, decision-129 п. 10): сводка этого ПК и удалённых хостов hub-режима,
@@ -76,10 +77,6 @@ function writeJson(key: string, value: unknown): void {
   } catch {
     // хранилище недоступно — состояние раздела просто не запомнится
   }
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 const defaultUi: FleetUi = { collapsed: false, collapsedHosts: {}, showQuiet: {}, openProjects: {} };
@@ -168,7 +165,7 @@ export const useFleetStore = create<FleetState>((set, get) => {
       try {
         set({ local: { overview: await window.api.getLocalOverview() } });
       } catch (err) {
-        set((s) => ({ local: { ...s.local, error: errorText(err) } }));
+        set((s) => ({ local: { ...s.local, error: ipcErrorText(err) } }));
       }
     },
 
@@ -180,7 +177,7 @@ export const useFleetStore = create<FleetState>((set, get) => {
         seen(hostId);
         set((s) => ({ remote: { ...s.remote, [hostId]: { overview } } }));
       } catch (err) {
-        const message = errorText(err);
+        const message = ipcErrorText(err);
         set((s) => ({
           remote: {
             ...s.remote,
@@ -222,7 +219,7 @@ export const useFleetStore = create<FleetState>((set, get) => {
         void get().refreshRemote(hostId);
         return res.ok ? { ok: true } : { ok: false, error: res.reason };
       } catch (err) {
-        return { ok: false, error: errorText(err) };
+        return { ok: false, error: ipcErrorText(err) };
       }
     }
   };

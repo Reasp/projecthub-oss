@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { FederationHost, FederationPeerState, FederationTransport, RemoteQueueView, RemoteTeam } from '../types/remote';
 import type { PeerPairingFields } from '../utils/remotePairingLink';
+import { getDictionary } from '../i18n';
+import { ipcErrorText, ipcFailureText } from '../i18n/useTranslation';
+import { useProjectStore } from './useProjectStore';
 
 /**
  * Стор федерации компьютеров (TASK-66, decision-11 п.4): каталог хостов, сопряжённые пиры и
@@ -164,8 +167,11 @@ const emptyData: RemoteHostData = {
 let cleanupPeers: (() => void) | null = null;
 let cleanupEvents: (() => void) | null = null;
 
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+const federationText = () => getDictionary(useProjectStore.getState().language).federation;
+
+/** Причина из состояния пира на языке окна (decision-165); нет причины — `undefined`. */
+function peerErrorText(peer: FederationPeerState | undefined): string | undefined {
+  return peer?.error ? ipcFailureText(peer) : undefined;
 }
 
 export const useFederationStore = create<FederationState>((set, get) => ({
@@ -244,15 +250,15 @@ export const useFederationStore = create<FederationState>((set, get) => ({
   },
 
   addPeer: async (options) => {
-    if (!window.api?.addFederationPeer) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.addFederationPeer) return { ok: false, error: federationText().apiUnavailable };
     try {
       const peer = await window.api.addFederationPeer(options);
       await get().refreshPeers();
       set({ selectedHostId: peer.hostId });
       await get().loadHostData(peer.hostId);
-      return { ok: peer.status === 'connected', error: peer.error };
+      return { ok: peer.status === 'connected', error: peerErrorText(peer) };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   },
 
@@ -266,14 +272,14 @@ export const useFederationStore = create<FederationState>((set, get) => ({
   },
 
   connectPeer: async (hostId) => {
-    if (!window.api?.connectFederationPeer) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.connectFederationPeer) return { ok: false, error: federationText().apiUnavailable };
     try {
       const peer = await window.api.connectFederationPeer(hostId);
       await get().refreshPeers();
       if (peer.status === 'connected') await get().loadHostData(hostId);
-      return { ok: peer.status === 'connected', error: peer.error };
+      return { ok: peer.status === 'connected', error: peerErrorText(peer) };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   },
 
@@ -295,7 +301,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       set((s) => ({
         data: {
           ...s.data,
-          [hostId]: { ...(s.data[hostId] || emptyData), isLoading: false, error: peer?.error || 'Хост не подключён' }
+          [hostId]: { ...(s.data[hostId] || emptyData), isLoading: false, error: peerErrorText(peer) || federationText().notConnected }
         }
       }));
       return;
@@ -338,7 +344,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       }));
     } catch (err) {
       set((s) => ({
-        data: { ...s.data, [hostId]: { ...(s.data[hostId] || emptyData), isLoading: false, error: errorText(err) } }
+        data: { ...s.data, [hostId]: { ...(s.data[hostId] || emptyData), isLoading: false, error: ipcErrorText(err) } }
       }));
     }
   },
@@ -349,12 +355,12 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       await window.api.federationCall(hostId, 'select_project', { projectPath });
       await get().loadHostData(hostId);
     } catch (err) {
-      set((s) => ({ data: { ...s.data, [hostId]: { ...(s.data[hostId] || emptyData), error: errorText(err) } } }));
+      set((s) => ({ data: { ...s.data, [hostId]: { ...(s.data[hostId] || emptyData), error: ipcErrorText(err) } } }));
     }
   },
 
   decideRemoteApproval: async (hostId, requestId, approved) => {
-    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.federationCall) return { ok: false, error: federationText().apiUnavailable };
     try {
       // Решение всегда адресуется по requestId (TASK-57): хост применит его один раз, откуда бы
       // оно ни пришло — с телефона, из своего окна или отсюда.
@@ -365,12 +371,12 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       await get().loadHostData(hostId);
       return { ok: Boolean(res?.ok), error: res?.reason };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   },
 
   runRemoteAssignedAgent: async (hostId, options) => {
-    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.federationCall) return { ok: false, error: federationText().apiUnavailable };
     try {
       await window.api.federationCall(hostId, 'start_assigned_agent', {
         projectPath: options.projectPath,
@@ -382,63 +388,63 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       await get().loadHostData(hostId);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   },
 
   updateRemoteTaskStatus: async (hostId, filePath, newStatus) => {
-    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.federationCall) return { ok: false, error: federationText().apiUnavailable };
     try {
       await window.api.federationCall(hostId, 'update_task_status', { filePath, newStatus });
       await get().loadHostData(hostId);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   },
 
   remoteTeamAction: async (hostId, action, taskId) => {
-    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.federationCall) return { ok: false, error: federationText().apiUnavailable };
     try {
       // Участник — по устройству этого ПК на хосте: роль и права проверяет хост (decision-126 п. 3).
       await window.api.federationCall(hostId, action, { taskId });
       await get().loadHostData(hostId);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   },
 
   remoteQueueReview: async (hostId, itemId, approved, comment) => {
-    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.federationCall) return { ok: false, error: federationText().apiUnavailable };
     try {
       await window.api.federationCall(hostId, 'queue_review', { itemId, approved, ...(comment?.trim() ? { comment: comment.trim() } : {}) });
       await get().loadHostData(hostId);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   },
 
   remoteQueueCancel: async (hostId, itemId) => {
-    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.federationCall) return { ok: false, error: federationText().apiUnavailable };
     try {
       await window.api.federationCall(hostId, 'queue_cancel', { itemId });
       await get().loadHostData(hostId);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   },
 
   remoteProcessAction: async (hostId, action, processId) => {
-    if (!window.api?.federationCall) return { ok: false, error: 'API недоступен' };
+    if (!window.api?.federationCall) return { ok: false, error: federationText().apiUnavailable };
     try {
       await window.api.federationCall(hostId, action === 'stop' ? 'stop_process' : 'restart_process', { processId });
       await get().loadHostData(hostId);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, error: ipcErrorText(err) };
     }
   }
 }));

@@ -280,10 +280,10 @@ export interface ParsedNote {
 /** Разбор аргументов инструмента; ошибка — текст для агента. */
 export function parseNoteArgs(args: Record<string, unknown>): ParsedNote | { error: string } {
   const text = typeof args.text === 'string' ? args.text.replace(/\s+$/g, '').trim() : '';
-  if (!text) return { error: 'Нужен текст сообщения (text).' };
-  if (text.length > NOTE_MAX_CHARS) return { error: `Сообщение длиннее ${NOTE_MAX_CHARS} символов — сократите его.` };
+  if (!text) return { error: 'The message text (text) is required.' };
+  if (text.length > NOTE_MAX_CHARS) return { error: `The message is longer than ${NOTE_MAX_CHARS} characters — shorten it.` };
   const raw = typeof args.level === 'string' ? args.level.trim().toLowerCase() : '';
-  if (raw && !LEVELS.has(raw as RemoteNoteLevel)) return { error: 'level должен быть info, success, warning или error.' };
+  if (raw && !LEVELS.has(raw as RemoteNoteLevel)) return { error: 'level must be info, success, warning or error.' };
   return { text, level: (raw as RemoteNoteLevel) || 'info' };
 }
 

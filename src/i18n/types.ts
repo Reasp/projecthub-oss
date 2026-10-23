@@ -3318,6 +3318,7 @@ export interface TranslationDictionary {
     refresh: string;
     loading: string;
     notConnected: string;
+    apiUnavailable: string;
     offlineHint: string;
     protocolMismatch: string;
     selectHostHint: string;

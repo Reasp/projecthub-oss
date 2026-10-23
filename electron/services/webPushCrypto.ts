@@ -54,7 +54,7 @@ function deriveKeys(ecdhSecret: Buffer, authSecret: Buffer, uaPublic: Buffer, as
  * `salt` и `senderPrivate` — только для проверки по вектору RFC 8291.
  */
 export function encryptWebPush(keys: WebPushKeys, plaintext: Buffer, fixed: { salt?: Buffer; senderPrivate?: Buffer } = {}): Buffer {
-  if (plaintext.length > WEB_PUSH_MAX_PLAINTEXT) throw new Error(`Push больше ${WEB_PUSH_MAX_PLAINTEXT} байт`);
+  if (plaintext.length > WEB_PUSH_MAX_PLAINTEXT) throw new Error(`Push is larger than ${WEB_PUSH_MAX_PLAINTEXT} bytes`);
   const ecdh = crypto.createECDH('prime256v1');
   if (fixed.senderPrivate) ecdh.setPrivateKey(fixed.senderPrivate);
   else ecdh.generateKeys();
@@ -73,7 +73,7 @@ export function encryptWebPush(keys: WebPushKeys, plaintext: Buffer, fixed: { sa
 
 /** Расшифровка записи — для тестов и поддельного телефона; на устройстве то же делает код ОС. */
 export function decryptWebPush(message: Buffer, uaPrivate: Buffer, keys: WebPushKeys): Buffer {
-  if (message.length < 21 + 65 + 17) throw new Error('Слишком короткое сообщение');
+  if (message.length < 21 + 65 + 17) throw new Error('The message is too short');
   const salt = message.subarray(0, 16);
   const idLen = message[20];
   const asPublic = message.subarray(21, 21 + idLen);
@@ -86,6 +86,6 @@ export function decryptWebPush(message: Buffer, uaPrivate: Buffer, keys: WebPush
   const padded = Buffer.concat([decipher.update(data.subarray(0, data.length - 16)), decipher.final()]);
   let end = padded.length - 1;
   while (end >= 0 && padded[end] === 0) end--;
-  if (end < 0 || padded[end] !== 0x02) throw new Error('Неверный разделитель записи');
+  if (end < 0 || padded[end] !== 0x02) throw new Error('Invalid record delimiter');
   return padded.subarray(0, end);
 }

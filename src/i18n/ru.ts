@@ -3632,6 +3632,7 @@ export const ru: TranslationDictionary = {
     refresh: 'Обновить',
     loading: 'Загрузка…',
     notConnected: 'Хост не подключён',
+    apiUnavailable: 'API ProjectHub недоступен',
     offlineHint: 'Хост офлайн. Это статус, а не ошибка: подключение восстановится автоматически.',
     protocolMismatch: 'Несовместимая версия протокола',
     selectHostHint: 'Выберите хост слева',
