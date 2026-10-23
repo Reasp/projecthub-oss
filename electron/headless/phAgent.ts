@@ -72,6 +72,9 @@ function runningPid(): number | null {
 }
 
 async function loadServices() {
+  // Ключ — до сервисов: Remote Control читает и создаёт секреты уже при загрузке, неверный ключ должен остановить
+  // команду раньше (decision-119 п. 9).
+  secretKeySource();
   const [{ logger, parseLogLevel }, { remoteControlService }, { projectRegistry }] = await Promise.all([
     import('../services/logger.js'),
     import('../services/remoteControlService.js'),
@@ -90,6 +93,8 @@ function writePairing(text: string): string {
 async function start(args: PhAgentArgs): Promise<void> {
   const other = runningPid();
   if (other) failWith('alreadyRunning', { pid: other, dir: agentDataDir() });
+  // Неверный ключ — до pid-файла: в каталог данных не пишется ничего.
+  secretKeySource();
   fs.mkdirSync(agentDataDir(), { recursive: true, mode: 0o700 });
   fs.writeFileSync(pidFile(), String(process.pid));
 

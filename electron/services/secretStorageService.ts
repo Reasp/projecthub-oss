@@ -35,6 +35,12 @@ export interface SecretCipher {
   isAvailable(): boolean;
   encrypt(plainText: string): Buffer;
   decrypt(data: Buffer): string;
+  /**
+   * Шифр обязателен (ph-agent, [[decision-119]] п. 9): его ошибка уходит вызывающему, открытым текстом ничего не
+   * пишется, а значения, записанные открытым текстом раньше, перешифровываются при первом обращении к хранилищу.
+   * Без флага — запасной путь окна: секрет сохраняется открытым текстом, если шифр недоступен.
+   */
+  readonly strict?: boolean;
 }
 
 export interface SecretStorageOptions {
@@ -58,7 +64,11 @@ interface BackupFile {
 const safeStorageCipher: SecretCipher = {
   isAvailable: () => safeStorage.isEncryptionAvailable(),
   encrypt: (plainText) => safeStorage.encryptString(plainText),
-  decrypt: (data) => safeStorage.decryptString(data)
+  decrypt: (data) => safeStorage.decryptString(data),
+  // Метку ставит shim ph-agent; у `safeStorage` Electron такого поля нет — окно остаётся с запасным путём.
+  get strict() {
+    return (safeStorage as { requireEncryption?: boolean }).requireEncryption === true;
+  }
 };
 
 function defaultOptions(): SecretStorageOptions {
@@ -150,6 +160,9 @@ export class SecretStorageService {
       return plainText;
     }
 
+    // Обязательный шифр: ошибка ключа — ошибка записи, а не повод снизить защиту.
+    if (this.cipher.strict) return `${ENCRYPTION_PREFIX}${this.cipher.encrypt(plainText).toString('base64')}`;
+
     if (this.isEncryptionAvailable()) {
       try {
         const buffer = this.cipher.encrypt(plainText);
@@ -198,41 +211,66 @@ export class SecretStorageService {
     return `${clean.slice(0, 4)}...${clean.slice(-4)}`;
   }
 
+  /** Подготовка хранилища перед первой операцией: перенос старого файла, при обязательном шифре — закрытие открытых значений. */
+  private ensureMigrated(): Promise<void> {
+    if (!this.migration) {
+      this.migration = (async () => {
+        await this.migrateLegacy();
+        if (this.cipher.strict) await this.sealPlainEntries();
+      })().catch((err) => {
+        // Только сообщение: стек в терминале ph-agent не нужен.
+        console.error('[SecretStorage] Secrets file preparation failed:', err instanceof Error ? err.message : err);
+      });
+    }
+    return this.migration;
+  }
+
   /**
    * Перенос старого общего файла (decision-88 п. 2): только записи, которые расшифровываются ключом
    * этого профиля. Чужие записи пропускаются молча — это секреты другого профиля, не сбой этого.
    */
-  private ensureMigrated(): Promise<void> {
-    if (!this.migration) {
-      this.migration = (async () => {
-        const target = this.filePath;
-        if (existsSync(target)) return;
-        const legacy = this.options.legacyFile?.() ?? null;
-        if (!legacy || samePath(legacy, target) || !existsSync(legacy)) return;
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(await fs.readFile(legacy, 'utf-8'));
-        } catch (err) {
-          console.warn('[SecretStorage] Legacy secrets file is unreadable, migration skipped:', err instanceof Error ? err.message : err);
-          return;
-        }
-        const moved: Record<string, string> = {};
-        let skipped = 0;
-        for (const [key, value] of Object.entries(isStringRecord(parsed) ? parsed : {})) {
-          if (typeof value !== 'string' || !value) continue;
-          const result = this.tryDecrypt(value);
-          if (result.ok) moved[key] = this.encrypt(result.value);
-          else skipped += 1;
-        }
-        await writeJsonAtomic(target, moved);
-        console.log(
-          `[SecretStorage] Migrated ${Object.keys(moved).length} secret(s) from the shared legacy file; ${skipped} belong to another profile and were left there`
-        );
-      })().catch((err) => {
-        console.error('[SecretStorage] Legacy migration failed:', err);
-      });
+  private async migrateLegacy(): Promise<void> {
+    const target = this.filePath;
+    if (existsSync(target)) return;
+    const legacy = this.options.legacyFile?.() ?? null;
+    if (!legacy || samePath(legacy, target) || !existsSync(legacy)) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await fs.readFile(legacy, 'utf-8'));
+    } catch (err) {
+      console.warn('[SecretStorage] Legacy secrets file is unreadable, migration skipped:', err instanceof Error ? err.message : err);
+      return;
     }
-    return this.migration;
+    const moved: Record<string, string> = {};
+    let skipped = 0;
+    for (const [key, value] of Object.entries(isStringRecord(parsed) ? parsed : {})) {
+      if (typeof value !== 'string' || !value) continue;
+      const result = this.tryDecrypt(value);
+      if (result.ok) moved[key] = this.encrypt(result.value);
+      else skipped += 1;
+    }
+    await writeJsonAtomic(target, moved);
+    console.log(
+      `[SecretStorage] Migrated ${Object.keys(moved).length} secret(s) from the shared legacy file; ${skipped} belong to another profile and were left there`
+    );
+  }
+
+  /**
+   * Значения, которые лежат открытым текстом (ph-agent до TASK-215 при неверном ключе уходил в запасной путь окна),
+   * закрываются обязательным шифром ([[decision-119]] п. 9).
+   */
+  private async sealPlainEntries(): Promise<void> {
+    const all = await this.readStore();
+    let sealed = 0;
+    for (const [key, value] of Object.entries(all)) {
+      if (!value || value.startsWith(ENCRYPTION_PREFIX)) continue;
+      all[key] = this.encrypt(value);
+      sealed += 1;
+    }
+    if (sealed === 0) return;
+    await this.writeStore(all);
+    // Имена секретов в лог не пишутся (decision-88 п. 5): только число.
+    console.log(`[SecretStorage] Encrypted ${sealed} secret(s) that were stored as plain text`);
   }
 
   private async readStore(): Promise<Record<string, string>> {

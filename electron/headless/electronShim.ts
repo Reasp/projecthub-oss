@@ -25,7 +25,7 @@ function key(): Buffer {
   return secretKey.key;
 }
 
-/** Откуда взят ключ секретов — для `ph-agent status`. */
+/** Откуда взят ключ секретов — для `ph-agent status`. Неверный ключ бросает `PhAgentError` — так его проверяют до загрузки сервисов. */
 export function secretKeySource(): KeySource | null {
   key();
   return secretKey?.source ?? null;
@@ -81,7 +81,12 @@ export const powerMonitor = {
 /** Серверы и VM не засыпают; запрет сна на ph-agent не держится (decision-119 п. 2). */
 export const powerSaveBlocker = null;
 
+/**
+ * `requireEncryption` — метка для `secretStorageService` ([[decision-119]] п. 9): ключ задаёт владелец, его ошибка —
+ * ошибка настройки, открытым текстом секреты не пишутся.
+ */
 export const safeStorage = {
+  requireEncryption: true,
   isEncryptionAvailable: () => true,
   encryptString: (plain: string): Buffer => sealSecret(key(), plain),
   decryptString: (data: Buffer): string => openSecret(key(), data)
