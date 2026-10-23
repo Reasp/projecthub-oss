@@ -18,6 +18,12 @@ const DEFAULT_STATE: WindowState = {
   isMaximized: false
 };
 
+/**
+ * Наименьший размер окна (TASK-209): только защита от вырожденного окна. Прежний минимум 1024×700 не давал прикрепить
+ * окно на четверть монитора (около 960×520 на 1920×1080).
+ */
+export const WINDOW_MIN_SIZE = { width: 320, height: 240 } as const;
+
 /** `window-state.json` (decision-104): версия 1 — прежний формат с полем `version`. */
 export const WINDOW_STATE_VERSION = 1;
 export const windowStateSchema: StateSchema<WindowState | null> = {
@@ -25,8 +31,8 @@ export const windowStateSchema: StateSchema<WindowState | null> = {
   normalize: (parsed) =>
     typeof parsed.width === 'number' && typeof parsed.height === 'number'
       ? {
-          width: Math.max(1024, parsed.width),
-          height: Math.max(700, parsed.height),
+          width: Math.max(WINDOW_MIN_SIZE.width, parsed.width),
+          height: Math.max(WINDOW_MIN_SIZE.height, parsed.height),
           x: typeof parsed.x === 'number' ? parsed.x : undefined,
           y: typeof parsed.y === 'number' ? parsed.y : undefined,
           isMaximized: Boolean(parsed.isMaximized)

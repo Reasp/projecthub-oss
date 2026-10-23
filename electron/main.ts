@@ -15,7 +15,7 @@ import { federationClientService } from './services/federationClientService';
 import { processManager } from './services/processManager';
 import { ptyService } from './services/ptyService';
 import { gitService } from './services/gitService';
-import { windowStateService } from './services/windowStateService';
+import { WINDOW_MIN_SIZE, windowStateService } from './services/windowStateService';
 import { agentFleetService, isActiveAgentStatus, isActiveSwarmStatus } from './services/agentFleetService';
 import { planService } from './services/planService';
 import { automationEngine } from './services/automationService';
@@ -255,6 +255,12 @@ function checkRebuilt(): void {
   void rebuildWatch?.check().catch((err) => console.warn('[Main] Rebuild check failed:', err));
 }
 
+/**
+ * Кнопки окна поверх шапки (TASK-210): цвет — `--color-ph-chrome` шапки, значки — `--color-slate-400` (tokens.css),
+ * высота — шапки рабочей области (`h-10`).
+ */
+const TITLE_BAR_OVERLAY = { color: '#18181b', symbolColor: '#9c9ca3', height: 40 };
+
 function createWindow() {
   const distPath = path.join(__dirname, '../dist');
   const indexPath = path.join(distPath, 'index.html');
@@ -272,16 +278,18 @@ function createWindow() {
   const windowState = windowStateService.getInitialState();
 
   win = new BrowserWindow({
-    title: 'ProjectHub — Панель управления проектами',
+    title: 'ProjectHub',
     icon: appIcon,
     width: windowState.width,
     height: windowState.height,
     x: windowState.x,
     y: windowState.y,
-    minWidth: 1024,
-    minHeight: 700,
+    minWidth: WINDOW_MIN_SIZE.width,
+    minHeight: WINDOW_MIN_SIZE.height,
     backgroundColor: '#0f1117',
     autoHideMenuBar: true,
+    // Встроенный заголовок (TASK-210): шапка окна — заголовок, кнопки окна рисуются поверх неё. macOS — пока системный.
+    ...(process.platform === 'darwin' ? {} : { titleBarStyle: 'hidden' as const, titleBarOverlay: TITLE_BAR_OVERLAY }),
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,

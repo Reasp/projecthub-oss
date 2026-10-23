@@ -51,7 +51,7 @@ export const Header: React.FC = () => {
 
   if (!selectedProject) {
     return (
-      <header className="h-10 shrink-0 border-b border-ph-line px-4 flex items-center bg-ph-chrome">
+      <header className="app-titlebar h-10 shrink-0 border-b border-ph-line pl-4 pr-[calc(var(--titlebar-inset-right,0px)+1rem)] flex items-center bg-ph-chrome">
         <span className="text-xs text-slate-500">{t.header.selectProjectHint}</span>
       </header>
     );
@@ -75,7 +75,7 @@ export const Header: React.FC = () => {
   const iconToolButton = 'flex items-center h-7 px-1.5 rounded-md text-slate-400 hover:bg-ph-hover hover:text-white transition whitespace-nowrap shrink-0';
 
   return (
-    <header className="h-10 shrink-0 border-b border-ph-line pr-2 flex items-stretch justify-between gap-3 bg-ph-chrome overflow-hidden">
+    <header className="app-titlebar h-10 shrink-0 border-b border-ph-line pr-[calc(var(--titlebar-inset-right,0px)+0.5rem)] flex items-stretch justify-between gap-3 bg-ph-chrome overflow-hidden">
       {/* Слева: вкладки открытых проектов и статус агента выбранного */}
       <div className="flex items-stretch gap-2 min-w-0 flex-1 h-full overflow-hidden">
         <ProjectTabs />

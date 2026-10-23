@@ -18,6 +18,7 @@ import { ComputerControlBanner } from './components/computer/ComputerControlBann
 import { SecretIssuesNotice } from './components/security/SecretIssuesNotice';
 import { SecretRestoreModal } from './components/security/SecretRestoreModal';
 import { NotificationSettingsModal } from './components/notifications/NotificationSettingsModal';
+import { installTitlebarOverlay } from './lib/windowTitlebar';
 import { AutomationsModal } from './components/automations/AutomationsModal';
 import { EditionOverlays } from './extensions/editionUi';
 import { useAutomationsStore } from './store/useAutomationsStore';
@@ -74,6 +75,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
+
+  // Встроенный заголовок окна (TASK-210): шапка перетаскивает окно, справа — место под кнопки окна.
+  useEffect(() => installTitlebarOverlay(), []);
 
   // Единый HITL-контур: подписка на шину событий main и загрузка очереди (TASK-57)
   useEffect(() => {

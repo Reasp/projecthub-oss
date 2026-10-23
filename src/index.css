@@ -15,6 +15,20 @@
     color: #e4e4e7;
   }
 
+  /*
+    Встроенный заголовок окна (TASK-210): за верхний ряд шапки окно перетаскивается, всё интерактивное в нём —
+    нет. Модальные окна и плавающие панели (`fixed`) поверх шапки перетаскивание отключают, иначе их кнопки
+    у верхнего края не нажимались бы. Класс `titlebar-overlay` ставит `installTitlebarOverlay`.
+  */
+  .titlebar-overlay .app-titlebar {
+    -webkit-app-region: drag;
+  }
+
+  .titlebar-overlay .app-titlebar :is(button, a, input, select, textarea, [role='button'], [role='tab'], [contenteditable='true']),
+  .titlebar-overlay .fixed {
+    -webkit-app-region: no-drag;
+  }
+
   /* Видимый фокус с клавиатуры, как focusBorder в VS Code. Мышью рамка не появляется. */
   button:focus-visible,
   [role='tab']:focus-visible,
