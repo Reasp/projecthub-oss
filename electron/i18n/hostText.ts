@@ -102,6 +102,8 @@ export interface HostText {
     quitConfirm: { cancel: string; quit: string; title: string; message: (n: number) => string; detail: string };
   };
   studio: { cancelledByUser: string };
+  /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
+  chat: { testTitle: string; testBody: string; usageLabel: string };
 }
 
 const en: HostText = {
@@ -194,7 +196,8 @@ const en: HostText = {
       detail: 'Quitting will interrupt their work and cancel pending decision requests. Continue?'
     }
   },
-  studio: { cancelledByUser: '*(Cancelled by the user)*' }
+  studio: { cancelledByUser: '*(Cancelled by the user)*' },
+  chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' }
 };
 
 const ru: HostText = {
@@ -287,7 +290,8 @@ const ru: HostText = {
       detail: 'При выходе их работа будет прервана, а незавершённые запросы на решение отменены. Продолжить?'
     }
   },
-  studio: { cancelledByUser: '*(Отменено пользователем)*' }
+  studio: { cancelledByUser: '*(Отменено пользователем)*' },
+  chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' }
 };
 
 const TEXTS: Record<Language, HostText> = { en, ru };

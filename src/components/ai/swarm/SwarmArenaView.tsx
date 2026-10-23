@@ -34,7 +34,7 @@ import {
 } from '../../common/icons';
 import { useSwarmStore } from '../../../store/useSwarmStore';
 import { useProjectStore } from '../../../store/useProjectStore';
-import { useTranslation } from '../../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../../i18n/useTranslation';
 import { useDialog } from '../../../hooks/useDialog';
 import { useToast } from '../../../hooks/useTimeoutState';
 import { MarkdownViewer } from '../../common/MarkdownViewer';
@@ -136,7 +136,7 @@ export const SwarmArenaView: React.FC = () => {
     setIsContinuing(true);
     try {
       const res = await window.api.continueAgent(currentSwarm.id, pendingContinue.agent.id, instruction || undefined);
-      if (!res.success) await dialog.alert(t.agentTimeline.continueError.replace('{error}', res.error ?? ''));
+      if (!res.success) await dialog.alert(t.agentTimeline.continueError.replace('{error}', ipcFailureText(res)));
     } finally {
       setIsContinuing(false);
     }
@@ -173,7 +173,7 @@ export const SwarmArenaView: React.FC = () => {
     try {
       const res = await window.api.exportAgentTrace(currentSwarm.id);
       if (res.success && res.path) showNotice(t.agentTimeline.exportTraceDone.replace('{path}', res.path));
-      else if (!res.canceled) await dialog.alert(t.agentTimeline.exportTraceError.replace('{error}', res.error || ''));
+      else if (!res.canceled) await dialog.alert(t.agentTimeline.exportTraceError.replace('{error}', ipcFailureText(res)));
     } finally {
       setIsExporting(false);
     }
@@ -502,7 +502,7 @@ export const SwarmArenaView: React.FC = () => {
             {currentSwarm.status === 'failed' && currentSwarm.error && (
               <div className="px-3 py-2 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{currentSwarm.error}</span>
+                <span>{ipcFailureText(currentSwarm)}</span>
               </div>
             )}
 
@@ -728,7 +728,7 @@ export const SwarmArenaView: React.FC = () => {
                               return badge ? (
                                 <span
                                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}
-                                  title={agent.error || badge.label}
+                                  title={agent.error ? ipcFailureText(agent) : badge.label}
                                 >
                                   {badge.label}
                                 </span>
@@ -813,7 +813,7 @@ export const SwarmArenaView: React.FC = () => {
                       {agent.status === 'failed' && agent.error && (
                         <div
                           className="px-4 py-2 border-b border-rose-500/20 bg-rose-500/10 text-[11px] text-rose-300 flex items-start gap-2"
-                          title={agent.error}
+                          title={ipcFailureText(agent)}
                           data-testid="agent-provider-error"
                         >
                           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-400" />
@@ -821,11 +821,11 @@ export const SwarmArenaView: React.FC = () => {
                             <div className="font-semibold">
                               {agent.providerError
                                 ? t.providerErrors.agentFailed.replace('{kind}', providerErrorTitle(agent.providerError, t.providerErrors))
-                                : t.providerErrors.agentFailed.replace('{kind}', agent.error.slice(0, 160))}
+                                : t.providerErrors.agentFailed.replace('{kind}', ipcFailureText(agent).slice(0, 160))}
                             </div>
                             {agent.providerError && (
                               <div className="text-rose-300/80 line-clamp-2">
-                                <AdviceText text={providerErrorAdvice(agent.providerError, t.providerErrors) ?? agent.error} />
+                                <AdviceText text={providerErrorAdvice(agent.providerError, t.providerErrors, t.appErrors) ?? ipcFailureText(agent)} />
                               </div>
                             )}
                           </div>
@@ -1093,7 +1093,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                 ) : agent.status === 'failed' && agent.error ? (
                                   // Упавший агент без вывода: полный текст ошибки, а не «Ожидание старта» (TASK-70.6).
                                   <div className="max-w-full px-2 text-[11px] text-rose-300/90 whitespace-pre-wrap break-words select-text">
-                                    {agent.error}
+                                    {ipcFailureText(agent)}
                                   </div>
                                 ) : (
                                   t.swarm.waitingStart
@@ -1263,7 +1263,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
                                       </span>
                                     )}
                                   </div>
-                                  {check.detail && <div className="text-[11px] text-amber-400/90">{check.detail}</div>}
+                                  {check.detail && <div className="text-[11px] text-amber-400/90">{ipcFailureText({ error: check.detail, errorKey: check.detailKey })}</div>}
                                   <CheckArtifactsGallery artifacts={check.artifacts} truncated={check.artifactsTruncated} />
                                   {check.outputTail && check.status !== 'passed' && (
                                     <details className="text-[11px]">

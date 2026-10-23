@@ -12,7 +12,7 @@ import {
   Repeat,
   XCircle
 } from '../../common/icons';
-import { useTranslation } from '../../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../../i18n/useTranslation';
 import type { CheckArtifact, CriterionScreenshot, DoneLoopIteration, SwarmSession } from '../../../types/electron';
 import { checkStatusClass, checkStatusLabel } from '../../../utils/arenaFormat';
 import { formatUsd } from '../../../utils/swarmFormat';
@@ -199,7 +199,7 @@ export const DoneLoopPanel: React.FC<{ session: SwarmSession }> = ({ session }) 
                           <span
                             key={c.id}
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] ${checkStatusClass(c.status)}`}
-                            title={c.outputTail ? c.outputTail.slice(-1500) : c.detail || c.command}
+                            title={c.outputTail ? c.outputTail.slice(-1500) : c.detail ? ipcFailureText({ error: c.detail, errorKey: c.detailKey }) : c.command}
                           >
                             {c.name}: {checkStatusLabel(c.status, t.judge)}
                             {shots > 0 && <span className="opacity-80">· {t.judge.checkScreenshots.replace('{count}', String(shots))}</span>}

@@ -11,6 +11,8 @@ import { DEFAULT_MAX_CONCURRENT_AGENT_RUNS, DEFAULT_MAX_RUNS_PER_DAY, type RuleR
  * - `automations-log.jsonl` — журнал запусков с ротацией.
  */
 
+import type { AppErrorKey } from '../../src/lib/appError.js';
+
 export const AUTOMATIONS_CONFIG_FILE = 'automations.json';
 export const AUTOMATIONS_STATE_FILE = 'automations-state.json';
 export const AUTOMATIONS_LOG_FILE = 'automations-log.jsonl';
@@ -54,6 +56,8 @@ export interface AutomationLogEntry {
   action?: string;
   reason?: string;
   detail?: string;
+  /** Код подробности для текста на языке окна (decision-165); без него `detail` — текст как есть. */
+  detailKey?: AppErrorKey;
   swarmId?: string;
   costUsd?: number;
   durationMs?: number;

@@ -1,5 +1,5 @@
 import type { IpcMain } from 'electron';
-import { appErrorKeyOf, withAppErrorEnvelope, type AppErrorKey } from '../../src/lib/appError.js';
+import { appErrorFields, withAppErrorEnvelope, type AppErrorKey } from '../../src/lib/appError.js';
 
 /**
  * Ошибки main с кодом на пути IPC (TASK-202, [[decision-165]]). Electron передаёт в окно только `message` исключения,
@@ -40,7 +40,5 @@ export interface IpcFailure {
 
 /** Результат `{ ok: false }` для каналов, которые не бросают: английский `error` и код рядом. */
 export function toIpcFailure(err: unknown): IpcFailure {
-  const key = appErrorKeyOf(err);
-  const error = err instanceof Error ? err.message : String(err);
-  return key ? { ok: false, error, errorKey: key } : { ok: false, error };
+  return { ok: false, ...appErrorFields(err) };
 }

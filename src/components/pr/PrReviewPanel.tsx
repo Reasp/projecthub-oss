@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ExternalLink, Play, RefreshCw, Send, ShieldCheck } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useRolesStore } from '../../store/useRolesStore';
 import type { PrReviewFinding, PrReviewRecord } from '../../types/electron';
 
@@ -80,7 +80,7 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
   const refresh = useCallback(async () => {
     const res = await window.api.listPrReviews(projectPath, prNumber);
     setReviews(res.reviews);
-    if (!res.ok && res.error) setNotice({ kind: 'error', text: res.error });
+    if (!res.ok && res.error) setNotice({ kind: 'error', text: ipcFailureText(res) });
   }, [projectPath, prNumber]);
 
   useEffect(() => {
@@ -110,13 +110,13 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
       force
     });
     setBusy(false);
-    setNotice(res.ok ? { kind: 'ok', text: p.started } : { kind: 'error', text: res.error });
+    setNotice(res.ok ? { kind: 'ok', text: p.started } : { kind: 'error', text: ipcFailureText(res) });
     await refresh();
   };
 
   const publish = async (review: PrReviewRecord) => {
     const res = await window.api.publishPrReview(projectPath, review.id);
-    setNotice(res.ok ? { kind: 'ok', text: p.published } : { kind: 'error', text: res.error });
+    setNotice(res.ok ? { kind: 'ok', text: p.published } : { kind: 'error', text: ipcFailureText(res) });
     await refresh();
   };
 
@@ -178,16 +178,16 @@ export const PrReviewPanel: React.FC<Props> = ({ projectPath, prNumber, prOpen, 
             </button>
           ))}
         </div>
-        {review.error && <div className="text-xs text-rose-300 whitespace-pre-wrap">{review.error}</div>}
-        {review.publish.error && <div className="text-xs text-amber-300">{review.publish.error}</div>}
+        {review.error && <div className="text-xs text-rose-300 whitespace-pre-wrap">{ipcFailureText(review)}</div>}
+        {review.publish.error && <div className="text-xs text-amber-300">{ipcFailureText(review.publish)}</div>}
         <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
           {review.reviewers.map((r, i) => (
-            <span key={`${r.roleSlug}-${i}`} className="rounded border border-slate-700 px-2 py-0.5" title={r.error || r.summary}>
+            <span key={`${r.roleSlug}-${i}`} className="rounded border border-slate-700 px-2 py-0.5" title={r.error ? ipcFailureText(r) : r.summary}>
               {r.name}: {r.status === 'done' ? fill(p.reviewerFindings, { n: r.findings }) : p.status[r.status === 'pending' ? 'running' : 'failed']}
             </span>
           ))}
           {review.verifier && (
-            <span className="rounded border border-slate-700 px-2 py-0.5" title={review.verifier.error}>
+            <span className="rounded border border-slate-700 px-2 py-0.5" title={review.verifier.error ? ipcFailureText(review.verifier) : undefined}>
               {p.verifierLabel}: {review.verifier.name || review.verifier.roleSlug} — {p.verifierStatus[review.verifier.status]}
             </span>
           )}

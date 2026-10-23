@@ -12,7 +12,8 @@
  */
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { executeCheck } from './checkRunner.js';
+import { checkDetailOf, executeCheck } from './checkRunner.js';
+import { AppError } from '../../src/lib/appError.js';
 import { visualArtifactService } from './visualArtifactService.js';
 import type { AIMessage } from './aiAgentService.js';
 import { loadRoles } from './roleService.js';
@@ -259,7 +260,7 @@ export class ArenaJudgeService {
         command: def.command,
         status: usable ? ('pending' as const) : ('skipped' as const),
         blocking: def.blocking !== false,
-        ...(usable ? {} : { detail: `Рабочий каталог не найден: ${workdir}` })
+        ...(usable ? {} : checkDetailOf(new AppError('processes.cwdNotFound', { path: workdir })))
       }));
       if (!usable) {
         hooks.log(agent, `[Судья] Проверки пропущены: каталог ${workdir} не найден.`);

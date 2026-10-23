@@ -6,6 +6,7 @@ import type { AgentSlotConfig, StartFanOutOptions, SwarmAutomationMeta, SwarmSes
 import type { PrReviewTarget } from './prService.js';
 import { normalizePathKey } from './automationRules.js';
 import { stateFields, withVersion } from './stateFiles.js';
+import { AppError, appErrorFields, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import {
   applyVerdicts,
   buildPrComment,
@@ -50,17 +51,19 @@ export interface PrReviewRecord {
   startedAt: number;
   finishedAt?: number;
   error?: string;
+  /** Коды ошибок для текста на языке окна (decision-165); без кода — текст как есть. */
+  errorKey?: AppErrorKey;
   origin: 'manual' | 'automation';
   automation?: SwarmAutomationMeta;
   taskId?: string;
   budgetUsd?: number;
   costUsd?: number;
-  reviewers: { roleSlug: string; name: string; agentId?: string; status: 'pending' | 'done' | 'failed'; findings: number; summary?: string; error?: string }[];
-  verifier?: { roleSlug: string; name?: string; status: 'pending' | 'done' | 'failed' | 'skipped'; error?: string };
+  reviewers: { roleSlug: string; name: string; agentId?: string; status: 'pending' | 'done' | 'failed'; findings: number; summary?: string; error?: string; errorKey?: AppErrorKey }[];
+  verifier?: { roleSlug: string; name?: string; status: 'pending' | 'done' | 'failed' | 'skipped'; error?: string; errorKey?: AppErrorKey };
   swarmIds: string[];
   findings: UniqueFinding[];
   comment?: string;
-  publish: { mode: 'hitl' | 'manual'; state: PublishState; requestId?: string; commentUrl?: string; error?: string; at?: number };
+  publish: { mode: 'hitl' | 'manual'; state: PublishState; requestId?: string; commentUrl?: string; error?: string; errorKey?: AppErrorKey; at?: number };
 }
 
 export interface StartPrReviewInput {
@@ -113,6 +116,32 @@ export interface PrReviewDeps {
 
 const TERMINAL = new Set(['completed', 'failed', 'stopped', 'interrupted']);
 
+/** Причина сбоя для подстановки в ошибку ревью: код, если он есть, иначе текст. */
+function causeOf(err: unknown): AppErrorKey | string {
+  return appErrorKeyOf(err) ?? errorText(err);
+}
+
+function skippedFields(err: AppError): { skipped: string; skippedKey: AppErrorKey } {
+  return { skipped: err.message, skippedKey: err.appErrorKey };
+}
+
+/** Ревьюер или проверяющий без разобранного отчёта: ошибка агента с кодом, ошибка разбора или статус агента. */
+function setFailure(
+  target: { error?: string; errorKey?: AppErrorKey },
+  agent: { error?: string; errorKey?: AppErrorKey } | undefined,
+  parseError: string | undefined,
+  status: string
+): void {
+  if (agent?.error) {
+    target.error = agent.error;
+    target.errorKey = agent.errorKey;
+    return;
+  }
+  const fields = parseError ? { error: parseError } : appErrorFields(new AppError('review.agentStatus', { status }));
+  target.error = fields.error;
+  target.errorKey = fields.errorKey;
+}
+
 function errorText(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).split('\n')[0].slice(0, 500);
 }
@@ -163,7 +192,7 @@ export class PrReviewService {
   }
 
   private async saveQuietly(record: PrReviewRecord): Promise<void> {
-    await this.save(record).catch((err) => this.deps.log('warn', `[PrReview] Не удалось сохранить ревью ${record.id}: ${errorText(err)}`));
+    await this.save(record).catch((err) => this.deps.log('warn', `[PrReview] Could not save review ${record.id}: ${errorText(err)}`));
   }
 
   /** Ревью проекта (или одного PR), новые первыми. */
@@ -193,21 +222,23 @@ export class PrReviewService {
    * Запускает ревью и сразу возвращает `completion` — итог без ожидания решения человека о публикации.
    * Повтор того же head SHA пропускается (`skipped`), если не задан `force`.
    */
-  public async start(input: StartPrReviewInput): Promise<{ reviewId: string; completion: Promise<ReviewCompletion> } | { skipped: string } | { error: string }> {
-    if (!input.reviewers.length) return { error: 'Не указаны ревьюеры' };
+  public async start(
+    input: StartPrReviewInput
+  ): Promise<{ reviewId: string; completion: Promise<ReviewCompletion> } | { skipped: string; skippedKey?: AppErrorKey } | { error: string; errorKey?: AppErrorKey }> {
+    if (!input.reviewers.length) return appErrorFields(new AppError('review.noReviewers'));
     let pr: PrReviewTarget;
     try {
       pr = await this.deps.gh.getPr(input.projectPath, input.prNumber);
     } catch (err) {
-      return { error: `PR #${input.prNumber} не получен: ${errorText(err)}` };
+      return appErrorFields(new AppError('review.prFetchFailed', { number: input.prNumber, detail: causeOf(err) }));
     }
-    if (pr.state && pr.state.toUpperCase() !== 'OPEN') return { skipped: `PR #${pr.number} не открыт (${pr.state})` };
+    if (pr.state && pr.state.toUpperCase() !== 'OPEN') return skippedFields(new AppError('review.prNotOpen', { number: pr.number, state: pr.state }));
 
     const key = `${normalizePathKey(input.projectPath)}#${pr.number}@${pr.headSha}`;
-    if (this.running.has(key)) return { skipped: `ревью PR #${pr.number} для ${pr.headSha.slice(0, 7)} уже идёт` };
+    if (this.running.has(key)) return skippedFields(new AppError('review.alreadyRunning', { number: pr.number, sha: pr.headSha.slice(0, 7) }));
     if (!input.force) {
       const existing = (await this.list(input.projectPath, pr.number)).find((r) => r.headSha === pr.headSha && r.status !== 'failed');
-      if (existing) return { skipped: `PR #${pr.number} для ${pr.headSha.slice(0, 7)} уже проверен (${existing.id})` };
+      if (existing) return skippedFields(new AppError('review.alreadyReviewed', { number: pr.number, sha: pr.headSha.slice(0, 7), id: existing.id }));
     }
 
     const now = this.deps.now();
@@ -261,10 +292,13 @@ export class PrReviewService {
   private async run(record: PrReviewRecord, pr: PrReviewTarget, input: StartPrReviewInput): Promise<ReviewCompletion> {
     const root = input.projectPath;
     const budget = input.budgetUsd && input.budgetUsd > 0 ? input.budgetUsd : undefined;
-    const fail = async (message: string): Promise<ReviewCompletion> => {
+    const fail = async (reason: string | AppError | { error: string; errorKey?: AppErrorKey }): Promise<ReviewCompletion> => {
+      const fields = typeof reason === 'string' ? { error: reason } : reason instanceof AppError ? appErrorFields(reason) : reason;
+      const message = fields.error;
       record.status = 'failed';
       record.stage = 'finished';
       record.error = message;
+      record.errorKey = fields.errorKey;
       record.finishedAt = this.deps.now();
       await this.saveQuietly(record);
       this.publishFinished(record);
@@ -277,12 +311,12 @@ export class PrReviewService {
       try {
         const fetched = await this.deps.gh.fetchHead(root, pr.number);
         ref = fetched.ref;
-        if (fetched.sha && fetched.sha !== pr.headSha) this.deps.log('warn', `[PrReview] Голова PR #${pr.number} сдвинулась: ${pr.headSha.slice(0, 7)} → ${fetched.sha.slice(0, 7)}`);
+        if (fetched.sha && fetched.sha !== pr.headSha) this.deps.log('warn', `[PrReview] PR #${pr.number} head moved: ${pr.headSha.slice(0, 7)} → ${fetched.sha.slice(0, 7)}`);
       } catch (err) {
-        return fail(`Не удалось забрать голову PR: ${errorText(err)}`);
+        return fail(new AppError('review.headFetchFailed', { detail: causeOf(err) }));
       }
       const diff = await this.deps.gh.getDiff(root, pr.number).catch((err) => {
-        this.deps.log('warn', `[PrReview] Дифф PR #${pr.number} не получен: ${errorText(err)}`);
+        this.deps.log('warn', `[PrReview] PR #${pr.number} diff not received: ${errorText(err)}`);
         return '';
       });
       const taskId = findLinkedTaskId(pr.headRef, pr.title);
@@ -296,7 +330,7 @@ export class PrReviewService {
           name: `${slug} · ревьюер ${i + 1}`,
           permissions: this.readOnlyPermissions()
         });
-        if ('error' in slot) return fail(slot.error);
+        if ('error' in slot) return fail(slot);
         record.reviewers[i].name = slot.name;
         record.reviewers[i].agentId = slot.id;
         slots.push(slot);
@@ -327,7 +361,7 @@ export class PrReviewService {
         const entry = record.reviewers[i];
         if (agent.status !== 'completed' || !parsed.ok) {
           entry.status = 'failed';
-          entry.error = agent.error || parsed.error || `агент: ${agent.status}`;
+          setFailure(entry, agent, parsed.error, agent.status);
         } else {
           entry.status = 'done';
           entry.findings = parsed.findings.length;
@@ -335,7 +369,7 @@ export class PrReviewService {
         }
         return { reviewer: entry.name, findings: entry.status === 'done' ? parsed.findings : [] };
       });
-      if (record.reviewers.every((r) => r.status === 'failed')) return fail('Ни один ревьюер не вернул разобранный отчёт');
+      if (record.reviewers.every((r) => r.status === 'failed')) return fail(new AppError('review.noReports'));
 
       // 3. Дедупликация и проверка находок.
       let findings = dedupeFindings(reports);
@@ -378,7 +412,7 @@ export class PrReviewService {
             findings = applyVerdicts(findings, parsed.verdicts);
           } else {
             record.verifier.status = 'failed';
-            record.verifier.error = agent?.error || parsed.error || `агент: ${agent?.status ?? 'нет'}`;
+            setFailure(record.verifier, agent, parsed.error, agent?.status ?? 'missing');
           }
         }
       } else if (record.verifier) {
@@ -397,12 +431,12 @@ export class PrReviewService {
           buildPrComment({ pr: { number: pr.number, headSha: pr.headSha }, findings, reviewers: doneReviewers, ...(record.verifier?.name ? { verifier: record.verifier.name } : {}), ...(record.costUsd !== undefined ? { costUsd: record.costUsd } : {}) })
         );
         record.comment = clean.text;
-        if (clean.blocked) record.publish = { ...record.publish, state: 'blocked', error: `в тексте похоже на секрет: ${clean.blocked}` };
+        if (clean.blocked) record.publish = { ...record.publish, state: 'blocked', ...appErrorFields(new AppError('review.secretInText', { detail: clean.blocked })) };
         else if (record.publish.mode === 'hitl') record.publish = { ...record.publish, state: 'pending', requestId: `prpub-${record.id}` };
       }
       await this.saveQuietly(record);
       if (record.taskId) {
-        await this.deps.appendTaskNote(root, record.taskId, this.taskNote(record)).catch((err) => this.deps.log('warn', `[PrReview] Заметка в задаче не записана: ${errorText(err)}`));
+        await this.deps.appendTaskNote(root, record.taskId, this.taskNote(record)).catch((err) => this.deps.log('warn', `[PrReview] Task note not written: ${errorText(err)}`));
       }
       this.publishFinished(record);
       if (record.publish.state === 'pending') void this.requestPublication(record);
@@ -480,7 +514,7 @@ export class PrReviewService {
       );
       approved = response.approved;
     } catch (err) {
-      this.deps.log('info', `[PrReview] Запрос публикации ${record.id} снят: ${errorText(err)}`);
+      this.deps.log('info', `[PrReview] Publication request ${record.id} withdrawn: ${errorText(err)}`);
     }
     const fresh = (await this.get(record.projectPath, record.id)) ?? record;
     if (fresh.publish.state === 'published') return;
@@ -493,26 +527,32 @@ export class PrReviewService {
   }
 
   /** Кнопка «Опубликовать» (человек у экрана) или одобренный запрос HITL. */
-  public async publishNow(root: string, reviewId: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  public async publishNow(root: string, reviewId: string): Promise<{ ok: true; url: string } | { ok: false; error: string; errorKey?: AppErrorKey }> {
     const record = await this.get(root, reviewId);
-    if (!record) return { ok: false, error: 'Ревью не найдено' };
-    if (!record.comment) return { ok: false, error: 'Публиковать нечего: подтверждённых замечаний нет' };
-    if (record.publish.state === 'published') return { ok: false, error: 'Уже опубликовано' };
-    if (record.publish.state === 'blocked') return { ok: false, error: record.publish.error ?? 'Публикация заблокирована' };
+    if (!record) return { ok: false, ...appErrorFields(new AppError('review.notFound')) };
+    if (!record.comment) return { ok: false, ...appErrorFields(new AppError('review.nothingToPublish')) };
+    if (record.publish.state === 'published') return { ok: false, ...appErrorFields(new AppError('review.alreadyPublished')) };
+    if (record.publish.state === 'blocked') {
+      return record.publish.error
+        ? { ok: false, error: record.publish.error, ...(record.publish.errorKey ? { errorKey: record.publish.errorKey } : {}) }
+        : { ok: false, ...appErrorFields(new AppError('review.publishBlocked')) };
+    }
     return this.doPublish(record);
   }
 
-  private async doPublish(record: PrReviewRecord): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  private async doPublish(record: PrReviewRecord): Promise<{ ok: true; url: string } | { ok: false; error: string; errorKey?: AppErrorKey }> {
     const clean = sanitizeForPublication(record.comment ?? '');
     if (clean.blocked) {
-      record.publish = { ...record.publish, state: 'blocked', error: `в тексте похоже на секрет: ${clean.blocked}`, at: this.deps.now() };
+      const blocked = appErrorFields(new AppError('review.secretInText', { detail: clean.blocked }));
+      record.publish = { ...record.publish, state: 'blocked', ...blocked, at: this.deps.now() };
       await this.saveQuietly(record);
-      return { ok: false, error: record.publish.error! };
+      return { ok: false, ...blocked } as { ok: false; error: string; errorKey?: AppErrorKey };
     }
     try {
       const url = (await this.deps.gh.comment(record.projectPath, record.prNumber, clean.text)).trim();
       record.publish = { ...record.publish, state: 'published', commentUrl: url, at: this.deps.now() };
       delete record.publish.error;
+      delete record.publish.errorKey;
       await this.saveQuietly(record);
       return { ok: true, url };
     } catch (err) {

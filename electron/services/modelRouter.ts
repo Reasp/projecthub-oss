@@ -54,6 +54,8 @@ import {
   type ResolvedProviderInfo
 } from './slotProvider.js';
 import { ProviderError, providerErrorInfoOf, type ProviderErrorReason } from './providerErrors.js';
+import { appErrorKeyOf, formatAppError } from '../../src/lib/appError.js';
+import { appErrorTextRu } from '../../src/i18n/appErrorText.js';
 import type { ReasoningEffort } from './reasoningEffort.js';
 
 /** Что настроено у пользователя на момент вызова. */
@@ -212,7 +214,10 @@ export function resolveModel(input: ModelRouteInput, ctx: ModelRouteContext): Re
       return { config, info: resolved.info, ...(model ? { model } : {}), ...(problem ? { problem } : {}) };
     } catch (err) {
       const info = providerErrorInfoOf(err);
-      const text = sentencePart(err instanceof Error ? err.message : String(err));
+      // Тексты проблем резолвера пока русские (перевод — TASK-202.5): ошибку слота с кодом берём из русского словаря,
+      // чтобы не смешать языки в одной фразе.
+      const key = appErrorKeyOf(err) ?? info?.messageKey;
+      const text = sentencePart((key && formatAppError(key, appErrorTextRu)) || (err instanceof Error ? err.message : String(err)));
       return { problem: { code: problemCodeOf(info?.reason), text } };
     }
   };

@@ -14,6 +14,7 @@
 import type { AIProviderConfig } from './aiAgentService.js';
 import { normalizeReasoningEffort } from './reasoningEffort.js';
 import { providerConfigError } from './providerErrors.js';
+import { AppError } from '../../src/lib/appError.js';
 import { usesClaudeCli } from './modelTarget.js';
 
 export type ProviderId = AIProviderConfig['provider'];
@@ -69,19 +70,16 @@ function clean(value: string | undefined | null): string | undefined {
  */
 export function resolveProfileRef(ref: string, profiles: readonly ProfileRefEntry[]): ProfileRefEntry {
   const needle = ref.trim();
-  if (!needle) throw providerConfigError('Профиль провайдера не указан.', 'no_profile');
+  if (!needle) throw providerConfigError(new AppError('slots.profileNotSet'), 'no_profile');
   const byId = profiles.find((p) => p.id === needle);
   if (byId) return byId;
   const lower = needle.toLocaleLowerCase();
   const byName = profiles.filter((p) => p.name.trim().toLocaleLowerCase() === lower);
   if (byName.length === 1) return byName[0];
   if (byName.length > 1) {
-    throw providerConfigError(`Имя профиля «${needle}» неоднозначно: таких профилей ${byName.length}. Переименуйте профили или укажите id.`, 'no_profile');
+    throw providerConfigError(new AppError('slots.profileAmbiguous', { name: needle, count: byName.length }), 'no_profile');
   }
-  throw providerConfigError(
-    `Профиль провайдера «${needle}» не найден. Создайте его в настройках Agents Studio (OpenAI-compatible) или выберите другой.`,
-    'no_profile'
-  );
+  throw providerConfigError(new AppError('slots.profileNotFound', { name: needle }), 'no_profile');
 }
 
 /**
@@ -101,7 +99,7 @@ export function providerConfigFromSpec(spec: ProviderSpec | undefined): Partial<
     out.profileId = profile;
   } else if (provider) {
     if (!isKnownProvider(provider)) {
-      throw providerConfigError(`Неизвестный провайдер «${provider}». Допустимо: ${KNOWN_PROVIDERS.join(', ')}.`, 'provider');
+      throw providerConfigError(new AppError('slots.unknownProvider', { provider, known: KNOWN_PROVIDERS.join(', ') }), 'provider');
     }
     out.provider = provider;
   }
@@ -154,7 +152,7 @@ function resolveSlotTarget(
 
   if (slot.provider === PROFILE_PROVIDER || slot.profileId) {
     if (!slot.profileId) {
-      throw providerConfigError('У слота выбран OpenAI-совместимый провайдер, но не выбран профиль.', 'no_profile');
+      throw providerConfigError(new AppError('slots.compatNoProfile'), 'no_profile');
     }
     const profile = resolveProfileRef(slot.profileId, profiles);
     // Та же пара «профиль Agents Studio» — можно взять модель оттуда; иначе модель обязана быть у слота.
@@ -197,11 +195,7 @@ function resolveSlotTarget(
     return { config, info: { provider: config.provider, model: config.model, local: true } };
   }
 
-  throw providerConfigError(
-    `Провайдер слота «${slot.provider}» отличается от провайдера Agents Studio («${global.provider}»), а ключ хранится только ` +
-      'для провайдера Agents Studio. Создайте профиль OpenAI-совместимого провайдера и выберите его в слоте или роли.',
-    'provider'
-  );
+  throw providerConfigError(new AppError('slots.providerMismatch', { slot: slot.provider, main: global.provider }), 'provider');
 }
 
 function isDefaultAlias(model: string): boolean {
@@ -229,21 +223,19 @@ function withInfo(config: AIProviderConfig, profiles: readonly ProfileRefEntry[]
  * Почему конфиг Agents Studio не годится для API-пути (запасной путь CLI-движков), или `null`.
  * Проверяется до запроса, чтобы вместо молчаливого ухода к вендору была понятная причина.
  */
-export function apiConfigProblem(config: AIProviderConfig): string | null {
+export function apiConfigProblem(config: AIProviderConfig): AppError | null {
   const model = clean(config.model);
   if (config.provider === 'anthropic') {
     if (usesClaudeCli(config)) {
-      return config.engine === 'claude-cli'
-        ? 'в Agents Studio выбран Claude Code по подписке (API-путь требует ключ)'
-        : 'в Agents Studio выбран Anthropic без API-ключа (API-путь требует ключ)';
+      return new AppError(config.engine === 'claude-cli' ? 'slots.mainIsSubscription' : 'slots.mainAnthropicNoKey');
     }
-    if (!clean(config.apiKey)) return 'в Agents Studio выбран Anthropic без API-ключа (API-путь требует ключ)';
+    if (!clean(config.apiKey)) return new AppError('slots.mainAnthropicNoKey');
     return null;
   }
   if (config.provider === PROFILE_PROVIDER && !clean(config.profileId)) {
-    return 'в Agents Studio выбран OpenAI-совместимый провайдер без профиля';
+    return new AppError('slots.mainCompatNoProfile');
   }
-  if (!model || isDefaultAlias(model)) return `в Agents Studio не выбрана модель провайдера «${config.provider}»`;
+  if (!model || isDefaultAlias(model)) return new AppError('slots.mainNoModel', { provider: config.provider });
   return null;
 }
 
@@ -252,13 +244,9 @@ export function apiConfigProblem(config: AIProviderConfig): string | null {
  * так выходит, когда основная модель — Claude Code по подписке, а у слота оставлен движок «API».
  * Совет — какой движок или профиль выбрать, а не просьба указать ключ.
  */
-export function apiSlotProblem(config: AIProviderConfig, main: AIProviderConfig): string | null {
+export function apiSlotProblem(config: AIProviderConfig, main: AIProviderConfig): AppError | null {
   if (config.provider !== 'anthropic' || clean(config.apiKey)) return null;
-  return usesClaudeCli(main)
-    ? 'у слота движок «API», а основная модель — Claude Code по подписке, ключа Anthropic API нет. ' +
-        'Выберите у слота движок «Claude Code CLI» или профиль LLM со своим ключом'
-    : 'у Anthropic нет API-ключа. Укажите ключ в настройках Agents Studio, выберите у слота движок «Claude Code CLI» ' +
-        'или профиль LLM со своим ключом';
+  return new AppError(usesClaudeCli(main) ? 'slots.apiSlotWithSubscription' : 'slots.apiSlotNoKey');
 }
 
 /** Короткая подпись провайдера для логов и экспорта: «профиль «Ollama» (локальная)» или «deepseek». */

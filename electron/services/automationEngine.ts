@@ -32,6 +32,7 @@ import {
   type TrustStatus
 } from './automationRules.js';
 import { executeAutomationAction, type ActionDeps, type ActionResult } from './automationActions.js';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 import { normalizeAutomationsSettings, type AutomationLogEntry, type AutomationStore, type AutomationsConfig, type AutomationsSettings } from './automationStore.js';
 
 /**
@@ -52,7 +53,8 @@ export interface SwarmSnapshot {
   status: string;
   totalCostUsd?: number;
   error?: string;
-  agents: { id: string; status: string; error?: string }[];
+  errorKey?: AppErrorKey;
+  agents: { id: string; status: string; error?: string; errorKey?: AppErrorKey }[];
 }
 
 export interface AutomationEngineDeps {
@@ -112,7 +114,17 @@ export interface AutomationRuleView {
   builtinLimits?: AutomationsSettings['builtinAssigned'];
 }
 
-export type RunNowResult = { ok: true; runIds: string[] } | { ok: false; reason: string };
+/** Подробность записи журнала: английский текст и код (decision-165). */
+function detailFields(err: AppError): { detail: string; detailKey: AppErrorKey } {
+  return { detail: err.message, detailKey: err.appErrorKey };
+}
+
+/** Отказ ручного запуска: английский текст для MCP и код для окна. */
+function refused(err: AppError): { ok: false; reason: string; reasonKey: AppErrorKey } {
+  return { ok: false, reason: err.message, reasonKey: err.appErrorKey };
+}
+
+export type RunNowResult = { ok: true; runIds: string[] } | { ok: false; reason: string; reasonKey?: AppErrorKey };
 
 interface RuleEntry {
   key: string;
@@ -362,7 +374,7 @@ export class AutomationEngine {
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      this.deps.store.saveState(this.state).catch((err) => this.log('warn', `Не удалось сохранить состояние: ${errorText(err)}`));
+      this.deps.store.saveState(this.state).catch((err) => this.log('warn', `Could not save state: ${errorText(err)}`));
     }, STATE_SAVE_DELAY_MS);
     this.saveTimer.unref?.();
   }
@@ -411,7 +423,7 @@ export class AutomationEngine {
       if (decision.nextRunAt === undefined) delete next.nextRunAt;
       if (decision.fire && decision.wallKey) next.lastWallKey = decision.wallKey;
       if (next.nextRunAt !== state.nextRunAt || next.lastWallKey !== state.lastWallKey) this.setState(entry.key, next);
-      if (decision.missed && !decision.fire) this.log('info', `${entry.rule.name}: пропущенное срабатывание не догоняется (catchUp: skip)`);
+      if (decision.missed && !decision.fire) this.log('info', `${entry.rule.name}: missed run is not caught up (catchUp: skip)`);
       if (!decision.fire) continue;
       for (const projectRoot of this.targetsForScheduled(entry)) {
         void this.fire(entry, { trigger: 'cron', manual: false, projectRoot, chain: null });
@@ -487,7 +499,7 @@ export class AutomationEngine {
 
   private journal(entry: Omit<AutomationLogEntry, 'ts'>): void {
     this.deps.store.appendLog({ ts: new Date(this.deps.now()).toISOString(), ...entry }).catch((err) => {
-      this.log('warn', `Не удалось записать журнал: ${errorText(err)}`);
+      this.log('warn', `Could not write the journal: ${errorText(err)}`);
     });
   }
 
@@ -505,7 +517,7 @@ export class AutomationEngine {
       status: 'suspended',
       trigger: 'limit',
       reason: suspension.reason,
-      detail: `до ${cronWallKey(new Date(until))}`,
+      ...detailFields(new AppError('automations.suspendedUntil', { until: cronWallKey(new Date(until)) })),
       ...(projectRoot ? { projectPath: projectRoot } : {})
     });
     this.deps.publish({
@@ -519,7 +531,7 @@ export class AutomationEngine {
       ...(entry.rule.limits.dailyBudgetUsd ? { limitUsd: entry.rule.limits.dailyBudgetUsd } : {}),
       at: this.deps.now()
     });
-    this.log('warn', `Правило «${entry.rule.name}» приостановлено до полуночи: ${suspension.reason === 'budget' ? 'исчерпан дневной бюджет' : 'исчерпано число запусков'}`);
+    this.log('warn', `Rule "${entry.rule.name}" suspended until midnight: ${suspension.reason === 'budget' ? 'daily budget exhausted' : 'run limit reached'}`);
   }
 
   /**
@@ -543,7 +555,7 @@ export class AutomationEngine {
     };
 
     if (!ctx.projectRoot && action.type !== 'notify') {
-      this.journal({ ...base, status: 'skipped', reason: 'no-project', detail: 'Не определён зарегистрированный проект для действия' });
+      this.journal({ ...base, status: 'skipped', reason: 'no-project', ...detailFields(new AppError('automations.noProject')) });
       return { ok: false, reason: 'no-project' };
     }
 
@@ -673,10 +685,13 @@ export class AutomationEngine {
     if (!run) return;
     const failedAgent = session.agents.find((a) => a.status === 'failed');
     const success = session.status === 'completed' && !failedAgent;
-    const detail = success
-      ? `рой ${session.id}: завершён`
-      : `рой ${session.id}: ${session.status}${session.error || failedAgent?.error ? ` — ${session.error || failedAgent?.error}` : ''}`;
-    this.finishRun(run, { outcome: success ? 'success' : 'failed', detail, costUsd: session.totalCostUsd, swarmId: session.id });
+    const failure = session.error ? { error: session.error, errorKey: session.errorKey } : failedAgent?.error ? { error: failedAgent.error, errorKey: failedAgent.errorKey } : undefined;
+    const outcome = success
+      ? new AppError('automations.swarmCompleted', { id: session.id })
+      : failure
+        ? new AppError('automations.swarmFailedWith', { id: session.id, status: session.status, detail: failure.errorKey ?? failure.error })
+        : new AppError('automations.swarmFailed', { id: session.id, status: session.status });
+    this.finishRun(run, { outcome: success ? 'success' : 'failed', detail: outcome.message, detailKey: outcome.appErrorKey, costUsd: session.totalCostUsd, swarmId: session.id });
   }
 
   private entryByKey(key: string): RuleEntry | undefined {
@@ -684,7 +699,10 @@ export class AutomationEngine {
     return [...this.globalEntries().entries, ...this.projectEntries()].find((e) => e.key === key);
   }
 
-  private finishRun(run: ActiveRun, result: { outcome: 'success' | 'failed'; detail?: string; costUsd?: number; swarmId?: string }): void {
+  private finishRun(
+    run: ActiveRun,
+    result: { outcome: 'success' | 'failed'; detail?: string; detailKey?: AppErrorKey; costUsd?: number; swarmId?: string }
+  ): void {
     const now = this.deps.now();
     run.finishedAt = now;
     let suspension: Suspension | undefined;
@@ -710,6 +728,7 @@ export class AutomationEngine {
       ...(run.projectPath ? { projectPath: run.projectPath } : {}),
       ...(run.eventSummary ? { eventSummary: run.eventSummary } : {}),
       ...(result.detail ? { detail: result.detail.slice(0, 2000) } : {}),
+      ...(result.detail && result.detailKey ? { detailKey: result.detailKey } : {}),
       ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
       ...(result.swarmId ? { swarmId: result.swarmId } : {})
     });
@@ -859,14 +878,14 @@ export class AutomationEngine {
    * версии на этой машине (`hash` обязан совпасть с тем, что видел человек) или снятие доверия;
    * встроенное — флаг Remote Control.
    */
-  public async setEnabled(key: string, enabled: boolean, hash?: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  public async setEnabled(key: string, enabled: boolean, hash?: string): Promise<{ ok: true } | { ok: false; error: string; errorKey?: AppErrorKey }> {
     if (key === BUILTIN_ASSIGNED_KEY) {
       await this.deps.builtin.setEnabled(enabled);
       this.emitChange();
       return { ok: true };
     }
     const entry = [...this.globalEntries().entries, ...this.projectEntries()].find((e) => e.key === key);
-    if (!entry) return { ok: false, error: 'Правило не найдено или содержит ошибку' };
+    if (!entry) return { ok: false, ...appErrorFields(new AppError('automations.ruleNotFound')) };
     if (entry.scope.kind === 'global') {
       const rules = this.config.rules.map((r) =>
         r && typeof r === 'object' && (r as { id?: unknown }).id === entry.rule.id ? { ...(r as object), enabled } : r
@@ -877,7 +896,7 @@ export class AutomationEngine {
       const trust = { ...this.config.trust, [projectKey]: { ...(this.config.trust[projectKey] ?? {}) } };
       if (enabled) {
         const current = ruleHash(entry.rule);
-        if (!hash || hash !== current) return { ok: false, error: 'Правило изменилось — обновите список и проверьте новую версию' };
+        if (!hash || hash !== current) return { ok: false, ...appErrorFields(new AppError('automations.ruleChanged')) };
         trust[projectKey][entry.rule.id] = current;
       } else {
         delete trust[projectKey][entry.rule.id];
@@ -904,7 +923,7 @@ export class AutomationEngine {
       scope: entry?.scope.kind ?? 'global',
       status: 'resumed',
       trigger: 'manual',
-      detail: 'пауза снята вручную'
+      ...detailFields(new AppError('automations.resumedManually'))
     });
     this.emitChange();
     return true;
@@ -912,16 +931,16 @@ export class AutomationEngine {
 
   /** Ручной запуск («запустить сейчас», `automation_run`): доверие и лимиты те же, cooldown — нет. */
   public async runNow(key: string, source: 'ui' | 'mcp'): Promise<RunNowResult> {
-    if (key === BUILTIN_ASSIGNED_KEY) return { ok: false, reason: 'Встроенное правило запускается назначением задачи, а не вручную' };
+    if (key === BUILTIN_ASSIGNED_KEY) return refused(new AppError('automations.builtinNotManual'));
     await this.refreshProjectRules().catch(() => false);
     const entry = [...this.globalEntries().entries, ...this.projectEntries()].find((e) => e.key === key);
-    if (!entry) return { ok: false, reason: 'Правило не найдено или содержит ошибку' };
+    if (!entry) return refused(new AppError('automations.ruleNotFound'));
     if (entry.scope.kind === 'project' && this.trustFor(entry) !== 'trusted') {
-      return { ok: false, reason: 'Проектное правило не подтверждено на этой машине' };
+      return refused(new AppError('automations.projectRuleUntrusted'));
     }
     const action = entry.rule.action;
     const needsTaskFromEvent = action.type === 'runAgent' && !action.taskId && !action.prompt?.trim();
-    if (needsTaskFromEvent) return { ok: false, reason: 'Правилу нужна задача из события — вручную его не запустить' };
+    if (needsTaskFromEvent) return refused(new AppError('automations.needsEventTask'));
     const runIds: string[] = [];
     const reasons: string[] = [];
     for (const projectRoot of this.targetsForScheduled(entry)) {
@@ -929,7 +948,8 @@ export class AutomationEngine {
       if (res.ok) runIds.push(res.runId);
       else reasons.push(res.reason);
     }
-    return runIds.length ? { ok: true, runIds } : { ok: false, reason: reasons.join(', ') || 'не запущено' };
+    if (runIds.length) return { ok: true, runIds };
+    return reasons.length ? { ok: false, reason: reasons.join(', ') } : refused(new AppError('automations.notStarted'));
   }
 
   public readLog(limit = 200): Promise<AutomationLogEntry[]> {

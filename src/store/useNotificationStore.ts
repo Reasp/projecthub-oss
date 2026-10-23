@@ -8,6 +8,7 @@ import type {
   NotificationSeverity
 } from '../types/electron';
 import { playNotificationSound } from '../lib/notificationSound';
+import { ipcErrorText, ipcFailureText } from '../i18n/useTranslation';
 
 /**
  * Стор уведомлений (TASK-63, decision-13).
@@ -103,10 +104,10 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   toggleBot: async (run) => {
     try {
       const result = run ? await window.api?.startTelegramBot?.() : await window.api?.stopTelegramBot?.();
-      const error = result && !result.ok ? (result as { error?: string }).error : undefined;
-      if (error) set({ lastError: error });
+      const failure = result && !result.ok ? (result as { error?: string; errorKey?: unknown }) : undefined;
+      if (failure?.error) set({ lastError: ipcFailureText(failure) });
     } catch (err) {
-      set({ lastError: err instanceof Error ? err.message : String(err) });
+      set({ lastError: ipcErrorText(err) });
     }
     await get().refresh();
   },

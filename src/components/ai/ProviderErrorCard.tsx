@@ -36,7 +36,7 @@ interface ProviderErrorCardProps {
 export const ProviderErrorCard: React.FC<ProviderErrorCardProps> = ({ error, info, onRetry, retryDisabled }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const view = info ? providerErrorView(info, t.providerErrors) : undefined;
+  const view = info ? providerErrorView(info, t.providerErrors, t.appErrors) : undefined;
   const hasDetails = Boolean(view && (view.details.length > 0 || view.serverMessage));
 
   return (

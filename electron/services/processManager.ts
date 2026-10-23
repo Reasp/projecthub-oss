@@ -5,7 +5,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import treeKill from 'tree-kill';
 import { BrowserWindow, shell } from 'electron';
 import type { ManagedProcess } from '../../src/types/electron';
-import { AppError } from '../../src/lib/appError.js';
+import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
 import { appEventBus } from './eventBus.js';
 import { isPidAlive, type EnvEntryStatus } from './envRegistryIdentity';
 import { envToolsEntryStatuses } from './processSweep';
@@ -115,6 +115,12 @@ interface EnvToolsRegistryEntry {
 }
 
 /** Статус записи env-tools для UI: `dead` — остановлен, `unknown` — pid занят, но идентичность не подтверждена. */
+/** Каталога одноразовой команды нет: английский текст и код (decision-165). */
+function cwdMissing(cwd: string): { error: string; errorKey: AppErrorKey } {
+  const err = new AppError('processes.cwdNotFound', { path: cwd });
+  return { error: err.message, errorKey: err.appErrorKey };
+}
+
 function envToolsDisplayStatus(status: EnvEntryStatus): ManagedProcess['status'] {
   return status === 'dead' ? 'stopped' : status;
 }
@@ -262,6 +268,8 @@ export interface RunOnceResult {
   port?: number;
   /** Не удалось запустить или запуск был отменён. */
   error?: string;
+  /** Код причины для текста на языке окна и телефона (decision-165). */
+  errorKey?: AppErrorKey;
 }
 
 /** Лимит вывода одноразовой команды: проверки бывают многословными, но хвоста хватает. */
@@ -719,7 +727,7 @@ class HubProcessManager {
         timedOut: false,
         durationMs: 0,
         startedAt,
-        error: `Рабочий каталог не найден: ${cwd}`
+        ...cwdMissing(cwd)
       };
     }
 
@@ -757,6 +765,7 @@ class HubProcessManager {
         let settled = false;
         let timedOut = false;
         let spawnError: string | undefined;
+        let spawnErrorKey: AppErrorKey | undefined;
         let timer: NodeJS.Timeout | undefined;
 
         const kill = () => {
@@ -767,7 +776,11 @@ class HubProcessManager {
         const onAbort = () => {
           if (settled) return;
           timedOut = false;
-          spawnError = spawnError ?? 'Проверка отменена';
+          if (!spawnError) {
+            const cancelled = new AppError('checks.cancelled');
+            spawnError = cancelled.message;
+            spawnErrorKey = cancelled.appErrorKey;
+          }
           kill();
         };
         options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -805,7 +818,8 @@ class HubProcessManager {
             startedAt,
             command: effectiveCommand,
             ...(port !== undefined ? { port } : {}),
-            ...(spawnError ? { error: spawnError } : {})
+            ...(spawnError ? { error: spawnError } : {}),
+            ...(spawnErrorKey ? { errorKey: spawnErrorKey } : {})
           });
         };
 

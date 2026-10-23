@@ -158,7 +158,7 @@ export interface FederationPeerState {
   /** Понятная причина ошибки, включая несовместимость версии протокола. */
   error?: string;
   /** Код причины (decision-165): окно собирает текст по словарю на своём языке, `error` — английский запасной. */
-  errorKey?: { code: string; params?: Record<string, string | number> };
+  errorKey?: import('../lib/appError').AppErrorKey;
   /** Права, выданные нам удалённым хостом (его per-device токен). */
   rights?: DeviceRights;
   readOnly?: boolean;
@@ -211,7 +211,7 @@ export interface RemoteControlStatus {
   /** Понятная ошибка федерации (например, несовместимая версия протокола релея). */
   federationError?: string | null;
   /** Код `federationError` (decision-165): окно показывает её на своём языке. */
-  federationErrorKey?: { code: string; params?: Record<string, string | number> };
+  federationErrorKey?: import('../lib/appError').AppErrorKey;
   useRelay?: boolean;
   localAddresses?: string[];
   secretToken?: string;
@@ -247,7 +247,7 @@ export interface PlainPacket {
   result?: any;
   error?: string;
   /** Код ошибки RPC (decision-165): клиент собирает текст по словарю на своём языке, `error` — английский запасной. */
-  errorKey?: { code: string; params?: Record<string, string | number> };
+  errorKey?: import('../lib/appError').AppErrorKey;
   event?: string;
   data?: any;
   /**
@@ -585,6 +585,8 @@ export interface RemoteSwarmAgentSummary {
   engine?: string;
   status: string;
   error?: string;
+  /** Код ошибки агента (decision-165): телефон собирает текст на своём языке. */
+  errorKey?: import('../lib/appError').AppErrorKey;
 }
 
 export interface RemoteSwarmSummary {
@@ -642,7 +644,7 @@ export interface RemoteStudioOptions {
     models: string[];
     modelsError?: string;
     /** Код `modelsError` (decision-165): телефон показывает её на своём языке. */
-    modelsErrorKey?: { code: string; params?: Record<string, string | number> };
+    modelsErrorKey?: import('../lib/appError').AppErrorKey;
   }>;
   /** Быстрые промпты Agents Studio («Следующая задача», «Коммит», «Деплой»). */
   quickPrompts?: Array<{ id: string; label: string; prompt: string }>;
@@ -668,7 +670,7 @@ export interface RemoteStudioUsage {
   updatedAt: number;
   /** Лимиты не прочитаны из CLI: показаны данные из статистики. */
   isFallback?: boolean;
-  error?: { kind: string; message: string };
+  error?: { kind: string; message: string; messageKey?: import('../lib/appError').AppErrorKey };
 }
 
 /** Расход токенов в одной сессии Agents Studio (сумма по ответам). */
@@ -820,6 +822,8 @@ export interface RemoteReviewCheck {
   errorCount?: number;
   /** Причина `skipped`/`error` или последние строки вывода упавшей проверки. */
   detail?: string;
+  /** Код причины (decision-165): телефон собирает текст на своём языке. */
+  detailKey?: import('../lib/appError').AppErrorKey;
 }
 
 export interface RemoteReviewScreenshot {

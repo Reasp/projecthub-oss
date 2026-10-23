@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle, ExternalLink, ListPlus, Loader2, Play, ShieldAlert, ShieldCheck, WifiOff } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useToast } from '../../hooks/useTimeoutState';
 import type { AuditFinding, AuditSeverity, EcosystemReport, SecurityReport, SecuritySettings } from '../../types/electron';
 import { formatDateTime, SEVERITY_ORDER, severityClass } from '../../utils/securityFormat';
@@ -27,7 +27,7 @@ export const SecurityHealthView: React.FC = () => {
     const res = await window.api.getSecurityReport(projectPath);
     setReport(res.report);
     setRunning(res.running);
-    if (!res.ok && res.error) showError(res.error);
+    if (!res.ok && res.error) showError(ipcFailureText(res));
   }, [projectPath, showError]);
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export const SecurityHealthView: React.FC = () => {
       setReport(res.report);
       showSuccess(s.auditDone.replace('{n}', String(res.newFindings)));
     } else {
-      showError(res.error);
+      showError(ipcFailureText(res));
     }
   };
 
@@ -60,7 +60,7 @@ export const SecurityHealthView: React.FC = () => {
       showSuccess((res.existed ? s.taskExists : s.taskCreated).replace('{id}', res.taskId));
       void reload();
     } else {
-      showError(res.error);
+      showError(ipcFailureText(res));
     }
   };
 
@@ -185,7 +185,7 @@ const EcosystemSection: React.FC<{
           {eco.stale ? <WifiOff className="w-3.5 h-3.5 mt-px text-amber-400 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />}
           <span>
             {eco.stale && eco.staleSince ? `${s.stale.replace('{at}', formatDateTime(eco.staleSince, language))} ` : ''}
-            {eco.message}
+            {eco.message ? ipcFailureText({ error: eco.message, errorKey: eco.messageKey }) : ''}
           </span>
         </div>
       )}

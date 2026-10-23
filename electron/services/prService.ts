@@ -32,6 +32,7 @@ import {
   type RepoRef
 } from './prHosting.js';
 import { stateFields, withVersion } from './stateFiles.js';
+import { AppError, appErrorFields } from '../../src/lib/appError.js';
 import { githubActionsAdapter, gitlabCiAdapter } from './ciProviders.js';
 import type { CiAccess } from './ciService.js';
 
@@ -149,7 +150,7 @@ export class PRService {
       });
       return stdout.trim();
     } catch (err: any) {
-      throw new Error(err.stderr || err.message || 'Ошибка выполнения GitHub CLI', { cause: err });
+      throw new Error(err.stderr || err.message || 'GitHub CLI failed', { cause: err });
     }
   }
 
@@ -223,7 +224,7 @@ export class PRService {
 
   async setMergeStatus(projectPath: string, status: string | null): Promise<PRProviderInfo> {
     const value = status?.trim() || undefined;
-    if (value && value.toLowerCase() === 'review') throw new Error('Слияние PR не может переводить задачу в Review: она уже там');
+    if (value && value.toLowerCase() === 'review') throw new AppError('pr.mergeStatusReview');
     await this.updateSettings(projectPath, { mergeStatus: value });
     for (const listener of this.mergeSettingsListeners) listener();
     return this.getProviderInfo(projectPath);
@@ -303,11 +304,7 @@ export class PRService {
 
   private noBackendError(backend: Backend): Error {
     const where = backend.kind === 'none' && backend.hosting ? findPrAdapter(backend.hosting)?.label : null;
-    return new Error(
-      where
-        ? `Нет подключения к ${where}: добавьте его в окне «Подключения»`
-        : 'Хостинг репозитория не распознан: добавьте подключение к нему в окне «Подключения»'
-    );
+    return where ? new AppError('pr.noConnection', { service: where }) : new AppError('pr.hostingUnknown');
   }
 
   async getProviderInfo(projectPath: string): Promise<PRProviderInfo> {
@@ -393,11 +390,11 @@ export class PRService {
    * проверяется слоем подключений и в рендерер не попадает.
    */
   async importCliLogin(projectPath: string): Promise<{ id: string; label: string }> {
-    if (!this.deps.connections) throw new Error('Слой подключений недоступен');
+    if (!this.deps.connections) throw new Error('Connection layer is unavailable');
     const remote = parseGitRemote(await this.remoteUrl(projectPath));
-    if (!remote) throw new Error('У проекта нет remote с адресом хостинга');
+    if (!remote) throw new AppError('pr.noRemote');
     const cli = await this.cliLoginFor(cloudHostingOf(remote.hostname), remote.hostname, projectPath, await this.isGhAvailable());
-    if (!cli) throw new Error('Нет входа gh или glab для этого хоста');
+    if (!cli) throw new AppError('pr.noCliLogin');
     let token: string;
     const serviceId = cli === 'gh' ? 'github' : 'gitlab';
     try {
@@ -408,10 +405,10 @@ export class PRService {
         token = stdout.trim();
       }
     } catch (err) {
-      throw new Error(`CLI не отдал токен: ${errorText(err)}`, { cause: err });
+      throw Object.assign(new AppError('pr.cliTokenFailed', { detail: errorText(err) }), { cause: err });
     }
     if (!token || /\s/.test(token)) {
-      throw new Error(serviceId === 'gitlab' ? 'glab хранит токен в системном хранилище: введите токен в окне «Подключения»' : 'gh не вернул токен');
+      throw new AppError(serviceId === 'gitlab' ? 'pr.glabTokenInKeyring' : 'pr.ghNoToken');
     }
     const created = await this.deps.connections.addWithToken({ serviceId, method: 'token', baseUrl: `https://${remote.hostname}`, token });
     console.log(`[PR] Imported ${serviceId} CLI login into connection ${created.id}`);
@@ -599,7 +596,7 @@ export class PRService {
    */
   async getTaskPullRequests(projectPath: string, taskId: string): Promise<TaskPullRequestsResult> {
     const task = await findTaskFile(projectPath, taskId);
-    if (!task) return { ok: false, prs: [], unresolved: [], error: 'Задача не найдена' };
+    if (!task) return { ok: false, prs: [], unresolved: [], ...appErrorFields(new AppError('pr.taskNotFound', { id: taskId })) };
     const refs = [
       ...(Array.isArray(task.data.references) ? task.data.references : []),
       ...(typeof task.data.pr === 'string' ? [task.data.pr] : [])
@@ -749,7 +746,7 @@ export class PRService {
     const backend = await this.strictBackend(projectPath);
     if (backend.kind === 'connection') {
       const pr = await backend.adapter.get(backend.http, backend.repo, prNumber);
-      if (!pr.headSha) throw new Error(`${backend.adapter.label} не вернул голову PR #${prNumber}`);
+      if (!pr.headSha) throw new Error(`${backend.adapter.label} returned no head for PR #${prNumber}`);
       return {
         number: prNumber,
         title: pr.title,
@@ -768,7 +765,7 @@ export class PRService {
     );
     const r = JSON.parse(raw) as Record<string, unknown>;
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
-    if (!str(r.headRefOid)) throw new Error(`gh не вернул голову PR #${prNumber}`);
+    if (!str(r.headRefOid)) throw new Error(`gh returned no head for PR #${prNumber}`);
     return {
       number: prNumber,
       title: str(r.title) || `#${prNumber}`,
@@ -799,7 +796,7 @@ export class PRService {
     if (backend.kind === 'connection') {
       const pr = await backend.adapter.get(backend.http, backend.repo, prNumber);
       const spec = backend.adapter.headRefspec(pr, ref);
-      if (!spec) throw new Error(`${backend.adapter.label}: голову PR #${prNumber} из форка получить нельзя`);
+      if (!spec) throw new AppError('pr.forkHeadUnavailable', { service: backend.adapter.label, number: prNumber });
       refspec = spec;
     }
     const git = simpleGit(projectPath);

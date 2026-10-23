@@ -11,6 +11,7 @@
  *
  * Чистый модуль без Electron и процессов — покрыт unit-тестами.
  */
+import { AppError } from '../../src/lib/appError';
 
 /** Короткий системный промпт: сами инструкции задачи уходят в stdin вместе с запросом. */
 export const CLAUDE_CLI_COMPLETION_SYSTEM_PROMPT =
@@ -29,7 +30,7 @@ export interface ClaudeCliCompletionCommand {
 
 export function buildClaudeCliCompletionCommand(input: ClaudeCliCompletionInput): ClaudeCliCompletionCommand {
   const model = input.model.trim();
-  if (!model) throw new Error('Модель не выбрана в настройках Agents Studio.');
+  if (!model) throw new AppError('studio.modelNotSelected');
   const args = [
     '-p',
     '--model',
@@ -56,13 +57,13 @@ export function parseClaudeCliCompletionOutput(stdout: string): string {
   const trimmed = stdout.trim();
   // CLI иногда печатает предупреждения перед JSON — берём последний объект верхнего уровня
   const start = trimmed.lastIndexOf('\n{') >= 0 ? trimmed.lastIndexOf('\n{') + 1 : trimmed.indexOf('{');
-  if (start < 0) throw new Error(`Claude CLI вернул не JSON: ${trimmed.slice(0, 200)}`);
+  if (start < 0) throw new Error(`Claude CLI returned non-JSON output: ${trimmed.slice(0, 200)}`);
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed.slice(start));
   } catch (err) {
-    throw new Error(`Claude CLI вернул некорректный JSON: ${trimmed.slice(0, 200)}`, { cause: err });
+    throw new Error(`Claude CLI returned invalid JSON: ${trimmed.slice(0, 200)}`, { cause: err });
   }
 
   const data = parsed as { is_error?: unknown; result?: unknown; subtype?: unknown };
@@ -71,7 +72,7 @@ export function parseClaudeCliCompletionOutput(stdout: string): string {
     throw new Error(`Claude CLI: ${detail}`);
   }
   if (typeof data.result !== 'string') {
-    throw new Error('Claude CLI не вернул текст ответа');
+    throw new Error('Claude CLI returned no response text');
   }
   return data.result.trim();
 }

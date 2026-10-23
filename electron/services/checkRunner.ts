@@ -11,8 +11,18 @@ import { CHECK_OUTPUT_TAIL_CHARS, checkStatusFromExit, parseCheckOutput, tailOut
 import { ARTIFACTS_DIR_ENV, isUiSmokeCheck, substituteArtifactsDir } from './visualArtifacts.js';
 import { visualArtifactService, type PreparedArtifactsDir } from './visualArtifactService.js';
 import type { CheckDefinition, CheckRunResult } from './arenaTypes.js';
+import type { AppError } from '../../src/lib/appError.js';
 
 /** Пустой результат проверки до запуска. */
+/** Причина пропуска или ошибки проверки: английский текст и код (decision-165). */
+export function checkDetailOf(err: AppError): Pick<CheckRunResult, 'detail' | 'detailKey'> {
+  return { detail: err.message, detailKey: err.appErrorKey };
+}
+
+export function setCheckDetail(result: CheckRunResult, err: AppError): void {
+  Object.assign(result, checkDetailOf(err));
+}
+
 export function pendingCheckResult(def: CheckDefinition): CheckRunResult {
   return {
     id: def.id,
@@ -82,6 +92,7 @@ export async function executeCheck(
   if (run.error && run.exitCode === null) {
     result.status = signal?.aborted ? 'skipped' : 'error';
     result.detail = run.error;
+    if (run.errorKey) result.detailKey = run.errorKey;
   } else {
     result.status = checkStatusFromExit(run.exitCode, run.timedOut);
   }

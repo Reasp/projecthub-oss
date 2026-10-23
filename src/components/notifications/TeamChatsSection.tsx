@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Play, Trash2, Plus } from '../common/icons';
-import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useProjectStore } from '../../store/useProjectStore';
 import type { ChatKind, ChatSubscription, ConnectionView, NotificationKind } from '../../types/electron';
 
@@ -93,7 +93,7 @@ export const TeamChatsSection: React.FC<{ kinds: NotificationKind[] }> = ({ kind
 
   const test = async (id: string) => {
     const res = await window.api.chat.test(id);
-    setMessage(res.ok ? { ok: true, text: tc.testOk } : { ok: false, text: res.error ?? '' });
+    setMessage(res.ok ? { ok: true, text: tc.testOk } : { ok: false, text: ipcFailureText(res) });
   };
 
   const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);

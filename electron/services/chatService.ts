@@ -9,6 +9,7 @@ import type { AppNotification } from './notificationTypes.js';
 import type { Language } from '../../src/i18n/types.js';
 import { hostText } from '../i18n/hostText.js';
 import type { ConnectionUsage } from './connectionTypes.js';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 
 /**
  * Рабочие чаты (TASK-138.4, decision-110): уведомления ProjectHub в каналы команды по подпискам «события × проекты ×
@@ -99,6 +100,8 @@ const TRACKED_LIMIT = 200;
 export interface ChatTestResult {
   ok: boolean;
   error?: string;
+  /** Код ошибки для текста на языке окна (decision-165). */
+  errorKey?: AppErrorKey;
 }
 
 function errorText(err: unknown): string {
@@ -169,13 +172,13 @@ export class ChatService {
   async save(raw: unknown): Promise<ChatSubscription> {
     const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     const sub = normalizeSubscription({ ...input, id: typeof input.id === 'string' && input.id ? input.id : `chat_${randomUUID().slice(0, 12)}` });
-    if (!sub) throw new Error('Подписка: укажите чат, подключение и канал (у Telegram — числовой id чата)');
+    if (!sub) throw new AppError('chat.subscriptionInvalid');
     if (sub.kind !== 'telegram') {
       const connections = await this.deps.connections.list();
       const connection = connections.find((c) => c.id === sub.connectionId);
-      if (!connection || connection.serviceId !== sub.kind) throw new Error(`Выберите подключение к ${findChatAdapter(sub.kind)?.label ?? sub.kind}`);
+      if (!connection || connection.serviceId !== sub.kind) throw new AppError('chat.chooseConnection', { service: findChatAdapter(sub.kind)?.label ?? sub.kind });
       if (sub.appConnectionId && connections.find((c) => c.id === sub.appConnectionId)?.serviceId !== 'slack-app') {
-        throw new Error('Кнопки Slack: выберите подключение «Slack: кнопки (Socket Mode)» с токеном приложения xapp-…');
+        throw new AppError('chat.slackButtonsConnection');
       }
     }
     const list = await this.load();
@@ -273,7 +276,7 @@ export class ChatService {
         this.scheduleReconnect(entry);
       });
     } catch (err) {
-      this.deps.log('warn', `[Chat] ${entry.kind}: сокет кнопок не открыт (${errorText(err)})`);
+      this.deps.log('warn', `[Chat] ${entry.kind}: button socket not opened (${errorText(err)})`);
       this.scheduleReconnect(entry);
     }
   }
@@ -324,7 +327,7 @@ export class ChatService {
     if (!found || (d.requestId && d.requestId !== found.requestId)) return 'unknown_message';
     const chat = kind === 'slack' ? 'Slack' : 'Mattermost';
     if (!canDecide(found.sub.deciders, d.userId)) {
-      this.deps.log('warn', `[Chat] ${chat}: нажатие ${d.userId} не применено — нет в списке решающих подписки`);
+      this.deps.log('warn', `[Chat] ${chat}: press by ${d.userId} ignored — not among the subscription deciders`);
       await this.notifyUser(found.sub, found.ref.channel, d.userId, hostText(this.lang()).decision.notInList);
       return 'not_allowed';
     }
@@ -333,7 +336,7 @@ export class ChatService {
       await this.notifyUser(found.sub, found.ref.channel, d.userId, decisionRejectText(res.reason, this.lang()));
       return 'rejected';
     }
-    this.deps.log('info', `[Chat] ${chat}: запрос ${found.requestId} ${d.approved ? 'одобрен' : 'отклонён'} (${d.userName})`);
+    this.deps.log('info', `[Chat] ${chat}: request ${found.requestId} ${d.approved ? 'approved' : 'rejected'} (${d.userName})`);
     return 'applied';
   }
 
@@ -342,14 +345,14 @@ export class ChatService {
     if (!adapter?.notifyUser || !sub.connectionId) return;
     const connectionId = sub.connectionId;
     await adapter.notifyUser((target, init) => this.deps.connections.authorizedFetch(connectionId, target, init), channel, userId, note).catch((err) => {
-      this.deps.log('warn', `[Chat] ${sub.kind}: объяснение не отправлено (${errorText(err)})`);
+      this.deps.log('warn', `[Chat] ${sub.kind}: explanation not sent (${errorText(err)})`);
     });
   }
 
   /** Каналы чата для выбора в окне. */
   async listTargets(kind: ChatKind, connectionId: string): Promise<ChatTarget[]> {
     const adapter = findChatAdapter(kind);
-    if (!adapter) throw new Error('У Telegram списка чатов нет: укажите id чата');
+    if (!adapter) throw new AppError('chat.telegramNoList');
     return adapter.listTargets((target, init) => this.deps.connections.authorizedFetch(connectionId, target, init));
   }
 
@@ -357,16 +360,16 @@ export class ChatService {
   usages(): ConnectionUsage[] {
     return (this.subscriptions ?? [])
       .filter((s) => s.connectionId)
-      .map((s) => ({ connectionId: s.connectionId!, label: `Чат: ${s.channelLabel || s.channel}` }));
+      .map((s) => ({ connectionId: s.connectionId!, label: `${hostText(this.lang()).chat.usageLabel}: ${s.channelLabel || s.channel}` }));
   }
 
   private async sendTo(sub: ChatSubscription, notification: AppNotification): Promise<void> {
     const buttons = Boolean(notification.kind === 'hitl' && notification.requestId && hasDecisionButtons(sub) && this.deps.decide && this.deps.sockets);
     const message = chatMessageFor(notification, sub.details, this.deps.mask, buttons, this.lang());
     if (sub.kind === 'telegram') {
-      if (!this.deps.telegram?.configured()) throw new Error('Бот Telegram не настроен: токен бота — в настройках Remote Control');
+      if (!this.deps.telegram?.configured()) throw new AppError('chat.telegramNotConfigured');
       const ok = await this.deps.telegram.send(notification, sub.channel, telegramText(message));
-      if (!ok) throw new Error('Telegram не принял сообщение: проверьте id чата и что бот добавлен в группу');
+      if (!ok) throw new AppError('chat.telegramRejected');
       return;
     }
     const adapter = findChatAdapter(sub.kind)!;
@@ -402,7 +405,7 @@ export class ChatService {
         await this.sendTo(sub, notification);
         delivered += 1;
       } catch (err) {
-        this.deps.log('warn', `[Chat] ${sub.kind} ${sub.channelLabel || sub.channel}: ${notification.kind} не доставлено (${errorText(err)})`);
+        this.deps.log('warn', `[Chat] ${sub.kind} ${sub.channelLabel || sub.channel}: ${notification.kind} not delivered (${errorText(err)})`);
       }
     }
     return delivered;
@@ -419,7 +422,7 @@ export class ChatService {
         const connectionId = sub.connectionId!;
         await adapter.append((target, init) => this.deps.connections.authorizedFetch(connectionId, target, init), ref, message, `— ${outcome}`);
       } catch (err) {
-        this.deps.log('warn', `[Chat] ${sub.kind}: исход решения не дописан (${errorText(err)})`);
+        this.deps.log('warn', `[Chat] ${sub.kind}: decision outcome not appended (${errorText(err)})`);
       }
     }
   }
@@ -427,13 +430,13 @@ export class ChatService {
   /** Пробное сообщение в канал подписки — из окна настроек. */
   async sendTest(id: string): Promise<ChatTestResult> {
     const sub = (await this.load()).find((s) => s.id === id);
-    if (!sub) return { ok: false, error: 'Подписка не найдена' };
+    if (!sub) return { ok: false, ...appErrorFields(new AppError('chat.subscriptionNotFound')) };
     const notification: AppNotification = {
       id: `chat-test-${this.deps.now()}`,
       kind: sub.kinds[0] ?? 'automation',
       severity: 'info',
-      title: 'Проверка канала ProjectHub',
-      body: 'Если вы это видите, уведомления в этот канал доставляются',
+      title: hostText(this.lang()).chat.testTitle,
+      body: hostText(this.lang()).chat.testBody,
       at: this.deps.now(),
       dedupKey: `chat-test:${this.deps.now()}`
     };
@@ -441,7 +444,7 @@ export class ChatService {
       await this.sendTo({ ...sub, details: true }, notification);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return { ok: false, ...appErrorFields(err) };
     }
   }
 }

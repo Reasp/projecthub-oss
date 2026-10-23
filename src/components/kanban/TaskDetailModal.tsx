@@ -24,11 +24,12 @@ import {
   Loader2,
   Repeat
 } from '../common/icons';
-import type { BacklogTask, TaskCriterion } from '../../types/electron';
+import type { BacklogTask, TaskCriterion, TaskDraftResponse } from '../../types/electron';
 import { useProjectStore, samePath } from '../../store/useProjectStore';
 import { useSwarmStore } from '../../store/useSwarmStore';
 import { useRolesStore } from '../../store/useRolesStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
+import { providerErrorAdvice, providerErrorTitle } from '../../lib/providerErrorView';
 import { parseAssignee, formatAgentAssignee } from '../../utils/assignee';
 import { isAwaitingApproval, pendingTasksOfReporter, withoutApprovalLabel } from '../../utils/agentTask';
 import { structureTaskDescription } from '../../utils/taskDescriptionFormat';
@@ -212,6 +213,13 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     }
   };
 
+  /** Причина отказа черновика: ошибка провайдера — по снимку, остальное — по коду (decision-43, decision-165). */
+  const draftFailureText = (response: TaskDraftResponse): string => {
+    const info = response.providerError;
+    if (!info) return ipcFailureText(response);
+    return [providerErrorTitle(info, t.providerErrors), providerErrorAdvice(info, t.providerErrors, t.appErrors)].filter(Boolean).join('. ');
+  };
+
   const handleAIGenerate = async () => {
     if (!title.trim()) return;
     setIsGeneratingAI(true);
@@ -229,7 +237,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         setDraftNotice(
           response.error === 'unparsed'
             ? { text: t.taskDetail.draftUnparsed, settings: true }
-            : { text: t.taskDetail.draftFailed.replace('{error}', response.error || '—'), settings: Boolean(response.modelProblem || response.providerError) }
+            : { text: t.taskDetail.draftFailed.replace('{error}', draftFailureText(response) || '—'), settings: Boolean(response.modelProblem || response.providerError) }
         );
         return;
       }
@@ -238,7 +246,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       setCriteria(merged.criteria);
       if (merged.added === 0) setDraftNotice({ text: t.taskDetail.draftNothingNew, settings: false });
     } catch (err) {
-      setDraftNotice({ text: t.taskDetail.draftFailed.replace('{error}', err instanceof Error ? err.message : String(err)), settings: false });
+      setDraftNotice({ text: t.taskDetail.draftFailed.replace('{error}', ipcErrorText(err)), settings: false });
     } finally {
       setIsGeneratingAI(false);
     }

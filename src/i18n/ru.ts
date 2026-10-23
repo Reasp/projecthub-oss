@@ -657,6 +657,14 @@ export const ru: TranslationDictionary = {
     cacheSavings: 'Экономия кэша',
     noStatsCache: 'Нет подробной статистики моделей в локальном stats-cache.json.',
     rawOutputDesc: 'Прямой вывод команды claude -p /usage:',
+    sources: {
+      account: 'Аккаунт: «{name}» ({dir}).',
+      statsCache: 'Сессии, сообщения и токены: локальный кэш Claude Code ({file}).',
+      statsCacheMissing: 'Локальный кэш Claude Code ({file}) не найден.',
+      rateLimitsAt: 'Лимиты: rate-limit события Claude CLI, последнее {at}.',
+      rateLimitsSnapshot: 'Окна лимитов получены из снимка rate-limit событий Claude CLI.',
+      directQuery: 'Для прямого опроса лимитов и квот подписки используется вызов `claude -p /usage`.'
+    },
     noData: 'Нет данных',
     syncedWithCli: 'Синхронизировано с локальным CLI Claude Code',
     close: 'Закрыть',

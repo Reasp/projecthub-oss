@@ -59,6 +59,7 @@ interface OpenAICompatibleTarget {
 
 const ANTHROPIC_MESSAGES_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 import { logger } from './logger.js';
+import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
 import { buildClaudeCliCompletionCommand, parseClaudeCliCompletionOutput } from './claudeCliCompletion.js';
 import { mainEngineOf, normalizeMainEngineField, type MainEngine } from './modelTarget.js';
 import {
@@ -358,6 +359,8 @@ export interface ClaudeAuthStatus {
   accountName?: string;
   /** Статус не получен: CLI не запустился или не ответил. */
   error?: string;
+  /** Код ошибки статуса для текста на языке окна (decision-165); без него `error` — текст самого CLI. */
+  errorKey?: AppErrorKey;
 }
 
 /** `ai-config.json` в userData профиля (decision-104); при первом обращении копируется из `~/.projecthub`. */
@@ -406,7 +409,10 @@ class AIAgentService {
     const account = query.accountId
       ? await claudeAccountService.getAccount(query.accountId)
       : (await claudeAccountService.resolve({ projectPath: query.projectPath })).account;
-    if (!account) return { isLoggedIn: false, error: 'Профиль аккаунта не найден.' };
+    if (!account) {
+      const missing = new AppError('accounts.profileNotFound');
+      return { isLoggedIn: false, error: missing.message, errorKey: missing.appErrorKey };
+    }
     const status = await claudeAccountService.authStatus(account.id, query.force === true);
     return {
       isLoggedIn: status.loggedIn,
@@ -414,6 +420,7 @@ class AIAgentService {
       ...(status.subscriptionType ? { seatTier: status.subscriptionType } : {}),
       ...(status.orgName ? { organizationName: status.orgName } : {}),
       ...(status.error ? { error: status.error } : {}),
+      ...(status.errorKey ? { errorKey: status.errorKey } : {}),
       accountId: account.id,
       accountName: account.name
     };
@@ -522,7 +529,7 @@ class AIAgentService {
     const config = req.config ?? (await this.getConfig());
     const model = config.model?.trim();
     if (!model || isUnsetModelId(model)) {
-      throw providerConfigError('Модель не выбрана в настройках Agents Studio.', 'no_model');
+      throw providerConfigError(new AppError('studio.modelNotSelected'), 'no_model');
     }
 
     const timeoutMs = req.timeoutMs ?? DEFAULT_COMPLETE_TIMEOUT_MS;
@@ -560,7 +567,7 @@ class AIAgentService {
   ): Promise<string> {
     const apiKey = config.apiKey?.trim();
     if (!apiKey) {
-      throw providerConfigError('API ключ Anthropic не указан: служебные запросы к модели идут по API, а не через Claude CLI.', 'no_key');
+      throw providerConfigError(new AppError('studio.anthropicKeyMissingService'), 'no_key');
     }
 
     const body: Record<string, unknown> = {
@@ -621,7 +628,7 @@ class AIAgentService {
           env: { ...process.env, FORCE_COLOR: '0', ...accountEnv }
         });
       } catch (err) {
-        reject(new Error(`Не удалось запустить Claude CLI: ${err instanceof Error ? err.message : String(err)}`, { cause: err }));
+        reject(Object.assign(new AppError('studio.cliStartFailed', { detail: err instanceof Error ? err.message : String(err) }), { cause: err }));
         return;
       }
 
@@ -649,7 +656,7 @@ class AIAgentService {
             resolve(parseClaudeCliCompletionOutput(stdout));
           } catch (err) {
             const detail = stderr.trim() ? ` (${stderr.trim().slice(0, 300)})` : '';
-            reject(new Error(`${err instanceof Error ? err.message : String(err)}; код выхода ${code}${detail}`, { cause: err }));
+            reject(new Error(`${err instanceof Error ? err.message : String(err)}; exit code ${code}${detail}`, { cause: err }));
           }
         });
       });
@@ -914,7 +921,7 @@ class AIAgentService {
     const model = resolveAnthropicModelId(req.config.model);
     const apiKey = req.config.apiKey?.trim();
     if (!apiKey) {
-      throw providerConfigError('API ключ Anthropic не указан. Пожалуйста, откройте настройки Agents Studio и укажите ключ.', 'no_key', {
+      throw providerConfigError(new AppError('studio.anthropicKeyMissing'), 'no_key', {
         provider: 'Anthropic',
         model: req.config.model
       });

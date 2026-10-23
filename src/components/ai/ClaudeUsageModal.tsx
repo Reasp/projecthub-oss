@@ -16,7 +16,7 @@ import {
   FileCode2
 } from '../common/icons';
 import type { ClaudeUsageData } from '../../types/electron';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 
 interface ClaudeUsageModalProps {
@@ -28,6 +28,16 @@ interface ClaudeUsageModalProps {
 
 export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onClose, initialAccountId }) => {
   const { t } = useTranslation();
+  /** Пояснение об источниках данных без вывода CLI — на языке окна. */
+  const sourcesText = (src: NonNullable<ClaudeUsageData['sources']>): string => {
+    const ts = t.claudeUsage.sources;
+    return [
+      ts.account.replace('{name}', src.accountName).replace('{dir}', src.configDir),
+      (src.hasStatsCache ? ts.statsCache : ts.statsCacheMissing).replace('{file}', src.statsFile),
+      src.rateLimitsAt !== undefined ? ts.rateLimitsAt.replace('{at}', new Date(src.rateLimitsAt).toLocaleString()) : ts.rateLimitsSnapshot,
+      ts.directQuery
+    ].join('\n');
+  };
   const overview = useClaudeAccountsStore((s) => s.overview);
   const refreshAccounts = useClaudeAccountsStore((s) => s.refresh);
   const openLogin = useClaudeAccountsStore((s) => s.openLogin);
@@ -50,7 +60,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
         setError(t.claudeUsage.apiUnavailable);
       }
     } catch (err: any) {
-      setError(err.message || t.claudeUsage.loadError);
+      setError(ipcErrorText(err) || t.claudeUsage.loadError);
     } finally {
       setIsLoading(false);
     }
@@ -602,7 +612,7 @@ export const ClaudeUsageModal: React.FC<ClaudeUsageModalProps> = ({ isOpen, onCl
                 <span>{t.claudeUsage.rawOutputDesc}</span>
               </div>
               <pre className="p-4 rounded-xl bg-black/90 border border-slate-800 text-xs font-mono text-slate-300 whitespace-pre-wrap leading-relaxed overflow-x-auto max-h-[50vh]">
-                {usageData?.rawText || t.claudeUsage.noData}
+                {usageData?.rawText || (usageData?.sources ? sourcesText(usageData.sources) : t.claudeUsage.noData)}
               </pre>
             </div>
           )}

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ExternalLink, Pause, Pencil, Play, Plus, RefreshCw, ShieldCheck, Trash2, Workflow, X } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useAutomationsStore } from '../../store/useAutomationsStore';
 import { useDialogStore } from '../../store/useDialogStore';
 import { AutomationRuleEditor } from './AutomationRuleEditor';
@@ -153,20 +153,20 @@ export const AutomationsModal: React.FC = () => {
       return;
     }
     const res = await window.api.setAutomationEnabled(r.key, !r.enabled);
-    if (!res.ok) setNotice({ kind: 'error', text: res.error });
+    if (!res.ok) setNotice({ kind: 'error', text: ipcFailureText(res) });
     await afterAction();
   };
 
   const approve = async (r: AutomationRuleView) => {
     const res = await window.api.setAutomationEnabled(r.key, true, r.hash);
     setReviewing(null);
-    if (!res.ok) setNotice({ kind: 'error', text: res.error });
+    if (!res.ok) setNotice({ kind: 'error', text: ipcFailureText(res) });
     await afterAction();
   };
 
   const runNow = async (r: AutomationRuleView) => {
     const res = await window.api.runAutomationNow(r.key);
-    setNotice(res.ok ? { kind: 'ok', text: fill(a.runStarted, { name: r.name }) } : { kind: 'error', text: fill(a.runRefused, { reason: res.reason }) });
+    setNotice(res.ok ? { kind: 'ok', text: fill(a.runStarted, { name: r.name }) } : { kind: 'error', text: fill(a.runRefused, { reason: ipcFailureText({ error: res.reason, errorKey: res.reasonKey }) }) });
     await afterAction();
   };
 
@@ -300,7 +300,9 @@ export const AutomationsModal: React.FC = () => {
               {entry.action ? ` → ${entry.action}` : ''}
               {entry.depth ? ` · ${fill(a.log.depth, { depth: entry.depth })}` : ''}
             </span>
-            {(entry.detail || entry.reason) && <span className="block whitespace-pre-wrap break-words">{entry.detail || entry.reason}</span>}
+            {(entry.detail || entry.reason) && (
+              <span className="block whitespace-pre-wrap break-words">{entry.detail ? ipcFailureText({ error: entry.detail, errorKey: entry.detailKey }) : entry.reason}</span>
+            )}
             {(entry.costUsd !== undefined || entry.durationMs !== undefined || entry.swarmId) && (
               <span className="flex flex-wrap items-center gap-3 text-muted-foreground">
                 {entry.costUsd !== undefined && <span>${entry.costUsd.toFixed(4)}</span>}

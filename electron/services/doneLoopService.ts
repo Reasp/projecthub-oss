@@ -25,7 +25,8 @@ import {
   withUpdatedDate
 } from './backlogTaskFormat.js';
 import { summarizeCheckResult } from './arenaChecks.js';
-import { executeCheck, pendingCheckResult } from './checkRunner.js';
+import { executeCheck, pendingCheckResult, setCheckDetail } from './checkRunner.js';
+import { AppError } from '../../src/lib/appError.js';
 import { visualArtifactService } from './visualArtifactService.js';
 import { iterationScreenshots } from './visualArtifacts.js';
 import {
@@ -319,7 +320,7 @@ export class DoneLoopService {
     if (!existsSync(workdir)) {
       for (const r of results) {
         r.status = 'skipped';
-        r.detail = `Рабочий каталог не найден: ${workdir}`;
+        setCheckDetail(r, new AppError('processes.cwdNotFound', { path: workdir }));
       }
       return results;
     }
@@ -327,7 +328,7 @@ export class DoneLoopService {
       const result = results[i];
       if (hooks.signal.aborted) {
         result.status = 'skipped';
-        result.detail = 'Цикл остановлен';
+        setCheckDetail(result, new AppError('checks.loopStopped'));
         continue;
       }
       hooks.log(`[Done-loop] Проверка «${result.name}»: ${result.command}`);

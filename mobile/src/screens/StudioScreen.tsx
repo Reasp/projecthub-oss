@@ -449,7 +449,7 @@ function UsageSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         <div className="flex justify-center py-6">{studio.usageLoading ? <Spinner /> : <span className="text-[13px] text-slate-400">{tr.studio.noData}</span>}</div>
       ) : (
         <>
-          {u.error && <div className="mb-3 rounded-xl bg-amber-950/60 p-3 text-[13px] text-amber-100">{u.error.message}</div>}
+          {u.error && <div className="mb-3 rounded-xl bg-amber-950/60 p-3 text-[13px] text-amber-100">{failureText({ error: u.error.message, errorKey: u.error.messageKey })}</div>}
           <LimitBar label={tr.studio.currentSession} w={u.sessionLimit} />
           <LimitBar label={tr.studio.week} w={u.weeklyLimit} />
           <LimitBar label="Fable" w={u.fableLimit} />

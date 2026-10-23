@@ -111,9 +111,9 @@ export function parseSlackEnvelope(raw: string): SlackEnvelope | null {
 /** Адрес сокета из ответа `apps.connections.open`: только `wss://` на домене Slack. */
 export function slackSocketUrl(json: unknown): string {
   const o = obj(json);
-  if (o.ok !== true) throw new Error(`Slack: ${text(o.error) || 'apps.connections.open не дал адрес'}${o.error === 'not_allowed_token_type' ? ' — нужен токен приложения xapp-… со scope connections:write' : ''}`);
+  if (o.ok !== true) throw new Error(`Slack: ${text(o.error) || 'apps.connections.open returned no address'}${o.error === 'not_allowed_token_type' ? ' — an xapp-… app token with the connections:write scope is required' : ''}`);
   const url = new URL(text(o.url));
-  if (url.protocol !== 'wss:' || !/(^|\.)slack\.com$/i.test(url.hostname)) throw new Error('Slack вернул адрес сокета вне slack.com');
+  if (url.protocol !== 'wss:' || !/(^|\.)slack\.com$/i.test(url.hostname)) throw new Error('Slack returned a socket address outside slack.com');
   return url.toString();
 }
 

@@ -8,6 +8,7 @@
  */
 
 import type { AIMessage, AIProviderConfig, AISession, AIToolCall, ClaudeUsageData } from '../types/electron';
+import { AppError } from '../lib/appError';
 import type {
   RemoteStudioMessage,
   RemoteStudioSession,
@@ -198,21 +199,24 @@ export function usageForPhone(d: ClaudeUsageData): RemoteStudioUsage {
   if (d.totalSessions !== undefined) out.totalSessions = d.totalSessions;
   if (d.totalMessages !== undefined) out.totalMessages = d.totalMessages;
   if (d.isFallback) out.isFallback = true;
-  if (d.cliError) out.error = { kind: d.cliError.kind, message: usageErrorText(d.cliError.kind) };
+  if (d.cliError) {
+    const err = usageError(d.cliError.kind);
+    out.error = { kind: d.cliError.kind, message: err.message, messageKey: err.appErrorKey };
+  }
   return out;
 }
 
-/** Понятная причина, почему лимиты не прочитаны (как в окне Usage на ПК). */
-export function usageErrorText(kind: string): string {
+/** Понятная причина, почему лимиты не прочитаны (как в окне Usage на ПК): код, телефон собирает текст на своём языке. */
+export function usageError(kind: string): AppError {
   switch (kind) {
     case 'auth':
-      return 'Claude Code на ПК не вошёл в аккаунт — войдите в окне Usage на компьютере.';
+      return new AppError('usage.notLoggedIn');
     case 'timeout':
-      return 'Claude Code не ответил вовремя — показана статистика из кэша.';
+      return new AppError('usage.timeout');
     case 'unrecognized':
-      return 'Ответ Claude Code не распознан — показана статистика из кэша.';
+      return new AppError('usage.unrecognized');
     default:
-      return 'Не удалось получить лимиты Claude Code — показана статистика из кэша.';
+      return new AppError('usage.failed');
   }
 }
 

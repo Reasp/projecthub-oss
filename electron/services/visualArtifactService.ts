@@ -25,6 +25,7 @@ import {
   type StoreEntry
 } from './visualArtifacts.js';
 import type { CheckArtifactsConfig, CheckRunResult } from './arenaTypes.js';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 
 /** Сколько файлов обходить в одном источнике: `test-results` большого проекта бывает огромным. */
 const WALK_FILE_LIMIT = 2000;
@@ -135,7 +136,7 @@ export class VisualArtifactService {
       result.artifacts = selected.map((s) => ({ name: s.name, relPath: `${prepared.relDir}/${s.name}`, kind: s.kind, bytes: s.bytes }));
       if (truncated) result.artifactsTruncated = true;
     } catch (err) {
-      console.warn('[VisualArtifacts] Не удалось собрать артефакты проверки:', err);
+      console.warn('[VisualArtifacts] Could not collect check artifacts:', err);
       result.artifacts = result.artifacts ?? [];
     }
     enforceMinScreenshots(result, config?.minScreenshots ?? DEFAULT_MIN_SCREENSHOTS);
@@ -162,7 +163,7 @@ export class VisualArtifactService {
     }
     const remove = planStorePrune(entries, { ...DEFAULT_STORE_LIMITS, now, keep: new Set(keepScope ? [keepScope] : []) });
     for (const key of remove) await fs.rm(path.join(this.root, key), { recursive: true, force: true }).catch(() => {});
-    if (remove.length > 0) console.log(`[VisualArtifacts] Ротация хранилища: удалено каталогов ${remove.length}`);
+    if (remove.length > 0) console.log(`[VisualArtifacts] Storage rotation: removed directories ${remove.length}`);
     return remove;
   }
 
@@ -173,19 +174,19 @@ export class VisualArtifactService {
   }
 
   /** Картинка для рендерера как data URL; только из хранилища и только скриншоты. */
-  async readImage(relPath: string): Promise<{ dataUrl: string; bytes: number } | { error: string }> {
+  async readImage(relPath: string): Promise<{ dataUrl: string; bytes: number } | { error: string; errorKey?: AppErrorKey }> {
     const abs = resolveArtifactReadPath(this.root, relPath);
-    if (!abs) return { error: 'Путь вне хранилища артефактов' };
+    if (!abs) return { error: 'Path is outside the artifact storage' };
     const mime = mimeOfArtifact(abs);
-    if (!mime.startsWith('image/')) return { error: 'Это не изображение' };
+    if (!mime.startsWith('image/')) return appErrorFields(new AppError('inbox.notAnImage'));
     try {
       const st = await fs.stat(abs);
-      if (!st.isFile()) return { error: 'Файл не найден' };
-      if (st.size > MAX_INLINE_BYTES) return { error: 'Файл слишком большой для просмотра' };
+      if (!st.isFile()) return appErrorFields(new AppError('inbox.screenshotRemoved'));
+      if (st.size > MAX_INLINE_BYTES) return appErrorFields(new AppError('inbox.screenshotTooLarge'));
       const data = await fs.readFile(abs);
       return { dataUrl: `data:${mime};base64,${data.toString('base64')}`, bytes: st.size };
     } catch {
-      return { error: 'Файл не найден (удалён ротацией или вместе с сессией)' };
+      return appErrorFields(new AppError('inbox.screenshotRemoved'));
     }
   }
 

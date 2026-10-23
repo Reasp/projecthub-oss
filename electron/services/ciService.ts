@@ -19,6 +19,7 @@ import {
   type CiTarget
 } from './ciProviders.js';
 import { stateFields, withVersion } from './stateFiles.js';
+import { AppError } from '../../src/lib/appError.js';
 import type { ConnectionStatus, ConnectionUsage } from './connectionTypes.js';
 
 /**
@@ -155,9 +156,9 @@ export class CiService {
     const key = pathKey(projectPath);
     if (value) {
       const job = normalizeJenkinsJob(value.job);
-      if (!job) throw new Error('Путь задания Jenkins: имена через «/», для multibranch — {branch} отдельным сегментом');
+      if (!job) throw new AppError('ci.jenkinsJobInvalid');
       const connection = (await this.deps.connections?.list())?.find((c) => c.id === value.connectionId);
-      if (!connection || connection.serviceId !== 'jenkins') throw new Error('Выберите подключение к Jenkins');
+      if (!connection || connection.serviceId !== 'jenkins') throw new AppError('ci.chooseJenkins');
       settings[key] = { jenkins: { connectionId: value.connectionId, job }, path: projectPath };
     } else {
       delete settings[key];
@@ -213,7 +214,7 @@ export class CiService {
     const access = (await this.accesses(projectPath)).find((a) => a.adapter.id === provider);
     if (access) return access;
     const label = findCiAdapter(provider)?.label ?? provider;
-    throw new Error(`${label} для проекта не настроен: нет подключения к хостингу репозитория или к Jenkins`);
+    throw new AppError('ci.notConfigured', { ci: label });
   }
 
   async providers(projectPath: string): Promise<CiProviderInfo[]> {
@@ -251,7 +252,7 @@ export class CiService {
     const access = await this.accessFor(projectPath, provider);
     const run = await access.adapter.getRun(access.http, access.target, runId);
     const jobs = jobId ? run.jobs.filter((j) => j.id === jobId) : run.jobs.filter((j) => j.status === 'failure').slice(0, CI_FAILED_JOBS_LIMIT);
-    if (jobId && !jobs.length) throw new Error(`Задание ${jobId} не найдено в запуске ${runId}`);
+    if (jobId && !jobs.length) throw new AppError('ci.jobNotFound', { job: jobId, run: runId });
     const out: CiJobLog[] = [];
     // У Jenkins без Stage View стадии делят один лог сборки: он читается один раз.
     const cache = new Map<string, string>();
@@ -276,7 +277,7 @@ export class CiService {
 
   async playJob(projectPath: string, provider: string, jobId: string): Promise<void> {
     const access = await this.accessFor(projectPath, provider);
-    if (!access.adapter.playJob) throw new Error(`${access.adapter.label}: запуск ручного задания не поддерживается`);
+    if (!access.adapter.playJob) throw new AppError('ci.playUnsupported', { ci: access.adapter.label });
     await access.adapter.playJob(access.http, access.target, jobId);
   }
 

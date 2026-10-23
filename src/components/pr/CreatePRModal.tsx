@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, GitPullRequest, Sparkles, AlertCircle, Loader2 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { generatePRDraft } from '../../services/aiAssistantService';
 
 interface CreatePRModalProps {
@@ -83,7 +83,7 @@ export const CreatePRModal: React.FC<CreatePRModalProps> = ({ isOpen, onClose })
       });
       onClose();
     } catch (err: any) {
-      setError(err.message || t.prs.createPrError);
+      setError(ipcErrorText(err) || t.prs.createPrError);
     } finally {
       setIsSubmitting(false);
     }

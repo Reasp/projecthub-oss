@@ -206,7 +206,7 @@ export class SwarmSessionStore {
   /** Атомарная запись (tmp + rename). Параллельные вызовы для одной сессии сериализуются. */
   public async save(session: SwarmSession): Promise<void> {
     if (!isValidSwarmId(session?.id)) {
-      throw new Error(`Недопустимый идентификатор swarm-сессии: ${String(session?.id)}`);
+      throw new Error(`Invalid swarm session id: ${String(session?.id)}`);
     }
     const pending = this.pendingSaves.get(session.id);
     if (pending) {

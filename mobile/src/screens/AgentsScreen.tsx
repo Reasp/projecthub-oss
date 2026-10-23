@@ -6,6 +6,7 @@ import { Badge, Button, Card, Confirm, EmptyState, SectionTitle, Sheet, Spinner 
 import { fieldProps } from '../components/FieldEditor';
 import { Screen } from '../components/Screen';
 import { useT } from '../i18n/react';
+import { failureText } from '../app/errorText';
 import { capabilitiesFor, isActiveStatus, statusLabel } from '../protocol/models';
 
 function tone(status: string): 'success' | 'accent' | 'danger' | 'neutral' {
@@ -56,7 +57,7 @@ function AgentOutputSheet({ target, onClose }: { target: { swarm: RemoteSwarmSum
         {target?.agent.engine && <span>{target.agent.engine}</span>}
         {loading && <Spinner className="h-3 w-3" />}
       </div>
-      {target?.agent.error && <div className="mb-2 rounded-lg bg-red-950/60 p-2 text-[13px] text-red-200">{target.agent.error}</div>}
+      {target?.agent.error && <div className="mb-2 rounded-lg bg-red-950/60 p-2 text-[13px] text-red-200">{failureText(target.agent)}</div>}
       <pre ref={ref} className="selectable h-[58vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-ph-base p-2 font-mono text-[12px] leading-relaxed text-slate-200">
         {output?.truncated ? tr.agents.outputTruncated : ''}
         {output?.text || (loading ? '' : tr.agents.noOutput)}

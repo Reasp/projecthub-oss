@@ -7,6 +7,7 @@ import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { parseBacklogConfig } from './backlogConfigService.js';
 import type { LocalTaskInfo } from './trackerSyncPlan.js';
 import type { FieldValues } from './trackerTypes.js';
+import { AppError } from '../../src/lib/appError.js';
 
 /**
  * Задачи проекта для синка с трекером (TASK-128, decision-103): чтение `backlog/tasks` и `backlog/completed`,
@@ -132,7 +133,7 @@ export async function createLocalTaskFromRemote(
     labels: input.labels ?? [],
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {})
   });
-  if (!created) throw new Error('Не удалось создать файл задачи');
+  if (!created) throw new AppError('tracker.taskCreateFailed');
   await updateLocalTaskFile(created.filePath, { fields: { status: input.status }, addReference: input.reference });
   return { id: created.id, filePath: created.filePath };
 }

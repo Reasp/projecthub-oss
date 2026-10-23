@@ -192,7 +192,8 @@ export function reviewReportFromSession(session: SwarmSession): RemoteReviewRepo
     ...(typeof c.passedTests === 'number' ? { passedTests: c.passedTests } : {}),
     ...(typeof c.failedTests === 'number' ? { failedTests: c.failedTests } : {}),
     ...(typeof c.errorCount === 'number' ? { errorCount: c.errorCount } : {}),
-    ...(checkDetail(c) ? { detail: checkDetail(c) } : {})
+    ...(checkDetail(c) ? { detail: checkDetail(c) } : {}),
+    ...(c.detail && c.detailKey ? { detailKey: c.detailKey } : {})
   }));
   return {
     swarmId: session.id,

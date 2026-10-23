@@ -15,6 +15,7 @@
  *
  * Чистый модуль без Electron и сети — покрыт unit-тестами.
  */
+import { AppError } from '../../src/lib/appError.js';
 import {
   ANTHROPIC_EFFORT_BUDGET_TOKENS,
   pickSupportedEffort,
@@ -58,10 +59,7 @@ export function isUnsetModelId(model: string | undefined | null): boolean {
  */
 export function resolveAnthropicModelId(model: string | undefined | null): string {
   if (isUnsetModelId(model)) {
-    throw new Error(
-      'Модель не выбрана: укажите идентификатор модели Anthropic в настройках Agents Studio или в слоте агента '
-      + '(значение «default» понимает только Claude CLI).'
-    );
+    throw new AppError('studio.anthropicModelNotSelected');
   }
   return (model as string).trim();
 }

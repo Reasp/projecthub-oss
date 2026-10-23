@@ -10,6 +10,7 @@
  * Ключи не попадают ни в сообщение, ни в снимок: адрес очищается от логина, пароля и query,
  * значения заголовков авторизации и шаблоны ключей вырезаются из ответа сервера.
  */
+import { appErrorKeyOf, type AppError, type AppErrorKey } from '../../src/lib/appError';
 
 export type ProviderErrorKind =
   | 'auth'
@@ -87,6 +88,11 @@ export interface ProviderErrorInfo {
   serverMessage?: string;
   /** Итоговое сообщение для пользователя, логов и экспорта (ru, main-процесс). */
   message: string;
+  /**
+   * Код ошибки настройки или ошибки ProjectHub без провайдера (decision-165): окно и телефон собирают совет по нему на
+   * своём языке, `message` тогда — английский запасной текст.
+   */
+  messageKey?: AppErrorKey;
   /**
    * Назначение, для которого выбиралась модель (`plan.architect`, `voice.classify`…), — по нему интерфейс
    * открывает нужную строку настроек (TASK-134.1, decision-74).
@@ -559,15 +565,16 @@ export function timeoutError(timeoutMs: number, ctx: ProviderErrorContext = {}):
 
 /**
  * Ошибка настройки до запроса: модель не выбрана, нет профиля или ключа, неизвестный провайдер.
- * `message` остаётся текстом вызывающего кода — он уже говорит, что сделать.
+ * `message` остаётся текстом вызывающего кода — он уже говорит, что сделать. `AppError` даёт снимку код (`messageKey`).
  */
-export function providerConfigError(message: string, reason?: ProviderErrorReason, ctx: ProviderErrorContext = {}): ProviderError {
+export function providerConfigError(message: string | AppError, reason?: ProviderErrorReason, ctx: ProviderErrorContext = {}): ProviderError {
   const info: ProviderErrorInfo = {
     kind: 'config',
     ...(reason ? { reason } : {}),
     retryable: false,
     ...baseInfo(ctx),
-    message
+    message: typeof message === 'string' ? message : message.message,
+    ...(typeof message === 'string' ? {} : { messageKey: message.appErrorKey })
   };
   return new ProviderError(info);
 }
@@ -583,7 +590,8 @@ export function toProviderErrorInfo(err: unknown, ctx: ProviderErrorContext = {}
   const network = classifyNetworkError(err, ctx);
   if (network) return network;
   const text = redactSecrets(err instanceof Error ? err.message : String(err), ctx.secrets);
-  return { kind: 'unknown', retryable: false, ...baseInfo(ctx), message: text };
+  const key = appErrorKeyOf(err);
+  return { kind: 'unknown', retryable: false, ...baseInfo(ctx), message: text, ...(key ? { messageKey: key } : {}) };
 }
 
 // ─────────────────────────────── Сообщение ───────────────────────────────

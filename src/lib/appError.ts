@@ -10,7 +10,12 @@
  */
 import { appErrorTextEn, type AppErrorCode, type AppErrorLabels } from '../i18n/appErrorText';
 
-export type AppErrorParams = Record<string, string | number>;
+/**
+ * Параметр — строка, число или вложенная ошибка с кодом: причина внутри ошибки («агент не запустился: <причина>»)
+ * собирается по тому же словарю на том же языке, а не английским текстом.
+ */
+export type AppErrorParam = string | number | AppErrorKey;
+export type AppErrorParams = Record<string, AppErrorParam>;
 
 export interface AppErrorKey {
   code: AppErrorCode;
@@ -23,31 +28,41 @@ export const APP_ERROR_ENVELOPE = '[ph-error] ';
 /** Префикс, который Electron дописывает к ошибке `ipcRenderer.invoke`. */
 const ELECTRON_PREFIX = /^Error invoking remote method '[^']+': (?:[A-Za-z]*Error: )?/;
 
-export function fillAppErrorTemplate(template: string, params: AppErrorParams | undefined): string {
+/** Вложенная ошибка без словаря или с неизвестным ему кодом подставляется своим кодом. */
+export function fillAppErrorTemplate(template: string, params: AppErrorParams | undefined, labels?: Partial<AppErrorLabels>): string {
   if (!params) return template;
-  return template.replace(/\{(\w+)\}/g, (all, name: string) => (name in params ? String(params[name]) : all));
+  return template.replace(/\{(\w+)\}/g, (all, name: string) => {
+    if (!(name in params)) return all;
+    const value = params[name];
+    if (typeof value !== 'object') return String(value);
+    return (labels && formatAppError(value, labels)) ?? value.code;
+  });
 }
 
 /** Текст ошибки по коду и словарю; неизвестный словарю код — `null`. */
 export function formatAppError(key: AppErrorKey, labels: Partial<AppErrorLabels>): string | null {
   const template = labels[key.code];
-  return typeof template === 'string' ? fillAppErrorTemplate(template, key.params) : null;
+  return typeof template === 'string' ? fillAppErrorTemplate(template, key.params, labels) : null;
 }
 
 export class AppError extends Error {
   readonly appErrorKey: AppErrorKey;
 
-  constructor(code: AppErrorCode, params?: AppErrorParams) {
-    const key: AppErrorKey = params ? { code, params } : { code };
+  /** Вложенную `AppError` в параметрах можно передать как есть: в ключ попадёт её код. */
+  constructor(code: AppErrorCode, params?: Record<string, AppErrorParam | AppError>) {
+    const clean = params
+      ? Object.fromEntries(Object.entries(params).map(([name, v]) => [name, v instanceof AppError ? v.appErrorKey : v]))
+      : undefined;
+    const key: AppErrorKey = clean ? { code, params: clean } : { code };
     super(formatAppError(key, appErrorTextEn) ?? code);
     this.name = 'AppError';
     this.appErrorKey = key;
   }
 }
 
-/** Ключ из данных извне (конверт, RPC, результат): только код-строка и параметры-строки или числа. */
-export function asAppErrorKey(value: unknown): AppErrorKey | undefined {
-  if (!value || typeof value !== 'object') return undefined;
+/** Ключ из данных извне (конверт, RPC, результат): только код-строка и параметры-строки, числа или вложенные ключи. */
+export function asAppErrorKey(value: unknown, depth = 0): AppErrorKey | undefined {
+  if (!value || typeof value !== 'object' || depth > 3) return undefined;
   const { code, params } = value as { code?: unknown; params?: unknown };
   if (typeof code !== 'string' || !code) return undefined;
   if (params === undefined) return { code: code as AppErrorCode };
@@ -55,6 +70,10 @@ export function asAppErrorKey(value: unknown): AppErrorKey | undefined {
   const clean: AppErrorParams = {};
   for (const [name, v] of Object.entries(params as Record<string, unknown>)) {
     if (typeof v === 'string' || typeof v === 'number') clean[name] = v;
+    else {
+      const nested = asAppErrorKey(v, depth + 1);
+      if (nested) clean[name] = nested;
+    }
   }
   return { code: code as AppErrorCode, params: clean };
 }
@@ -63,6 +82,13 @@ export function asAppErrorKey(value: unknown): AppErrorKey | undefined {
 export function appErrorKeyOf(err: unknown): AppErrorKey | undefined {
   if (!err || typeof err !== 'object') return undefined;
   return asAppErrorKey((err as { appErrorKey?: unknown }).appErrorKey);
+}
+
+/** Поля ошибки для результата или состояния `{ error, errorKey }`: английский текст и код рядом, если он есть. */
+export function appErrorFields(err: unknown): { error: string; errorKey?: AppErrorKey } {
+  const key = appErrorKeyOf(err);
+  const error = err instanceof Error ? err.message : String(err);
+  return key ? { error, errorKey: key } : { error };
 }
 
 /** Приписать ключ ошибке, пришедшей по сети (RPC телефона): текст остаётся английским запасным. */

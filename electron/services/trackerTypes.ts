@@ -4,6 +4,8 @@
  */
 
 /** Синхронизируемые поля (decision-103 п. 6). */
+import type { AppErrorKey } from '../../src/lib/appError.js';
+
 export type TrackerField = 'title' | 'description' | 'status';
 export const TRACKER_FIELDS: readonly TrackerField[] = ['title', 'description', 'status'];
 
@@ -87,6 +89,8 @@ export interface TrackerJournalEntry {
   fields?: TrackerField[];
   /** Для конфликта: какая сторона победила и что было перезаписано (обрезано). */
   detail?: string;
+  /** Код ошибки записи для текста на языке окна (decision-165). */
+  detailKey?: AppErrorKey;
 }
 
 export interface TrackerRunSummary {
@@ -95,6 +99,8 @@ export interface TrackerRunSummary {
   dryRun: boolean;
   ok: boolean;
   error?: string;
+  /** Код ошибки запуска для текста на языке окна (decision-165). */
+  errorKey?: AppErrorKey;
   counts: Partial<Record<TrackerJournalKind, number>>;
   entries: TrackerJournalEntry[];
 }

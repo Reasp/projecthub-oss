@@ -8,6 +8,7 @@ import type { AppNotification } from './notificationTypes.js';
 import { logger } from './logger.js';
 import { getHostLanguage, getHostLanguageFile } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 
 /**
  * Telegram-канал уведомлений и жизненный цикл бота (TASK-63, decision-13 п.5).
@@ -225,17 +226,17 @@ class TelegramService {
     }
   }
 
-  public async startBot(): Promise<{ ok: boolean; error?: string }> {
+  public async startBot(): Promise<{ ok: boolean; error?: string; errorKey?: AppErrorKey }> {
     if (this.startingBot) {
       await this.startingBot;
       return { ok: this.isBotRunning };
     }
     const creds = this.credentials();
-    if (!creds?.botToken) return { ok: false, error: 'Токен Telegram-бота не задан' };
+    if (!creds?.botToken) return { ok: false, ...appErrorFields(new AppError('telegram.botTokenMissing')) };
     if (this.isBotRunning) return { ok: true };
 
     const script = getWorkerScriptCandidates('telegramBot.mjs').find((candidate) => existsSync(candidate));
-    if (!script) return { ok: false, error: 'Скрипт бота telegramBot.mjs не найден' };
+    if (!script) return { ok: false, error: 'Bot script telegramBot.mjs not found' };
 
     const run = (async () => {
       const cwd = getServiceProcessesRoot();

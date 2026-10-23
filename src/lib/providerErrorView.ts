@@ -7,6 +7,7 @@
  */
 import type { AIMessage, ModelCatalogResult, ProviderErrorInfo } from '../types/electron';
 import type { TranslationDictionary } from '../i18n/types';
+import type { AppErrorLabels } from '../i18n/appErrorText';
 import { asAppErrorKey, formatAppError } from './appError';
 import { appFailureText } from './appErrorText';
 
@@ -38,7 +39,13 @@ export function providerErrorTitle(info: ProviderErrorInfo, t: ProviderErrorsDic
   return t.kinds[info.kind] ?? t.kinds.unknown;
 }
 
-export function providerErrorAdvice(info: ProviderErrorInfo, t: ProviderErrorsDict): string | undefined {
+/** Текст ошибки настройки или ошибки ProjectHub: по коду (decision-165), без кода или словаря — `message` как есть. */
+function keyedMessage(info: ProviderErrorInfo, appErrors: AppErrorLabels | undefined): string | undefined {
+  const key = appErrors ? asAppErrorKey(info.messageKey) : undefined;
+  return (key && appErrors && formatAppError(key, appErrors)) || info.message || undefined;
+}
+
+export function providerErrorAdvice(info: ProviderErrorInfo, t: ProviderErrorsDict, appErrors?: AppErrorLabels): string | undefined {
   const a = t.advice;
   switch (info.kind) {
     case 'auth':
@@ -81,13 +88,13 @@ export function providerErrorAdvice(info: ProviderErrorInfo, t: ProviderErrorsDi
           return a.badRequest;
       }
     case 'config':
-      return info.reason === 'endpoint' ? a.endpoint : info.message || undefined;
+      return info.reason === 'endpoint' ? a.endpoint : keyedMessage(info, appErrors);
     default:
-      return info.serverMessage ? undefined : info.message || undefined;
+      return info.serverMessage ? undefined : keyedMessage(info, appErrors);
   }
 }
 
-export function providerErrorView(info: ProviderErrorInfo, t: ProviderErrorsDict): ProviderErrorView {
+export function providerErrorView(info: ProviderErrorInfo, t: ProviderErrorsDict, appErrors?: AppErrorLabels): ProviderErrorView {
   const details: ProviderErrorDetail[] = [];
   if (info.provider) details.push({ label: t.provider, value: info.provider });
   if (info.model) details.push({ label: t.model, value: info.model });
@@ -96,7 +103,7 @@ export function providerErrorView(info: ProviderErrorInfo, t: ProviderErrorsDict
   if (code) details.push({ label: t.status, value: code });
   return {
     title: providerErrorTitle(info, t),
-    advice: providerErrorAdvice(info, t),
+    advice: providerErrorAdvice(info, t, appErrors),
     details,
     ...(info.serverMessage ? { serverMessage: info.serverMessage } : {}),
     retryHint: info.retryable ? t.retryable : t.notRetryable

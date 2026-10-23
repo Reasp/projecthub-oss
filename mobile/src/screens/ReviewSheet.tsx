@@ -8,6 +8,7 @@ import { checkStatusText, outcomeText, projectName, type FeedSource } from '../p
 import { capabilitiesFor } from '../protocol/models';
 import { fieldProps } from '../components/FieldEditor';
 import { useT } from '../i18n/react';
+import { failureText } from '../app/errorText';
 import type { RemoteReviewItem, RemoteReviewScreenshot } from '../../../src/types/remote';
 
 /** Скриншот проверки `ui-smoke`: грузится по нажатию, частями с того ПК, где лежит отчёт. */
@@ -168,7 +169,7 @@ export function ReviewSheet({ source, item, open, onClose }: { source: FeedSourc
                       {tr.inbox.testsLine(check.passedTests ?? 0, check.failedTests ?? 0)}
                     </div>
                   )}
-                  {check.detail && <pre className="selectable mt-1 whitespace-pre-wrap break-words pl-6 font-mono text-[11px] text-slate-400">{check.detail}</pre>}
+                  {check.detail && <pre className="selectable mt-1 whitespace-pre-wrap break-words pl-6 font-mono text-[11px] text-slate-400">{failureText({ error: check.detail, errorKey: check.detailKey })}</pre>}
                 </li>
               );
             })}

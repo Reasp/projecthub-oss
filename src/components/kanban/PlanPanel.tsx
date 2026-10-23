@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, GitMerge, Loader2, Network, Play, RefreshCw, Settings2, SkipForward, Square, Trash2 } from '../common/icons';
 import type { ModelRouteView, PlanEventPayload, PlanModelsPreview, PlanNode, PlanState } from '../../types/electron';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { formatPlanCost, nodeTone, planActions, planCounts, planLevels, type PlanNodeTone } from '../../lib/planGraphView';
 import { describeModelRoute, requestOpenAiSettings } from '../../lib/modelRouteText';
@@ -33,6 +33,11 @@ interface PlanPanelProps {
   taskTitle: string;
   /** Открыть сессию узла в Swarm Arena. */
   onOpenSession?: (swarmId: string) => void;
+}
+
+/** Причина плана или узла — по коду на языке окна (decision-165), без кода — текст main как есть. */
+function reasonText(x: { reason?: string; reasonKey?: unknown }): string {
+  return ipcFailureText({ error: x.reason, errorKey: x.reasonKey });
 }
 
 export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskTitle, onOpenSession }) => {
@@ -83,14 +88,14 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
   // Хэш графа считает main-процесс; здесь достаточно факта, что план уже утверждён.
   const actions = useMemo(() => planActions(plan), [plan]);
 
-  const run = async (fn: () => Promise<{ success: boolean; error?: string } | void>) => {
+  const run = async (fn: () => Promise<{ success: boolean; error?: string; errorKey?: unknown } | void>) => {
     setBusy(true);
     setError(null);
     try {
       const result = await fn();
-      if (result && 'success' in result && !result.success && result.error) setError(result.error);
+      if (result && 'success' in result && !result.success && result.error) setError(ipcFailureText(result));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(ipcErrorText(err));
     } finally {
       setBusy(false);
     }
@@ -100,7 +105,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
     run(async () => {
       const result = await window.api.generatePlan({ projectPath, taskId, taskTitle });
       if (result && 'error' in result) {
-        setError(result.error);
+        setError(ipcFailureText(result));
         return;
       }
       setPlan(result);
@@ -149,7 +154,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
     if (plan.phase === 'planning') return { tone: 'active' as const, text: t.plan.generating };
     if (plan.phase === 'awaiting_approval') return { tone: 'warn' as const, text: t.plan.awaitingApproval };
     if (actions.needsReapproval) return { tone: 'warn' as const, text: t.plan.changed };
-    if (plan.phase === 'failed' && plan.reason) return { tone: 'error' as const, text: t.plan.error.replace('{error}', plan.reason) };
+    if (plan.phase === 'failed' && plan.reason) return { tone: 'error' as const, text: t.plan.error.replace('{error}', reasonText(plan)) };
     if (plan.phase === 'finished' && plan.outcome) {
       const label = t.plan.outcomes[plan.outcome];
       return { tone: plan.outcome === 'success' ? ('done' as const) : ('warn' as const), text: `${t.plan.title}: ${label}` };
@@ -347,7 +352,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
                   )}
                 </div>
 
-                {node.reason && <div className="mt-1 text-[11px] opacity-80 break-words">{node.reason}</div>}
+                {node.reason && <div className="mt-1 text-[11px] opacity-80 break-words">{reasonText(node)}</div>}
 
                 {node.state === 'conflict' && (
                   <div className="mt-1.5 space-y-1">

@@ -15,7 +15,9 @@ import path from 'node:path';
 import treeKill from 'tree-kill';
 import { getUserDataDir } from './appPaths.js';
 import type { AppBusEvent } from './hitlTypes.js';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 import {
+  auditMessage,
   buildFindingTask,
   detectAuditTargets,
   emptyCounts,
@@ -124,7 +126,7 @@ function isSafeArg(arg: string): boolean {
 /** Запуск CLI с полным stdout (у `processManager.runOnce` — только хвост). На Windows `npm` — это `npm.cmd`, нужна оболочка. */
 export function defaultRunTool(command: string, args: string[], options: { cwd: string; timeoutMs: number }): Promise<ToolRunResult> {
   const bad = [command, ...args].find((a) => !isSafeArg(a));
-  if (bad !== undefined) return Promise.resolve({ code: null, stdout: '', stderr: '', timedOut: false, error: `Недопустимый аргумент команды: ${bad.slice(0, 80)}` });
+  if (bad !== undefined) return Promise.resolve({ code: null, stdout: '', stderr: '', timedOut: false, error: `Invalid command argument: ${bad.slice(0, 80)}` });
   return new Promise((resolve) => {
     const env: NodeJS.ProcessEnv = { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', npm_config_fund: 'false', npm_config_update_notifier: 'false', PYTHONIOENCODING: 'utf-8' };
     delete env.ELECTRON_RUN_AS_NODE;
@@ -163,7 +165,7 @@ export function defaultRunTool(command: string, args: string[], options: { cwd: 
         stdout: Buffer.concat(out).toString('utf8'),
         stderr: Buffer.concat(errOut).toString('utf8'),
         timedOut,
-        ...(error ? { error } : outBytes > AUDIT_MAX_OUTPUT_BYTES ? { error: 'Вывод длиннее 32 МБ' } : {})
+        ...(error ? { error } : outBytes > AUDIT_MAX_OUTPUT_BYTES ? { error: 'Output is longer than 32 MB' } : {})
       });
     };
     child.on('error', (err) => finish(null, err.message));
@@ -207,8 +209,8 @@ function priorityFor(severity: AuditSeverity): string {
   return severity === 'critical' || severity === 'high' || severity === 'unknown' ? 'high' : severity === 'moderate' ? 'medium' : 'low';
 }
 
-function errorStatus(message: string, errorKind: AuditErrorKind): EcosystemAuditParse {
-  return { status: 'error', errorKind, message, findings: [], counts: emptyCounts() };
+function errorStatus(message: string | AppError, errorKind: AuditErrorKind): EcosystemAuditParse {
+  return { status: 'error', errorKind, ...auditMessage(message), findings: [], counts: emptyCounts() };
 }
 
 interface RegistryCacheFile {
@@ -297,7 +299,7 @@ export class SecurityHealthService {
       const startedAt = this.deps.now();
       let parsed: EcosystemAuditParse;
       if (!target.run) {
-        parsed = { status: target.status as AuditRunStatus, findings: [], counts: emptyCounts(), ...(target.message ? { message: target.message } : {}) };
+        parsed = { status: target.status as AuditRunStatus, findings: [], counts: emptyCounts(), ...(target.message ? { message: target.message } : {}), ...(target.messageKey ? { messageKey: target.messageKey } : {}) };
       } else if (target.ecosystem === 'npm') {
         parsed = await this.runNpmAudit(root);
       } else {
@@ -318,7 +320,8 @@ export class SecurityHealthService {
           stale: true,
           staleSince: prior.staleSince ?? prior.ranAt,
           ...(entry.errorKind ? { errorKind: entry.errorKind } : {}),
-          message: entry.message
+          message: entry.message,
+          messageKey: entry.messageKey
         });
       } else {
         ecosystems.push(entry);
@@ -365,10 +368,10 @@ export class SecurityHealthService {
 
   private async runNpmAudit(root: string): Promise<EcosystemAuditParse> {
     const res = await this.deps.runTool('npm', ['audit', '--json'], { cwd: root, timeoutMs: AUDIT_TIMEOUT_MS });
-    if (res.timedOut) return errorStatus(`npm audit не ответил за ${AUDIT_TIMEOUT_MS / 1000} с`, 'timeout');
+    if (res.timedOut) return errorStatus(new AppError('security.timeout', { tool: 'npm audit', seconds: AUDIT_TIMEOUT_MS / 1000 }), 'timeout');
     if (res.error && !res.stdout) {
       if (/ENOENT|not recognized|не является/i.test(`${res.error} ${res.stderr}`)) {
-        return { status: 'not_installed', findings: [], counts: emptyCounts(), message: 'npm не найден в PATH' };
+        return { status: 'not_installed', findings: [], counts: emptyCounts(), ...auditMessage(new AppError('security.npmMissing')) };
       }
       return errorStatus(res.error, 'tool');
     }
@@ -395,13 +398,13 @@ export class SecurityHealthService {
 
   private async runPipAudit(root: string, manifest: string): Promise<EcosystemAuditParse> {
     const cmd = await this.pipAuditCommand(root);
-    if (!cmd) return { status: 'not_installed', findings: [], counts: emptyCounts(), message: 'pip-audit не установлен (pip install pip-audit)' };
+    if (!cmd) return { status: 'not_installed', findings: [], counts: emptyCounts(), ...auditMessage(new AppError('security.pipAuditMissing')) };
     // --no-deps --disable-pip: без установки пакетов во временное окружение (сборка sdist исполняла бы чужой код).
     const res = await this.deps.runTool(cmd[0], [...cmd.slice(1), '-r', manifest, '--no-deps', '--disable-pip', '-f', 'json', '--progress-spinner', 'off'], {
       cwd: root,
       timeoutMs: AUDIT_TIMEOUT_MS
     });
-    if (res.timedOut) return errorStatus(`pip-audit не ответил за ${AUDIT_TIMEOUT_MS / 1000} с`, 'timeout');
+    if (res.timedOut) return errorStatus(new AppError('security.timeout', { tool: 'pip-audit', seconds: AUDIT_TIMEOUT_MS / 1000 }), 'timeout');
     if (res.error && !res.stdout && !res.stderr) return errorStatus(res.error, 'tool');
     return parsePipAudit(res.stdout, res.stderr);
   }
@@ -412,17 +415,17 @@ export class SecurityHealthService {
     root: string,
     ecosystem: AuditEcosystem,
     pkg: string
-  ): Promise<{ ok: true; taskId: string; existed: boolean } | { ok: false; error: string }> {
+  ): Promise<{ ok: true; taskId: string; existed: boolean } | { ok: false; error: string; errorKey?: AppErrorKey }> {
     const report = await this.getReport(root);
-    if (!report) return { ok: false, error: 'Аудит проекта ещё не запускался' };
+    if (!report) return { ok: false, ...appErrorFields(new AppError('security.noReport')) };
     const key = `${ecosystem}:${pkg}`;
     const existing = report.tasks[key];
     if (existing) return { ok: true, taskId: existing, existed: true };
     const finding = report.ecosystems.flatMap((e) => e.findings).find((f) => f.ecosystem === ecosystem && f.package === pkg);
-    if (!finding) return { ok: false, error: `Находка ${pkg} не найдена в последнем отчёте` };
+    if (!finding) return { ok: false, ...appErrorFields(new AppError('security.findingNotFound', { pkg })) };
     const task = buildFindingTask(finding, path.basename(root));
     const created = await this.deps.createTask(root, { ...task, priority: priorityFor(finding.severity) });
-    if (!created) return { ok: false, error: 'Не удалось создать задачу Backlog' };
+    if (!created) return { ok: false, ...appErrorFields(new AppError('security.taskCreateFailed')) };
     const fresh = (await this.getReport(root)) ?? report;
     fresh.tasks = { ...fresh.tasks, [key]: created.id };
     await this.writeJson(this.reportFile(root), fresh);
@@ -462,7 +465,7 @@ export class SecurityHealthService {
         if (spec === undefined) return;
         const version = spec.lastIndexOf('@') > 0 ? spec.slice(spec.lastIndexOf('@') + 1) : undefined;
         const res = await this.deps.runTool('npm', ['view', spec, 'time', 'deprecated', '--json'], { cwd, timeoutMs: REGISTRY_TIMEOUT_MS });
-        const meta: RegistryMeta = res.timedOut ? { error: 'тайм-аут registry' } : parseNpmViewOutput(res.stdout, version, res.stderr || res.error || '');
+        const meta: RegistryMeta = res.timedOut ? { error: 'registry timeout' } : parseNpmViewOutput(res.stdout, version, res.stderr || res.error || '');
         result.set(spec, meta);
         if (!meta.error) cache.entries[spec] = { meta, at: this.deps.now() };
       }

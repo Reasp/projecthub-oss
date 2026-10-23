@@ -63,7 +63,7 @@ export function flattenTurnMessages(messages: readonly TurnMessage[]): string {
 
 export function buildClaudeCliTurnCommand(input: ClaudeCliTurnInput): ClaudeCliTurnCommand {
   const stdin = flattenTurnMessages(input.messages);
-  if (!stdin.trim()) throw new Error('Пустой запрос: в ходе нет сообщения пользователя.');
+  if (!stdin.trim()) throw new Error('Empty request: the turn has no user message.');
   const model = input.model?.trim();
   const args = [
     '-p',
@@ -90,13 +90,13 @@ export function parseClaudeCliTurnOutput(stdout: string, ctx: ProviderErrorConte
   const trimmed = stdout.trim();
   // CLI иногда печатает предупреждения перед JSON — берём последний объект верхнего уровня
   const start = trimmed.lastIndexOf('\n{') >= 0 ? trimmed.lastIndexOf('\n{') + 1 : trimmed.indexOf('{');
-  if (start < 0) throw new Error(`Claude CLI вернул не JSON: ${trimmed.slice(0, 200)}`);
+  if (start < 0) throw new Error(`Claude CLI returned non-JSON output: ${trimmed.slice(0, 200)}`);
 
   let data: Record<string, unknown>;
   try {
     data = JSON.parse(trimmed.slice(start)) as Record<string, unknown>;
   } catch (err) {
-    throw new Error(`Claude CLI вернул некорректный JSON: ${trimmed.slice(0, 200)}`, { cause: err });
+    throw new Error(`Claude CLI returned invalid JSON: ${trimmed.slice(0, 200)}`, { cause: err });
   }
 
   const apiError = parseClaudeCliErrorEvent(data);
@@ -105,7 +105,7 @@ export function parseClaudeCliTurnOutput(stdout: string, ctx: ProviderErrorConte
     const detail = typeof data.result === 'string' && data.result ? data.result : String(data.subtype ?? 'unknown error');
     throw new Error(`Claude CLI: ${detail}`);
   }
-  if (typeof data.result !== 'string') throw new Error('Claude CLI не вернул текст ответа');
+  if (typeof data.result !== 'string') throw new Error('Claude CLI returned no response text');
 
   return {
     text: data.result.trim(),

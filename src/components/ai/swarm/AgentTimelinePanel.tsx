@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, History, Play, RefreshCw, RotateCcw, ShieldCheck, Shuffle, AlertTriangle } from '../../common/icons';
-import { useTranslation } from '../../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../../i18n/useTranslation';
 import { useDialog } from '../../../hooks/useDialog';
-import type { AgentSlotState, AgentTimelineView, SwarmSession, TimelineHitl } from '../../../types/electron';
+import type { AgentActionAvailability, AgentSlotState, AgentTimelineView, SwarmSession, TimelineHitl } from '../../../types/electron';
 import { formatTokens, formatUsd } from '../../../utils/swarmFormat';
 import {
   TIMELINE_FILTER_ALL,
@@ -30,6 +30,11 @@ interface Props {
  * инструментов с длительностью, статусом, размером вывода, токенами и стоимостью хода, решения HITL,
  * чекпоинты с откатом и продолжение агента. Таймлайн собирает main-процесс из файла трассы.
  */
+/** Почему действие недоступно — по коду на языке окна (decision-165), без кода — текст main как есть. */
+function availabilityReason(a: AgentActionAvailability): string {
+  return a.reason ? ipcFailureText({ error: a.reason, errorKey: a.reasonKey }) : '';
+}
+
 export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
   const { t } = useTranslation();
   const tt = t.agentTimeline;
@@ -75,7 +80,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
     const cp = view?.checkpoints.find((c) => c.n === n);
     if (!cp || !view) return;
     if (!view.rewind.allowed) {
-      await dialog.alert(tt.rewindUnavailable.replace('{reason}', view.rewind.reason ?? ''));
+      await dialog.alert(tt.rewindUnavailable.replace('{reason}', availabilityReason(view.rewind)));
       return;
     }
     const ok = await dialog.confirm({
@@ -99,7 +104,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
             .replace('{pre}', res.preRewindCheckpoint !== undefined ? String(res.preRewindCheckpoint) : '—')
         );
       } else {
-        await dialog.alert(tt.rewindError.replace('{error}', res.error ?? ''));
+        await dialog.alert(tt.rewindError.replace('{error}', ipcFailureText(res)));
       }
     } finally {
       setBusy(false);
@@ -121,7 +126,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
     setBusy(true);
     try {
       const res = await window.api.continueAgent(session.id, agent.id, instruction || undefined);
-      if (!res.success) await dialog.alert(tt.continueError.replace('{error}', res.error ?? ''));
+      if (!res.success) await dialog.alert(tt.continueError.replace('{error}', ipcFailureText(res)));
     } finally {
       setBusy(false);
       void load();
@@ -131,7 +136,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
   const handleExport = async () => {
     const res = await window.api.exportAgentTrace(session.id, agent.id);
     if (res.success && res.path) setNotice(tt.exportTraceDone.replace('{path}', res.path));
-    else if (!res.canceled) await dialog.alert(tt.exportTraceError.replace('{error}', res.error ?? ''));
+    else if (!res.canceled) await dialog.alert(tt.exportTraceError.replace('{error}', ipcFailureText(res)));
   };
 
   const hitlBadge = (h: TimelineHitl, i: number) => (
@@ -388,8 +393,8 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
         <div className="font-semibold flex items-center gap-1 text-foreground">
           <History className="w-3 h-3" /> {tt.checkpointsTitle}
           {view && !view.rewind.allowed && view.rewind.reason && (
-            <span className="font-normal text-muted-foreground ml-1 truncate" title={view.rewind.reason}>
-              — {view.rewind.reason}
+            <span className="font-normal text-muted-foreground ml-1 truncate" title={availabilityReason(view.rewind)}>
+              — {availabilityReason(view.rewind)}
             </span>
           )}
         </div>
@@ -410,7 +415,7 @@ export const AgentTimelinePanel: React.FC<Props> = ({ session, agent }) => {
                 type="button"
                 disabled={busy || !view.rewind.allowed}
                 onClick={() => void handleRewind(cp.n)}
-                title={view.rewind.allowed ? tt.rewindButton : tt.rewindUnavailable.replace('{reason}', view.rewind.reason ?? '')}
+                title={view.rewind.allowed ? tt.rewindButton : tt.rewindUnavailable.replace('{reason}', availabilityReason(view.rewind))}
                 className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-40"
                 data-testid={`agent-rewind-${cp.n}`}
               >

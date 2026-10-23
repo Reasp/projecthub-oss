@@ -956,6 +956,8 @@ export interface TaskPullRequestsResult {
   /** Ссылки на PR из задачи, статус которых получить не удалось (нет подключения, сеть). */
   unresolved: string[];
   error?: string;
+  /** Код ошибки (decision-165): текст — по словарю `appErrors`. */
+  errorKey?: import('../lib/appError').AppErrorKey;
 }
 
 export interface DocItem {
@@ -1304,9 +1306,9 @@ export interface IElectronAPI {
   setPRMergeStatus: (projectPath: string, status: string | null) => Promise<PRProviderInfo>;
   getTaskPullRequests: (projectPath: string, taskId: string) => Promise<TaskPullRequestsResult>;
   // Ревью PR (TASK-81, decision-53)
-  listPrReviews: (projectPath: string, prNumber?: number) => Promise<{ ok: boolean; reviews: PrReviewRecord[]; error?: string }>;
-  startPrReview: (projectPath: string, prNumber: number, options: PrReviewStartOptions) => Promise<{ ok: true; reviewId: string } | { ok: false; error: string }>;
-  publishPrReview: (projectPath: string, reviewId: string) => Promise<{ ok: true; url: string } | { ok: false; error: string }>;
+  listPrReviews: (projectPath: string, prNumber?: number) => Promise<{ ok: boolean; reviews: PrReviewRecord[]; error?: string; errorKey?: import('../lib/appError').AppErrorKey }>;
+  startPrReview: (projectPath: string, prNumber: number, options: PrReviewStartOptions) => Promise<{ ok: true; reviewId: string } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
+  publishPrReview: (projectPath: string, reviewId: string) => Promise<{ ok: true; url: string } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
   onPrReviewChanged: (callback: () => void) => () => void;
 
   // Interactive PTY Terminals (Claude Code & Multi-tab Shell)
@@ -1468,7 +1470,7 @@ export interface IElectronAPI {
   startSwarmDoneLoop: (options: StartDoneLoopOptions) => Promise<SwarmSession | { error: string }>;
   getDoneLoopConfig: (projectPath: string) => Promise<DoneLoopSettings>;
   // Планировщик подзадач (TASK-80, decision-49)
-  generatePlan: (options: GeneratePlanOptions) => Promise<PlanState | { error: string }>;
+  generatePlan: (options: GeneratePlanOptions) => Promise<PlanState | { error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
   listPlans: (projectPath?: string) => Promise<PlanState[]>;
   getPlanForTask: (projectPath: string, taskId: string) => Promise<PlanState | null>;
   /** Чем план будет построен и исполнен сейчас (decision-75). */
@@ -1503,7 +1505,7 @@ export interface IElectronAPI {
   composeSwarmResult: (swarmId: string, selections: ComposeSelection[]) => Promise<ComposeResult>;
   getArenaConfig: (projectPath: string) => Promise<ArenaConfig>;
   /** Скриншот проверки ui-smoke как data URL (только из <userData>/visual). */
-  readVisualArtifact: (relPath: string) => Promise<{ dataUrl: string; bytes: number } | { error: string }>;
+  readVisualArtifact: (relPath: string) => Promise<{ dataUrl: string; bytes: number } | { error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
   /** Показать артефакт (скриншот, trace) в папке. */
   revealVisualArtifact: (relPath: string) => Promise<boolean>;
   saveArenaConfig: (
@@ -1569,7 +1571,7 @@ export interface IElectronAPI {
   listAutomations: () => Promise<AutomationListResult>;
   saveAutomationRule: (rule: AutomationRuleInput) => Promise<{ ok: true; rule: AutomationRule } | { ok: false; error: string }>;
   deleteAutomationRule: (id: string) => Promise<boolean>;
-  setAutomationEnabled: (key: string, enabled: boolean, hash?: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  setAutomationEnabled: (key: string, enabled: boolean, hash?: string) => Promise<{ ok: true } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
   runAutomationNow: (key: string) => Promise<AutomationRunNowResult>;
   resumeAutomation: (key: string) => Promise<boolean>;
   getAutomationLog: (limit?: number) => Promise<AutomationLogEntry[]>;
@@ -1577,9 +1579,13 @@ export interface IElectronAPI {
   onAutomationsChanged: (callback: () => void) => () => void;
 
   // Security Health (TASK-73, decision-56)
-  getSecurityReport: (projectPath: string) => Promise<{ ok: boolean; report: SecurityReport | null; running: boolean; error?: string }>;
-  runSecurityAudit: (projectPath: string) => Promise<{ ok: true; report: SecurityReport; newFindings: number } | { ok: false; error: string }>;
-  createSecurityTask: (projectPath: string, ecosystem: AuditEcosystem, pkg: string) => Promise<{ ok: true; taskId: string; existed: boolean } | { ok: false; error: string }>;
+  getSecurityReport: (projectPath: string) => Promise<{ ok: boolean; report: SecurityReport | null; running: boolean; error?: string; errorKey?: import('../lib/appError').AppErrorKey }>;
+  runSecurityAudit: (projectPath: string) => Promise<{ ok: true; report: SecurityReport; newFindings: number } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
+  createSecurityTask: (
+    projectPath: string,
+    ecosystem: AuditEcosystem,
+    pkg: string
+  ) => Promise<{ ok: true; taskId: string; existed: boolean } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }>;
   getSecuritySettings: () => Promise<SecuritySettings>;
   saveSecuritySettings: (patch: Partial<SecuritySettings>) => Promise<SecuritySettings>;
   onSecurityReportUpdated: (callback: (projectPath: string) => void) => () => void;
@@ -1985,6 +1991,7 @@ export interface ClaudeAuthStatus {
   accountId?: string;
   accountName?: string;
   error?: string;
+  errorKey?: import('../lib/appError').AppErrorKey;
 }
 
 export interface AutoApproveRules {
@@ -2466,16 +2473,18 @@ export interface PrReviewRecord {
   startedAt: number;
   finishedAt?: number;
   error?: string;
+  /** Коды ошибок (decision-165): текст — по словарю `appErrors`. */
+  errorKey?: import('../lib/appError').AppErrorKey;
   origin: 'manual' | 'automation';
   taskId?: string;
   budgetUsd?: number;
   costUsd?: number;
-  reviewers: { roleSlug: string; name: string; agentId?: string; status: 'pending' | 'done' | 'failed'; findings: number; summary?: string; error?: string }[];
-  verifier?: { roleSlug: string; name?: string; status: 'pending' | 'done' | 'failed' | 'skipped'; error?: string };
+  reviewers: { roleSlug: string; name: string; agentId?: string; status: 'pending' | 'done' | 'failed'; findings: number; summary?: string; error?: string; errorKey?: import('../lib/appError').AppErrorKey }[];
+  verifier?: { roleSlug: string; name?: string; status: 'pending' | 'done' | 'failed' | 'skipped'; error?: string; errorKey?: import('../lib/appError').AppErrorKey };
   swarmIds: string[];
   findings: PrReviewFinding[];
   comment?: string;
-  publish: { mode: 'hitl' | 'manual'; state: 'none' | 'pending' | 'published' | 'declined' | 'blocked' | 'failed'; requestId?: string; commentUrl?: string; error?: string; at?: number };
+  publish: { mode: 'hitl' | 'manual'; state: 'none' | 'pending' | 'published' | 'declined' | 'blocked' | 'failed'; requestId?: string; commentUrl?: string; error?: string; errorKey?: import('../lib/appError').AppErrorKey; at?: number };
 }
 
 export interface PrReviewStartOptions {
@@ -2597,7 +2606,7 @@ export interface AutomationListResult {
   settings: AutomationsSettings;
 }
 
-export type AutomationRunNowResult = { ok: true; runIds: string[] } | { ok: false; reason: string };
+export type AutomationRunNowResult = { ok: true; runIds: string[] } | { ok: false; reason: string; reasonKey?: import('../lib/appError').AppErrorKey };
 
 export interface AutomationLogEntry {
   ts: string;
@@ -2614,6 +2623,8 @@ export interface AutomationLogEntry {
   action?: string;
   reason?: string;
   detail?: string;
+  /** Код подробности (decision-165): текст — по словарю `appErrors`. */
+  detailKey?: import('../lib/appError').AppErrorKey;
   swarmId?: string;
   costUsd?: number;
   durationMs?: number;
@@ -2755,6 +2766,7 @@ export interface TrackerJournalEntry {
   title?: string;
   fields?: TrackerField[];
   detail?: string;
+  detailKey?: import('../lib/appError').AppErrorKey;
 }
 
 export interface TrackerRunSummary {
@@ -2763,6 +2775,7 @@ export interface TrackerRunSummary {
   dryRun: boolean;
   ok: boolean;
   error?: string;
+  errorKey?: import('../lib/appError').AppErrorKey;
   counts: Partial<Record<TrackerJournalKind, number>>;
   entries: TrackerJournalEntry[];
 }
@@ -3043,6 +3056,8 @@ export interface TaskDraftResponse {
   model?: string;
   /** `empty_title`, `unparsed` (ответ не похож на черновик) или текст ошибки. */
   error?: string;
+  /** Код ошибки (decision-165): текст — по словарю `appErrors`. */
+  errorKey?: import('../lib/appError').AppErrorKey;
   /** Цель назначения «Черновик описания задачи» непригодна: `error` называет назначение. */
   modelProblem?: boolean;
   providerError?: ProviderErrorInfo;
@@ -3063,6 +3078,8 @@ export interface ProviderErrorInfo {
   reasoningEffort?: string;
   serverMessage?: string;
   message: string;
+  /** Код ошибки настройки или ошибки ProjectHub (decision-165): совет — по словарю `appErrors`, `message` — английский. */
+  messageKey?: import('../lib/appError').AppErrorKey;
   /** Назначение, для которого выбиралась модель (TASK-134.1, decision-74). */
   purpose?: string;
 }
@@ -3296,6 +3313,8 @@ export interface ClaudeUsageData {
     toolCallCount: number;
   }[];
   rawText?: string;
+  /** Источники данных без вывода CLI (TASK-202.4): окно собирает пояснение на своём языке. */
+  sources?: { accountName: string; configDir: string; statsFile: string; hasStatsCache: boolean; rateLimitsAt?: number };
   updatedAt: number;
   isFallback?: boolean;
   /** Профиль аккаунта Claude Code, чьи это лимиты (TASK-152.5). */
@@ -3477,6 +3496,8 @@ export interface CheckRunResult {
   outputTail?: string;
   outputTruncated?: boolean;
   detail?: string;
+  /** Код причины (decision-165): текст — по словарю `appErrors`, `detail` — английский запасной. */
+  detailKey?: import('../lib/appError').AppErrorKey;
   artifacts?: CheckArtifact[];
   artifactsTruncated?: boolean;
 }
@@ -3579,6 +3600,7 @@ export interface ComposeSelection {
 export interface ComposeResult {
   success: boolean;
   error?: string;
+  errorKey?: import('../lib/appError').AppErrorKey;
   applied?: Array<{ agentId: string; branch: string; files: string[] }>;
 }
 
@@ -3619,6 +3641,8 @@ export interface AgentSlotState {
   metrics: AgentSlotMetrics;
   winner?: boolean;
   error?: string;
+  /** Код ошибки агента (decision-165): текст — по словарю `appErrors`. */
+  errorKey?: import('../lib/appError').AppErrorKey;
   commitHash?: string;
   stashHash?: string;
   commitStatus?: 'committed' | 'stashed' | 'no_changes' | 'pending';
@@ -3826,6 +3850,7 @@ export interface AgentTimeline {
 export interface AgentActionAvailability {
   allowed: boolean;
   reason?: string;
+  reasonKey?: import('../lib/appError').AppErrorKey;
 }
 
 /** Ответ `swarm:getTimeline` (зеркало `AgentTimelineView` из agentFleetService). */
@@ -3844,6 +3869,7 @@ export interface AgentTimelineView {
 export interface AgentRewindResult {
   success: boolean;
   error?: string;
+  errorKey?: import('../lib/appError').AppErrorKey;
   removedFiles?: number;
   preRewindCheckpoint?: number;
   commitHash?: string;
@@ -3974,6 +4000,7 @@ export interface SwarmSession {
   winnerAgentId?: string;
   pendingMergeApproval?: { requestId: string; agentIds: string[]; since: number };
   error?: string;
+  errorKey?: import('../lib/appError').AppErrorKey;
   budgetUsd?: number;
   totalCostUsd?: number;
   /** Примечания ограничений при запуске (бюджеты Team, decision-124). */
@@ -4208,6 +4235,8 @@ export interface PlanNode {
   costUsd?: number;
   iterations?: number;
   reason?: string;
+  /** Код причины (decision-165): текст — по словарю `appErrors`. */
+  reasonKey?: import('../lib/appError').AppErrorKey;
   /** Назначение, для которого не удалось выбрать модель (decision-75). */
   reasonPurpose?: string;
   /** Тир, который подзадаче назначила роль architect (decision-75). */
@@ -4235,6 +4264,7 @@ export interface PlanState {
   phase: PlanPhase;
   outcome?: PlanOutcome;
   reason?: string;
+  reasonKey?: import('../lib/appError').AppErrorKey;
   /** Назначение, для которого не удалось выбрать модель (decision-75). */
   reasonPurpose?: string;
   createdAt: number;
@@ -4320,6 +4350,8 @@ export interface EcosystemReport {
   status: AuditRunStatus;
   errorKind?: 'network' | 'timeout' | 'format' | 'tool';
   message?: string;
+  /** Код причины (decision-165): текст — по словарю `appErrors`, без кода `message` — текст инструмента. */
+  messageKey?: import('../lib/appError').AppErrorKey;
   findings: AuditFinding[];
   counts: SeverityCounts;
   dependencyCount?: number;

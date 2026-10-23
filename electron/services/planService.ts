@@ -51,6 +51,7 @@ import {
 } from './planDispatcher.js';
 import { PlanStore } from './planStore.js';
 import type { AgentPlan, PlanNode, PlanOutcome, PlanSettings, PlanState } from './planTypes.js';
+import { AppError, appErrorFields, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import type { AgentSlotConfig, SwarmEventPayload, SwarmSession } from './swarmTypes.js';
 
 /** Сколько ждём ответа роли `architect` на одну попытку. */
@@ -90,6 +91,35 @@ const NODE_ROLE = 'implementer';
 export interface PlanModelsPreview {
   architect: ModelRouteView;
   node: ModelRouteView;
+}
+
+type ReasonSource = AppError | Error | string | { error: string; errorKey?: AppErrorKey } | unknown;
+
+/** Причина узла или плана: английский текст и код (decision-165); строка или ошибка без кода — текст как есть. */
+function reasonFields(source: ReasonSource): { reason: string; reasonKey?: AppErrorKey } {
+  if (typeof source === 'string') return { reason: source };
+  if (source && typeof source === 'object' && 'error' in source && typeof (source as { error: unknown }).error === 'string') {
+    const { error, errorKey } = source as { error: string; errorKey?: AppErrorKey };
+    return errorKey ? { reason: error, reasonKey: errorKey } : { reason: error };
+  }
+  const { error, errorKey } = appErrorFields(source);
+  return errorKey ? { reason: error, reasonKey: errorKey } : { reason: error };
+}
+
+function setReason(target: { reason?: string; reasonKey?: AppErrorKey }, source: ReasonSource | undefined): void {
+  if (source === undefined) {
+    target.reason = undefined;
+    target.reasonKey = undefined;
+    return;
+  }
+  const fields = reasonFields(source);
+  target.reason = fields.reason;
+  target.reasonKey = fields.reasonKey;
+}
+
+/** Причина сбоя для подстановки в ошибку плана: код, если он есть, иначе текст. */
+function causeOf(err: unknown): AppErrorKey | string {
+  return appErrorKeyOf(err) ?? (err instanceof Error ? err.message : String(err));
 }
 
 function slug(value: string): string {
@@ -150,7 +180,7 @@ export class PlanService extends EventEmitter {
           const session = node.swarmId ? this.deps.fleet.getSwarm(node.swarmId) : undefined;
           if (!session || session.status !== 'running') {
             node.state = 'pending';
-            node.reason = 'Сессия узла прервана перезапуском приложения';
+            setReason(node, new AppError('plans.nodeInterrupted'));
           }
         }
       }
@@ -203,11 +233,11 @@ export class PlanService extends EventEmitter {
   public async generatePlan(options: GeneratePlanOptions): Promise<PlanState> {
     const { projectPath, taskId } = options;
     const task = await findTaskFile(projectPath, taskId);
-    if (!task) throw new Error(`Задача ${taskId} не найдена в backlog/tasks`);
+    if (!task) throw new AppError('plans.taskNotFound', { id: taskId });
 
     const existing = this.getPlanForTask(projectPath, taskId);
     if (existing && (existing.phase === 'planning' || existing.phase === 'running')) {
-      throw new Error(`Для ${taskId} уже есть активный план`);
+      throw new AppError('plans.alreadyActive', { id: taskId });
     }
 
     const settings: PlanSettings = {
@@ -244,7 +274,7 @@ export class PlanService extends EventEmitter {
       this.emitPlan(plan, true);
     } catch (err) {
       plan.phase = 'failed';
-      plan.reason = err instanceof Error ? err.message : String(err);
+      setReason(plan, err);
       // Ошибка выбора модели называет назначение: по нему панель ведёт в настройки.
       const purpose = providerErrorInfoOf(err)?.purpose;
       if (purpose) plan.reasonPurpose = purpose;
@@ -342,9 +372,7 @@ export class PlanService extends EventEmitter {
       } as AIMessage);
     }
 
-    throw new Error(
-      `Роль architect не вернула валидный план за ${MAX_PLAN_ATTEMPTS} попытки: ${(plan.architect.errors ?? []).join('; ')}`
-    );
+    throw new AppError('plans.invalidPlan', { attempts: MAX_PLAN_ATTEMPTS, errors: (plan.architect.errors ?? []).join('; ') });
   }
 
   /** Создаёт подзадачи Backlog.md по плану и записывает читаемый план в родительскую задачу. */
@@ -368,7 +396,7 @@ export class PlanService extends EventEmitter {
         ...(milestone ? { milestone } : {}),
         type: 'task'
       });
-      if (!created) throw new Error(`Не удалось создать подзадачу «${draft.title}» в backlog/tasks`);
+      if (!created) throw new AppError('plans.subtaskCreateFailed', { title: draft.title });
       taskIdByKey.set(key, created.id);
 
       plan.nodes.push({
@@ -410,8 +438,8 @@ export class PlanService extends EventEmitter {
   /** Утверждение графа человеком: фиксирует хэш и запускает диспетчер. */
   public async approvePlan(planId: string): Promise<{ success: boolean; error?: string }> {
     const plan = this.plans.get(planId);
-    if (!plan) return { success: false, error: `План ${planId} не найден` };
-    if (plan.phase === 'planning') return { success: false, error: 'План ещё генерируется' };
+    if (!plan) return { success: false, ...appErrorFields(new AppError('plans.notFound', { id: planId })) };
+    if (plan.phase === 'planning') return { success: false, ...appErrorFields(new AppError('plans.stillGenerating')) };
 
     await this.refreshGraph(plan);
     plan.approvedGraphHash = graphHash(plan.nodes);
@@ -419,15 +447,15 @@ export class PlanService extends EventEmitter {
     plan.stopped = false;
     plan.phase = 'running';
     plan.outcome = undefined;
-    plan.reason = undefined;
+    setReason(plan, undefined);
 
     try {
       await this.ensureIntegrationBranch(plan);
     } catch (err) {
       plan.phase = 'failed';
-      plan.reason = `Не удалось подготовить интеграционную ветку: ${err instanceof Error ? err.message : String(err)}`;
+      setReason(plan, new AppError('plans.integrationBranchFailed', { detail: causeOf(err) }));
       this.emitPlan(plan, true);
-      return { success: false, error: plan.reason };
+      return { success: false, error: plan.reason ?? '', ...(plan.reasonKey ? { errorKey: plan.reasonKey } : {}) };
     }
 
     this.emitPlan(plan, true);
@@ -439,18 +467,18 @@ export class PlanService extends EventEmitter {
   public skipNode(planId: string, taskId: string, skipped: boolean): { success: boolean; error?: string } {
     const plan = this.plans.get(planId);
     const node = plan?.nodes.find((n) => n.taskId === taskId);
-    if (!plan || !node) return { success: false, error: 'Узел не найден' };
-    if (skipped && node.state !== 'pending') return { success: false, error: 'Пропустить можно только неначатый узел' };
-    if (!skipped && node.state !== 'skipped') return { success: false, error: 'Узел не пропущен' };
+    if (!plan || !node) return { success: false, ...appErrorFields(new AppError('plans.nodeNotFound')) };
+    if (skipped && node.state !== 'pending') return { success: false, ...appErrorFields(new AppError('plans.skipOnlyPending')) };
+    if (!skipped && node.state !== 'skipped') return { success: false, ...appErrorFields(new AppError('plans.nodeNotSkipped')) };
     node.state = skipped ? 'skipped' : 'pending';
-    node.reason = skipped ? 'Исключён человеком до запуска' : undefined;
+    setReason(node, skipped ? new AppError('plans.skippedByHuman') : undefined);
     this.emitPlan(plan, true);
     return { success: true };
   }
 
   public stopPlan(planId: string): { success: boolean; error?: string } {
     const plan = this.plans.get(planId);
-    if (!plan) return { success: false, error: `План ${planId} не найден` };
+    if (!plan) return { success: false, ...appErrorFields(new AppError('plans.notFound', { id: planId })) };
     plan.stopped = true;
     for (const node of plan.nodes) {
       if (node.swarmId && (node.state === 'running' || node.state === 'completed')) {
@@ -464,9 +492,9 @@ export class PlanService extends EventEmitter {
 
   public async discardPlan(planId: string): Promise<{ success: boolean; error?: string }> {
     const plan = this.plans.get(planId);
-    if (!plan) return { success: false, error: `План ${planId} не найден` };
+    if (!plan) return { success: false, ...appErrorFields(new AppError('plans.notFound', { id: planId })) };
     if (plan.nodes.some((n) => n.state === 'running' || n.state === 'merging')) {
-      return { success: false, error: 'Сначала остановите план' };
+      return { success: false, ...appErrorFields(new AppError('plans.stopFirst')) };
     }
     this.plans.delete(planId);
     this.mergeQueues.delete(planId);
@@ -491,7 +519,7 @@ export class PlanService extends EventEmitter {
       if (!found) {
         if (node.state !== 'merged' && node.state !== 'failed') {
           node.state = 'missing';
-          node.reason = 'Подзадача удалена из backlog/tasks';
+          setReason(node, new AppError('plans.subtaskDeleted'));
         }
         continue;
       }
@@ -501,7 +529,7 @@ export class PlanService extends EventEmitter {
       if (node.state === 'missing') node.state = 'pending';
       if (node.state === 'pending' && isClosedStatus(found.status)) {
         node.state = 'skipped';
-        node.reason = 'Задача закрыта вручную до запуска';
+        setReason(node, new AppError('plans.closedManually'));
       }
     }
 
@@ -513,7 +541,7 @@ export class PlanService extends EventEmitter {
         title: sub.title,
         state: isClosedStatus(sub.status) ? 'skipped' : 'pending',
         dependsOn: sub.dependsOn.filter((d) => known.has(d.toUpperCase()) || d.toUpperCase() !== sub.taskId.toUpperCase()),
-        ...(isClosedStatus(sub.status) ? { reason: 'Задача закрыта вручную до запуска' } : {})
+        ...(isClosedStatus(sub.status) ? reasonFields(new AppError('plans.closedManually')) : {})
       });
     }
   }
@@ -625,7 +653,7 @@ export class PlanService extends EventEmitter {
       const plan = this.plans.get(planId);
       if (plan) {
         plan.phase = 'failed';
-        plan.reason = err instanceof Error ? err.message : String(err);
+        setReason(plan, err);
         this.emitPlan(plan, true);
       }
     } finally {
@@ -651,10 +679,10 @@ export class PlanService extends EventEmitter {
     node.model = modelRouteView(resolved);
     if (resolved.problem) {
       node.state = 'failed';
-      node.reason = resolved.problem.message;
+      setReason(node, resolved.problem.message);
       node.reasonPurpose = resolved.purpose;
       node.finishedAt = Date.now();
-      blockDependents(plan.nodes, node.taskId, `Заблокирован: ${node.taskId} не запустился`);
+      blockDependents(plan.nodes, node.taskId, new AppError('plans.blockedNotStarted', { id: node.taskId }));
       return null;
     }
     const fields = slotFieldsFromResolved(resolved);
@@ -696,12 +724,12 @@ export class PlanService extends EventEmitter {
       node.swarmId = session.id;
       node.state = 'running';
       node.startedAt = Date.now();
-      node.reason = undefined;
+      setReason(node, undefined);
     } catch (err) {
       node.state = 'failed';
-      node.reason = `Не удалось запустить узел: ${err instanceof Error ? err.message : String(err)}`;
+      setReason(node, new AppError('plans.nodeStartFailed', { detail: causeOf(err) }));
       node.finishedAt = Date.now();
-      blockDependents(plan.nodes, node.taskId, `Заблокирован: ${node.taskId} не запустился`);
+      blockDependents(plan.nodes, node.taskId, new AppError('plans.blockedNotStarted', { id: node.taskId }));
     }
   }
 
@@ -724,8 +752,10 @@ export class PlanService extends EventEmitter {
         void this.mergeNodeAndContinue(plan, node);
       } else {
         node.state = 'failed';
-        node.reason = session.error || session.doneLoop?.reason || `Сессия узла завершилась со статусом ${session.status}`;
-        const blocked = blockDependents(plan.nodes, node.taskId, `Заблокирован: ${node.taskId} не выполнен`);
+        if (session.error) setReason(node, { error: session.error, errorKey: session.errorKey });
+        else if (session.doneLoop?.reason) setReason(node, session.doneLoop.reason);
+        else setReason(node, new AppError('plans.nodeSessionEnded', { status: session.status }));
+        const blocked = blockDependents(plan.nodes, node.taskId, new AppError('plans.blockedNotDone', { id: node.taskId }));
         this.notifyNodeFailed(plan, node, blocked.length);
         this.emitPlan(plan, true);
         void this.dispatch(plan.id);
@@ -767,7 +797,7 @@ export class PlanService extends EventEmitter {
   private async mergeNode(plan: PlanState, node: PlanNode): Promise<boolean> {
     if (!plan.integrationWorktree || !node.branch) {
       node.state = 'merged';
-      node.reason = node.branch ? undefined : 'Узел выполнен без отдельной ветки';
+      setReason(node, node.branch ? undefined : new AppError('plans.noBranch'));
       return true;
     }
     node.state = 'merging';
@@ -783,7 +813,7 @@ export class PlanService extends EventEmitter {
         node.state = 'conflict';
         node.conflictFiles = [];
         node.renumberPending = prepared.preview.renumber.map(({ from, to }) => ({ from, to }));
-        node.reason = `Совпали номера backlog: ${prepared.preview.renumber.map((r) => `${r.from} → ${r.to}`).join(', ')}`;
+        setReason(node, new AppError('plans.renumberNeeded', { list: prepared.preview.renumber.map((r) => `${r.from} → ${r.to}`).join(', ') }));
         void this.askAboutRenumber(plan, node, describeBacklogRenumber(prepared.preview));
         return false;
       }
@@ -798,7 +828,7 @@ export class PlanService extends EventEmitter {
       node.mergeCommit = head;
       node.conflictFiles = undefined;
       node.renumberPending = undefined;
-      node.reason = undefined;
+      setReason(node, undefined);
       return true;
     } catch (err) {
       if (prepared?.status === 'renumbered') await dropRenumberedBranch(wt, prepared.mergeRef, git);
@@ -809,9 +839,12 @@ export class PlanService extends EventEmitter {
       await this.deps.git(wt, ['merge', '--abort']).catch(() => undefined);
       node.state = 'conflict';
       node.conflictFiles = conflicts;
-      node.reason = conflicts.length > 0
-        ? `Конфликт слияния: ${conflicts.join(', ')}`
-        : `Слияние не удалось: ${err instanceof Error ? err.message : String(err)}`;
+      setReason(
+        node,
+        conflicts.length > 0
+          ? new AppError('plans.mergeConflict', { files: conflicts.join(', ') })
+          : new AppError('plans.mergeFailed', { detail: causeOf(err) })
+      );
       void this.askAboutConflict(plan, node);
       return false;
     }
@@ -895,8 +928,8 @@ export class PlanService extends EventEmitter {
   ): Promise<{ success: boolean; error?: string }> {
     const plan = this.plans.get(planId);
     const node = plan?.nodes.find((n) => n.taskId === taskId);
-    if (!plan || !node) return { success: false, error: 'Узел не найден' };
-    if (node.state !== 'conflict') return { success: false, error: 'Узел не в состоянии конфликта' };
+    if (!plan || !node) return { success: false, ...appErrorFields(new AppError('plans.nodeNotFound')) };
+    if (node.state !== 'conflict') return { success: false, ...appErrorFields(new AppError('plans.nodeNotInConflict')) };
 
     if (action === 'stop') {
       this.stopPlan(planId);
@@ -904,8 +937,8 @@ export class PlanService extends EventEmitter {
     }
     if (action === 'skip') {
       node.state = 'failed';
-      node.reason = 'Пропущен человеком после конфликта слияния';
-      blockDependents(plan.nodes, node.taskId, `Заблокирован: ${node.taskId} пропущен после конфликта`);
+      setReason(node, new AppError('plans.skippedAfterConflict'));
+      blockDependents(plan.nodes, node.taskId, new AppError('plans.blockedSkipped', { id: node.taskId }));
       this.emitPlan(plan, true);
       void this.dispatch(plan.id);
       return { success: true };
@@ -921,9 +954,9 @@ export class PlanService extends EventEmitter {
 
   // ─────────────────────────────── Итог плана ───────────────────────────────
 
-  private async finalize(plan: PlanState, outcome: PlanOutcome, reason?: string): Promise<void> {
+  private async finalize(plan: PlanState, outcome: PlanOutcome, reason?: AppError): Promise<void> {
     plan.outcome = outcome;
-    plan.reason = reason;
+    setReason(plan, reason);
     plan.completedAt = Date.now();
 
     try {
@@ -1001,7 +1034,7 @@ export class PlanService extends EventEmitter {
       agentId: node.taskId,
       agentName: node.title,
       at: Date.now(),
-      error: `Подзадача ${node.taskId} не выполнена${blockedCount > 0 ? `, заблокировано зависимых: ${blockedCount}` : ''}. ${node.reason ?? ''}`.trim()
+      error: `Subtask ${node.taskId} failed${blockedCount > 0 ? `, dependents blocked: ${blockedCount}` : ''}. ${node.reason ?? ''}`.trim()
     });
   }
 

@@ -10,6 +10,7 @@
  * Зеркало для рендерера — `src/types/electron.d.ts`.
  */
 import type { ProviderErrorInfo } from './providerErrors.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
 
 /** `ui-smoke` — визуальная проверка: команда оставляет скриншоты/trace в каталоге артефактов (decision-55). */
 export type CheckKind = 'lint' | 'test' | 'build' | 'typecheck' | 'ui-smoke' | 'custom';
@@ -93,6 +94,8 @@ export interface CheckRunResult {
   outputTruncated?: boolean;
   /** Человекочитаемая причина для `skipped`/`error`. */
   detail?: string;
+  /** Код причины (decision-165): окно и телефон собирают текст на своём языке, `detail` — английский запасной. */
+  detailKey?: AppErrorKey;
   /** Скриншоты и trace проверки `ui-smoke` (decision-55 п. 5). */
   artifacts?: CheckArtifact[];
   /** Часть файлов не сохранена из-за лимитов. */
@@ -235,6 +238,8 @@ export interface ComposeSelection {
 export interface ComposeResult {
   success: boolean;
   error?: string;
+  /** Код ошибки для текста на языке окна (decision-165). */
+  errorKey?: AppErrorKey;
   /** Применённые файлы по агентам. */
   applied?: Array<{ agentId: string; branch: string; files: string[] }>;
 }

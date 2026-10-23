@@ -8,10 +8,7 @@ import { assertRegisteredProject } from '../services/projectPathGuard';
 import { prReviewService } from '../services/prReviewApp';
 import { DEFAULT_MANUAL_REVIEW_BUDGET_USD } from '../services/prReviewService';
 import { MAX_PR_REVIEWERS } from '../services/automationRules';
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
+import { toIpcFailure } from './appErrorIpc';
 
 export function registerPrReviewIpc(ctx: IpcContext) {
   let pending: NodeJS.Timeout | null = null;
@@ -29,7 +26,7 @@ export function registerPrReviewIpc(ctx: IpcContext) {
       const root = await assertRegisteredProject(String(projectPath ?? ''));
       return { ok: true, reviews: await prReviewService.list(root, typeof prNumber === 'number' ? prNumber : undefined) };
     } catch (err) {
-      return { ok: false, error: errorText(err), reviews: [] };
+      return { ...toIpcFailure(err), reviews: [] };
     }
   });
 
@@ -49,11 +46,11 @@ export function registerPrReviewIpc(ctx: IpcContext) {
         origin: 'manual',
         force: o.force === true
       });
-      if ('error' in res) return { ok: false, error: res.error };
-      if ('skipped' in res) return { ok: false, error: res.skipped };
+      if ('error' in res) return { ok: false, error: res.error, ...(res.errorKey ? { errorKey: res.errorKey } : {}) };
+      if ('skipped' in res) return { ok: false, error: res.skipped, ...(res.skippedKey ? { errorKey: res.skippedKey } : {}) };
       return { ok: true, reviewId: res.reviewId };
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return toIpcFailure(err);
     }
   });
 
@@ -62,7 +59,7 @@ export function registerPrReviewIpc(ctx: IpcContext) {
       const root = await assertRegisteredProject(String(projectPath ?? ''));
       return await prReviewService.publishNow(root, String(reviewId ?? ''));
     } catch (err) {
-      return { ok: false, error: errorText(err) };
+      return toIpcFailure(err);
     }
   });
 }

@@ -556,6 +556,7 @@ export interface TranslationDictionary {
     cacheSavings: string;
     noStatsCache: string;
     rawOutputDesc: string;
+    sources: { account: string; statsCache: string; statsCacheMissing: string; rateLimitsAt: string; rateLimitsSnapshot: string; directQuery: string };
     noData: string;
     syncedWithCli: string;
     close: string;

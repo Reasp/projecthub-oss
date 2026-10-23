@@ -38,7 +38,9 @@ import { modelAssignmentService } from '../services/modelAssignmentService';
 import { modelCallService } from '../services/modelCallService';
 import { ModelRouteError } from '../services/modelRouter';
 import { buildTaskDraftPrompt, parseTaskDraft } from '../services/taskDraftPrompt';
-import { providerErrorInfoOf } from '../services/providerErrors';
+import { providerErrorInfoOf, toProviderErrorInfo } from '../services/providerErrors';
+import { AppError, appErrorFields, appErrorKeyOf } from '../../src/lib/appError';
+import { toIpcFailure } from './appErrorIpc';
 import { usesClaudeCli } from '../services/modelTarget';
 import { hitlService } from '../services/hitlService';
 import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
@@ -125,7 +127,7 @@ export function registerAiIpc(ctx: IpcContext) {
   ipcMain.handle('llmProfiles:importLegacy', async (_event, expectedProvider: string) => {
     const config = await aiAgentService.getConfig();
     if (config.provider !== expectedProvider) {
-      throw new Error('Сначала сохраните настройки Agents Studio с этим провайдером, затем перенесите его в профиль.');
+      throw new AppError('studio.saveSettingsFirst');
     }
     const id = `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const profile = profileFromLegacyConfig(config, id);
@@ -192,8 +194,7 @@ export function registerAiIpc(ctx: IpcContext) {
     } catch (err) {
       const providerError = providerErrorInfoOf(err);
       return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
+        ...toIpcFailure(err),
         ...(err instanceof ModelRouteError ? { modelProblem: true } : {}),
         ...(providerError ? { providerError } : {})
       };
@@ -337,7 +338,8 @@ export function registerAiIpc(ctx: IpcContext) {
         }
       );
     } catch (err: any) {
-      const info = providerErrorInfoOf(err);
+      // Ошибка ProjectHub с кодом без снимка провайдера — снимком «unknown» с кодом: карточка покажет её на языке окна.
+      const info = providerErrorInfoOf(err) ?? (appErrorKeyOf(err) ? toProviderErrorInfo(err) : undefined);
       const message = info?.message || err?.message || String(err);
       studioLiveRuns.finish(req.sessionId);
       console.error(`[Main] ai:streamChat failed for session ${req.sessionId}: ${message}`);
@@ -423,7 +425,7 @@ export function registerAiIpc(ctx: IpcContext) {
     try {
       return await agentFleetService.startDoneLoop({ ...options, projectPath: safeProject });
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return appErrorFields(err);
     }
   });
 
@@ -445,7 +447,7 @@ export function registerAiIpc(ctx: IpcContext) {
     try {
       return await planService.generatePlan({ ...options, projectPath: safeProject });
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return appErrorFields(err);
     }
   });
 
@@ -467,7 +469,7 @@ export function registerAiIpc(ctx: IpcContext) {
     try {
       return await planService.previewModels(safeProject);
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return appErrorFields(err);
     }
   });
 
@@ -500,7 +502,7 @@ export function registerAiIpc(ctx: IpcContext) {
       const localHostId = remoteControlService.getHostId();
       if (options.hostId && options.hostId !== localHostId) {
         if (!federationClientService.isConnected(options.hostId)) {
-          return { error: `Хост ${options.hostId} не подключён. Добавьте его в «Удалённые хосты» и дождитесь соединения.` };
+          return appErrorFields(new AppError('swarm.hostNotConnected', { hostId: options.hostId }));
         }
         try {
           const result = await federationClientService.call<{ swarmId: string; status: string; hostId: string }>(
@@ -517,8 +519,8 @@ export function registerAiIpc(ctx: IpcContext) {
           );
           return { remote: true, hostId: options.hostId, swarmId: result?.swarmId, status: result?.status };
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return { error: `Не удалось запустить агента на хосте ${options.hostId}: ${message}` };
+          const detail = err instanceof Error ? err.message : String(err);
+          return appErrorFields(new AppError('swarm.remoteStartFailed', { hostId: options.hostId, detail }));
         }
       }
 
@@ -545,7 +547,7 @@ export function registerAiIpc(ctx: IpcContext) {
       rerunChecks: options?.rerunChecks === true,
       skipReview: options?.skipReview === true
     });
-    if (!state) return { success: false, error: 'Сессия не найдена или не является ареной (fan-out)' };
+    if (!state) return { success: false, ...appErrorFields(new AppError('swarm.notArena')) };
     return { success: true, state };
   });
 
@@ -556,7 +558,7 @@ export function registerAiIpc(ctx: IpcContext) {
 
   ipcMain.handle('swarm:compose', async (_event, swarmId: string, selections: ComposeSelection[]) => {
     if (typeof swarmId !== 'string') return { success: false, error: 'Invalid swarm id' };
-    if (!Array.isArray(selections)) return { success: false, error: 'Не передан список файлов' };
+    if (!Array.isArray(selections)) return { success: false, error: 'File list is missing' };
     return await agentFleetService.composeFromCandidates(swarmId, selections);
   });
 
@@ -631,7 +633,7 @@ export function registerAiIpc(ctx: IpcContext) {
   ipcMain.handle('swarm:exportTrace', async (_event, swarmId: string, agentId?: string) => {
     if (typeof swarmId !== 'string') return { success: false, error: 'Invalid swarm id' };
     const content = await agentFleetService.exportTrace(swarmId, typeof agentId === 'string' ? agentId : undefined);
-    if (content === null) return { success: false, error: `Трасса сессии ${swarmId} не найдена` };
+    if (content === null) return { success: false, ...appErrorFields(new AppError('swarm.traceNotFound', { id: swarmId })) };
     const win = ctx.getMainWindow();
     const dialogOptions = {
       title: 'Экспорт трассы агента',

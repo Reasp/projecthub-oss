@@ -231,7 +231,7 @@ export class AISessionStore {
   /** Атомарная запись (tmp + rename), чтобы падение посреди записи не оставило половину JSON. */
   public async save(projectPath: string, session: AISession): Promise<void> {
     if (!isValidSessionId(session?.id)) {
-      throw new Error(`Недопустимый идентификатор сессии: ${String(session?.id)}`);
+      throw new Error(`Invalid session id: ${String(session?.id)}`);
     }
     await this.ensureProjectDir(projectPath);
     const target = this.sessionFile(projectPath, session.id);

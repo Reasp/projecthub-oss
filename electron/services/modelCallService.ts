@@ -30,6 +30,7 @@ import {
 } from './modelRouter.js';
 import { buildClaudeCliTurnCommand, parseClaudeCliTurnOutput } from './claudeCliTurn.js';
 import { ProviderError, providerConfigError, timeoutError } from './providerErrors.js';
+import { AppError } from '../../src/lib/appError.js';
 import { claudeCliEffortArgs } from './reasoningEffort.js';
 import { apiToolNamesForCategories } from './roleEngineAdapter.js';
 import { logger } from './logger.js';
@@ -169,7 +170,7 @@ async function writeTurnSystemPrompt(req: ModelTurnRequest): Promise<string | un
 /** Ход через Claude Code CLI по подписке: рабочий каталог — проект, инструменты — только чтение. */
 async function runCliTurn(req: ModelTurnRequest, resolved: ResolvedModel): Promise<TurnOutput> {
   const cli = await claudeBridgeService.ensureClaudeCliAvailable();
-  if (!cli.available) throw providerConfigError(cli.message || 'Claude CLI недоступен.');
+  if (!cli.available) throw providerConfigError(cli.message || new AppError('studio.cliUnavailable'));
   if (req.signal?.aborted) throw abortError();
 
   const effort = claudeCliEffortArgs(resolved.reasoningEffort);
@@ -206,7 +207,7 @@ async function runCliTurn(req: ModelTurnRequest, resolved: ResolvedModel): Promi
       });
     } catch (err) {
       removeSystemPromptFile();
-      reject(new Error(`Не удалось запустить Claude CLI: ${err instanceof Error ? err.message : String(err)}`, { cause: err }));
+      reject(Object.assign(new AppError('studio.cliStartFailed', { detail: err instanceof Error ? err.message : String(err) }), { cause: err }));
       return;
     }
 
@@ -246,7 +247,7 @@ async function runCliTurn(req: ModelTurnRequest, resolved: ResolvedModel): Promi
             return;
           }
           const detail = stderr.trim() ? ` (${stderr.trim().slice(0, 300)})` : '';
-          reject(new Error(`${err instanceof Error ? err.message : String(err)}; код выхода ${code}${detail}`, { cause: err }));
+          reject(new Error(`${err instanceof Error ? err.message : String(err)}; exit code ${code}${detail}`, { cause: err }));
         }
       });
     });
@@ -308,12 +309,12 @@ export class ModelCallService {
   /** Вид вызова совпадает с назначением, цель пригодна, конфиг есть. */
   private checked(resolved: ResolvedModel, kind: ResolvedModel['kind']): AIProviderConfig {
     if (resolved.kind !== kind) {
-      throw new Error(`Назначение «${purposeLabel(resolved.purpose)}» — вызов вида «${resolved.kind}», а не «${kind}».`);
+      throw new Error(`Purpose ${resolved.purpose}: the call kind is ${resolved.kind}, not ${kind}.`);
     }
     assertModelUsable(resolved);
     if (!resolved.config) {
       // Резолвер помечает такие движки проблемой `engine_unsupported`; сюда попадает только ошибка кода.
-      throw new Error(`Назначение «${purposeLabel(resolved.purpose)}»: у движка ${resolved.engine} нет конфига вызова.`);
+      throw new Error(`Purpose ${resolved.purpose}: engine ${resolved.engine} has no call config.`);
     }
     return resolved.config;
   }

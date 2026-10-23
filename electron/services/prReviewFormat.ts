@@ -146,13 +146,13 @@ export function extractLastJsonWithKey(source: string, key: string): string | nu
 
 function parseJsonBlock(source: string, fence: string, key: string): { value?: Record<string, unknown>; error?: string } {
   const block = extractFenced(source ?? '', fence) ?? extractLastJsonWithKey(source ?? '', key);
-  if (!block) return { error: `В ответе нет ограды ${fence} и JSON с полем «${key}»` };
+  if (!block) return { error: `The response has no ${fence} fence or JSON with the "${key}" field` };
   try {
     const value = JSON.parse(block.trim());
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return { error: 'Ответ не является объектом' };
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { error: 'The response is not an object' };
     return { value: value as Record<string, unknown> };
   } catch (err) {
-    return { error: `JSON не разобрался: ${err instanceof Error ? err.message : String(err)}` };
+    return { error: `JSON did not parse: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
@@ -506,6 +506,6 @@ export function buildPrComment(input: CommentInput): string {
  * approve и request changes (`gh pr review`) недоступны в принципе (decision-53 п. 8).
  */
 export function ghCommentArgs(prNumber: number, bodyFile: string): string[] {
-  if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error(`Неверный номер PR: ${prNumber}`);
+  if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error(`Invalid PR number: ${prNumber}`);
   return ['pr', 'comment', String(prNumber), '--body-file', bodyFile];
 }

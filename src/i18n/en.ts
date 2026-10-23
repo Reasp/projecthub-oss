@@ -656,6 +656,14 @@ export const en: TranslationDictionary = {
     cacheSavings: 'Cache Savings',
     noStatsCache: 'No detailed model statistics in local stats-cache.json.',
     rawOutputDesc: 'Direct output of command claude -p /usage:',
+    sources: {
+      account: 'Account: “{name}” ({dir}).',
+      statsCache: 'Sessions, messages and tokens: the local Claude Code cache ({file}).',
+      statsCacheMissing: 'The local Claude Code cache ({file}) was not found.',
+      rateLimitsAt: 'Limits: Claude CLI rate-limit events, the latest at {at}.',
+      rateLimitsSnapshot: 'Limit windows come from a snapshot of Claude CLI rate-limit events.',
+      directQuery: 'Subscription limits and quotas are queried directly with `claude -p /usage`.'
+    },
     noData: 'No data',
     syncedWithCli: 'Synced with local Claude Code CLI',
     close: 'Close',

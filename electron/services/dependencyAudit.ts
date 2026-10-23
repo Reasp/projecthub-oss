@@ -7,6 +7,7 @@
  *
  * Чистый модуль: без Electron, процессов и файловой системы.
  */
+import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
 
 export type AuditSeverity = 'critical' | 'high' | 'moderate' | 'low' | 'info' | 'unknown';
 export const AUDIT_SEVERITIES: AuditSeverity[] = ['critical', 'high', 'moderate', 'low', 'info', 'unknown'];
@@ -53,6 +54,8 @@ export interface EcosystemAuditParse {
   errorKind?: AuditErrorKind;
   /** Причина для человека: подсказка про lock-файл, текст ошибки инструмента. */
   message?: string;
+  /** Код причины для текста на языке окна (decision-165); без него `message` — текст инструмента как есть. */
+  messageKey?: AppErrorKey;
   /** Сколько зависимостей проверено (npm `metadata.dependencies.total`, pip — число пакетов). */
   dependencyCount?: number;
 }
@@ -119,8 +122,13 @@ function parseJson(text: string): unknown {
   }
 }
 
-function failed(status: AuditRunStatus, message: string, errorKind?: AuditErrorKind): EcosystemAuditParse {
-  return { status, findings: [], counts: emptyCounts(), message, ...(errorKind ? { errorKind } : {}) };
+function failed(status: AuditRunStatus, message: string | AppError, errorKind?: AuditErrorKind): EcosystemAuditParse {
+  return { status, findings: [], counts: emptyCounts(), ...auditMessage(message), ...(errorKind ? { errorKind } : {}) };
+}
+
+/** Причина статуса аудита: текст инструмента как есть или код с английским текстом (decision-165). */
+export function auditMessage(message: string | AppError): { message: string; messageKey?: AppErrorKey } {
+  return typeof message === 'string' ? { message } : { message: message.message, messageKey: message.appErrorKey };
 }
 
 /** Идентификатор advisory npm: GHSA из ссылки, иначе номер `source`. */
@@ -136,22 +144,22 @@ export function parseNpmAudit(stdout: string, stderr = ''): EcosystemAuditParse 
   const data = parseJson(stdout) as Record<string, unknown> | undefined;
   if (!data || typeof data !== 'object') {
     const text = `${stdout}\n${stderr}`;
-    if (/ENOLOCK/.test(text)) return failed('no_lockfile', 'Нет package-lock.json — создайте его: npm i --package-lock-only');
-    if (NETWORK_RE.test(text)) return failed('error', firstLine(stderr || stdout) || 'registry недоступен', 'network');
-    return failed('error', firstLine(stderr || stdout) || 'npm audit не вернул JSON', 'format');
+    if (/ENOLOCK/.test(text)) return failed('no_lockfile', new AppError('security.noPackageLock'));
+    if (NETWORK_RE.test(text)) return failed('error', firstLine(stderr || stdout) || new AppError('security.registryUnavailable'), 'network');
+    return failed('error', firstLine(stderr || stdout) || new AppError('security.noJson', { tool: 'npm audit' }), 'format');
   }
 
   const error = data.error as Record<string, unknown> | undefined;
   if (error && typeof error === 'object' && !data.vulnerabilities) {
     const code = str(error.code);
-    if (code === 'ENOLOCK') return failed('no_lockfile', 'Нет package-lock.json — создайте его: npm i --package-lock-only');
+    if (code === 'ENOLOCK') return failed('no_lockfile', new AppError('security.noPackageLock'));
     const text = [str(data.message), str(error.summary), str(error.detail), stderr].filter(Boolean).join(' ');
     const kind: AuditErrorKind = NETWORK_RE.test(text) ? 'network' : 'tool';
-    return failed('error', firstLine(str(data.message) ?? str(error.summary) ?? stderr ?? '') || 'npm audit завершился ошибкой', kind);
+    return failed('error', firstLine(str(data.message) ?? str(error.summary) ?? stderr ?? '') || new AppError('security.toolFailed', { tool: 'npm audit' }), kind);
   }
 
   if (data.auditReportVersion !== 2 || typeof data.vulnerabilities !== 'object' || data.vulnerabilities === null) {
-    return failed('error', 'Неизвестный формат npm audit (нужен npm 7+, отчёт v2)', 'format');
+    return failed('error', new AppError('security.npmAuditFormat'), 'format');
   }
 
   const findings: AuditFinding[] = [];
@@ -215,13 +223,13 @@ export function parsePipAudit(stdout: string, stderr = ''): EcosystemAuditParse 
   if (!data || typeof data !== 'object') {
     const unpinned = stderr.match(/requirement (\S+) is not pinned to an exact version/i);
     if (unpinned) {
-      return failed('unsupported', `Требования не закреплены (${unpinned[1]}): pip-audit без установки пакетов работает только с ==`);
+      return failed('unsupported', new AppError('security.pipUnpinned', { requirement: unpinned[1] }));
     }
     if (NETWORK_RE.test(stderr)) return failed('error', firstLine(stderr.split(/\r?\n/).reverse().find((l) => NETWORK_RE.test(l)) ?? stderr), 'network');
     const lastError = stderr.split(/\r?\n/).reverse().find((l) => /ERROR/.test(l));
-    return failed('error', firstLine(lastError ?? stderr) || 'pip-audit не вернул JSON', 'format');
+    return failed('error', firstLine(lastError ?? stderr) || new AppError('security.noJson', { tool: 'pip-audit' }), 'format');
   }
-  if (!Array.isArray(data.dependencies)) return failed('error', 'Неизвестный формат pip-audit', 'format');
+  if (!Array.isArray(data.dependencies)) return failed('error', new AppError('security.pipAuditFormat'), 'format');
 
   const findings: AuditFinding[] = [];
   let checked = 0;
@@ -273,6 +281,7 @@ export interface AuditTarget {
   run: boolean;
   status?: AuditRunStatus;
   message?: string;
+  messageKey?: AppErrorKey;
 }
 
 export function detectAuditTargets(rootFiles: string[]): AuditTarget[] {
@@ -282,16 +291,16 @@ export function detectAuditTargets(rootFiles: string[]): AuditTarget[] {
   if (npmLock) {
     targets.push({ ecosystem: 'npm', manifest: npmLock, run: true });
   } else if (has('pnpm-lock.yaml')) {
-    targets.push({ ecosystem: 'pnpm', manifest: 'pnpm-lock.yaml', run: false, status: 'unsupported', message: 'Аудит pnpm пока не поддерживается' });
+    targets.push({ ecosystem: 'pnpm', manifest: 'pnpm-lock.yaml', run: false, status: 'unsupported', ...auditMessage(new AppError('security.unsupported', { tool: 'pnpm' })) });
   } else if (has('yarn.lock')) {
-    targets.push({ ecosystem: 'yarn', manifest: 'yarn.lock', run: false, status: 'unsupported', message: 'Аудит yarn пока не поддерживается' });
+    targets.push({ ecosystem: 'yarn', manifest: 'yarn.lock', run: false, status: 'unsupported', ...auditMessage(new AppError('security.unsupported', { tool: 'yarn' })) });
   } else if (has('package.json')) {
-    targets.push({ ecosystem: 'npm', manifest: 'package.json', run: false, status: 'no_lockfile', message: 'Нет package-lock.json — создайте его: npm i --package-lock-only' });
+    targets.push({ ecosystem: 'npm', manifest: 'package.json', run: false, status: 'no_lockfile', ...auditMessage(new AppError('security.noPackageLock')) });
   }
   const requirements = rootFiles.filter((f) => /^requirements[\w.-]*\.txt$/i.test(f)).sort();
   for (const req of requirements) targets.push({ ecosystem: 'pip', manifest: req, run: true });
   if (has('Cargo.lock')) {
-    targets.push({ ecosystem: 'cargo', manifest: 'Cargo.lock', run: false, status: 'unsupported', message: 'Формат cargo audit пока не поддержан' });
+    targets.push({ ecosystem: 'cargo', manifest: 'Cargo.lock', run: false, status: 'unsupported', ...auditMessage(new AppError('security.unsupported', { tool: 'cargo' })) });
   }
   return targets;
 }

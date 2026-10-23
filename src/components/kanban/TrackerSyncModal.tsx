@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Unplug } from '../common/icons';
-import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useConnectionsStore } from '../../store/useConnectionsStore';
 import type {
   RemoteStatus,
@@ -417,7 +417,7 @@ const RunJournal: React.FC<{ summary: TrackerRunSummary }> = ({ summary }) => {
         {summary.dryRun ? ts.journalPreview : ts.journalRun}
         <span className="text-slate-500 font-normal">{new Date(summary.at).toLocaleString()}</span>
       </div>
-      {summary.error && <p className="text-rose-300 break-words">{summary.error}</p>}
+      {summary.error && <p className="text-rose-300 break-words">{ipcFailureText(summary)}</p>}
       <p className="text-slate-400">{counts.length > 0 ? counts.map(([k, v]) => `${ts.kinds[k]}: ${v}`).join(' · ') : ts.noChanges}</p>
       {summary.entries.length > 0 && (
         <ul className="max-h-56 overflow-y-auto space-y-0.5 font-mono text-[11px]">
@@ -427,7 +427,7 @@ const RunJournal: React.FC<{ summary: TrackerRunSummary }> = ({ summary }) => {
               {e.externalId ? ` #${e.externalId}` : ''}
               {e.title ? ` «${e.title}»` : ''}
               {e.fields?.length ? ` [${e.fields.map((f) => ts.fields[f]).join(', ')}]` : ''}
-              {e.detail ? ` — ${e.detail}` : ''}
+              {e.detail ? ` — ${ipcFailureText({ error: e.detail, errorKey: e.detailKey })}` : ''}
             </li>
           ))}
         </ul>

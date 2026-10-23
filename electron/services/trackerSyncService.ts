@@ -27,6 +27,7 @@ import type {
 } from './trackerTypes.js';
 import type { ConnectionUsage } from './connectionTypes.js';
 import { ConnectionAuthError } from './connectionTypes.js';
+import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 
 /**
  * Синхронизация задач Backlog.md с внешним трекером (TASK-128, decision-103).
@@ -132,6 +133,17 @@ function errorText(err: unknown): string {
   return clip(err instanceof Error ? err.message : String(err), 300);
 }
 
+/** Ошибка записи журнала или запуска: обрезанный английский текст и код (decision-165). */
+function errorFields(err: unknown): { error: string; errorKey?: AppErrorKey } {
+  const { errorKey } = appErrorFields(err);
+  return errorKey ? { error: errorText(err), errorKey } : { error: errorText(err) };
+}
+
+function errorDetail(err: unknown): { detail: string; detailKey?: AppErrorKey } {
+  const { error, errorKey } = errorFields(err);
+  return errorKey ? { detail: error, detailKey: errorKey } : { detail: error };
+}
+
 export class TrackerSyncService {
   private readonly deps: TrackerSyncDeps;
   private readonly states = new Map<string, TrackerSyncLocalState>();
@@ -212,7 +224,7 @@ export class TrackerSyncService {
     if (patch.config) {
       const current = await this.readConfig(projectPath);
       const next = normalizeTrackerConfig({ ...current, ...patch.config });
-      if (!findTrackerAdapter(next.adapter, this.adapters)) throw new Error(`Неизвестный трекер: ${next.adapter}`);
+      if (!findTrackerAdapter(next.adapter, this.adapters)) throw new AppError('tracker.unknown', { tracker: next.adapter });
       await writeJsonAtomic(path.join(projectPath, PROJECT_CONFIG_PATH), next);
       this.configs.set(path.resolve(projectPath), next);
       // Другая цель или другой трекер — прежняя база сверки к ним не относится.
@@ -238,11 +250,11 @@ export class TrackerSyncService {
     const config = await this.readConfig(projectPath);
     const state = await this.readState(projectPath);
     const adapter = findTrackerAdapter(config.adapter, this.adapters);
-    if (!adapter) throw new Error(`Неизвестный трекер: ${config.adapter}`);
-    if (!state.connectionId) throw new Error('Выберите подключение к трекеру');
+    if (!adapter) throw new AppError('tracker.unknown', { tracker: config.adapter });
+    if (!state.connectionId) throw new AppError('tracker.chooseConnection');
     const connection = await this.deps.getConnection(state.connectionId);
-    if (!connection) throw new Error('Подключение не найдено: выберите другое');
-    if (connection.serviceId !== adapter.serviceId) throw new Error(`Подключение не к ${adapter.label}`);
+    if (!connection) throw new AppError('tracker.connectionMissing');
+    if (connection.serviceId !== adapter.serviceId) throw new AppError('tracker.connectionMismatch', { tracker: adapter.label });
     const connectionId = state.connectionId;
     return {
       config,
@@ -261,7 +273,7 @@ export class TrackerSyncService {
   /** Статусы цели и предложенная таблица соответствия. */
   async describeTarget(projectPath: string): Promise<{ localStatuses: string[]; remoteStatuses: RemoteStatus[]; suggested: Record<string, string> }> {
     const { config, adapter, http } = await this.context(projectPath);
-    if (!config.target) throw new Error('Выберите список трекера');
+    if (!config.target) throw new AppError('tracker.chooseTarget');
     const localStatuses = await projectStatuses(projectPath);
     const remoteStatuses = await adapter.getStatuses(http, config.target);
     return { localStatuses, remoteStatuses, suggested: suggestStatusMap(localStatuses, remoteStatuses, config.statusMap) };
@@ -288,17 +300,18 @@ export class TrackerSyncService {
   private async runOnce(projectPath: string, dryRun: boolean): Promise<TrackerRunSummary> {
     const at = this.now();
     const entries: TrackerJournalEntry[] = [];
-    const finish = async (ok: boolean, error?: string, state?: TrackerSyncLocalState): Promise<TrackerRunSummary> => {
+    const finish = async (ok: boolean, failure?: unknown, state?: TrackerSyncLocalState): Promise<TrackerRunSummary> => {
+      const error = failure === undefined ? undefined : errorFields(failure);
       const counts: Partial<Record<TrackerJournalKind, number>> = {};
       for (const e of entries) counts[e.kind] = (counts[e.kind] ?? 0) + 1;
-      const summary: TrackerRunSummary = { at, finishedAt: this.now(), dryRun, ok, ...(error ? { error } : {}), counts, entries: entries.slice(0, MAX_ENTRIES) };
+      const summary: TrackerRunSummary = { at, finishedAt: this.now(), dryRun, ok, ...(error ?? {}), counts, entries: entries.slice(0, MAX_ENTRIES) };
       if (!dryRun && state) {
         state.runs = [...state.runs, summary].slice(-MAX_RUNS);
         await this.saveState(state);
       }
       // Счётчики без заголовков и описаний: в лог не попадает содержимое задач.
       console.log(
-        `[TrackerSync] ${dryRun ? 'Preview' : 'Run'} ${ok ? 'ok' : `failed (${error})`}: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(', ') || 'no changes'}`
+        `[TrackerSync] ${dryRun ? 'Preview' : 'Run'} ${ok ? 'ok' : `failed (${error?.error})`}: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(', ') || 'no changes'}`
       );
       return summary;
     };
@@ -307,11 +320,11 @@ export class TrackerSyncService {
     try {
       ctx = await this.context(projectPath);
     } catch (err) {
-      return finish(false, errorText(err));
+      return finish(false, err);
     }
     const { config, state, adapter, http, link } = ctx;
-    if (!config.target) return finish(false, 'Выберите список трекера', state);
-    if (!dryRun && !config.enabled) return finish(false, 'Синхронизация выключена в настройках проекта', state);
+    if (!config.target) return finish(false, new AppError('tracker.chooseTarget'), state);
+    if (!dryRun && !config.enabled) return finish(false, new AppError('tracker.disabled'), state);
 
     let actions: PlanAction[];
     const localById = new Map<string, Awaited<ReturnType<typeof readLocalTasks>>[number]>();
@@ -326,7 +339,7 @@ export class TrackerSyncService {
       for (const t of local) localById.set(t.id, t);
       actions = planSync({ local, remote, base: state.base, config, localStatuses, remoteStatuses });
     } catch (err) {
-      return finish(false, errorText(err), state);
+      return finish(false, err, state);
     }
 
     // Связь «внешний id → локальный id» для подзадач: уже связанные и созданные в этом запуске.
@@ -338,12 +351,12 @@ export class TrackerSyncService {
         await this.apply(action, { projectPath, dryRun, state, adapter, http, link, config, localById, localOf, localStatuses, entries });
       } catch (err) {
         if (err instanceof ConnectionAuthError) {
-          entries.push({ kind: 'error', detail: errorText(err) });
-          return finish(false, errorText(err), state);
+          entries.push({ kind: 'error', ...errorDetail(err) });
+          return finish(false, err, state);
         }
         const ref = 'externalId' in action ? action.externalId : action.kind === 'import' ? action.remote.id : undefined;
         const taskId = 'taskId' in action ? action.taskId : action.kind === 'export' ? action.local.id : undefined;
-        entries.push({ kind: 'error', ...(taskId ? { taskId } : {}), ...(ref ? { externalId: ref } : {}), detail: errorText(err) });
+        entries.push({ kind: 'error', ...(taskId ? { taskId } : {}), ...(ref ? { externalId: ref } : {}), ...errorDetail(err) });
       }
     }
     return finish(!entries.some((e) => e.kind === 'error'), undefined, state);
@@ -398,7 +411,12 @@ export class TrackerSyncService {
             externalId: action.externalId,
             title: clip(action.title),
             fields: [conflict.field],
-            detail: `${conflict.winner === 'local' ? 'Backlog.md' : adapter.label}${action.noBase ? ', без базы' : ''}; перезаписано: ${conflict.lost}`
+            ...errorDetail(
+              new AppError(action.noBase ? 'tracker.conflictNoBase' : 'tracker.conflict', {
+                winner: conflict.winner === 'local' ? 'Backlog.md' : adapter.label,
+                lost: conflict.lost
+              })
+            )
           });
         }
         const pullFields = Object.keys(action.pull) as (keyof FieldValues)[];
@@ -409,7 +427,7 @@ export class TrackerSyncService {
           entries.push({ kind: 'push', taskId: action.taskId, externalId: action.externalId, title: clip(action.title), fields: pushFields });
         }
         if (pullFields.length > 0) {
-          if (!file) throw new Error(`Файл задачи ${action.taskId} не найден`);
+          if (!file) throw new AppError('tracker.taskFileNotFound', { id: action.taskId });
           if (!dryRun) await updateLocalTaskFile(file.filePath, { fields: action.pull });
           entries.push({ kind: 'pull', taskId: action.taskId, externalId: action.externalId, title: clip(action.title), fields: pullFields });
         }
@@ -441,7 +459,7 @@ export class TrackerSyncService {
         const file = c.localById.get(l.id);
         let externalId: string | undefined;
         if (!dryRun) {
-          if (!file || !c.config.target) throw new Error(`Файл задачи ${l.id} не найден`);
+          if (!file || !c.config.target) throw new AppError('tracker.taskFileNotFound', { id: l.id });
           const parentExternal = l.parentTaskId
             ? [...c.localOf.entries()].find(([, local]) => local === l.parentTaskId)?.[0]
             : undefined;

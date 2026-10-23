@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FileArchive, FolderOpen, ImageOff, X } from '../../common/icons';
-import { useTranslation } from '../../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../../i18n/useTranslation';
 import type { CheckArtifact } from '../../../types/electron';
 
 /**
@@ -17,8 +17,8 @@ function loadImage(relPath: string): Promise<string | { error: string }> {
   if (!pending) {
     pending = window.api
       .readVisualArtifact(relPath)
-      .then((res) => ('dataUrl' in res ? res.dataUrl : { error: res.error }))
-      .catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }));
+      .then((res) => ('dataUrl' in res ? res.dataUrl : { error: ipcFailureText(res) }))
+      .catch((err: unknown) => ({ error: ipcErrorText(err) }));
     imageCache.set(relPath, pending);
     // Ошибку не кэшируем навсегда: файл мог появиться позже (проверка ещё идёт).
     void pending.then((v) => {

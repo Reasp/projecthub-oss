@@ -2255,7 +2255,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return created;
     } catch (err: any) {
       console.error('Failed to create PR:', err);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.prError, { message: err.message }));
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.prError, { message: appErrorText(err, getDictionary(get().language).appErrors) }));
       throw err;
     }
   },

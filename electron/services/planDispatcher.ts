@@ -8,6 +8,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { PlanNode, PlanNodeState, PlanOutcome } from './planTypes.js';
+import { AppError } from '../../src/lib/appError.js';
 
 export const DEFAULT_PLAN_MAX_PARALLEL = 2;
 export const MAX_PLAN_PARALLEL = 6;
@@ -63,7 +64,7 @@ export type PlanStep =
   /** Ждать: есть идущие узлы или узлы, ждущие решения человека. */
   | { action: 'wait'; reason: 'running' | 'conflict' | 'not_approved' }
   /** План закончился. */
-  | { action: 'finish'; outcome: PlanOutcome; reason?: string };
+  | { action: 'finish'; outcome: PlanOutcome; reason?: AppError };
 
 /**
  * Решение диспетчера. Порядок важен:
@@ -80,7 +81,7 @@ export function decidePlanStep(input: DispatchInput): PlanStep {
 
   if (input.stopped) {
     if (busy.length > 0) return { action: 'wait', reason: 'running' };
-    return { action: 'finish', outcome: 'stopped', reason: 'План остановлен человеком' };
+    return { action: 'finish', outcome: 'stopped', reason: new AppError('plans.stoppedByHuman') };
   }
 
   const overBudget =
@@ -92,7 +93,7 @@ export function decidePlanStep(input: DispatchInput): PlanStep {
       return {
         action: 'finish',
         outcome: 'budget_exceeded',
-        reason: `Исчерпан бюджет плана ${input.budgetUsd?.toFixed(2)} $: не запущено подзадач — ${left.length}`
+        reason: new AppError('plans.budgetExhausted', { budget: input.budgetUsd?.toFixed(2) ?? '0.00', left: left.length })
       };
     }
   }
@@ -114,7 +115,7 @@ export function decidePlanStep(input: DispatchInput): PlanStep {
 }
 
 /** Исход плана по конечным состояниям узлов. */
-export function planOutcome(nodes: PlanNode[]): { outcome: PlanOutcome; reason?: string } {
+export function planOutcome(nodes: PlanNode[]): { outcome: PlanOutcome; reason?: AppError } {
   const failed = nodes.filter((n) => n.state === 'failed');
   const blocked = nodes.filter((n) => n.state === 'blocked');
   const missing = nodes.filter((n) => n.state === 'missing');
@@ -126,16 +127,13 @@ export function planOutcome(nodes: PlanNode[]): { outcome: PlanOutcome; reason?:
   if (merged.length === 0) {
     return {
       outcome: 'failed',
-      reason: `Ни одна подзадача не влита: провалено — ${failed.length}, заблокировано — ${blocked.length}`
+      reason: new AppError('plans.nothingMerged', { failed: failed.length, blocked: blocked.length })
     };
   }
-  const parts = [
-    `влито — ${merged.length}`,
-    ...(failed.length > 0 ? [`провалено — ${failed.length}`] : []),
-    ...(blocked.length > 0 ? [`заблокировано — ${blocked.length}`] : []),
-    ...(missing.length > 0 ? [`удалено из Backlog — ${missing.length}`] : [])
-  ];
-  return { outcome: 'partial', reason: `Часть плана не выполнена: ${parts.join(', ')}` };
+  return {
+    outcome: 'partial',
+    reason: new AppError('plans.partial', { merged: merged.length, failed: failed.length, blocked: blocked.length, missing: missing.length })
+  };
 }
 
 /**
@@ -143,7 +141,7 @@ export function planOutcome(nodes: PlanNode[]): { outcome: PlanOutcome; reason?:
  * они работают в своём worktree и должны договорить, даже если их результат уже некуда слить.
  * Возвращает `taskId` заблокированных узлов.
  */
-export function blockDependents(nodes: PlanNode[], taskId: string, reason: string): string[] {
+export function blockDependents(nodes: PlanNode[], taskId: string, reason: AppError): string[] {
   const blocked: string[] = [];
   let changed = true;
   const bad = new Set([taskId]);
@@ -154,7 +152,8 @@ export function blockDependents(nodes: PlanNode[], taskId: string, reason: strin
       if (node.state !== 'pending' || bad.has(node.taskId)) continue;
       if (!node.dependsOn.some((dep) => bad.has(dep))) continue;
       node.state = 'blocked';
-      node.reason = reason;
+      node.reason = reason.message;
+      node.reasonKey = reason.appErrorKey;
       node.finishedAt = Date.now();
       bad.add(node.taskId);
       blocked.push(node.taskId);
@@ -173,10 +172,7 @@ export function blockUnreachable(nodes: PlanNode[]): string[] {
   const blocked: string[] = [];
   for (const node of nodes) {
     if (node.state !== 'failed' && node.state !== 'missing' && node.state !== 'blocked') continue;
-    const reason =
-      node.state === 'missing'
-        ? `Заблокирован: ${node.taskId} удалён из Backlog`
-        : `Заблокирован: ${node.taskId} не выполнен`;
+    const reason = new AppError(node.state === 'missing' ? 'plans.blockedMissing' : 'plans.blockedNotDone', { id: node.taskId });
     blocked.push(...blockDependents(nodes, node.taskId, reason));
   }
   return blocked;

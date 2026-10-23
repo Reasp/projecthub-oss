@@ -119,7 +119,7 @@ export class PlanStore {
 
   /** Атомарная запись (tmp + rename); параллельные вызовы для одного плана сериализуются. */
   public async save(plan: PlanState): Promise<void> {
-    if (!isValidPlanId(plan?.id)) throw new Error(`Недопустимый идентификатор плана: ${String(plan?.id)}`);
+    if (!isValidPlanId(plan?.id)) throw new Error(`Invalid plan id: ${String(plan?.id)}`);
     const pending = this.pendingSaves.get(plan.id);
     if (pending) {
       clearTimeout(pending.timer);

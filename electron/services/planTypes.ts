@@ -11,6 +11,7 @@
 import type { AgentSlotConfig } from './swarmTypes.js';
 import type { ModelTier } from './modelTiers.js';
 import type { ModelRouteView } from './modelRouter.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
 
 /** Подзадача в ответе роли `architect` до создания в Backlog.md. */
 export interface PlanSubtaskDraft {
@@ -85,6 +86,8 @@ export interface PlanNode {
   iterations?: number;
   /** Почему узел провалился, заблокирован или пропущен. */
   reason?: string;
+  /** Код причины для текста на языке окна (decision-165); без него `reason` — текст как есть. */
+  reasonKey?: AppErrorKey;
   /** Назначение, для которого не удалось выбрать модель: по нему интерфейс ведёт в настройки (decision-75). */
   reasonPurpose?: string;
   /** Тир, который подзадаче назначила роль `architect`; важнее тира назначения «узлы плана» (decision-75). */
@@ -141,6 +144,8 @@ export interface PlanState {
   phase: PlanPhase;
   outcome?: PlanOutcome;
   reason?: string;
+  /** Код причины для текста на языке окна (decision-165). */
+  reasonKey?: AppErrorKey;
   /** Назначение, для которого не удалось выбрать модель (decision-75). */
   reasonPurpose?: string;
   createdAt: number;

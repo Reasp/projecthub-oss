@@ -39,7 +39,7 @@ import { assertRegisteredProject, assertWorkspaceRoot } from './projectPathGuard
 import { studioRemoteBridge } from './studioRemoteBridge.js';
 import { aiSessionStore } from './aiSessionStore.js';
 import { hitlTitleIn } from '../i18n/hostText.js';
-import { AppError, appErrorKeyOf, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
+import { AppError, appErrorKeyOf, withAppErrorKey, type AppErrorKey, type AppErrorParams } from '../../src/lib/appError.js';
 import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 import { llmProfileService } from './llmProfileService.js';
 import { llmModelCatalogService } from './llmModelCatalogService.js';
@@ -3988,7 +3988,8 @@ class RemoteControlService {
             roleSlug: a.config.roleSlug,
             engine: a.config.engine,
             status: a.status,
-            error: a.error
+            error: a.error,
+            ...(a.errorKey ? { errorKey: a.errorKey } : {})
           }))
         }));
       }
@@ -4035,7 +4036,7 @@ class RemoteControlService {
           // Агент участника — в его worktree, с HITL ему и стоимостью на него (TASK-142.3).
           ...(device.memberId ? { memberId: device.memberId } : {})
         });
-        if ('error' in result) throw new Error(result.error);
+        if ('error' in result) throw withAppErrorKey(new Error(result.error), result.errorKey);
         this.trackPhoneSwarm(result.id);
         return { swarmId: result.id, status: result.status, hostId: this.hostId };
       }

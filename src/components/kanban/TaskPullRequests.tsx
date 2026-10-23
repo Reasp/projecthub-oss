@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { GitPullRequest, Check, XCircle, CheckCircle2, Clock, ExternalLink, RefreshCw } from '../common/icons';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { CiStatusIcon } from '../ci/CiRuns';
 import type { CiRunsResult, PullRequest, TaskPullRequestsResult } from '../../types/electron';
 
@@ -29,7 +29,7 @@ export const TaskPullRequests: React.FC<Props> = ({ projectPath, taskId }) => {
         if (!cancelled) setResult(res);
       })
       .catch((err) => {
-        if (!cancelled) setResult({ ok: false, prs: [], unresolved: [], error: err instanceof Error ? err.message : String(err) });
+        if (!cancelled) setResult({ ok: false, prs: [], unresolved: [], error: ipcErrorText(err) });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -129,7 +129,7 @@ export const TaskPullRequests: React.FC<Props> = ({ projectPath, taskId }) => {
           <span className="truncate">{url}</span>
         </button>
       ))}
-      {result.error && <span className="px-2 text-amber-300/80">{t.prs.taskPrsUnresolved.replace('{error}', result.error)}</span>}
+      {result.error && <span className="px-2 text-amber-300/80">{t.prs.taskPrsUnresolved.replace('{error}', ipcFailureText(result))}</span>}
       {ciBranches.map((branch) => (
         <TaskCiLine key={`${branch}-${reloadKey}`} projectPath={projectPath} branch={branch} />
       ))}

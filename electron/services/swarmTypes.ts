@@ -9,6 +9,7 @@ import type { AgentUsage } from './agentCost.js';
 import type { RolePermissions } from './hitlTypes.js';
 import type { CandidateScore, CheckRunResult, JudgeState, ReviewerVerdict } from './arenaTypes.js';
 import type { DoneLoopState } from './doneLoopTypes.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
 import type { ResolvedProviderInfo } from './slotProvider.js';
 import type { ProviderErrorInfo } from './providerErrors.js';
 import type { ModelRoutingInfo, ModelTier } from './modelTiers.js';
@@ -131,6 +132,8 @@ export interface AgentSlotState {
   metrics: AgentSlotMetrics;
   winner?: boolean;
   error?: string;
+  /** Код ошибки агента для текста на языке окна и телефона (decision-165); без него `error` — текст как есть. */
+  errorKey?: AppErrorKey;
   /** Сколько раз агент перезапускался после прерывания. */
   resumeCount?: number;
   /** `session_id` Claude CLI из stream-json — для продолжения той же сессии (`--resume`, TASK-75). */
@@ -265,6 +268,8 @@ export interface SwarmSession {
   /** Слияние ждёт решения человека в очереди HITL: секреты или новые зависимости (decision-56 п. 7). */
   pendingMergeApproval?: { requestId: string; agentIds: string[]; since: number };
   error?: string;
+  /** Код ошибки сессии для текста на языке окна (decision-165). */
+  errorKey?: AppErrorKey;
   /** Бюджет всей сессии в USD (сумма по всем агентам). */
   budgetUsd?: number;
   /** Суммарная стоимость по всем агентам (пересчитывается при каждом обновлении usage). */

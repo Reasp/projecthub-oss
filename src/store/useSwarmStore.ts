@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { ipcErrorText, ipcFailureText } from '../i18n/useTranslation';
 import type {
   ArenaConfig,
   ArenaSettings,
@@ -92,6 +93,11 @@ function removeSwarm(state: SwarmState, projectPath: string, swarmId: string) {
       [projectPath]: active === swarmId ? list[0]?.id || null : active
     }
   };
+}
+
+/** Отказ main `{ error, errorKey }` — текстом на языке окна (decision-165). */
+function localized<T extends { error?: string; errorKey?: unknown }>(res: T): T {
+  return res.error ? { ...res, error: ipcFailureText(res) } : res;
 }
 
 export const useSwarmStore = create<SwarmState>((set) => ({
@@ -206,7 +212,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
       const result = await window.api.startSwarmDoneLoop(options);
       if (!('id' in result)) {
         set({ isLoading: false });
-        return result;
+        return localized(result);
       }
       const projectPath = options.projectPath;
       set((state) => {
@@ -224,7 +230,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
     } catch (err) {
       console.error('[SwarmStore] Failed to start done-loop:', err);
       set({ isLoading: false });
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: ipcErrorText(err) };
     }
   },
 
@@ -257,11 +263,11 @@ export const useSwarmStore = create<SwarmState>((set) => ({
       } else {
         set({ isLoading: false });
       }
-      return result;
+      return result && 'error' in result ? localized(result) : result;
     } catch (err) {
       console.error('[SwarmStore] Failed to run assigned agent:', err);
       set({ isLoading: false });
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: ipcErrorText(err) };
     }
   },
 
@@ -280,20 +286,20 @@ export const useSwarmStore = create<SwarmState>((set) => ({
       return { success: false, error: 'API not available' };
     }
     try {
-      return await window.api.pickSwarmWinner(swarmId, winnerAgentId, mergeIntoBase);
+      return localized(await window.api.pickSwarmWinner(swarmId, winnerAgentId, mergeIntoBase));
     } catch (err: any) {
       console.error('[SwarmStore] Failed to pick winner:', err);
-      return { success: false, error: err.message || String(err) };
+      return { success: false, error: ipcErrorText(err) };
     }
   },
 
   resumeSwarmAction: async (swarmId: string) => {
     if (!window.api?.resumeSwarm) return { success: false, error: 'API not available' };
     try {
-      return await window.api.resumeSwarm(swarmId);
+      return localized(await window.api.resumeSwarm(swarmId));
     } catch (err: any) {
       console.error('[SwarmStore] Failed to resume swarm:', err);
-      return { success: false, error: err.message || String(err) };
+      return { success: false, error: ipcErrorText(err) };
     }
   },
 
@@ -302,10 +308,10 @@ export const useSwarmStore = create<SwarmState>((set) => ({
     try {
       const res = await window.api.discardSwarm(swarmId, true);
       if (res.success) set((state) => removeSwarm(state, projectPath, swarmId));
-      return res;
+      return localized(res);
     } catch (err: any) {
       console.error('[SwarmStore] Failed to discard swarm:', err);
-      return { success: false, error: err.message || String(err) };
+      return { success: false, error: ipcErrorText(err) };
     }
   },
 
@@ -322,10 +328,10 @@ export const useSwarmStore = create<SwarmState>((set) => ({
   runJudgeAction: async (swarmId: string, options) => {
     if (!window.api?.runSwarmJudge) return { success: false, error: 'API not available' };
     try {
-      return await window.api.runSwarmJudge(swarmId, options);
+      return localized(await window.api.runSwarmJudge(swarmId, options));
     } catch (err) {
       console.error('[SwarmStore] Failed to run judge:', err);
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return { success: false, error: ipcErrorText(err) };
     }
   },
 
@@ -342,10 +348,10 @@ export const useSwarmStore = create<SwarmState>((set) => ({
   composeResultAction: async (swarmId: string, selections: ComposeSelection[]) => {
     if (!window.api?.composeSwarmResult) return { success: false, error: 'API not available' };
     try {
-      return await window.api.composeSwarmResult(swarmId, selections);
+      return localized(await window.api.composeSwarmResult(swarmId, selections));
     } catch (err) {
       console.error('[SwarmStore] Failed to compose result:', err);
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return { success: false, error: ipcErrorText(err) };
     }
   },
 
@@ -372,10 +378,10 @@ export const useSwarmStore = create<SwarmState>((set) => ({
   exportSwarmAction: async (swarmId: string, format: SwarmExportFormat) => {
     if (!window.api?.exportSwarmToFile) return { success: false, error: 'API not available' };
     try {
-      return await window.api.exportSwarmToFile(swarmId, format);
+      return localized(await window.api.exportSwarmToFile(swarmId, format));
     } catch (err: any) {
       console.error('[SwarmStore] Failed to export swarm:', err);
-      return { success: false, error: err.message || String(err) };
+      return { success: false, error: ipcErrorText(err) };
     }
   },
 

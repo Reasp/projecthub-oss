@@ -5,6 +5,7 @@
  * отрезки цикла, промпт первой итерации отрезка, инвалидация и перезапуск этапов конвейера.
  * Сервис флота только исполняет эти планы.
  */
+import { AppError } from '../../src/lib/appError.js';
 import { REPORT_FENCE } from './doneLoop.js';
 import { parseTaskBody, toggleCriterionInContent } from './backlogTaskFormat.js';
 import type { AgentCheckpoint } from './agentTraceTypes.js';
@@ -80,13 +81,13 @@ export function iterationInSegment(index: number, segmentStart: number): number 
 export function doneLoopContinueBlockReason(input: {
   state: Pick<DoneLoopState, 'totalCostUsd' | 'settings'> | undefined;
   hasPendingRewind: boolean;
-}): string | undefined {
-  if (!input.state) return 'Сессия «до готовности» повреждена: нет состояния цикла';
-  if (!input.hasPendingRewind) return 'Продолжить цикл можно после отката к чекпоинту; без отката запустите цикл заново';
+}): AppError | undefined {
+  if (!input.state) return new AppError('swarm.loopStateMissing');
+  if (!input.hasPendingRewind) return new AppError('swarm.continueNeedsRewind');
   const budget = input.state.settings.budgetUsd;
   const spent = input.state.totalCostUsd;
   if (typeof budget === 'number' && budget > 0 && typeof spent === 'number' && spent >= budget) {
-    return `Бюджет цикла $${budget.toFixed(2)} исчерпан (потрачено $${spent.toFixed(2)}): продолжение невозможно, запустите цикл заново с большим бюджетом`;
+    return new AppError('swarm.loopBudgetExhausted', { budget: budget.toFixed(2), spent: spent.toFixed(2) });
   }
   return undefined;
 }
@@ -169,12 +170,12 @@ export function stageIndexOfAgent(stages: HandoffStageState[] | undefined, agent
  * Откат этапа запрещён, пока предыдущий этап не выполнен или отменён более ранним откатом (decision-48 п. 3.2):
  * чекпоинты такого этапа описывают отменённое «будущее» общего worktree.
  */
-export function handoffRewindBlockReason(stages: HandoffStageState[] | undefined, stageIndex: number): string | undefined {
+export function handoffRewindBlockReason(stages: HandoffStageState[] | undefined, stageIndex: number): AppError | undefined {
   if (!stages || stageIndex < 0) return undefined;
   for (let i = 0; i < stageIndex; i++) {
     const s = stages[i];
     if (s.status !== 'completed') {
-      return `Этап ${i + 1} («${s.role}») не выполнен или отменён более ранним откатом — сначала перезапустите конвейер`;
+      return new AppError('swarm.stageNotDone', { stage: i + 1, role: s.role });
     }
   }
   return undefined;
@@ -192,7 +193,7 @@ export function invalidatedStage(stage: HandoffStageState, at: number): HandoffS
   return { ...rest, status: 'pending', invalidatedAt: at };
 }
 
-export type HandoffRerunPlan = { fromStage: number; stages: number[] } | { error: string };
+export type HandoffRerunPlan = { fromStage: number; stages: number[] } | { error: AppError };
 
 /**
  * Перезапуск конвейера после отката (decision-48 п. 3.3): с этапа, чей агент откатан и ещё не продолжен,
@@ -203,12 +204,12 @@ export function planHandoffRerun(
   agents: Array<{ id: string; pendingRewindNote?: string }>,
   agentId: string
 ): HandoffRerunPlan {
-  if (!stages || stages.length === 0) return { error: 'У сессии нет этапов конвейера' };
+  if (!stages || stages.length === 0) return { error: new AppError('swarm.noStages') };
   const fromStage = stageIndexOfAgent(stages, agentId);
-  if (fromStage < 0) return { error: 'Агент не относится ни к одному этапу конвейера' };
+  if (fromStage < 0) return { error: new AppError('swarm.agentNotInStage') };
   const agent = agents.find((a) => a.id === agentId);
   if (!agent?.pendingRewindNote) {
-    return { error: 'Перезапустить этап можно после отката его агента к чекпоинту' };
+    return { error: new AppError('swarm.stageRerunNeedsRewind') };
   }
   const blocked = handoffRewindBlockReason(stages, fromStage);
   if (blocked) return { error: blocked };

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { claudeAccountService, runClaudeCliWithAccount } from './claudeAccountService.js';
 import { DEFAULT_CLAUDE_ACCOUNT_ID, type ClaudeAccountProfile } from './claudeAccounts.js';
+import { AppError } from '../../src/lib/appError.js';
 import {
   interpretUsageCliResult,
   isLoggedOutAuthStatus,
@@ -40,6 +41,8 @@ export interface ClaudeModelTokenStats {
 }
 
 export interface ClaudeUsageData {
+  /** Источники данных без вывода CLI (TASK-202.4): окно собирает пояснение на своём языке. */
+  sources?: { accountName: string; configDir: string; statsFile: string; hasStatsCache: boolean; rateLimitsAt?: number };
   planType: string;
   sessionLimit?: ClaudeUsageLimitWindow;
   weeklyLimit?: ClaudeUsageLimitWindow;
@@ -131,7 +134,7 @@ class ClaudeUsageService {
    */
   public async getUsage(forceRefresh = false, accountId: string = DEFAULT_CLAUDE_ACCOUNT_ID): Promise<ClaudeUsageData> {
     const account = await claudeAccountService.getAccount(accountId);
-    if (!account) throw new Error('Профиль аккаунта Claude Code не найден.');
+    if (!account) throw new AppError('accounts.profileNotFound');
     const state = this.state(account.id);
     const now = Date.now();
     if (!forceRefresh && state.cachedUsage && now - state.lastFetchTime < this.CACHE_TTL_MS) {
@@ -193,9 +196,7 @@ class ClaudeUsageService {
     const statsCacheData = await this.readStatsCacheFile(account.configDir);
 
     if (!parsedFromCli && !statsCacheData && !rateLimits && !cliError) {
-      throw new Error(
-        'Не удалось получить usage данные Claude Code: нет ответа от CLI, отсутствует stats-cache.json и ещё не было rate-limit событий'
-      );
+      throw new AppError('usage.noData');
     }
 
     const sessionLimit = rateLimits?.sessionLimit ?? parsedFromCli?.sessionLimit;
@@ -213,7 +214,7 @@ class ClaudeUsageService {
       totalMessages: statsCacheData?.totalMessages,
       modelUsage: statsCacheData?.modelUsage,
       dailyActivity: statsCacheData?.dailyActivity,
-      rawText: cliUsageText || this.describeSources(statsCacheData !== null, account, rateLimits),
+      ...(cliUsageText ? { rawText: cliUsageText } : { sources: this.describeSources(statsCacheData !== null, account, rateLimits) }),
       updatedAt: now,
       isFallback: !rateLimits && !parsedFromCli?.sessionLimit && !parsedFromCli?.weeklyLimit,
       cliError,
@@ -248,19 +249,14 @@ class ClaudeUsageService {
     return result;
   }
 
-  private describeSources(hasStatsCache: boolean, account: ClaudeAccountProfile, rateLimits: ClaudeRateLimitSnapshot | null): string {
-    const statsFile = path.join(account.configDir, 'stats-cache.json');
-    const lines = [
-      `Аккаунт: «${account.name}» (${account.configDir}).`,
-      hasStatsCache
-        ? `Сессии, сообщения и токены: локальный кэш Claude Code (${statsFile}).`
-        : `Локальный кэш Claude Code (${statsFile}) не найден.`,
-      rateLimits
-        ? `Лимиты: rate-limit события Claude CLI, последнее ${new Date(rateLimits.updatedAt).toLocaleString()}.`
-        : 'Окна лимитов получены из снимка rate-limit событий Claude CLI.',
-      'Для прямого опроса лимитов и квот подписки используется вызов `claude -p /usage`.'
-    ];
-    return lines.join('\n');
+  private describeSources(hasStatsCache: boolean, account: ClaudeAccountProfile, rateLimits: ClaudeRateLimitSnapshot | null): NonNullable<ClaudeUsageData['sources']> {
+    return {
+      accountName: account.name,
+      configDir: account.configDir,
+      statsFile: path.join(account.configDir, 'stats-cache.json'),
+      hasStatsCache,
+      ...(rateLimits ? { rateLimitsAt: rateLimits.updatedAt } : {})
+    };
   }
 
   /** Текущие окна лимитов, накопленные из событий CLI (для тестов и диагностики). */
