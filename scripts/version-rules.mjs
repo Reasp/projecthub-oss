@@ -42,6 +42,20 @@ export function compareVersions(a, b) {
   return 0;
 }
 
+/**
+ * Тег релиза `vX.Y.Z` — самый новый среди тегов репозитория (TASK-220): релиз зеркала собирается только для него.
+ * Старый тег, вернувшийся в зеркало (`--rewrite` переставляет теги, тег руками), иначе пересобрал бы старый релиз.
+ * Теги не вида `vX.Y.Z` не участвуют; сам тег такого вида не последний.
+ */
+export function isLatestReleaseTag(tag, tags) {
+  const version = /^v(\d+\.\d+\.\d+)$/.exec(String(tag))?.[1];
+  if (!version) return false;
+  return tags.every((other) => {
+    const v = /^v(\d+\.\d+\.\d+)$/.exec(String(other).trim())?.[1];
+    return !v || compareVersions(v, version) <= 0;
+  });
+}
+
 /** versionCode Android: растёт вместе с версией. Та же формула — в build.gradle. */
 export function androidVersionCode(version) {
   const v = parseVersion(version);

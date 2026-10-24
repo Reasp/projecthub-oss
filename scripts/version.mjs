@@ -10,6 +10,8 @@
 //                                              дополняется ею (--amend); аргумент 1 — squash, пропускается
 //   node scripts/version.mjs install-hooks   — core.hooksPath = .githooks (npm install → prepare)
 //   node scripts/version.mjs verify --range A..B — аудит: каждый коммит первой линии A..B, меняющий код, поднял версию
+//   node scripts/version.mjs latest-tag <tag>  — печатает true, если <tag> самый новый из локальных тегов v*, иначе false
+//                                              (workflow зеркала собирает релиз только последнего тега, TASK-220)
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,6 +22,7 @@ import {
   checkVersionTexts,
   compareVersions,
   isCodePath,
+  isLatestReleaseTag,
   readVersions,
   setVersion
 } from './version-rules.mjs';
@@ -185,6 +188,12 @@ function verify(range) {
   console.log(`✓ Версия поднята во всех коммитах с кодом (${commits.length} проверено)`);
 }
 
+function latestTag(tag) {
+  if (!tag) throw new Error('latest-tag: нужен тег, например v0.1.50');
+  const tags = git(['tag', '--list', 'v*']).split(/\r?\n/).filter(Boolean);
+  console.log(isLatestReleaseTag(tag, tags) ? 'true' : 'false');
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 try {
   if (cmd === 'check') check();
@@ -193,8 +202,9 @@ try {
   else if (cmd === 'ensure-merge') ensureMerge(rest[0] === '1');
   else if (cmd === 'install-hooks') installHooks();
   else if (cmd === 'verify') verify(rest[rest.indexOf('--range') + 1]);
+  else if (cmd === 'latest-tag') latestTag(rest[0]);
   else {
-    console.error('Использование: node scripts/version.mjs check | bump [--stage] | ensure-staged | ensure-merge [1] | install-hooks | verify --range A..B');
+    console.error('Использование: node scripts/version.mjs check | bump [--stage] | ensure-staged | ensure-merge [1] | install-hooks | verify --range A..B | latest-tag <tag>');
     process.exit(2);
   }
 } catch (err) {

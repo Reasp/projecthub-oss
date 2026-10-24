@@ -6,11 +6,11 @@
 #
 #   push to main / pull request  → distributables as workflow artifacts (14 days), nothing is published
 #   tag v*                       → the same build, published to the tag's GitHub Release of the mirror
-#                                  together with latest.yml / latest-mac.yml / latest-linux.yml
+#                                  together with latest.yml / latest-mac.yml / latest-linux.yml;
+#                                  only for the newest v* tag, an older one builds nothing (TASK-220)
 #
-# The private source repository has `.github/workflows/ci.yml` and `release.yml` of its own and they are
-# not copied into the mirror (`scripts/release/mirror-paths.json`); this file is copied into the mirror and
-# skipped in the source by the `if:` below.
+# The private source repository runs no workflows (decision-167 п. 9); this file lives there only because
+# the mirror is generated from it, and its jobs are skipped in the source by the `if:` below.
 name: Open edition
 
 on:
@@ -41,13 +41,30 @@ jobs:
     name: github release
     if: github.repository == 'Reasp/projecthub-oss' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    outputs:
+      latest: ${{ steps.latest.outputs.latest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Only the newest v* tag is released (TASK-220): an old tag that comes back into the mirror
+      # (`publish-mirror.mjs --rewrite` moves every tag, or a tag pushed by hand) must not rebuild an old
+      # release. Not the newest — no release and no OS builds, the run ends green with a notice.
+      - name: Only the newest tag is released
+        id: latest
+        shell: bash
+        run: |
+          git fetch --quiet --force --depth=1 origin 'refs/tags/v*:refs/tags/v*'
+          latest="$(node scripts/version.mjs latest-tag "${GITHUB_REF_NAME}")"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+          if [ "${latest}" != "true" ]; then
+            echo "::notice::${GITHUB_REF_NAME} is not the newest v* tag in the repository, nothing is built or published"
+          fi
+
       # A release is published for the version in package.json (electron-builder looks the release up by
       # `v<version>`), so the tag must match it exactly: `git tag v$(node -p "require('./package.json').version")`.
       - name: Tag matches package.json version
+        if: steps.latest.outputs.latest == 'true'
         shell: bash
         run: |
           expected="v$(node -p "require('./package.json').version")"
@@ -57,6 +74,7 @@ jobs:
           fi
 
       - name: Create the GitHub Release once
+        if: steps.latest.outputs.latest == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -73,8 +91,8 @@ jobs:
     name: ${{ matrix.name }}
     needs: release
     # Only in the public mirror: the source repository builds locally (decision-148). `release` is skipped
-    # for branch builds and must have succeeded for tag builds.
-    if: ${{ !cancelled() && github.repository == 'Reasp/projecthub-oss' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    # for branch builds and must have succeeded for tag builds; a tag that is not the newest builds nothing.
+    if: ${{ !cancelled() && github.repository == 'Reasp/projecthub-oss' && (needs.release.result == 'success' || needs.release.result == 'skipped') && needs.release.outputs.latest != 'false' }}
     strategy:
       fail-fast: false
       matrix:
