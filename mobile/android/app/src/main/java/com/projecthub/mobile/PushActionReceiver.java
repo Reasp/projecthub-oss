@@ -101,11 +101,14 @@ public class PushActionReceiver extends BroadcastReceiver {
                     outcome = ctx.getString("allow".equals(decision) ? R.string.outcome_approved : R.string.outcome_denied);
                     done = true;
                 } else if (status == 409) {
-                    String reason = new JSONObject(reply.isEmpty() ? "{}" : reply).optString("reason");
-                    outcome = ctx.getString("confirmation_required".equals(reason)
-                        ? R.string.outcome_confirm_in_app
-                        : "already_decided".equals(reason) ? R.string.outcome_already_decided : R.string.outcome_not_found);
-                    done = !"confirmation_required".equals(reason);
+                    JSONObject refusal = new JSONObject(reply.isEmpty() ? "{}" : reply);
+                    String reason = refusal.optString("reason");
+                    JSONObject key = refusal.optJSONObject("reasonKey");
+                    JSONObject params = key == null ? null : key.optJSONObject("params");
+                    outcome = PushRefusal.text(Texts.of(ctx), reason,
+                        key == null ? null : key.optString("code"),
+                        params == null ? null : params.optString("member"));
+                    done = PushRefusal.isFinal(reason);
                     break;
                 } else if (status == 403) {
                     outcome = ctx.getString(R.string.outcome_rejected);
