@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   BrainCircuit,
   Bot,
@@ -170,6 +170,38 @@ export const AIStudioView: React.FC = () => {
     useSwarmStore.setState({ aiViewRequest: null });
   }, [aiViewRequest]);
 
+  // Полоса вкладок чатов (TASK-217): вкладки сжимаются, а когда и так не влезают — полоса листается
+  // колесом, активная вкладка прокручивается в видимую часть и появляется список всех чатов.
+  const tabsScrollRef = useRef<HTMLDivElement>(null);
+  const [tabsOverflow, setTabsOverflow] = useState(false);
+  // Размеры вкладок ловит ResizeObserver; переподписка нужна, только когда меняется набор вкладок
+  const sessionIdsKey = projectSessions.map((s) => s.id).join('|');
+  useEffect(() => {
+    const strip = tabsScrollRef.current;
+    if (!strip) return;
+    const check = () => setTabsOverflow(strip.scrollWidth > strip.clientWidth + 1);
+    const observer = new ResizeObserver(check);
+    observer.observe(strip);
+    for (const tab of Array.from(strip.children)) observer.observe(tab);
+    check();
+    return () => observer.disconnect();
+  }, [aiViewMode, sessionIdsKey]);
+
+  const revealSessionTab = useCallback((sessionId: string | undefined) => {
+    const strip = tabsScrollRef.current;
+    if (!strip || !sessionId) return;
+    const tab = Array.from(strip.children).find((el) => (el as HTMLElement).dataset.sessionId === sessionId);
+    if (!tab) return;
+    const stripRect = strip.getBoundingClientRect();
+    const tabRect = tab.getBoundingClientRect();
+    // Своя прокрутка вместо scrollIntoView: тот листает и предков с overflow-hidden
+    if (tabRect.left < stripRect.left) strip.scrollLeft -= stripRect.left - tabRect.left;
+    else if (tabRect.right > stripRect.right) strip.scrollLeft += tabRect.right - stripRect.right;
+  }, []);
+  useEffect(() => {
+    revealSessionTab(currentSessionId);
+  }, [revealSessionTab, aiViewMode, currentSessionId, projectSessions.length, tabsOverflow]);
+
   if (!selectedProject) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-500">
@@ -224,9 +256,16 @@ export const AIStudioView: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-full bg-ph-panel overflow-hidden">
       {/* 1. Multi-Session Tabs Bar (VS Code Extension Style) */}
-      <div className="bg-ph-chrome border-b border-ph-line flex items-center justify-between gap-2 px-2 h-10 shrink-0 select-none relative z-30">
-        <div className="flex items-center min-w-[150px] max-w-[45%] h-full">
-        <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar min-w-0 h-full">
+      {/* @container: на узкой панели подписи правых кнопок прячутся, место отдаётся вкладкам (TASK-217) */}
+      <div className="@container bg-ph-chrome border-b border-ph-line flex items-center justify-between gap-2 px-2 h-10 shrink-0 select-none relative z-30">
+        <div className="flex items-center flex-1 min-w-[200px] h-full">
+        <div
+          ref={tabsScrollRef}
+          onWheel={(e) => {
+            if (tabsScrollRef.current && Math.abs(e.deltaY) > Math.abs(e.deltaX)) tabsScrollRef.current.scrollLeft += e.deltaY;
+          }}
+          className="flex items-center gap-0.5 overflow-x-auto no-scrollbar min-w-0 h-full"
+        >
           {projectSessions.map((session, idx) => {
             const isActive = session.id === currentSessionId;
             const tabNumber = idx + 1;
@@ -241,8 +280,9 @@ export const AIStudioView: React.FC = () => {
             return (
               <div
                 key={session.id}
+                data-session-id={session.id}
                 onClick={() => switchSession(projectPath, session.id)}
-                className={`group flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-lg border-t-2 text-xs font-medium cursor-pointer transition whitespace-nowrap max-w-xs shrink-0 ${
+                className={`group relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-lg border-t-2 text-xs font-medium cursor-pointer transition whitespace-nowrap max-w-xs min-w-[112px] ${
                   isActive
                     ? 'bg-ph-panel border-indigo-400 text-slate-100'
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-ph-hover/60'
@@ -251,7 +291,7 @@ export const AIStudioView: React.FC = () => {
               >
                 {/* Voice / Tab Order Badge */}
                 <span
-                  className={`text-[11px] font-mono px-1 py-0.2 rounded border transition ${
+                  className={`text-[11px] font-mono px-1 py-0.2 rounded border transition shrink-0 ${
                     isActive
                       ? 'text-slate-400 border-transparent'
                       : 'text-slate-500 border-transparent'
@@ -273,7 +313,7 @@ export const AIStudioView: React.FC = () => {
                 </div>
 
                 <span
-                  className="truncate text-xs font-sans max-w-[120px]"
+                  className="truncate min-w-0 text-xs font-sans max-w-[120px]"
                   title={session.title}
                   onDoubleClick={async (e) => {
                     e.stopPropagation();
@@ -290,7 +330,7 @@ export const AIStudioView: React.FC = () => {
                   {session.title || t.aiStudio.newChat}
                 </span>
                 {/* Свой аккаунт Claude Code вкладки — короткой подписью, чтобы различать вкладки разных аккаунтов */}
-                {tabAccountName && <span className="text-[11px] text-amber-300/80 max-w-[70px] truncate">{tabAccountName}</span>}
+                {tabAccountName && <span className="text-[11px] text-amber-300/80 max-w-[70px] min-w-0 truncate">{tabAccountName}</span>}
 
                 {/* Состояние ответа вкладки (TASK-171): ждёт решения человека или отвечает */}
                 {tabWaiting ? (
@@ -314,43 +354,88 @@ export const AIStudioView: React.FC = () => {
                   variant="amber"
                 />
 
-                {/* Rename Session Button */}
-                <button
-                  type="button"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    const newTitle = await dialog.prompt({
-                      title: t.aiStudio.renameSession,
-                      message: t.aiStudio.renamePrompt,
-                      defaultValue: session.title
-                    });
-                    if (newTitle !== null && newTitle.trim()) {
-                      renameSession(projectPath, session.id, newTitle.trim());
-                    }
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-ph-hover text-slate-400 hover:text-slate-100 transition shrink-0"
-                  title={t.aiStudio.renameSession}
-                >
-                  <Pencil className="w-2.5 h-2.5" />
-                </button>
-
-                {/* Close Session Button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeSession(projectPath, session.id);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-700/80 text-slate-400 hover:text-white transition shrink-0"
-                  title={t.aiStudio.closeSession}
-                >
-                  <X className="w-3 h-3" />
-                </button>
+                {/* Переименовать и закрыть — поверх правого края при наведении, а не резервируют место:
+                    иначе у сжатой вкладки от заголовка остаётся одна буква (TASK-217) */}
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex group-focus-within:flex items-center gap-0.5 p-0.5 rounded-md bg-ph-raised shadow">
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const newTitle = await dialog.prompt({
+                        title: t.aiStudio.renameSession,
+                        message: t.aiStudio.renamePrompt,
+                        defaultValue: session.title
+                      });
+                      if (newTitle !== null && newTitle.trim()) {
+                        renameSession(projectPath, session.id, newTitle.trim());
+                      }
+                    }}
+                    className="p-0.5 rounded hover:bg-ph-hover text-slate-400 hover:text-slate-100 transition"
+                    title={t.aiStudio.renameSession}
+                    aria-label={t.aiStudio.renameSession}
+                  >
+                    <Pencil className="w-2.5 h-2.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeSession(projectPath, session.id);
+                    }}
+                    className="p-0.5 rounded hover:bg-slate-700/80 text-slate-400 hover:text-white transition"
+                    title={t.aiStudio.closeSession}
+                    aria-label={t.aiStudio.closeSession}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             );
           })}
 
         </div>
+
+          {/* Все чаты списком — только когда вкладки не влезают в полосу (TASK-217) */}
+          {tabsOverflow && (
+            <ComposerMenu
+              placement="down"
+              chevron
+              trigger={<span className="tabular-nums">{projectSessions.length}</span>}
+              title={t.aiStudio.allChats.replace('{count}', String(projectSessions.length))}
+              heading={t.aiStudio.allChats.replace('{count}', String(projectSessions.length))}
+              testId="studio-tabs-overflow"
+              items={projectSessions.map((session, idx) => {
+                const tabAgent = effectiveSessionAgent(config, session.agent);
+                const tabAccount = sessionClaudeAccountId(session.agent);
+                const tabAccountView = tabAccount ? claudeAccounts?.find((a) => a.id === tabAccount) : undefined;
+                const tabAccountName = tabAccountView ? accountDisplayName(tabAccountView, t.claudeAccounts.defaultName) : undefined;
+                const state = allProjectApprovals.some((r) => r.sessionId === session.id)
+                  ? t.aiStudio.tabWaitingApproval
+                  : streamingSessions[session.id]
+                    ? t.aiStudio.tabAnswering
+                    : '';
+                return {
+                  key: session.id,
+                  label: `${idx + 1}. ${session.title || t.aiStudio.newChat}`,
+                  icon:
+                    session.origin === 'phone' ? (
+                      <Smartphone className="w-3.5 h-3.5 text-sky-300" />
+                    ) : tabAgent.provider === 'anthropic' ? (
+                      <ClaudeLogo className="w-3.5 h-3.5" />
+                    ) : (
+                      <Server className="w-3.5 h-3.5" />
+                    ),
+                  hint: [tabAgent.model, tabAccountName, state].filter(Boolean).join(' · '),
+                  checked: session.id === currentSessionId,
+                  onSelect: () => {
+                    switchSession(projectPath, session.id);
+                    // Уже активная вкладка могла быть пролистана за край — смена вкладки эффект не запустит
+                    requestAnimationFrame(() => revealSessionTab(session.id));
+                  }
+                };
+              })}
+            />
+          )}
 
           {/* Новый чат: только «+», вынесена из прокручиваемой полосы вкладок, чтобы не обрезалась; подпись — в подсказке */}
           <button
@@ -393,7 +478,7 @@ export const AIStudioView: React.FC = () => {
               title={t.aiStudio.openSwarmArenaTooltip}
             >
               <Zap className="w-3 h-3" />
-              <span>Swarm Arena</span>
+              <span className="@max-[860px]:hidden">Swarm Arena</span>
             </button>
           </div>
 
@@ -427,7 +512,7 @@ export const AIStudioView: React.FC = () => {
               className="flex items-center gap-1.5 h-7 px-2 rounded-md text-xs transition shrink-0 bg-ph-raised hover:bg-ph-hover text-slate-100"
             >
               <ClaudeLogo className="w-3.5 h-3.5" />
-              <span>{t.aiStudio.loginClaude}</span>
+              <span className="@max-[860px]:hidden">{t.aiStudio.loginClaude}</span>
             </button>
           )}
 
@@ -442,7 +527,7 @@ export const AIStudioView: React.FC = () => {
             title={t.aiStudio.subagentsTitle}
           >
             <GitFork className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{t.aiStudio.subagents}</span>
+            <span className="@max-[860px]:hidden">{t.aiStudio.subagents}</span>
             {projectSubagents.length > 0 && (
               <span className="text-slate-500 tabular-nums">
                 {projectSubagents.length}

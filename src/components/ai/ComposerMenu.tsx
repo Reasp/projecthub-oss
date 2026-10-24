@@ -23,23 +23,28 @@ interface ComposerMenuProps {
   chevron?: boolean;
   disabled?: boolean;
   testId?: string;
+  /** Куда открывать: вверх — из поля ввода, вниз — из шапки (список вкладок, TASK-217). */
+  placement?: 'up' | 'down';
 }
+
+const MENU_MAX_WIDTH = 360;
 
 /**
  * Меню нижней строки поля ввода Agents Studio (TASK-169): открывается вверх от кнопки, порталом в body
  * с z-[10000] (decision-17), закрывается кликом мимо и Escape.
  */
-export const ComposerMenu: React.FC<ComposerMenuProps> = ({ trigger, title, heading, items, chevron, disabled, testId }) => {
+export const ComposerMenu: React.FC<ComposerMenuProps> = ({ trigger, title, heading, items, chevron, disabled, testId, placement = 'up' }) => {
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<{ bottom: number; left: number } | null>(null);
+  const [position, setPosition] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     if (!open || !buttonRef.current) return;
     const rect = buttonRef.current.getBoundingClientRect();
-    setPosition({ bottom: window.innerHeight - rect.top + 6, left: Math.max(8, rect.left) });
-  }, [open]);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - MENU_MAX_WIDTH - 8));
+    setPosition(placement === 'down' ? { top: rect.bottom + 6, left } : { bottom: window.innerHeight - rect.top + 6, left });
+  }, [open, placement]);
 
   useEffect(() => {
     if (!open) return;
@@ -87,8 +92,8 @@ export const ComposerMenu: React.FC<ComposerMenuProps> = ({ trigger, title, head
           <div
             ref={menuRef}
             role="menu"
-            style={{ bottom: position.bottom, left: position.left }}
-            className="fixed z-[10000] min-w-[200px] max-w-[360px] rounded-lg border border-slate-700 bg-ph-elevated shadow-2xl p-1 text-xs"
+            style={{ top: position.top, bottom: position.bottom, left: position.left }}
+            className="fixed z-[10000] min-w-[200px] max-w-[360px] max-h-[60vh] overflow-y-auto rounded-lg border border-slate-700 bg-ph-elevated shadow-2xl p-1 text-xs"
           >
             {heading && <div className="px-2.5 py-1.5 text-[11px] text-slate-500">{heading}</div>}
             {items.map((item) => (

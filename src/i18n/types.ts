@@ -1742,6 +1742,7 @@ export interface TranslationDictionary {
     fromPhone: string;
     tabAnswering: string;
     tabWaitingApproval: string;
+    allChats: string;
     /** Сессия участника общего хоста (TASK-142.3): окно хоста только читает её. */
     memberSession: (member: string) => string;
     newChat: string;

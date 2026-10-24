@@ -1874,6 +1874,7 @@ export const ru: TranslationDictionary = {
     fromPhone: 'Начата с телефона',
     tabAnswering: 'Агент отвечает в этой вкладке',
     tabWaitingApproval: 'Вкладка ждёт вашего решения',
+    allChats: 'Все чаты ({count})',
     memberSession: (member) => `Сессия участника ${member}: здесь её можно только читать, пишет в неё он со своих устройств`,
     newChat: 'Новый чат',
     chatN: 'Чат {n}',
