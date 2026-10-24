@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Открытая сборка без модулей `ee/` (TASK-151, decision-123 п. 5): main, preload, рендерер и ph-agent с
- * `PROJECTHUB_EDITION=open`, затем проверка бандлов на код `ee/`. Публичный релиз (`release.yml`) собирается так же.
+ * `PROJECTHUB_EDITION=open`, затем проверка бандлов на код `ee/`. Публичный релиз (`open-edition.yml` зеркала, decision-167) собирается так же.
  */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
