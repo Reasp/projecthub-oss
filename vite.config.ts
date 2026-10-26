@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+import fs from 'node:fs';
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
@@ -15,6 +16,21 @@ const runtimeDeps = Object.keys(pkg.dependencies);
 const isExternalForMain = (id: string) =>
   id === 'electron' || runtimeDeps.some((dep) => id === dep || id.startsWith(`${dep}/`));
 
+// main и preload пишут в общий dist-electron без очистки (у нескольких сборок vite-plugin-electron
+// emptyOutDir выключен), и чанки прежних сборок копились там и уходили в app.asar. Каталог чистится
+// до сборки, пока не запущена ни одна из них, и сразу получает воркеры: упакованное приложение ищет их
+// только в dist-electron/workers (getWorkerScriptCandidates), а сборки без pack:win/pack:mac — `dist*` и
+// open-edition.yml зеркала — их раньше не копировали (TASK-214).
+const prepareDistElectron: Plugin = {
+  name: 'projecthub-prepare-dist-electron',
+  apply: 'build',
+  config() {
+    const out = path.resolve(import.meta.dirname, 'dist-electron');
+    fs.rmSync(out, { recursive: true, force: true });
+    fs.cpSync(path.resolve(import.meta.dirname, 'electron', 'workers'), path.join(out, 'workers'), { recursive: true });
+  }
+};
+
 // https://vitejs.dev/config/
 export default defineConfig({
   base: './',
@@ -22,6 +38,7 @@ export default defineConfig({
     'process.env': {}
   },
   plugins: [
+    prepareDistElectron,
     projecthubEdition({ root: import.meta.dirname }),
     react(),
     tailwindcss(),

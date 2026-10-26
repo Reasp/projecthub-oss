@@ -47,6 +47,28 @@ for (const name of mustBeExternal) {
   if (referenced && !external) problems.push(`${name} упоминается в main.js, но не как внешний импорт`);
 }
 
+// 4. Каждая runtime-зависимость нужна main-процессу (TASK-214): electron-builder кладёт всё из `dependencies`
+// с транзитивными пакетами в app.asar, а рендерер vite и так бандлит в dist/. Пакет только для окна — в devDependencies.
+// Источники — бандлы dist-electron и воркеры, которые копируются в сборку как есть.
+const PEER_ONLY = new Set(['apache-arrow']); // peer @lancedb/lancedb: его грузит сам lancedb, наш код — нет
+const runtimeSources = [];
+const collectSources = (dir, recursive) => {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) { if (recursive) collectSources(full, true); }
+    else if (/\.(m?js|cjs)$/.test(entry.name)) runtimeSources.push(fs.readFileSync(full, 'utf8'));
+  }
+};
+collectSources(path.join(rootDir, 'dist-electron'), false);
+collectSources(path.join(rootDir, 'electron', 'workers'), true);
+const runtimeSpecifiers = new Set();
+for (const text of runtimeSources) {
+  for (const m of text.matchAll(/(?:from\s*|import\s*\(\s*|require\s*\(\s*)["']([^"'./][^"']*)["']/g)) runtimeSpecifiers.add(m[1]);
+}
+const unusedDeps = deps.filter((d) => !PEER_ONLY.has(d) && ![...runtimeSpecifiers].some((s) => s === d || s.startsWith(`${d}/`)));
+for (const dep of unusedDeps) problems.push(`${dep} в dependencies, но main-процесс и воркеры его не импортируют — перенесите в devDependencies, иначе он попадёт в app.asar`);
+
 if (problems.length > 0) {
   console.error('❌ check-bundle: проблемы с dist-electron/main.js:');
   for (const p of problems) console.error(`   - ${p}`);
