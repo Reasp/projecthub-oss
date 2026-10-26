@@ -6,6 +6,7 @@ import type { DiagnosticsInfo, UpdaterStatus } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { appFailureText } from '../../lib/appErrorText';
 import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
+import { EditionDiagnosticsItems } from '../../extensions/editionUi';
 
 export const DiagnosticsBadge: React.FC = () => {
   const { t, language } = useTranslation();
@@ -151,6 +152,8 @@ export const DiagnosticsBadge: React.FC = () => {
                       )}
                     </div>
                   </div>
+                  {/* Строки модулей платной редакции: лицензия Team (TASK-200) */}
+                  <EditionDiagnosticsItems />
                   <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 col-span-2">
                     <div className="text-slate-500">{t.diagnostics.userDataDir}</div>
                     <div className="font-mono text-slate-300 truncate" title={info.userDataDir}>{info.userDataDir}</div>

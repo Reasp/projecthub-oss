@@ -1,7 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import fs from 'node:fs/promises';
 import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
-import { buildEdition, loadEditionModules } from '../extensions/loadEditionModules';
+import { buildEdition, editionModulesActive, loadEditionModules } from '../extensions/loadEditionModules';
 import { assertRegisteredProject } from '../services/projectPathGuard';
 import type { IpcContext } from './types';
 
@@ -68,7 +68,11 @@ export function registerEditionIpc(ctx: IpcContext): void {
     }
   });
 
-  ipcMain.handle('edition:info', () => ({ edition: buildEdition }));
+  // `active` — ответ шлюза модулей после их загрузки (TASK-200): рендерер не показывает модули, которых нет в main.
+  ipcMain.handle('edition:info', async () => {
+    await loadEditionModules();
+    return { edition: buildEdition, active: editionModulesActive() };
+  });
 
   ipcMain.handle('agents:launchCheck', async (_event, raw: unknown) => editionRegistry.checkAgentLaunch(await launchContextFromRenderer(raw)));
 

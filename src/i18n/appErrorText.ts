@@ -610,6 +610,12 @@ const EN = {
   // Ограничения запуска агента (decision-123, decision-124).
   'edition.launchCheckFailed': 'The pre-launch check failed: {detail}',
   'edition.launchBlocked': 'The launch is blocked by limits',
+  // Лицензия Team и Enterprise (TASK-200, decision-171).
+  'license.badFormat': 'This is not a ProjectHub license file',
+  'license.unknownKey': 'The license is signed with a key this build does not know: get a new license file from the vendor',
+  'license.badSignature': 'The license signature does not match: the file was changed or damaged',
+  'license.expired': 'The license expired on {date}',
+  'license.memberAccessOff': 'Team modules are off on this host (no valid license): member devices have no access until the license is renewed',
   // Agents Studio с телефона (TASK-140.10, decision-83).
   'studio.remoteNoProject': 'Project not specified',
   'studio.remoteNotStreaming': 'The agent is not answering in this session',
@@ -1393,6 +1399,11 @@ export const appErrorTextRu: AppErrorLabels = {
   'studio.cliExitCode': 'Claude Code завершился с кодом {code}',
   'edition.launchCheckFailed': 'Проверка перед запуском не удалась: {detail}',
   'edition.launchBlocked': 'Запуск запрещён ограничениями',
+  'license.badFormat': 'Это не файл лицензии ProjectHub',
+  'license.unknownKey': 'Лицензия подписана ключом, которого эта сборка не знает: запросите новый файл лицензии у поставщика',
+  'license.badSignature': 'Подпись лицензии не сходится: файл изменён или повреждён',
+  'license.expired': 'Срок лицензии истёк {date}',
+  'license.memberAccessOff': 'Модули Team на этом хосте выключены (нет действующей лицензии): у устройств участников нет доступа, пока лицензию не продлят',
   'studio.remoteNoProject': 'Проект не указан',
   'studio.remoteNotStreaming': 'В этой сессии агент сейчас не отвечает',
   'studio.remoteClearBusy': 'Агент ещё отвечает — сначала остановите ответ',

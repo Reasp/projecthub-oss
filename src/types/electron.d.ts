@@ -1791,7 +1791,8 @@ export interface IElectronAPI {
   onUpdaterStatusChanged: (callback: (status: UpdaterStatus) => void) => () => void;
 
   // Редакция сборки и платные модули (TASK-151, decision-123 п. 4)
-  getEditionInfo: () => Promise<{ edition: 'open' | 'team' }>;
+  /** `active: false` — шлюз модулей редакции отключил их до перезапуска (TASK-200). */
+  getEditionInfo: () => Promise<{ edition: 'open' | 'team'; active: boolean }>;
   /** Ограничения запуска агента (бюджеты Team): показать до запуска; в открытой редакции — пусто. */
   checkAgentLaunch: (ctx: AgentLaunchCheckInput) => Promise<AgentLaunchVerdictView>;
   /** Канал модуля `ee/` (только `ee:*`). */

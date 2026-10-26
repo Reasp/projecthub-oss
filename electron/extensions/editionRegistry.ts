@@ -328,8 +328,18 @@ export interface SaveTextFileResult {
   error?: string;
 }
 
+/** Итог шлюза модулей редакции: `active: false` — остальные модули `ee/` в этом процессе не регистрируются. */
+export interface EditionGateResult {
+  active: boolean;
+}
+
 export interface EditionMainModule {
   register?: (api: EditionMainApi) => void | Promise<void>;
+  /**
+   * Шлюз (TASK-200): такой модуль регистрируется первым, и его ответ решает, регистрировать ли остальные. Открытый
+   * код не знает, что именно проверяет шлюз; сам шлюз всегда зарегистрирован, чтобы через него можно было всё исправить.
+   */
+  gate?: () => EditionGateResult | Promise<EditionGateResult>;
 }
 
 const guards: LaunchGuard[] = [];
