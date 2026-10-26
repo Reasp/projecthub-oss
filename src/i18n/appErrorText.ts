@@ -448,6 +448,9 @@ const EN = {
   // Обновления приложения.
   'updater.githubStatus': 'GitHub API returned status {status}',
   'updater.githubTimeout': 'GitHub API request timed out',
+  'updater.feedStatus': 'The update server returned status {status}',
+  'updater.feedTimeout': 'The update server did not answer in time',
+  'updater.teamManual': 'The Team build is not updated from public releases (they are the free edition): get the new build from your customer link',
   // Управление компьютером (TASK-82, decision-27).
   'computer.runtimeNotRunning': 'The computer control runtime is not running',
   // Цикл «до готовности»: запись итога в задачу (TASK-61).
@@ -1254,6 +1257,9 @@ export const appErrorTextRu: AppErrorLabels = {
   'pricing.openRouterStatus': 'OpenRouter ответил {status}: {detail}',
   'updater.githubStatus': 'GitHub API вернул статус {status}',
   'updater.githubTimeout': 'Таймаут запроса к GitHub API',
+  'updater.feedStatus': 'Сервер обновлений вернул статус {status}',
+  'updater.feedTimeout': 'Сервер обновлений не ответил вовремя',
+  'updater.teamManual': 'Сборка Team не обновляется из публичных релизов (там бесплатная редакция): новую сборку берите по ссылке заказчика',
   'computer.runtimeNotRunning': 'Рантайм управления компьютером не запущен',
   'swarm.doneLoopTaskFileMissing': 'файл задачи не найден',
   'automations.ruleIssue': '{path}: {reason}',

@@ -9,6 +9,8 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
 const env = { ...process.env, PROJECTHUB_EDITION: 'open' };
 const steps = [
+  // Отметка сборки с `edition: "open"`: по ней скрипт публикации отличает открытую сборку от полной (TASK-144.4).
+  ['node', ['scripts/build-info.mjs']],
   ['npx', ['vite', 'build']],
   ['npx', ['vite', 'build', '--config', 'vite.ph-agent.config.ts']],
   ['node', ['scripts/check-open-edition.mjs']]

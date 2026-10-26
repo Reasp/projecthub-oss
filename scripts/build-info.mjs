@@ -5,6 +5,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveEdition } from './vite-edition.mjs';
 
 const rootDir = process.cwd();
 const git = (args) => {
@@ -20,10 +21,12 @@ const info = {
   commit: git(['rev-parse', 'HEAD']) || 'unknown',
   commitDate: git(['log', '-1', '--format=%cI']) || null,
   dirtyFiles: status ? status.split('\n').filter(Boolean).length : 0,
-  builtAt: new Date().toISOString()
+  builtAt: new Date().toISOString(),
+  // Редакция (decision-158 п. 3): по ней скрипт публикации не пустит полную сборку в релизы зеркала (TASK-144.4).
+  edition: resolveEdition(rootDir, process.env)
 };
 
 const out = path.join(rootDir, 'build', 'build-info.json');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, `${JSON.stringify(info, null, 2)}\n`, 'utf-8');
-console.log(`🏷️  build-info: ${info.commit.slice(0, 7)}${info.dirtyFiles ? ` (+${info.dirtyFiles} не в коммите)` : ''}, ${info.builtAt}`);
+console.log(`🏷️  build-info: ${info.commit.slice(0, 7)}${info.dirtyFiles ? ` (+${info.dirtyFiles} не в коммите)` : ''}, ${info.builtAt}, ${info.edition}`);

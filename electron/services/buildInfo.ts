@@ -21,6 +21,8 @@ export interface BuildInfo {
   dirtyFiles: number;
   /** Время сборки (ISO) — по нему видно, что сборку на диске заменили. */
   builtAt: string;
+  /** Редакция сборки (TASK-144.4); у сборок до неё поля нет. */
+  edition?: 'open' | 'team';
 }
 
 export function parseBuildInfo(text: string | null): BuildInfo | null {
@@ -32,7 +34,8 @@ export function parseBuildInfo(text: string | null): BuildInfo | null {
       commit: typeof raw.commit === 'string' && raw.commit ? raw.commit : 'unknown',
       commitDate: typeof raw.commitDate === 'string' ? raw.commitDate : null,
       dirtyFiles: typeof raw.dirtyFiles === 'number' && raw.dirtyFiles > 0 ? Math.floor(raw.dirtyFiles) : 0,
-      builtAt: raw.builtAt
+      builtAt: raw.builtAt,
+      ...(raw.edition === 'open' || raw.edition === 'team' ? { edition: raw.edition } : {})
     };
   } catch {
     return null;

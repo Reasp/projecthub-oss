@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron';
+import http from 'node:http';
 import https from 'node:https';
 // electron-updater — CommonJS-пакет; его именованный экспорт не синтезируется корректно под Node
 // ESM-загрузчиком main-процесса ("SyntaxError: Named export 'autoUpdater' not found"), поэтому
@@ -7,6 +8,10 @@ import electronUpdaterPkg from 'electron-updater';
 import { logger } from './logger.js';
 import { AppError, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import { isNewerVersion } from './versionCompare.js';
+import { resolveUpdateFeed, updateSource, versionFromLatestYml, type GenericFeed } from './updateFeed.js';
+import { buildEdition } from '../extensions/loadEditionModules.js';
+import productLinks from '../../src/lib/productLinks.json';
+import updateChannel from '../../src/lib/updateChannel.json';
 
 const { autoUpdater } = electronUpdaterPkg;
 
@@ -17,10 +22,14 @@ export { isNewerVersion };
  * Windows/Linux (авто-скачивание и установка при выходе), для macOS без подписи — только сверка
  * версии через GitHub API и ссылка на страницу релиза (Squirrel.Mac требует codesign, которого
  * пока нет). Проверка запускается один раз при старте (с задержкой) и по кнопке из «Диагностики».
+ *
+ * Канал `generic` на домене сайта (TASK-144.4, decision-172) включается флагом или `PROJECTHUB_UPDATE_FEED_URL`
+ * (`updateFeed.ts`); без них — GitHub Releases публичного зеркала, как раньше.
  */
 
+// Релизы открытой редакции — в публичном зеркале (decision-158 п. 4), источник приватный.
 const GITHUB_OWNER = 'Reasp';
-const GITHUB_REPO = 'ProjectHub';
+const GITHUB_REPO = 'projecthub-oss';
 
 export type UpdaterState = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
 
@@ -44,6 +53,14 @@ interface GithubRelease {
 
 class UpdaterService {
   private configured = false;
+  private readonly feedInput = {
+    edition: buildEdition,
+    siteUrl: productLinks.site,
+    genericEnabled: updateChannel.genericEnabled,
+    override: process.env.PROJECTHUB_UPDATE_FEED_URL
+  };
+  private readonly feed: GenericFeed | null = resolveUpdateFeed(this.feedInput);
+  private readonly source = updateSource(this.feedInput);
   private status: UpdaterStatus = {
     state: 'idle',
     currentVersion: app.isPackaged ? app.getVersion() : '0.0.0-dev',
@@ -70,6 +87,10 @@ class UpdaterService {
     this.configured = true;
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
+    if (this.feed) {
+      logger.info(`[Updater] Канал обновлений: ${this.feed.url}`);
+      autoUpdater.setFeedURL({ provider: 'generic', url: this.feed.url });
+    }
 
     autoUpdater.on('checking-for-update', () => this.setStatus({ state: 'checking', error: undefined, errorKey: undefined }));
     autoUpdater.on('update-available', (info) => {
@@ -94,6 +115,13 @@ class UpdaterService {
       return;
     }
 
+    // Полная сборка без канала Team: релизы зеркала — открытая редакция, обновление через них сняло бы модули ee/.
+    if (this.source === 'none') {
+      logger.info('[Updater] Полная сборка: обновления — по ссылке заказчика, релизы зеркала не используются');
+      this.setError(new AppError('updater.teamManual'));
+      return;
+    }
+
     if (process.platform === 'darwin') {
       await this.checkGithubReleaseManually();
       return;
@@ -111,10 +139,19 @@ class UpdaterService {
   private async checkGithubReleaseManually(): Promise<void> {
     this.setStatus({ state: 'checking', error: undefined, errorKey: undefined });
     try {
-      const release = await this.fetchLatestRelease();
-      const latest = release.tag_name?.replace(/^v/, '');
+      let latest: string | null | undefined;
+      let releaseUrl: string;
+      if (this.feed) {
+        // Канал сайта: версия из latest-mac.yml, ссылка — на релиз зеркала с этой версией.
+        latest = versionFromLatestYml(await this.fetchText(`${this.feed.url}latest-mac.yml`));
+        releaseUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tag/v${latest ?? ''}`;
+      } else {
+        const release = JSON.parse(await this.fetchText(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`)) as GithubRelease;
+        latest = release.tag_name?.replace(/^v/, '');
+        releaseUrl = release.html_url;
+      }
       if (latest && isNewerVersion(latest, this.status.currentVersion)) {
-        this.setStatus({ state: 'available', latestVersion: latest, releaseUrl: release.html_url });
+        this.setStatus({ state: 'available', latestVersion: latest, releaseUrl });
       } else {
         this.setStatus({ state: 'not-available' });
       }
@@ -123,29 +160,30 @@ class UpdaterService {
     }
   }
 
-  private fetchLatestRelease(): Promise<GithubRelease> {
+  private fetchText(url: string, redirects = 3): Promise<string> {
+    const github = url.startsWith('https://api.github.com/');
     return new Promise((resolve, reject) => {
-      const req = https.get(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
-        { headers: { 'User-Agent': 'ProjectHub-Updater' } },
-        (res) => {
-          let body = '';
-          res.on('data', (c) => (body += c));
-          res.on('end', () => {
-            if (res.statusCode !== 200) {
-              reject(new AppError('updater.githubStatus', { status: String(res.statusCode) }));
-              return;
-            }
-            try {
-              resolve(JSON.parse(body));
-            } catch (e) {
-              reject(e as Error);
-            }
-          });
+      const get = url.startsWith('http://') ? http.get : https.get;
+      const req = get(url, { headers: { 'User-Agent': 'ProjectHub-Updater' } }, (res) => {
+        // Хостинг сайта может перенаправлять (apex → www, слэш в конце): идём следом, как electron-updater на Windows.
+        const location = res.headers.location;
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && location && redirects > 0) {
+          res.resume();
+          this.fetchText(new URL(location, url).toString(), redirects - 1).then(resolve, reject);
+          return;
         }
-      );
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            reject(new AppError(github ? 'updater.githubStatus' : 'updater.feedStatus', { status: String(res.statusCode) }));
+            return;
+          }
+          resolve(body);
+        });
+      });
       req.on('error', reject);
-      req.setTimeout(10000, () => req.destroy(new AppError('updater.githubTimeout')));
+      req.setTimeout(10000, () => req.destroy(new AppError(github ? 'updater.githubTimeout' : 'updater.feedTimeout')));
     });
   }
 
