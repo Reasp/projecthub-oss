@@ -377,6 +377,11 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
       Object.assign(contribution.mcpServers, servers);
       continue;
     }
+    // Конфиг Antigravity ведёт основа вместе с записью встроенного MCP (TASK-161): шаблон отдаёт ей свои серверы.
+    if (config === '.agents/mcp_config.json') {
+      contribution.agentsMcpServers = { ...(contribution.agentsMcpServers ?? {}), ...servers };
+      continue;
+    }
     const existing = state.texts[config] ?? null;
     if (existing !== null && existing.trim() && !parseJsonObject(existing)) {
       items.push(notJsonItem(`tpl:${config}`, config));

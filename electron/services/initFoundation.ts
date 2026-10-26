@@ -111,6 +111,8 @@ export interface FoundationOptions {
   rulesTargets: string[];
   /** Запись встроенного MCP ProjectHub для `.mcp.json`; без неё пункт MCP не строится. */
   mcpEntry?: Record<string, unknown> | null;
+  /** Запись для `.agents/mcp_config.json` (Antigravity); пишется, только если проект работает с Antigravity. */
+  agentsMcpEntry?: Record<string, unknown> | null;
   /** Метка времени для документа «О проекте» в формате `YYYY-MM-DD HH:mm`. */
   stamp: string;
 }
@@ -122,6 +124,8 @@ export interface FoundationContribution {
   rulesTargets: string[];
   mcpServers: Record<string, unknown>;
   mcpRemove: string[];
+  /** Серверы шаблона для `.agents/mcp_config.json`; есть, только если манифест шаблона пишет этот конфиг. */
+  agentsMcpServers?: Record<string, unknown>;
   statuses?: string[];
   items: InitPlanItem[];
 }
@@ -156,12 +160,26 @@ export const PROJECTHUB_MCP_ENTRY: Record<string, unknown> = {
   url: '${PROJECTHUB_MCP_URL:-http://127.0.0.1:42042/sse}',
   headers: { Authorization: 'Bearer ${PROJECTHUB_AGENT_TOKEN:-}' }
 };
+
+/** Конфиг MCP Google Antigravity и правила основы для него: по ним видно, что проект работает с Antigravity. */
+export const AGENTS_MCP_CONFIG_PATH = '.agents/mcp_config.json';
+export const AGENTS_RULES_TARGET = '.agents/rules/projecthub.md';
+
+/**
+ * Запись встроенного MCP для Antigravity (TASK-161, decision-173): удалённый сервер в формате `agy mcp add`
+ * (`serverUrl` + `headers`), транспорт Streamable HTTP (`/mcp`) — SSE Antigravity не понимает. Токен агента —
+ * подстановкой `${env:…}` (синтаксис конфигов Windsurf, от которого происходит Antigravity), в файл он не попадает.
+ */
+export const PROJECTHUB_AGENTS_MCP_ENTRY: Record<string, unknown> = {
+  serverUrl: 'http://127.0.0.1:42042/mcp',
+  headers: { Authorization: 'Bearer ${env:PROJECTHUB_AGENT_TOKEN}' }
+};
 export const MEMORY_INDEX_PATH = 'backlog/memory/MEMORY.md';
 export const BACKLOG_CONFIG_PATH = 'backlog/config.yml';
 
 /** Файлы, содержимое которых читает снимок основы. */
 export function foundationSnapshotFiles(): string[] {
-  return ['.gitignore', BACKLOG_CONFIG_PATH, MEMORY_INDEX_PATH, MCP_CONFIG_PATH, ...RULE_TARGETS];
+  return ['.gitignore', BACKLOG_CONFIG_PATH, MEMORY_INDEX_PATH, MCP_CONFIG_PATH, AGENTS_MCP_CONFIG_PATH, ...RULE_TARGETS];
 }
 
 // ---------------------------------------------------------------------------------------
@@ -363,9 +381,9 @@ function backlogConfigItem(snapshot: FoundationSnapshot, templateStatuses?: stri
   };
 }
 
-function mcpItem(snapshot: FoundationSnapshot, servers: Record<string, unknown>, remove: string[]): InitPlanItem {
-  const existing = file(snapshot, MCP_CONFIG_PATH);
-  const base = { id: 'mcp:.mcp.json', path: MCP_CONFIG_PATH, kind: 'file' as const, group: 'mcp' as const };
+function mcpItem(snapshot: FoundationSnapshot, configPath: string, servers: Record<string, unknown>, remove: string[]): InitPlanItem {
+  const existing = file(snapshot, configPath);
+  const base = { id: `mcp:${configPath}`, path: configPath, kind: 'file' as const, group: 'mcp' as const };
   if (existing !== null && existing.trim() && !parseJsonObject(existing)) {
     return { ...base, action: 'skip', options: ['skip'], reason: 'not-json' };
   }
@@ -434,7 +452,18 @@ export function buildFoundationPlan(
   const servers: Record<string, unknown> = { ...(contribution?.mcpServers ?? {}) };
   if (options.mcpEntry) servers[PROJECTHUB_MCP_KEY] = options.mcpEntry;
   if (Object.keys(servers).length > 0 || (contribution?.mcpRemove.length ?? 0) > 0) {
-    items.push(mcpItem(snapshot, servers, contribution?.mcpRemove ?? []));
+    items.push(mcpItem(snapshot, MCP_CONFIG_PATH, servers, contribution?.mcpRemove ?? []));
+  }
+
+  // Antigravity (TASK-161): тот же сервер в его формате — только если проект с ним работает (правила `.agents/rules`,
+  // свой `.agents/mcp_config.json` или конфиг в манифесте шаблона). Остальным проектам каталог `.agents/` не нужен.
+  const agentsServers: Record<string, unknown> = { ...(contribution?.agentsMcpServers ?? {}) };
+  const usesAntigravity =
+    options.rulesTargets.includes(AGENTS_RULES_TARGET) || file(snapshot, AGENTS_MCP_CONFIG_PATH) !== null || contribution?.agentsMcpServers !== undefined;
+  if (options.agentsMcpEntry && usesAntigravity) agentsServers[PROJECTHUB_MCP_KEY] = options.agentsMcpEntry;
+  const agentsRemove = contribution?.agentsMcpServers !== undefined ? contribution.mcpRemove : [];
+  if (Object.keys(agentsServers).length > 0 || agentsRemove.length > 0) {
+    items.push(mcpItem(snapshot, AGENTS_MCP_CONFIG_PATH, agentsServers, agentsRemove));
   }
 
   if (contribution) items.push(...contribution.items);

@@ -6,6 +6,8 @@ import { existsSync } from 'node:fs';
 import { BrowserWindow } from 'electron';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { projectRegistry } from './projectRegistry.js';
 import { processManager } from './processManager.js';
@@ -89,7 +91,12 @@ export interface RemoteActionPayload {
 }
 
 interface SseSession {
-  transport: SSEServerTransport;
+  /**
+   * `sse` — прежний транспорт (`/sse` + `/message`, Claude Code); `http` — Streamable HTTP (`/mcp`, TASK-161): его
+   * понимают Antigravity и клиенты, где SSE уже снят по спецификации MCP.
+   */
+  kind: 'sse' | 'http';
+  transport: SSEServerTransport | StreamableHTTPServerTransport;
   /** Свой McpServer на подключение: SDK привязывает ответы к последнему подключённому транспорту. */
   mcpServer: McpServer;
   /** Сессия Agents Studio, для которой Claude CLI запрашивает разрешения (query-параметр SSE-URL). */
@@ -98,13 +105,23 @@ interface SseSession {
   computerTools: RegisteredTool[];
   /** Сессия по токену агента: корень проекта, к которому привязан токен (TASK-136.6). */
   agentProject?: string;
+  /** Последний запрос сессии Streamable HTTP: у неё нет сокета, по закрытию которого видно, что клиент ушёл. */
+  lastSeen?: number;
 }
+
+/** Сессия Streamable HTTP без запросов дольше этого закрывается: клиент, который упал или вышел без DELETE, её не закроет. */
+const HTTP_SESSION_IDLE_MS = 30 * 60 * 1000;
+/** Не больше стольких сессий Streamable HTTP на один токен (основной или проекта): при превышении закрывается самая старая. */
+const HTTP_SESSIONS_PER_OWNER = 16;
+const MAX_HTTP_BODY_BYTES = 4 * 1024 * 1024;
 
 type McpAuth = { kind: 'main' } | { kind: 'agent'; projectRoot: string };
 
 class McpServerService {
   private server: http.Server | null = null;
   private sseSessions = new Map<string, SseSession>();
+  /** Обход брошенных сессий Streamable HTTP; заводится с первой такой сессией, снимается в stop(). */
+  private httpSweepTimer: NodeJS.Timeout | null = null;
   private port = 42042;
   private token: string;
   private agentSecret: string;
@@ -304,6 +321,8 @@ class McpServerService {
 
   public async stop(): Promise<void> {
     if (!this.server) return;
+    if (this.httpSweepTimer) clearInterval(this.httpSweepTimer);
+    this.httpSweepTimer = null;
 
     for (const session of this.sseSessions.values()) {
       try {
@@ -1154,12 +1173,127 @@ class McpServerService {
     return projectRoot ? { kind: 'agent', projectRoot } : null;
   }
 
+  /** Тело запроса как JSON (до 4 МБ); больше — `tooLarge`, не JSON — `value: undefined`. */
+  private readJsonBody(req: IncomingMessage): Promise<{ tooLarge: boolean; value?: unknown }> {
+    return new Promise((resolve) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let tooLarge = false;
+      req.on('data', (chunk: Buffer) => {
+        if (tooLarge) return;
+        size += chunk.length;
+        if (size > MAX_HTTP_BODY_BYTES) tooLarge = true;
+        else chunks.push(chunk);
+      });
+      req.on('end', () => {
+        if (tooLarge) return resolve({ tooLarge: true });
+        try {
+          resolve({ tooLarge: false, value: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+        } catch {
+          resolve({ tooLarge: false });
+        }
+      });
+      req.on('error', () => resolve({ tooLarge: false }));
+    });
+  }
+
+  /** Закрыть сессии Streamable HTTP без запросов дольше `HTTP_SESSION_IDLE_MS` (вызывается таймером и при новой сессии). */
+  private sweepHttpSessions(now = Date.now()): void {
+    for (const session of [...this.sseSessions.values()]) {
+      if (session.kind === 'http' && now - (session.lastSeen ?? now) > HTTP_SESSION_IDLE_MS) void session.transport.close().catch(() => undefined);
+    }
+  }
+
+  /** Лимит сессий на владельца: перед открытием новой закрываются самые давние сверх `HTTP_SESSIONS_PER_OWNER - 1`. */
+  private limitHttpSessions(agentProject: string | undefined): void {
+    const own = [...this.sseSessions.values()]
+      .filter((s) => s.kind === 'http' && s.agentProject === agentProject)
+      .sort((a, b) => (a.lastSeen ?? 0) - (b.lastSeen ?? 0));
+    for (const stale of own.slice(0, Math.max(0, own.length - (HTTP_SESSIONS_PER_OWNER - 1)))) void stale.transport.close().catch(() => undefined);
+  }
+
+  /**
+   * Streamable HTTP по спецификации MCP (TASK-161): POST `initialize` без `Mcp-Session-Id` открывает сессию, дальше
+   * POST/GET/DELETE с заголовком сессии. Сессию ведёт только тот же токен, что её открыл — как у SSE.
+   */
+  private async handleStreamableHttp(req: IncomingMessage, res: ServerResponse, parsedUrl: URL, auth: McpAuth): Promise<void> {
+    const header = req.headers['mcp-session-id'];
+    const sessionId = typeof header === 'string' ? header : undefined;
+    const fail = (status: number, message: string) => this.sendJson(res, status, { jsonrpc: '2.0', error: { code: -32000, message }, id: null });
+
+    if (sessionId) {
+      const session = this.sseSessions.get(sessionId);
+      if (!session || session.kind !== 'http') return fail(404, 'Session not found');
+      const sameOwner = auth.kind === 'main' ? !session.agentProject : session.agentProject === auth.projectRoot;
+      if (!sameOwner) return fail(403, 'Session belongs to another token');
+      session.lastSeen = Date.now();
+      // Тело читаем сами с тем же пределом, что у SSE `/message`: SDK его не ограничивает.
+      let body: unknown;
+      if (req.method === 'POST') {
+        const read = await this.readJsonBody(req);
+        if (read.tooLarge) return fail(413, 'Request body is too large');
+        body = read.value;
+      }
+      await (session.transport as StreamableHTTPServerTransport).handleRequest(req, res, body).catch((err) => {
+        console.error('[MCPServer] Streamable HTTP request failed:', err);
+        if (!res.headersSent) fail(500, 'Internal error');
+      });
+      return;
+    }
+
+    if (req.method !== 'POST') return fail(400, 'Mcp-Session-Id header is required');
+    const read = await this.readJsonBody(req);
+    if (read.tooLarge) return fail(413, 'Request body is too large');
+    const body = read.value;
+    if (!isInitializeRequest(body)) return fail(400, 'The first request of a session must be initialize');
+
+    const agentProject = auth.kind === 'agent' ? auth.projectRoot : undefined;
+    this.sweepHttpSessions();
+    this.limitHttpSessions(agentProject);
+    if (!this.httpSweepTimer) {
+      this.httpSweepTimer = setInterval(() => this.sweepHttpSessions(), 5 * 60 * 1000);
+      this.httpSweepTimer.unref?.();
+    }
+    const hitlSessionId = agentProject ? undefined : parsedUrl.searchParams.get(CLI_HITL_QUERY_PARAM) || undefined;
+    const newId = crypto.randomUUID();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => newId,
+      onsessioninitialized: () => {
+        this.sseSessions.set(newId, session);
+        this.broadcastStatus();
+      }
+    });
+    const mcpServer = agentProject ? this.createAgentMcpServer(agentProject, newId) : this.createMcpServer(hitlSessionId);
+    const session: SseSession = { kind: 'http', transport, mcpServer, hitlSessionId, computerTools: [], agentProject, lastSeen: Date.now() };
+    if (!agentProject) this.syncComputerTools(session, newId);
+    transport.onclose = () => {
+      if (!this.sseSessions.delete(newId)) return;
+      console.log(`[MCPServer] Streamable HTTP session ${newId} closed`);
+      computerUseService.forgetSession(`external-${newId}`);
+      this.broadcastStatus();
+    };
+    console.log(`[MCPServer] New Streamable HTTP session${hitlSessionId ? ` (HITL for session ${hitlSessionId})` : ''}${agentProject ? ' (project agent)' : ''}`);
+    try {
+      await mcpServer.connect(transport);
+      await transport.handleRequest(req, res, body);
+    } catch (err) {
+      console.error('[MCPServer] Error opening Streamable HTTP session:', err);
+      if (!res.headersSent) fail(500, 'Internal error');
+    }
+  }
+
   private handleAuthorized(req: IncomingMessage, res: ServerResponse, parsedUrl: URL, auth: McpAuth) {
     const pathname = parsedUrl.pathname;
 
     // Токен агента открывает только MCP-сессию своего проекта.
-    if (auth.kind === 'agent' && pathname !== '/sse' && pathname !== '/message') {
+    if (auth.kind === 'agent' && pathname !== '/sse' && pathname !== '/message' && pathname !== '/mcp') {
       this.sendJson(res, 403, { error: 'Agent token allows only the MCP session of its project' });
+      return;
+    }
+
+    // Streamable HTTP (TASK-161, decision-173): тот же набор инструментов, что у SSE, по одному адресу `/mcp`.
+    if (pathname === '/mcp') {
+      void this.handleStreamableHttp(req, res, parsedUrl, auth);
       return;
     }
 
@@ -1196,7 +1330,7 @@ class McpServerService {
       const transport = new SSEServerTransport('/message', res);
       const sessionId = transport.sessionId;
       const mcpServer = agentProject ? this.createAgentMcpServer(agentProject, sessionId) : this.createMcpServer(hitlSessionId);
-      const session: SseSession = { transport, mcpServer, hitlSessionId, computerTools: [], agentProject };
+      const session: SseSession = { kind: 'sse', transport, mcpServer, hitlSessionId, computerTools: [], agentProject };
       this.sseSessions.set(sessionId, session);
       // Инструменты управления компьютером (TASK-82) — до connect, чтобы попасть в первый tools/list.
       if (!agentProject) this.syncComputerTools(session, sessionId);
@@ -1226,7 +1360,7 @@ class McpServerService {
       }
 
       const session = this.sseSessions.get(sessionId);
-      if (!session) {
+      if (!session || session.kind !== 'sse') {
         res.writeHead(404).end(`Session ${sessionId} not found`);
         return;
       }
@@ -1237,7 +1371,7 @@ class McpServerService {
         return;
       }
 
-      session.transport.handlePostMessage(req as any, res).catch((err) => {
+      (session.transport as SSEServerTransport).handlePostMessage(req as any, res).catch((err) => {
         console.error('[MCPServer] Error handling POST message:', err);
         if (!res.headersSent) {
           res.writeHead(500).end(err.message);

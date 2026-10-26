@@ -20,6 +20,7 @@ import {
   FOUNDATION_DIRS,
   foundationSnapshotFiles,
   missingFoundationParts,
+  PROJECTHUB_AGENTS_MCP_ENTRY,
   PROJECTHUB_MCP_ENTRY,
   RULE_TARGETS,
   BACKLOG_CONFIG_PATH,
@@ -348,7 +349,7 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
   const snapshot = await readFoundationSnapshot(root, request.projectName, extraTexts);
   const plan = buildFoundationPlan(
     snapshot,
-    { locale, rulesMode: request.rulesMode === 'replace' ? 'replace' : 'append', rulesTargets, mcpEntry: PROJECTHUB_MCP_ENTRY, stamp: nowStamp() },
+    { locale, rulesMode: request.rulesMode === 'replace' ? 'replace' : 'append', rulesTargets, mcpEntry: PROJECTHUB_MCP_ENTRY, agentsMcpEntry: PROJECTHUB_AGENTS_MCP_ENTRY, stamp: nowStamp() },
     contribution
   );
 
