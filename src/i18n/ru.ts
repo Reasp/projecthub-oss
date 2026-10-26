@@ -4308,5 +4308,12 @@ export const ru: TranslationDictionary = {
         noCode: 'сервис не вернул код авторизации'
       }
     }
+  },
+  support: {
+    button: 'Поддержать',
+    buttonTooltip: 'Поддержать ProjectHub — откроет страницу пожертвований в браузере',
+    reminderText: 'ProjectHub бесплатный и с открытым кодом. Если он экономит вам время, поддержите его развитие.',
+    reminderSupport: 'Поддержать ♥',
+    reminderLater: 'Напомнить позже'
   }
 };

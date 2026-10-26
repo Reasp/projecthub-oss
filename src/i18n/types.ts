@@ -3883,4 +3883,12 @@ export interface TranslationDictionary {
       reasons: Record<string, string>;
     };
   };
+  /** Поддержка проекта в открытой редакции (TASK-144.6). */
+  support: {
+    button: string;
+    buttonTooltip: string;
+    reminderText: string;
+    reminderSupport: string;
+    reminderLater: string;
+  };
 }

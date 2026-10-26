@@ -3,6 +3,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { ActivityBar } from './components/layout/ActivityBar';
 import { StatusBar } from './components/layout/StatusBar';
+import { SupportReminderBar } from './components/support/SupportReminderBar';
 import { ProjectWorkspace } from './components/projects/ProjectWorkspace';
 import { TerminalPanel } from './components/terminal/TerminalPanel';
 import { OmniSearchModal } from './components/search/OmniSearchModal';
@@ -377,6 +378,8 @@ export const App: React.FC = () => {
         </div>
       </div>
 
+      {/* Напоминание о поддержке в открытой редакции: полоса в потоке, не поверх работы (TASK-144.6) */}
+      <SupportReminderBar />
       <StatusBar />
 
       {/* Global Omni-search Modal (Ctrl + K) */}

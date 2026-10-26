@@ -101,6 +101,7 @@ import {
   HardDriveIcon,
   HardDrivesIcon,
   HeadphonesIcon,
+  HeartIcon,
   HouseIcon,
   ImageBrokenIcon,
   ImageIcon,
@@ -308,6 +309,7 @@ export const GripVertical = wrap(DotsSixVerticalIcon, 'GripVertical');
 export const HardDrive = wrap(HardDriveIcon, 'HardDrive');
 export const Heading = wrap(TextHIcon, 'Heading');
 export const Headphones = wrap(HeadphonesIcon, 'Headphones');
+export const Heart = wrap(HeartIcon, 'Heart');
 export const HelpCircle = wrap(QuestionIcon, 'HelpCircle');
 export const History = wrap(ClockCounterClockwiseIcon, 'History');
 export const Home = wrap(HouseIcon, 'Home');

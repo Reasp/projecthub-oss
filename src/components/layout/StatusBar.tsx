@@ -12,6 +12,7 @@ import { DiagnosticsBadge } from '../diagnostics/DiagnosticsBadge';
 import { VoiceControlHeader } from '../voice/VoiceControlHeader';
 import { ClaudeUsageButton } from '../ai/ClaudeUsageButton';
 import { EditionStatusItems } from '../../extensions/editionUi';
+import { SupportButton } from '../support/SupportButton';
 
 /**
  * Строка состояния (decision-73), по правилам VS Code:
@@ -105,6 +106,8 @@ export const StatusBar: React.FC = () => {
         {/* Лимиты Claude Code, версия и диагностика (TASK-58), язык интерфейса */}
         <span className="w-px my-1.5 bg-ph-line" aria-hidden />
         <ClaudeUsageButton variant="status" />
+        {/* Поддержка проекта — только в открытой редакции (TASK-144.6) */}
+        <SupportButton />
         <DiagnosticsBadge />
         <button
           type="button"

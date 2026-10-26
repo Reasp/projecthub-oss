@@ -1,0 +1,6 @@
+{
+  "firstDelayDays": 3,
+  "intervalDays": 14,
+  "afterSupportDays": 90,
+  "minDoneTasks": 3
+}

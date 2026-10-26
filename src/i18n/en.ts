@@ -4306,5 +4306,12 @@ export const en: TranslationDictionary = {
         noCode: 'the service returned no authorization code'
       }
     }
+  },
+  support: {
+    button: 'Support',
+    buttonTooltip: 'Support ProjectHub — opens the donation page in your browser',
+    reminderText: 'ProjectHub is free and open source. If it saves you time, consider supporting its development.',
+    reminderSupport: 'Support ♥',
+    reminderLater: 'Remind me later'
   }
 };
