@@ -7,6 +7,7 @@ import {
   ClockCounterClockwiseIcon,
   CopyIcon,
   LightningIcon,
+  LockSimpleIcon,
   DesktopIcon,
   DeviceMobileIcon,
   FileIcon,
@@ -26,13 +27,18 @@ import { useAppState, useServices } from '../app/context';
 import { failureText } from '../app/errorText';
 import { useT } from '../i18n/react';
 import {
+  accountLabel,
+  claudeAccountName,
   formatTokens,
   groupStudioSessions,
+  isSameAccount,
   matchStudioCommands,
   MODE_LABEL,
   relativeTime,
+  selectionForAccount,
   selectionTitle,
   STUDIO_COMMANDS,
+  type StudioAccountChoice,
   type StudioCommandId
 } from '../app/studioState';
 import { Markdown } from '../components/Markdown';
@@ -70,6 +76,7 @@ export function StudioScreen() {
   const [text, setText] = useState('');
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -109,12 +116,19 @@ export function StudioScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- только при первом показе экрана
   }, []);
 
+  /** Новая сессия начинается с выбора аккаунта LLM (TASK-221): провайдер закрепляется за сессией. */
+  const openNewSession = () => {
+    platform.haptic('selection');
+    setAccountOpen(true);
+    if (!studio.options) void store.loadStudioOptions();
+  };
+
   const runCommand = async (id: StudioCommandId) => {
     platform.haptic('selection');
     setText('');
     setCommandsOpen(false);
     if (id === 'clear') await store.clearStudioSession();
-    else if (id === 'new') store.newStudioSession();
+    else if (id === 'new') openNewSession();
     else if (id === 'usage') {
       setUsageOpen(true);
       void store.loadUsage(false);
@@ -182,8 +196,8 @@ export function StudioScreen() {
               </span>
             )}
           </button>
-          {canWrite && studio.sessionId && (
-            <button type="button" aria-label={tr.studio.newSession} onClick={() => store.newStudioSession()} className="shrink-0 rounded-full p-1.5 text-slate-300 active:bg-ph-hover">
+          {canWrite && (
+            <button type="button" aria-label={tr.studio.newSession} onClick={openNewSession} className="shrink-0 rounded-full p-1.5 text-slate-300 active:bg-ph-hover">
               <PlusIcon size={20} />
             </button>
           )}
@@ -369,8 +383,23 @@ export function StudioScreen() {
         <div className="border-t border-ph-line px-3 py-3 text-center text-[13px] text-slate-400">{tr.studio.cannotSend}</div>
       )}
 
-      <SessionsSheet open={sessionsOpen} onClose={() => setSessionsOpen(false)} />
-      <ModelSheet open={modelOpen} onClose={() => setModelOpen(false)} />
+      <SessionsSheet
+        open={sessionsOpen}
+        onClose={() => setSessionsOpen(false)}
+        onNew={() => {
+          setSessionsOpen(false);
+          openNewSession();
+        }}
+      />
+      <ModelSheet
+        open={modelOpen}
+        onClose={() => setModelOpen(false)}
+        onNew={() => {
+          setModelOpen(false);
+          openNewSession();
+        }}
+      />
+      <AccountSheet open={accountOpen} onClose={() => setAccountOpen(false)} />
       <UsageSheet open={usageOpen} onClose={() => setUsageOpen(false)} />
       <CommandsSheet
         open={commandsOpen}
@@ -583,7 +612,7 @@ function SessionRow({ s, active, onOpen }: { s: RemoteStudioSessionSummary; acti
 }
 
 /** Вкладки ПК и история сессий проекта: прокрутка, поиск, новые сверху. */
-function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+function SessionsSheet({ open, onClose, onNew }: { open: boolean; onClose: () => void; onNew: () => void }) {
   const { store, platform } = useServices();
   const tr = useT();
   const studio = useAppState((s) => s.studio);
@@ -605,14 +634,7 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
       title={tr.studio.sessionsTitle}
       footer={
         canWrite ? (
-          <Button
-            variant="primary"
-            className="w-full"
-            onClick={() => {
-              store.newStudioSession();
-              onClose();
-            }}
-          >
+          <Button variant="primary" className="w-full" onClick={onNew}>
             <PlusIcon size={18} /> {tr.studio.newSession}
           </Button>
         ) : undefined
@@ -656,36 +678,56 @@ function SessionsSheet({ open, onClose }: { open: boolean; onClose: () => void }
   );
 }
 
-/** Модель (Claude Code и профили LLM с ПК) и режим следующего промпта. */
-function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { store, platform } = useServices();
-  const tr = useT();
-  const studio = useAppState((s) => s.studio);
-  const options = studio.options;
-  const sel = studio.selection;
-  const isSel = (provider: string, model: string, profileId?: string) =>
-    sel?.provider === provider && sel.model === model && (provider !== 'openai-compatible' || sel.profileId === profileId);
-
-  const pick = (provider: string, model: string, profileId?: string) => {
-    platform.haptic('selection');
-    store.setStudioSelection({ provider, model, ...(profileId ? { profileId } : {}) });
-    onClose();
-  };
-
-  const row = (key: string, label: string, hint: string | undefined, active: boolean, onClick: () => void) => (
+/** Строка выбора в окне: название, подсказка и отметка выбранного. */
+function ChoiceRow({ label, hint, active, disabled, onClick }: { label: string; hint?: string; active: boolean; disabled?: boolean; onClick: () => void }) {
+  return (
     <button
-      key={key}
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      className={clsx('flex w-full flex-col rounded-xl px-3 py-2 text-left', active ? 'bg-indigo-950 text-indigo-100' : 'active:bg-ph-hover')}
+      className={clsx('flex w-full flex-col rounded-xl px-3 py-2 text-left disabled:opacity-50', active ? 'bg-indigo-950 text-indigo-100' : 'active:bg-ph-hover')}
     >
       <span className="text-[14px]">{label}</span>
       {hint && <span className="text-[12px] text-slate-400">{hint}</span>}
     </button>
   );
+}
+
+/**
+ * Модель и режим следующего промпта. Аккаунт LLM закреплён за сессией (TASK-221): в списке только модели её
+ * аккаунта, другой аккаунт — новой сессией.
+ */
+function ModelSheet({ open, onClose, onNew }: { open: boolean; onClose: () => void; onNew: () => void }) {
+  const { store, platform } = useServices();
+  const tr = useT();
+  const studio = useAppState((s) => s.studio);
+  const conn = useAppState((s) => s.conn);
+  const canWrite = capabilitiesFor(conn.rights, conn.readOnly).write;
+  const options = studio.options;
+  const sel = studio.selection;
+
+  const pick = (model: string) => {
+    if (!sel) return;
+    platform.haptic('selection');
+    store.setStudioSelection({ ...sel, model });
+    onClose();
+  };
+
+  const profile = sel?.provider === 'openai-compatible' ? options?.profiles.find((p) => p.id === sel.profileId) : undefined;
 
   return (
-    <Sheet open={open} onClose={onClose} title={tr.studio.modelAndMode}>
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={tr.studio.modelAndMode}
+      footer={
+        canWrite ? (
+          <Button variant="secondary" className="w-full" onClick={onNew}>
+            <PlusIcon size={18} /> {tr.studio.otherAccount}
+          </Button>
+        ) : undefined
+      }
+    >
       <SectionTitle>{tr.studio.mode}</SectionTitle>
       <div className="grid grid-cols-3 gap-1 rounded-xl bg-ph-raised p-1">
         {(options?.modes ?? (['agent', 'chat', 'architect'] as StudioMode[])).map((m) => (
@@ -701,6 +743,71 @@ function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       </div>
       <div className="mt-1 text-[12px] text-slate-500">{tr.studio.modeHint}</div>
 
+      {!options || !sel ? (
+        <div className="flex justify-center py-6">
+          <Spinner />
+        </div>
+      ) : (
+        <>
+          <SectionTitle>{tr.studio.account}</SectionTitle>
+          <div className="flex items-center gap-2 rounded-xl bg-ph-raised px-3 py-2" data-testid="studio-session-account">
+            <LockSimpleIcon size={16} className="shrink-0 text-slate-400" />
+            <span className="min-w-0 truncate text-[14px]">{accountLabel(sel, options)}</span>
+          </div>
+          <div className="mt-1 text-[12px] text-slate-500">{tr.studio.accountLocked}</div>
+
+          <SectionTitle>{tr.studio.models}</SectionTitle>
+          {sel.provider === 'anthropic' ? (
+            <div className="space-y-0.5">
+              {options.claudeModels.map((m) => (
+                <ChoiceRow key={m.id} label={m.name} hint={m.description} active={sel.model === m.id} onClick={() => pick(m.id)} />
+              ))}
+            </div>
+          ) : !profile || profile.models.length === 0 ? (
+            <div className="px-3 text-[12px] text-slate-500">
+              {profile?.modelsError ? failureText({ error: profile.modelsError, errorKey: profile.modelsErrorKey }) : tr.studio.noModels}
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {profile.models.map((m) => (
+                <ChoiceRow key={m} label={m} active={sel.model === m} onClick={() => pick(m)} />
+              ))}
+            </div>
+          )}
+          <div className="mt-3 text-[12px] text-slate-500">{tr.studio.modelScope(options.currentLabel)}</div>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
+/**
+ * Новая сессия: выбор аккаунта LLM (TASK-221). В списке то, что настроено на этом ПК, — аккаунты Claude Code и
+ * профили LLM. Аккаунт закрепляется за сессией, модель и режим потом меняются в окне модели.
+ */
+function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { store, platform } = useServices();
+  const tr = useT();
+  const studio = useAppState((s) => s.studio);
+  const options = studio.options;
+  // Отметка — у аккаунта, с которым новая сессия откроется по умолчанию, а не у аккаунта открытой сессии.
+  const draft = studio.sessionId ? null : studio.selection;
+
+  const start = (choice: StudioAccountChoice) => {
+    if (!options) return;
+    const selection = selectionForAccount(options, choice, studio.selection);
+    if (!selection) return;
+    platform.haptic('selection');
+    store.newStudioSession(selection);
+    onClose();
+  };
+
+  // Хост старше TASK-221 не прислал аккаунтов — один пункт «Claude Code» с аккаунтом проекта.
+  const accounts = options?.claudeAccounts && options.claudeAccounts.length > 0 ? options.claudeAccounts : null;
+
+  return (
+    <Sheet open={open} onClose={onClose} title={tr.studio.accountTitle}>
+      <div className="mb-1 text-[12px] text-slate-400">{tr.studio.accountHint}</div>
       {!options ? (
         <div className="flex justify-center py-6">
           <Spinner />
@@ -708,23 +815,44 @@ function ModelSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       ) : (
         <>
           <SectionTitle>Claude Code</SectionTitle>
-          <div className="space-y-0.5">{options.claudeModels.map((m) => row(`c:${m.id}`, m.name, m.description, isSel('anthropic', m.id), () => pick('anthropic', m.id)))}</div>
-          {options.profiles.map((p) => (
-            <div key={p.id}>
-              <SectionTitle>
-                {p.name}
-                {p.local ? tr.studio.local : ''}
-              </SectionTitle>
-              {p.models.length === 0 ? (
-                <div className="px-3 text-[12px] text-slate-500">
-                  {p.modelsError ? failureText({ error: p.modelsError, errorKey: p.modelsErrorKey }) : tr.studio.noModels}
-                </div>
-              ) : (
-                <div className="space-y-0.5">{p.models.map((m) => row(`p:${p.id}:${m}`, m, undefined, isSel('openai-compatible', m, p.id), () => pick('openai-compatible', m, p.id)))}</div>
-              )}
-            </div>
-          ))}
-          <div className="mt-3 text-[12px] text-slate-500">{tr.studio.modelScope(options.currentLabel)}</div>
+          <div className="space-y-0.5" data-testid="studio-claude-accounts">
+            {accounts ? (
+              accounts.map((a) => (
+                <ChoiceRow
+                  key={a.id}
+                  label={claudeAccountName(a)}
+                  hint={a.id === options.projectClaudeAccountId ? tr.studio.projectAccount : undefined}
+                  active={isSameAccount(draft, { kind: 'claude', accountId: a.id }, options)}
+                  onClick={() => start({ kind: 'claude', accountId: a.id })}
+                />
+              ))
+            ) : (
+              <ChoiceRow label="Claude Code" active={isSameAccount(draft, { kind: 'claude' }, options)} onClick={() => start({ kind: 'claude' })} />
+            )}
+          </div>
+          {options.profiles.length > 0 && (
+            <>
+              <SectionTitle>{tr.studio.llmProfiles}</SectionTitle>
+              <div className="space-y-0.5">
+                {options.profiles.map((p) => (
+                  <ChoiceRow
+                    key={p.id}
+                    label={`${p.name}${p.local ? tr.studio.local : ''}`}
+                    hint={
+                      p.models.length > 0
+                        ? tr.studio.profileModels(p.models.length)
+                        : p.modelsError
+                          ? failureText({ error: p.modelsError, errorKey: p.modelsErrorKey })
+                          : tr.studio.noModels
+                    }
+                    active={isSameAccount(draft, { kind: 'profile', profileId: p.id }, options)}
+                    disabled={p.models.length === 0}
+                    onClick={() => start({ kind: 'profile', profileId: p.id })}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
     </Sheet>

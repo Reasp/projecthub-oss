@@ -3194,7 +3194,7 @@ export type StudioRemoteRequestPayload =
       projectPath: string;
       sessionId?: string;
       text: string;
-      selection?: { provider: string; profileId?: string; model: string };
+      selection?: { provider: string; profileId?: string; model: string; claudeAccountId?: string };
       mode?: 'chat' | 'agent' | 'architect';
       deviceName: string;
       /** Участник общего хоста, чьё устройство прислало промпт (TASK-142.3). */

@@ -51,7 +51,7 @@ export const emptyStudio = (prev?: Pick<StudioState, 'options' | 'selection' | '
   busy: false,
   loading: false,
   options: prev?.options ?? null,
-  selection: prev?.options?.current ?? prev?.selection ?? null,
+  selection: prev?.options ? defaultStudioSelection(prev.options) : (prev?.selection ?? null),
   mode: 'agent',
   sessionUsage: null,
   usage: prev && 'usage' in prev ? (prev as StudioState).usage : null,
@@ -112,18 +112,83 @@ export function relativeTime(ts: number, now = Date.now()): string {
   return new Date(ts).toLocaleDateString(tr.dateLocale, { day: 'numeric', month: 'short' });
 }
 
-/** Подпись выбора модели на кнопке: из названий каталога, если они есть. */
+/** Подпись выбора модели на кнопке: аккаунт и модель из названий каталога, если они есть. */
 export function selectionTitle(sel: StudioModelSelection | null, options: RemoteStudioOptions | null): string {
   if (!sel) return options?.currentLabel || t().studio.pcModel;
   if (sel.provider === 'anthropic') {
     const m = options?.claudeModels.find((x) => x.id === sel.model);
-    return `Claude · ${m?.name.replace(/\s*\(.*\)$/, '') || sel.model}`;
+    return `${accountLabel(sel, options)} · ${m?.name.replace(/\s*\(.*\)$/, '') || sel.model}`;
   }
-  if (sel.provider === 'openai-compatible') {
-    const p = options?.profiles.find((x) => x.id === sel.profileId);
-    return `${p?.name || t().studio.profile} · ${sel.model}`;
+  return `${accountLabel(sel, options)} · ${sel.model}`;
+}
+
+// ── Аккаунт LLM сессии (TASK-221): выбирается при открытии сессии и дальше не меняется ──
+
+/** Аккаунт LLM: Claude Code с аккаунтом ПК (без id — аккаунт проекта) или профиль OpenAI-совместимого сервера. */
+export type StudioAccountChoice = { kind: 'claude'; accountId?: string } | { kind: 'profile'; profileId: string };
+
+/** Имя аккаунта Claude Code: профиль по умолчанию без переименования — текстом интерфейса. */
+export function claudeAccountName(account: { name: string; isDefault: boolean }): string {
+  return account.isDefault && account.name === 'Default' ? t().studio.defaultAccount : account.name;
+}
+
+/** Аккаунт Claude Code выбора: свой или аккаунт проекта. */
+function effectiveClaudeAccountId(sel: StudioModelSelection, options: RemoteStudioOptions | null): string | undefined {
+  return sel.claudeAccountId ?? options?.projectClaudeAccountId;
+}
+
+/**
+ * Подпись аккаунта: «Claude» при одном аккаунте Claude Code на ПК, «Claude · Личный» при нескольких, имя профиля LLM —
+ * для OpenAI-совместимого сервера.
+ */
+export function accountLabel(sel: StudioModelSelection, options: RemoteStudioOptions | null): string {
+  if (sel.provider === 'anthropic') {
+    const accounts = options?.claudeAccounts ?? [];
+    if (accounts.length < 2) return 'Claude';
+    const id = effectiveClaudeAccountId(sel, options);
+    const account = accounts.find((a) => a.id === id);
+    return `Claude · ${account ? claudeAccountName(account) : sel.claudeAccountId || t().studio.projectAccount}`;
   }
-  return `${sel.provider} · ${sel.model}`;
+  if (sel.provider === 'openai-compatible') return options?.profiles.find((x) => x.id === sel.profileId)?.name || t().studio.profile;
+  return sel.provider;
+}
+
+/** Выбор для новой сессии по умолчанию: текущий выбор ПК, у Claude — с аккаунтом проекта. */
+export function defaultStudioSelection(options: RemoteStudioOptions): StudioModelSelection {
+  const cur = options.current;
+  if (cur.provider === 'anthropic' && !cur.claudeAccountId && options.projectClaudeAccountId) return { ...cur, claudeAccountId: options.projectClaudeAccountId };
+  return cur;
+}
+
+/** Тот же ли аккаунт у выбора: провайдер, профиль и аккаунт Claude Code (без id — аккаунт проекта). */
+export function isSameAccount(sel: StudioModelSelection | null, choice: StudioAccountChoice, options: RemoteStudioOptions | null): boolean {
+  if (!sel) return false;
+  if (choice.kind === 'profile') return sel.provider === 'openai-compatible' && sel.profileId === choice.profileId;
+  if (sel.provider !== 'anthropic') return false;
+  return effectiveClaudeAccountId(sel, options) === (choice.accountId ?? options?.projectClaudeAccountId);
+}
+
+/**
+ * Выбор при открытии сессии с аккаунтом: модель — прежняя, если она есть у аккаунта, иначе выбор ПК или первая из
+ * списка. `null` — у профиля нет моделей, выбрать его нельзя.
+ */
+export function selectionForAccount(
+  options: RemoteStudioOptions,
+  choice: StudioAccountChoice,
+  prev: StudioModelSelection | null
+): StudioModelSelection | null {
+  if (choice.kind === 'claude') {
+    const ids = options.claudeModels.map((m) => m.id);
+    const candidates = [prev?.provider === 'anthropic' ? prev.model : undefined, options.current.provider === 'anthropic' ? options.current.model : undefined, ids[0]];
+    const model = candidates.find((m) => m && (ids.length === 0 || ids.includes(m))) ?? candidates.find(Boolean);
+    if (!model) return null;
+    return { provider: 'anthropic', model, ...(choice.accountId ? { claudeAccountId: choice.accountId } : {}) };
+  }
+  const profile = options.profiles.find((p) => p.id === choice.profileId);
+  if (!profile) return null;
+  const sameProfile = (s: StudioModelSelection | null) => (s?.provider === 'openai-compatible' && s.profileId === profile.id ? s.model : undefined);
+  const model = [sameProfile(prev), sameProfile(options.current), profile.models[0]].find((m) => m && profile.models.includes(m));
+  return model ? { provider: 'openai-compatible', profileId: profile.id, model } : null;
 }
 
 /** Название режима на языке интерфейса; поля — геттеры, текст берётся в момент показа. */

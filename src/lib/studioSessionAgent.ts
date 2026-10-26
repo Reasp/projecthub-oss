@@ -52,6 +52,20 @@ export function withSelection(
   };
 }
 
+/**
+ * Выбор с телефона для уже открытой сессии (TASK-221): провайдер, профиль и аккаунт закреплены за сессией и
+ * выбираются только при её открытии. Меняется лишь модель того же провайдера (и профиля); выбор другого провайдера
+ * не трогает агента. Без изменений возвращается тот же объект.
+ */
+export function lockedSessionAgent(
+  current: StudioSessionAgent,
+  selection: { provider: string; profileId?: string; model: string } | undefined
+): StudioSessionAgent {
+  if (!selection || selection.provider !== current.provider || selection.model === current.model) return current;
+  if (current.provider === 'openai-compatible' && selection.profileId !== current.profileId) return current;
+  return { ...current, model: selection.model };
+}
+
 /** Аккаунт Claude Code вкладки; `null` — вернуть аккаунт проекта. */
 export function withClaudeAccount(current: StudioSessionAgent, accountId: string | null): StudioSessionAgent {
   const { claudeAccountId: _old, ...rest } = current;

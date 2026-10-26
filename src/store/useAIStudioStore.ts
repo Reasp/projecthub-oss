@@ -135,6 +135,8 @@ export interface CreateSessionOptions {
   originDevice?: string;
   /** Сессия участника общего хоста (TASK-142.3): писать в неё может только он. */
   memberId?: string;
+  /** Агент новой вкладки (TASK-221): выбран на телефоне при открытии сессии; без поля — агент активной вкладки. */
+  agent?: StudioSessionAgent;
 }
 
 export interface SendMessageOptions {
@@ -432,7 +434,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           ...(initialTitle ? {} : { autoTitle: true }),
           createdAt: Date.now(),
           messages: [],
-          agent: effectiveSessionAgent(get().config, active?.agent),
+          agent: opts.agent ?? effectiveSessionAgent(get().config, active?.agent),
           ...(opts.origin ? { origin: opts.origin } : {}),
           ...(opts.originDevice ? { originDevice: opts.originDevice } : {}),
           ...(opts.memberId ? { memberId: opts.memberId } : {})

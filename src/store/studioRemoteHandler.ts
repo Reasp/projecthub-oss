@@ -1,5 +1,6 @@
-import type { AIProviderConfig, AISession, StudioRemoteRequestPayload } from '../types/electron';
-import { applyStudioSelection, canWriteStudioSession, parseStudioMode, parseStudioSelection, studioReadOnlyError } from '../utils/studioRemote';
+import type { AIProviderConfig, AISession, StudioRemoteRequestPayload, StudioSessionAgent } from '../types/electron';
+import { canWriteStudioSession, parseStudioMode, parseStudioSelection, studioReadOnlyError } from '../utils/studioRemote';
+import { effectiveSessionAgent, lockedSessionAgent, sanitizeSessionAgent, sessionRequestConfig } from '../lib/studioSessionAgent';
 import { AppError, appErrorFields, type AppErrorKey } from '../lib/appError';
 import type { CreateSessionOptions, SendMessageOptions } from './useAIStudioStore';
 
@@ -18,6 +19,7 @@ export interface StudioStorePort {
   loadSessions(projectPath: string): Promise<void>;
   createSession(projectPath: string, initialTitle?: string, opts?: CreateSessionOptions): string;
   reopenSession(projectPath: string, session: AISession, activate?: boolean): void;
+  setSessionAgent(projectPath: string, sessionId: string, agent: StudioSessionAgent): void;
   sendMessage(projectPath: string, text: string, opts?: SendMessageOptions): Promise<void>;
   abortStream(sessionId: string): Promise<void>;
   clearSession(projectPath: string, sessionId?: string): void;
@@ -73,6 +75,7 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
 
   await deps.getState().loadSessions(projectPath);
 
+  const selection = parseStudioSelection(req.selection);
   let sessionId = req.sessionId;
   if (sessionId) {
     const open = (deps.getState().sessions[projectPath] || []).some((s) => s.id === sessionId);
@@ -87,9 +90,16 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
       // Сессия из истории: возвращаем её во вкладки, не переключая вкладку на ПК.
       deps.getState().reopenSession(projectPath, fromDisk, false);
     }
+    // Провайдер, профиль и аккаунт закреплены за сессией (TASK-221): с телефона меняется только модель того же провайдера.
+    const current = effectiveSessionAgent(deps.getState().config, (known ?? fromDisk)!.agent);
+    const next = lockedSessionAgent(current, selection);
+    if (next !== current || !(known ?? fromDisk)!.agent) deps.getState().setSessionAgent(projectPath, sessionId, next);
   } else {
+    // Новая сессия — с агентом, выбранным на телефоне при открытии; без выбора (старое приложение) — как новая вкладка на ПК.
+    const agent = sanitizeSessionAgent(selection);
     sessionId = deps.getState().createSession(projectPath, undefined, {
       activate: false,
+      ...(agent ? { agent } : {}),
       origin: 'phone',
       originDevice: typeof req.deviceName === 'string' ? req.deviceName.slice(0, 80) : undefined,
       ...(req.memberId ? { memberId: req.memberId } : {})
@@ -97,7 +107,8 @@ export async function handleStudioRemoteRequest(req: StudioRemoteRequestPayload,
   }
 
   const state = deps.getState();
-  const config = applyStudioSelection(state.config, parseStudioSelection(req.selection));
+  const session = (state.sessions[projectPath] || []).find((s) => s.id === sessionId);
+  const config = sessionRequestConfig(state.config, effectiveSessionAgent(state.config, session?.agent));
   const mode = parseStudioMode(req.mode);
   // sendMessage ставит флаг стрима сессии синхронно, до первого await, — ждать весь ответ не нужно.
   void state.sendMessage(projectPath, text, { sessionId, config, ...(mode ? { mode } : {}), ...(req.memberId ? { memberId: req.memberId } : {}) });

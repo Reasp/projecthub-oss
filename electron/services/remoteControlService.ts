@@ -46,6 +46,7 @@ import { llmProfileService } from './llmProfileService.js';
 import { llmModelCatalogService } from './llmModelCatalogService.js';
 import {
   canWriteStudioSession,
+  claudeAccountsForPhone,
   parseStudioMode,
   parseStudioSelection,
   studioReadOnlyError,
@@ -63,6 +64,7 @@ import { gitService } from './gitService.js';
 import { guardedCommit } from './commitSecretGuard.js';
 import { summarizeSecretFindings } from './diffSecretScan.js';
 import { claudeBridgeService } from './claudeBridgeService.js';
+import { claudeAccountService } from './claudeAccountService.js';
 import { agentFleetService, isActiveSwarmStatus } from './agentFleetService.js';
 import { editionRegistry, type DeviceNotice, type PairingRedemption, type RemoteDeviceRef } from '../extensions/editionRegistry.js';
 import { appendRemoteAudit, auditTarget } from './remoteActionAudit.js';
@@ -3859,6 +3861,12 @@ class RemoteControlService {
       case 'studio_get_options': {
         const config = await aiAgentService.getConfig();
         const profiles = await llmProfileService.listProfiles().catch(() => []);
+        // Аккаунты Claude Code этого ПК для выбора при открытии сессии (TASK-221): только id и имя.
+        const optionsProject = typeof params.projectPath === 'string' && params.projectPath ? params.projectPath : undefined;
+        const [claudeAccounts, projectAccountId] = await Promise.all([
+          claudeAccountService.listAccounts().catch(() => []),
+          claudeAccountService.projectAccountId(optionsProject).catch(() => undefined)
+        ]);
         // Каталог профиля может идти в сеть (локальный сервер моделей) — не дольше 4 с на профиль.
         const withModels = await Promise.all(
           profiles.map(async (p) => {
@@ -3887,6 +3895,7 @@ class RemoteControlService {
           currentLabel: selectionLabel(current, new Map(profiles.map((p) => [p.id, p.name]))) || config.model,
           modes: STUDIO_MODES,
           claudeModels: claudeBridgeService.getAvailableModels().map((m) => ({ id: m.id, name: m.name, description: m.description })),
+          ...claudeAccountsForPhone(claudeAccounts, projectAccountId),
           // Наружу — только id, имя и признак локального сервера: ни ключей, ни адресов, ни заголовков.
           profiles: withModels,
           quickPrompts: studioQuickPromptList()
@@ -3939,12 +3948,17 @@ class RemoteControlService {
         if (text.length > 100_000) throw new AppError('remote.promptTooLong');
         const sessionId = typeof params.sessionId === 'string' && params.sessionId ? params.sessionId : undefined;
         if (sessionId) await this.assertStudioWriter(projectPath, sessionId, device);
+        const selection = parseStudioSelection(params.selection);
+        // Аккаунт выбирается при открытии сессии (TASK-221): несуществующий профиль не подменяется молча аккаунтом проекта.
+        if (!sessionId && selection?.claudeAccountId && !(await claudeAccountService.getAccount(selection.claudeAccountId))) {
+          throw new AppError('accounts.profileNotFound');
+        }
         const reply = await studioRemoteBridge.request({
           kind: 'send',
           projectPath,
           ...(sessionId ? { sessionId } : {}),
           text,
-          ...(parseStudioSelection(params.selection) ? { selection: parseStudioSelection(params.selection) } : {}),
+          ...(selection ? { selection } : {}),
           ...(parseStudioMode(params.mode) ? { mode: parseStudioMode(params.mode) } : {}),
           deviceName: device.name,
           // Новая сессия участника общего хоста — его (TASK-142.3): worktree, HITL и стоимость по нему.

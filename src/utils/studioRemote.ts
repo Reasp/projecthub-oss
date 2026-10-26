@@ -7,10 +7,11 @@
  * инструментов не уходят — они остаются на ПК.
  */
 
-import type { AIMessage, AIProviderConfig, AISession, AIToolCall, ClaudeUsageData } from '../types/electron';
+import type { AIMessage, AIProviderConfig, AISession, AIToolCall, ClaudeUsageData, StudioSessionAgent } from '../types/electron';
 import { AppError } from '../lib/appError';
 import type {
   RemoteStudioMessage,
+  RemoteStudioOptions,
   RemoteStudioSession,
   RemoteStudioSessionSummary,
   RemoteStudioSessionUsage,
@@ -143,8 +144,36 @@ export function studioSessionForPhone(s: AISession, ctx: SummaryContext): Remote
     messages,
     olderOmitted: all.length - messages.length,
     ...(s.lastSelection ? { lastSelection: s.lastSelection } : {}),
+    ...(s.agent ? { agent: selectionOfAgent(s.agent) } : {}),
     ...(s.lastMode ? { lastMode: s.lastMode } : {}),
     ...(usage ? { usage } : {})
+  };
+}
+
+/**
+ * Аккаунты Claude Code для выбора на телефоне (TASK-221): id и имя, без каталогов. Аккаунт проекта — его привязка,
+ * если такой профиль ещё есть, иначе профиль по умолчанию (как у резолвера decision-87).
+ */
+export function claudeAccountsForPhone(
+  accounts: ReadonlyArray<{ id: string; name: string }>,
+  projectAccountId: string | undefined
+): Pick<RemoteStudioOptions, 'claudeAccounts' | 'projectClaudeAccountId'> {
+  const bound = projectAccountId && accounts.some((a) => a.id === projectAccountId) ? projectAccountId : undefined;
+  const fallback = accounts.find((a) => a.id === 'default')?.id ?? accounts[0]?.id;
+  const project = bound ?? fallback;
+  return {
+    claudeAccounts: accounts.map((a) => ({ id: a.id, name: a.name, isDefault: a.id === 'default' })),
+    ...(project ? { projectClaudeAccountId: project } : {})
+  };
+}
+
+/** Агент вкладки для телефона (TASK-221): провайдер, профиль, модель и id аккаунта — без каталогов и ключей. */
+export function selectionOfAgent(agent: StudioSessionAgent): StudioModelSelection {
+  return {
+    provider: agent.provider,
+    ...(agent.profileId ? { profileId: agent.profileId } : {}),
+    model: agent.model,
+    ...(agent.provider === 'anthropic' && agent.claudeAccountId ? { claudeAccountId: agent.claudeAccountId } : {})
   };
 }
 
@@ -238,24 +267,12 @@ export function parseStudioSelection(value: unknown): StudioModelSelection | und
   if (!v || typeof v.provider !== 'string' || typeof v.model !== 'string' || !v.model.trim()) return undefined;
   if (!SELECTABLE_PROVIDERS.has(v.provider)) return undefined;
   if (v.provider === 'openai-compatible' && (typeof v.profileId !== 'string' || !v.profileId)) return undefined;
+  const account = v.provider === 'anthropic' && typeof v.claudeAccountId === 'string' ? v.claudeAccountId.trim().slice(0, 120) : '';
   return {
     provider: v.provider,
     ...(v.provider === 'openai-compatible' ? { profileId: String(v.profileId).slice(0, 120) } : {}),
-    model: v.model.trim().slice(0, 200)
-  };
-}
-
-/**
- * Конфиг запроса с выбором модели — так же, как `ModelSelectorDropdown` на ПК меняет провайдера, профиль и
- * модель. Глобальный выбор Agents Studio при этом не меняется: модель с телефона действует на эту сессию.
- */
-export function applyStudioSelection(config: AIProviderConfig, sel: StudioModelSelection | undefined): AIProviderConfig {
-  if (!sel) return config;
-  return {
-    ...config,
-    provider: sel.provider as AIProviderConfig['provider'],
-    profileId: sel.provider === 'openai-compatible' ? sel.profileId : undefined,
-    model: sel.model
+    model: v.model.trim().slice(0, 200),
+    ...(account ? { claudeAccountId: account } : {})
   };
 }
 

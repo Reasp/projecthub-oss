@@ -7,9 +7,9 @@ export const en = {
   modes: { agent: 'Agent', chat: 'Chat', architect: 'Architect' },
   commands: {
     clear: { title: 'Clear session', hint: 'Erase the conversation history, like the button on the computer' },
-    new: { title: 'New session', hint: 'Start a new conversation (it appears as a tab on the computer)' },
+    new: { title: 'New session', hint: 'Choose the LLM account and start a new conversation (it appears as a tab on the computer)' },
     usage: { title: 'Usage', hint: 'Claude Code limits and usage' },
-    model: { title: 'Model and mode', hint: 'Claude Code, LLM profiles, agent / chat / architect' },
+    model: { title: 'Model and mode', hint: 'Model of the session account, agent / chat / architect' },
     sessions: { title: 'Sessions and history', hint: 'Computer tabs and closed sessions' },
     stop: { title: 'Stop response', hint: "Interrupt the agent's response" }
   },
@@ -94,6 +94,16 @@ export const en = {
   noModels: 'The model list is empty. Choose a model for this profile on the computer.',
   modelScope: (current: string) =>
     `The model applies to this session; the Agents Studio choice on the computer stays the same. Now on the computer: ${current}.`,
+  // Аккаунт LLM сессии (TASK-221)
+  accountTitle: 'New session: LLM account',
+  accountHint: 'Accounts and LLM profiles set up on this computer. The account stays with the session; the model and mode can be changed later.',
+  llmProfiles: 'LLM profiles',
+  defaultAccount: 'Default',
+  projectAccount: 'Project account',
+  account: 'Account',
+  accountLocked: 'Fixed for this session. To use another account, start a new session.',
+  otherAccount: 'New session with another account',
+  profileModels: (n: number) => `${n} ${pluralEn(n, 'model', 'models')}`,
   // Голосовой промпт
   voicePrompt: 'Voice prompt',
   cancelRecording: 'Cancel recording',
@@ -107,9 +117,9 @@ export const ru: typeof en = {
   modes: { agent: 'Агент', chat: 'Чат', architect: 'Архитектор' },
   commands: {
     clear: { title: 'Очистить сессию', hint: 'Стереть историю диалога, как кнопкой на ПК' },
-    new: { title: 'Новая сессия', hint: 'Начать новый диалог (появится вкладкой на ПК)' },
+    new: { title: 'Новая сессия', hint: 'Выбрать аккаунт LLM и начать новый диалог (появится вкладкой на ПК)' },
     usage: { title: 'Usage', hint: 'Лимиты и расход Claude Code' },
-    model: { title: 'Модель и режим', hint: 'Claude Code, профили LLM, агент / чат / архитектор' },
+    model: { title: 'Модель и режим', hint: 'Модель аккаунта сессии, агент / чат / архитектор' },
     sessions: { title: 'Сессии и история', hint: 'Вкладки ПК и закрытые сессии' },
     stop: { title: 'Остановить ответ', hint: 'Прервать ответ агента' }
   },
@@ -184,6 +194,15 @@ export const ru: typeof en = {
   local: ' · локальная',
   noModels: 'Список моделей пуст — выберите модель профиля на ПК.',
   modelScope: (current) => `Модель действует на эту сессию; выбор Agents Studio на ПК не меняется. Сейчас на ПК: ${current}.`,
+  accountTitle: 'Новая сессия: аккаунт LLM',
+  accountHint: 'Аккаунты и профили LLM, настроенные на этом ПК. Аккаунт закрепляется за сессией, модель и режим можно поменять потом.',
+  llmProfiles: 'Профили LLM',
+  defaultAccount: 'По умолчанию',
+  projectAccount: 'Аккаунт проекта',
+  account: 'Аккаунт',
+  accountLocked: 'Закреплён за этой сессией. Для другого аккаунта начните новую сессию.',
+  otherAccount: 'Новая сессия с другим аккаунтом',
+  profileModels: (n) => `${n} ${pluralRu(n, 'модель', 'модели', 'моделей')}`,
   voicePrompt: 'Голосовой промпт',
   cancelRecording: 'Отменить запись',
   finishRecording: 'Готово — распознать на ПК',

@@ -634,6 +634,8 @@ export interface StudioModelSelection {
   provider: string;
   profileId?: string;
   model: string;
+  /** Аккаунт Claude Code (TASK-221): только у `anthropic`; без поля — аккаунт проекта. */
+  claudeAccountId?: string;
 }
 
 /** Что можно выбрать на телефоне: модели Claude Code и профили LLM без ключей и заголовков. */
@@ -643,6 +645,13 @@ export interface RemoteStudioOptions {
   currentLabel: string;
   modes: StudioMode[];
   claudeModels: Array<{ id: string; name: string; description: string }>;
+  /**
+   * Аккаунты Claude Code этого ПК (TASK-221, decision-87): только id и имя, без каталогов. Имя профиля по умолчанию
+   * без переименования (`isDefault` и встроенное имя) телефон показывает своим текстом. Нет поля — хост старше.
+   */
+  claudeAccounts?: Array<{ id: string; name: string; isDefault: boolean }>;
+  /** Аккаунт Claude Code проекта из запроса: привязка проекта или профиль по умолчанию. */
+  projectClaudeAccountId?: string;
   profiles: Array<{
     id: string;
     name: string;
@@ -732,6 +741,11 @@ export interface RemoteStudioSession extends RemoteStudioSessionSummary {
   olderOmitted: number;
   /** Выбор модели последнего промпта — по умолчанию для продолжения. */
   lastSelection?: StudioModelSelection;
+  /**
+   * Агент сессии (TASK-221): провайдер, профиль и аккаунт закреплены за сессией, телефон меняет в ней только модель
+   * того же провайдера. Нет поля — старая сессия без агента или хост старше.
+   */
+  agent?: StudioModelSelection;
   lastMode?: StudioMode;
   usage?: RemoteStudioSessionUsage;
 }

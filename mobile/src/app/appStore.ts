@@ -24,7 +24,7 @@ import type {
   StudioMode,
   StudioModelSelection
 } from '../../../src/types/remote';
-import { applyStudioChunk, emptyStudio, markRunning, type StudioMessage, type StudioState } from './studioState';
+import { applyStudioChunk, defaultStudioSelection, emptyStudio, markRunning, type StudioMessage, type StudioState } from './studioState';
 import {
   addHitl,
   appendLog,
@@ -351,7 +351,8 @@ export class AppStore {
       team: null,
       claims: null,
       queue: null,
-      studio: { ...emptyStudio(this.state.studio), sessions: [], sessionsLoaded: false }
+      // Аккаунт Claude Code проекта у каждого проекта свой (TASK-221): опции перечитываются для нового проекта.
+      studio: { ...emptyStudio(), usage: this.state.studio.usage }
     });
     if (this.state.status) this.prefs.set(`project:${this.state.status.hostId}`, projectPath);
     await Promise.all([
@@ -717,9 +718,10 @@ export class AppStore {
   }
 
   async loadStudioOptions(): Promise<void> {
-    const options = await this.call<RemoteStudioOptions>('studio_get_options', {}, true);
-    if (!options) return;
-    this.setStudio({ options, selection: this.state.studio.selection ?? options.current });
+    const path = this.state.projectPath;
+    const options = await this.call<RemoteStudioOptions>('studio_get_options', path ? { projectPath: path } : {}, true);
+    if (!options || this.state.projectPath !== path) return;
+    this.setStudio({ options, selection: this.state.studio.selection ?? defaultStudioSelection(options) });
   }
 
   /** Открыть сессию (вкладку ПК или из истории): история и модель её последнего промпта. */
@@ -740,7 +742,8 @@ export class AppStore {
       olderOmitted: s.olderOmitted,
       busy: s.running,
       loading: false,
-      selection: s.lastSelection ?? this.state.studio.selection,
+      // Агент сессии закреплён за ней (TASK-221); у старой сессии без агента — модель последнего промпта.
+      selection: s.agent ?? s.lastSelection ?? this.state.studio.selection,
       mode: s.lastMode ?? this.state.studio.mode,
       sessionUsage: s.usage ?? null
     });
@@ -770,11 +773,18 @@ export class AppStore {
     return true;
   }
 
-  newStudioSession(): void {
-    this.setStudio({ ...emptyStudio(this.state.studio) });
+  /** Новая сессия; `selection` — аккаунт и модель, выбранные при открытии (TASK-221), иначе выбор ПК по умолчанию. */
+  newStudioSession(selection?: StudioModelSelection): void {
+    this.setStudio({ ...emptyStudio(this.state.studio), ...(selection ? { selection } : {}) });
   }
 
+  /**
+   * Модель следующего промпта. Провайдер, профиль и аккаунт выбираются только при открытии сессии (TASK-221): выбор
+   * другого аккаунта для начатой сессии не принимается.
+   */
   setStudioSelection(selection: StudioModelSelection): void {
+    const cur = this.state.studio.selection;
+    if (this.state.studio.sessionId && cur && (cur.provider !== selection.provider || cur.profileId !== selection.profileId || cur.claudeAccountId !== selection.claudeAccountId)) return;
     this.setStudio({ selection });
   }
 
