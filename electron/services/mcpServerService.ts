@@ -8,6 +8,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { editionRegistry } from '../extensions/editionRegistry.js';
 import { z } from 'zod';
 import { projectRegistry } from './projectRegistry.js';
 import { processManager } from './processManager.js';
@@ -151,6 +152,8 @@ class McpServerService {
    * при каждом перезапуске ProjectHub.
    */
   public async init(): Promise<void> {
+    // Набор инструментов агента проекта — и для серверного режима модулей Team (TASK-195): они не дублируют инструменты.
+    editionRegistry.setProjectMcpFactory((projectRoot, sessionId, memberId) => this.createAgentMcpServer(projectRoot, sessionId, memberId));
     try {
       const stored = await secretStorageService.getSecret(MCP_TOKEN_SECRET_KEY);
       if (stored) {
@@ -933,9 +936,10 @@ class McpServerService {
    * этого проекта. Ни удалённого управления, ни одобрения HITL, ни процессов: токен лежит в окружении
    * агента, и агент не должен одобрять собственные запросы.
    */
-  private createAgentMcpServer(projectRoot: string, sseSessionId: string): McpServer {
+  private createAgentMcpServer(projectRoot: string, sseSessionId: string, memberId?: string): McpServer {
     const server = new McpServer({ name: 'projecthub', version: '2.5.0' });
-    const ctx = { sessionPath: projectRoot, sessionId: `agent-${sseSessionId}`, origin: 'terminal' as const };
+    // `memberId` — агент участника по сети (TASK-195): HITL уходит ему, аудит пишет его, а не владельца хоста.
+    const ctx = { sessionPath: projectRoot, sessionId: `agent-${sseSessionId}`, origin: 'terminal' as const, ...(memberId ? { memberId } : {}) };
     this.registerProjectTools(server, false, () => ctx);
     this.registerNotifyTool(server, () => ctx);
     for (const def of MEMORY_TOOL_DEFINITIONS) {

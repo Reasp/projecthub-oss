@@ -197,6 +197,7 @@ async function approveMerge(scope: Scope, diff: DocBranchDiff, docs: string[]): 
       engine: ctx.engine,
       ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
       ...(ctx.agentName ? { agentName: ctx.agentName } : {}),
+      ...(ctx.memberId ? { memberId: ctx.memberId } : {}),
       ...(ctx.role ? { role: ctx.role } : {}),
       tool: 'doc_branch_merge'
     })

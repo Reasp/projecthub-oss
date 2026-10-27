@@ -1,6 +1,7 @@
 import type { HitlRequest } from '../services/hitlTypes';
 import { AppError, withAppErrorKey, type AppErrorKey } from '../../src/lib/appError';
 import type { ProjectToolContext, ProjectToolResult } from '../services/projectAgentTools';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 /**
  * Точки расширения для платных модулей `ee/` (TASK-151, decision-123 п. 4). Код открытый (MIT): он не знает ни о
@@ -306,6 +307,11 @@ export interface EditionMainApi {
   notifyDevices(notice: DeviceNotice, audience: (device: RemoteDeviceRef) => boolean): void;
   /** Инструмент агентов во встроенном MCP рядом с `task_*`/`doc_*`. Имя встроенного инструмента не перекрывается. */
   addAgentTool(tool: EditionAgentTool): void;
+  /**
+   * MCP-сервер с набором инструментов агента одного проекта — тем же, что у токена агента проекта: задачи, документы,
+   * поиск, память, без HITL, процессов и управления компьютером (TASK-195). `null` — встроенный MCP ещё не поднят.
+   */
+  createProjectMcpServer(projectRoot: string, sessionId: string, memberId?: string): McpServer | null;
 }
 
 export interface SaveTextFileOptions {
@@ -359,6 +365,7 @@ const emptyDirectory: DeviceDirectory = { list: () => [], revoke: () => undefine
 let deviceDirectory: DeviceDirectory = emptyDirectory;
 let launcherProvider: LauncherProvider | null = null;
 let hitlRouting: HitlRouting | null = null;
+let projectMcpFactory: ((projectRoot: string, sessionId: string, memberId?: string) => McpServer) | null = null;
 const ownershipGuards: Array<(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => AppError | null> = [];
 let deviceNotifier: DeviceNotifier = () => undefined;
 const agentTools = new Map<string, EditionAgentTool>();
@@ -398,6 +405,7 @@ export const editionRegistry = {
       setLauncherProvider: (provider) => {
         launcherProvider = provider;
       },
+      createProjectMcpServer: (projectRoot, sessionId, memberId) => projectMcpFactory?.(projectRoot, sessionId, memberId) ?? null,
       setHitlRouting: (routing) => {
         hitlRouting = routing;
       },
@@ -608,8 +616,14 @@ export const editionRegistry = {
     pdfSaver = saver;
   },
 
+  /** Фабрику MCP-сервера проекта ставит встроенный MCP при запуске (TASK-195). */
+  setProjectMcpFactory(factory: ((projectRoot: string, sessionId: string, memberId?: string) => McpServer) | null): void {
+    projectMcpFactory = factory;
+  },
+
   /** Только для тестов: вернуть реестр в состояние открытой редакции. */
   resetForTests(): void {
+    projectMcpFactory = null;
     guards.length = 0;
     runListeners.length = 0;
     outcomeListeners.length = 0;

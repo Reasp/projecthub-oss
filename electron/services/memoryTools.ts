@@ -93,6 +93,8 @@ export interface MemoryToolContext {
   agentId?: string;
   agentName?: string;
   role?: string;
+  /** Участник команды, чей агент пишет память по сети (TASK-195). */
+  memberId?: string;
   /** Задача сессии — пишется в `source` факта. */
   taskId?: string;
 }
@@ -164,6 +166,7 @@ export async function callMemoryTool(
         engine: ctx.engine,
         ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
         ...(ctx.agentName ? { agentName: ctx.agentName } : {}),
+        ...(ctx.memberId ? { memberId: ctx.memberId } : {}),
         ...(ctx.role ? { role: ctx.role } : {}),
         tool: name,
         ...(filePath ? { filePath } : {})

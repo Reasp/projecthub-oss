@@ -49,6 +49,8 @@ export interface TrackerToolContext {
   agentId?: string;
   agentName?: string;
   role?: string;
+  /** Участник команды, чей агент зовёт синк по сети (TASK-195). */
+  memberId?: string;
 }
 
 export interface TrackerToolDeps {
@@ -159,6 +161,7 @@ export async function callTrackerTool(name: string, _args: Record<string, unknow
       engine: ctx.engine,
       ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
       ...(ctx.agentName ? { agentName: ctx.agentName } : {}),
+      ...(ctx.memberId ? { memberId: ctx.memberId } : {}),
       ...(ctx.role ? { role: ctx.role } : {}),
       tool: name
     };

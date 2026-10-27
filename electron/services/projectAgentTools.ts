@@ -360,6 +360,8 @@ export interface ProjectToolContext {
   roleSlug?: string;
   /** Права роли сессии: `taskCreate` задаёт режим заведения задач (decision-89). */
   permissions?: RolePermissions;
+  /** Участник команды, чей агент вызывает инструмент по сети (TASK-195): ему и адресуется HITL, он же — в аудите. */
+  memberId?: string;
 }
 
 export interface ProjectToolDeps {
@@ -546,6 +548,7 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         engine: ctx.engine,
         ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
         ...(ctx.agentName ? { agentName: ctx.agentName } : {}),
+        ...(ctx.memberId ? { memberId: ctx.memberId } : {}),
         ...(ctx.role ? { role: ctx.role } : {}),
         tool: name,
         ...(filePath ? { filePath } : {})
@@ -633,6 +636,7 @@ export async function callProjectTool(name: string, args: Record<string, unknown
                   engine: ctx.engine,
                   ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
                   ...(ctx.agentName ? { agentName: ctx.agentName } : {}),
+                  ...(ctx.memberId ? { memberId: ctx.memberId } : {}),
                   ...(ctx.role ? { role: ctx.role } : {}),
                   tool: name
                 })
