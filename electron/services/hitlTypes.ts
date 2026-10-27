@@ -241,6 +241,8 @@ export interface HitlAuditEntry {
   /** Участник общего хоста (decision-126). */
   memberId?: string;
   rule?: string;
+  /** Версия политики проекта, действовавшей при записи (TASK-148.1): хэш `.projecthub/policy.json`. */
+  policyVersion?: string;
   /** Класс риска запроса (decision-112). */
   risk?: HitlRisk;
   /** Способ подтверждения на удалённом устройстве; `biometric` пишется, только если подпись проверена. */

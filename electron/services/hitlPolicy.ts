@@ -2,6 +2,7 @@ import path from 'node:path';
 import { isInsideProject } from './pathGuard.js';
 import { evaluateBrowserTool } from './browserToolCatalog.js';
 import { autonomousTaskWriteViolation } from './agentTaskPolicy.js';
+import { projectPolicyFor } from './projectPolicy.js';
 import type { AIProviderConfig, AutoApproveRules } from './aiAgentService.js';
 import type { HitlDecisionSource, HitlTextLine, RolePermissions } from './hitlTypes.js';
 
@@ -148,6 +149,15 @@ export function applyRolePermissions(config: AIProviderConfig, role?: RolePermis
   };
 }
 
+/**
+ * Политика проекта (`.projecthub/policy.json`, TASK-148.1) поверх настроек: сужает так же, как права роли. Нет
+ * политики (нет модуля Enterprise или файла) — настройки как есть.
+ */
+export function applyProjectPolicy(config: AIProviderConfig, projectOrWorkDir: string | undefined): AIProviderConfig {
+  const policy = projectPolicyFor(projectOrWorkDir);
+  return policy ? applyRolePermissions(config, policy.permissions) : config;
+}
+
 /** Путь к файлу из входа инструмента Claude Code / API-движка. */
 export function filePathFromInput(input: Record<string, unknown>): string {
   return String(input.file_path || input.notebook_path || input.filePath || input.path || '');
@@ -175,6 +185,8 @@ export function evaluateToolRequest(
   input: Record<string, unknown>,
   context: ToolRequestContext = {}
 ): PolicyVerdict {
+  // Политика проекта как код (TASK-148.1) сужает настройки и права роли для любого вердикта.
+  config = applyProjectPolicy(config, context.workDir || projectPath);
   const rules = config.autoApproveRules;
   const auto = Boolean(config.autoApprove);
 

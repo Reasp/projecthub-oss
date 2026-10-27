@@ -35,6 +35,7 @@ import { getHostLanguage } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
 import { editionRegistry, launcherGitEnv } from '../extensions/editionRegistry.js';
 import {
+  applyProjectPolicy,
   applyRolePermissions,
   evaluateToolRequest,
   isCommandDenied as policyIsCommandDenied,
@@ -1192,7 +1193,8 @@ class ClaudeBridgeService extends EventEmitter {
         '--permission-prompt-tool', `mcp__${CLI_HITL_MCP_SERVER_NAME}__${CLI_HITL_PERMISSION_TOOL}`
       ];
 
-      const effective = applyRolePermissions(config, meta.permissions);
+      // Разрешения Claude CLI заранее: политика проекта (TASK-148.1) сужает их так же, как вердикты.
+      const effective = applyProjectPolicy(applyRolePermissions(config, meta.permissions), projectPath);
       const settings = buildCliPermissionSettings(effective);
       if (settings) {
         const settingsPath = path.join(dir, `${safeId}.settings.json`);

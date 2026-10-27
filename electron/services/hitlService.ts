@@ -5,6 +5,13 @@ import os from 'node:os';
 import { appEventBus } from './eventBus.js';
 import { HitlAuditLog, commandPreview, hashCommand, truncateComment } from './hitlAudit.js';
 import { isConfirmationSufficient, riskOfRequest, riskReasonKey } from './hitlRisk.js';
+import { projectPolicyFor } from './projectPolicy.js';
+
+/** Версия политики проекта для записи аудита (TASK-148.1); без политики поля нет. */
+function policyVersionOf(projectPath: string | undefined): { policyVersion?: string } {
+  const policy = projectPolicyFor(projectPath);
+  return policy ? { policyVersion: policy.version } : {};
+}
 import { editionRegistry } from '../extensions/editionRegistry.js';
 import type {
   ApprovalResponse,
@@ -532,7 +539,8 @@ export class HitlService extends EventEmitter {
       title: request.title ? truncateComment(request.title, 200) : undefined,
       filePath: request.filePath || request.diff?.filePath || undefined,
       commandHash: request.command ? hashCommand(request.command) : undefined,
-      commandPreview: request.command ? commandPreview(request.command) : undefined
+      commandPreview: request.command ? commandPreview(request.command) : undefined,
+      ...policyVersionOf(request.projectPath)
     };
   }
 

@@ -10,6 +10,7 @@
     "install-hooks": "node scripts/git-hooks/install.mjs",
     "test": "node --test scripts/**/*.test.mjs",
     "lint:docs": "node scripts/validate-docs.mjs && node scripts/rag/check-index.mjs",
+    "policy:check": "node scripts/policy-check.mjs",
     "check-index": "node scripts/rag/check-index.mjs",
     "index-docs": "node scripts/rag/index-docs.mjs",
     "merge:generated": "node scripts/generated-merge.mjs resolve",
