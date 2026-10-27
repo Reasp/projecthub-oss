@@ -4,6 +4,8 @@ import { hitlService } from '../services/hitlService';
 import { appEventBus } from '../services/eventBus';
 import { normalizeDecisionSource } from '../services/hitlPolicy';
 import type { ApprovalResponse, HitlAuditQuery } from '../services/hitlTypes';
+import { getHostLanguage } from '../services/hostLanguage';
+import { hostText } from '../i18n/hostText';
 import type { IpcContext } from './types';
 
 /**
@@ -58,7 +60,7 @@ export function registerHitlIpc(ctx: IpcContext) {
     const win = ctx.getMainWindow();
     const month = query?.month ? `-${query.month}` : '';
     const dialogOptions = {
-      title: 'Экспорт истории решений HITL',
+      title: hostText(getHostLanguage()).dialogs.exportHitlAudit,
       defaultPath: `hitl-audit${month}.${fmt}`,
       filters: fmt === 'csv'
         ? [{ name: 'CSV', extensions: ['csv'] }]

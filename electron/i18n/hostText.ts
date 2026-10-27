@@ -26,6 +26,21 @@ export interface HostText {
   appErrors: AppErrorLabels;
   agent: string;
   duration: { sec: (s: number) => string; min: (m: number) => string; minSec: (m: number, s: number) => string };
+  /** Ход агента в push на экране блокировки (TASK-140.7, TASK-202.11). */
+  progress: {
+    agent: string;
+    phases: Record<string, string>;
+    waiting: string;
+    doneIn: (iteration: number, max: number) => string;
+    iteration: (iteration: number, max: number, phase: string) => string;
+    doneOf: (ok: number, total: number) => string;
+    done: string;
+    failedWith: (error: string) => string;
+    failed: string;
+    stopped: string;
+    agentsRunning: (active: number, total: number) => string;
+    agentRunning: string;
+  };
   notify: {
     hitlTitle: (title: string) => string;
     hitlCommand: (command: string) => string;
@@ -107,7 +122,8 @@ export interface HostText {
   };
   studio: { cancelledByUser: string; emptyPrompt: string; mcpUnavailableWarning: string; stepLimit: (max: number) => string };
   /** Заголовки системных диалогов сохранения. */
-  dialogs: { exportTrace: string; exportSwarm: string };
+  /** Системные диалоги и тестовое уведомление Telegram (TASK-202.11 — выбор папки, экспорт HITL, тест). */
+  dialogs: { exportTrace: string; exportSwarm: string; selectProjectFolder: string; exportHitlAudit: string; telegramTest: string };
   /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
   chat: { testTitle: string; testBody: string; usageLabel: string };
   /** Имя устройства, которое привёл соседний ПК федерации (decision-111): сохраняется в записи токена. */
@@ -148,6 +164,14 @@ export interface HostText {
     artifacts: (shots: number, traces: number, truncated: boolean) => string;
   };
   /** Итог цикла «до готовности» в разделе Final Summary задачи (TASK-202.7): файл задачи коммитится в проект. */
+  /** Диалог «сборка на диске заменена» (TASK-202.11). */
+  rebuilt: {
+    title: string;
+    message: string;
+    detail: (current: string, onDisk: string, agents: number) => string;
+    later: string;
+    restart: string;
+  };
   doneLoop: {
     outcomes: Record<DoneLoopOutcome, string>;
     iterations: (n: number, max: number) => string;
@@ -172,6 +196,20 @@ const en: HostText = {
   appErrors: appErrorTextEn,
   agent: 'Agent',
   duration: { sec: (s) => `${s} s`, min: (m) => `${m} min`, minSec: (m, s) => `${m} min ${s} s` },
+  progress: {
+    agent: 'Agent',
+    phases: { running_agent: 'agent working', checking: 'checks', verifying: 'verifying criteria', finished: 'done', failed: 'failed', stopped: 'stopped' },
+    waiting: 'waiting for a decision',
+    doneIn: (i, max) => `done in ${i} of ${max}`,
+    iteration: (i, max, phase) => `iteration ${i} of ${max} — ${phase}`,
+    doneOf: (ok, total) => `done: ${ok} of ${total}`,
+    done: 'done',
+    failedWith: (error) => `error: ${error}`,
+    failed: 'error',
+    stopped: 'stopped',
+    agentsRunning: (active, total) => `agents working: ${active} of ${total}`,
+    agentRunning: 'agent working'
+  },
   notify: {
     hitlTitle: (title) => `Decision needed: ${title}`,
     hitlCommand: (command) => `Command: ${command}`,
@@ -265,7 +303,13 @@ const en: HostText = {
     emptyPrompt: 'Please enter a message.',
     mcpUnavailableWarning: 'The built-in ProjectHub MCP server is unavailable: Claude Code was started without permission checks, the exclusion and deny lists do not apply to this answer.'
   },
-  dialogs: { exportTrace: 'Export agent trace', exportSwarm: 'Export swarm session' },
+  dialogs: {
+    exportTrace: 'Export agent trace',
+    exportSwarm: 'Export swarm session',
+    selectProjectFolder: 'Choose a project folder with Backlog.md or a repository',
+    exportHitlAudit: 'Export HITL decision history',
+    telegramTest: 'Test notification from ProjectHub! 🚀'
+  },
   chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' },
   remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}` },
   sessionNote: {
@@ -301,6 +345,16 @@ const en: HostText = {
     artifacts: (shots, traces, truncated) =>
       `screenshots: ${shots}${traces > 0 ? `, trace: ${traces}` : ''}${truncated ? ' (some were not saved due to the limit)' : ''}`
   },
+  rebuilt: {
+    title: 'ProjectHub was rebuilt',
+    message: 'The application on disk was replaced by a new build, but the old one is running.',
+    detail: (current, onDisk, agents) =>
+      `Running: ${current}\nOn disk: ${onDisk}\n\n` +
+      (agents > 0 ? `Agents are working now (${agents}): a restart will interrupt them.\n\n` : '') +
+      'Restart to open the new build?',
+    later: 'Later',
+    restart: 'Restart'
+  },
   doneLoop: {
     outcomes: {
       success: 'done',
@@ -335,6 +389,20 @@ const ru: HostText = {
   appErrors: appErrorTextRu,
   agent: 'Агент',
   duration: { sec: (s) => `${s} с`, min: (m) => `${m} мин`, minSec: (m, s) => `${m} мин ${s} с` },
+  progress: {
+    agent: 'Агент',
+    phases: { running_agent: 'агент работает', checking: 'проверки', verifying: 'сверка критериев', finished: 'готово', failed: 'не удалось', stopped: 'остановлено' },
+    waiting: 'ждёт решения',
+    doneIn: (i, max) => `готово за ${i} из ${max}`,
+    iteration: (i, max, phase) => `итерация ${i} из ${max} — ${phase}`,
+    doneOf: (ok, total) => `готово: ${ok} из ${total}`,
+    done: 'готово',
+    failedWith: (error) => `ошибка: ${error}`,
+    failed: 'ошибка',
+    stopped: 'остановлено',
+    agentsRunning: (active, total) => `агентов работает: ${active} из ${total}`,
+    agentRunning: 'агент работает'
+  },
   notify: {
     hitlTitle: (title) => `Нужно решение: ${title}`,
     hitlCommand: (command) => `Команда: ${command}`,
@@ -428,7 +496,13 @@ const ru: HostText = {
     emptyPrompt: 'Пожалуйста, введите сообщение.',
     mcpUnavailableWarning: 'Встроенный MCP-сервер ProjectHub недоступен: Claude Code запущен без проверки разрешений, списки исключений и запрещённых команд в этом ответе не применяются.'
   },
-  dialogs: { exportTrace: 'Экспорт трассы агента', exportSwarm: 'Экспорт swarm-сессии' },
+  dialogs: {
+    exportTrace: 'Экспорт трассы агента',
+    exportSwarm: 'Экспорт swarm-сессии',
+    selectProjectFolder: 'Выберите папку проекта с Backlog.md или репозиторием',
+    exportHitlAudit: 'Экспорт истории решений HITL',
+    telegramTest: 'Тестовое уведомление от ProjectHub! 🚀'
+  },
   chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' },
   remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}` },
   sessionNote: {
@@ -463,6 +537,16 @@ const ru: HostText = {
     seconds: (s) => `${s} с`,
     artifacts: (shots, traces, truncated) =>
       `скриншотов: ${shots}${traces > 0 ? `, trace: ${traces}` : ''}${truncated ? ' (часть не сохранена по лимиту)' : ''}`
+  },
+  rebuilt: {
+    title: 'ProjectHub пересобран',
+    message: 'Приложение на диске заменено новой сборкой, а работает прежняя.',
+    detail: (current, onDisk, agents) =>
+      `Работает: ${current}\nНа диске: ${onDisk}\n\n` +
+      (agents > 0 ? `Сейчас работают агенты (${agents}): перезапуск прервёт их.\n\n` : '') +
+      'Перезапустить, чтобы открыть новую сборку?',
+    later: 'Позже',
+    restart: 'Перезапустить'
   },
   doneLoop: {
     outcomes: {

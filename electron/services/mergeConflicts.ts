@@ -231,9 +231,9 @@ async function takeOursGenerated(git: GitRunner, top: string, prefix: string, ki
  */
 export async function finishMergeResolution(git: GitRunner, projectRoot: string, npm: NpmRunner): Promise<FinishMergeResult> {
   const { top, prefix } = await repoPaths(git, projectRoot);
-  if (!(await inMergeAt(git, top))) return { ok: false, error: 'Слияние не идёт: завершать нечего', failure: { code: 'not-merging' } };
+  if (!(await inMergeAt(git, top))) return { ok: false, error: 'No merge is in progress: nothing to finish', failure: { code: 'not-merging' } };
   const { generated, other } = splitConflicts([...(await unmergedStages(git, top)).keys()], prefix);
-  if (other.length > 0) return { ok: false, error: `Остались неразрешённые конфликты: ${other.join(', ')}`, failure: { code: 'unresolved', detail: other.join(', ') }, remaining: other };
+  if (other.length > 0) return { ok: false, error: `Unresolved conflicts remain: ${other.join(', ')}`, failure: { code: 'unresolved', detail: other.join(', ') }, remaining: other };
   if (generated.size > 0) await takeOursGenerated(git, top, prefix, generated);
 
   const memoryRebuilt = writeMemoryIndex(projectRoot);

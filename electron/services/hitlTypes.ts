@@ -1,3 +1,5 @@
+import type { HitlRiskReasonKey } from '../../src/lib/hitlRiskReason.js';
+
 /**
  * Типы единого HITL-контура (TASK-57, decision-10).
  *
@@ -155,8 +157,10 @@ export interface HitlRequest {
   tool?: string;
   /** Класс риска; считает `hitlService.request` (`classifyRisk`), вызывающий сервис может только ужесточить. */
   risk?: HitlRisk;
-  /** Почему такой класс — для карточки и телефона. */
+  /** Почему такой класс — английский запасной текст для журнала, аудита и старых клиентов. */
   riskReason?: string;
+  /** Код причины класса: окно и телефон собирают текст по словарю на своём языке (TASK-202.11). */
+  riskReasonKey?: HitlRiskReasonKey;
   /** Момент, после которого запрос считается истёкшим (решение deny). */
   expiresAt?: number;
   /**

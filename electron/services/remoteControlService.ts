@@ -1367,6 +1367,7 @@ class RemoteControlService {
       type: r.type,
       risk: r.risk,
       riskReason: r.riskReason,
+      riskReasonKey: r.riskReasonKey,
       description: r.title,
       details: r.details,
       ...(r.textKey ? { textKey: r.textKey } : {}),
@@ -1460,6 +1461,7 @@ class RemoteControlService {
       type: r.type,
       risk: r.risk,
       riskReason: r.riskReason,
+      riskReasonKey: r.riskReasonKey,
       title: r.title,
       details: r.details,
       ...(r.textKey ? { textKey: r.textKey } : {}),
@@ -1486,7 +1488,7 @@ class RemoteControlService {
   /** Push хода роя устройствам с push (decision-121 п. 1): смена состояния — сразу, остальное — не чаще раза в 20 с. */
   private pushProgress(session: SwarmSession | undefined): void {
     if (!session || !this.enabled || this.pushTargets().length === 0) return;
-    const progress = progressFromSession(session, this.swarmsWaitingHitl.has(session.id));
+    const progress = progressFromSession(session, this.swarmsWaitingHitl.has(session.id), hostText(getHostLanguage()).progress);
     if (progress.state !== 'waiting' && progress.state !== 'running') this.swarmsWaitingHitl.delete(session.id);
     if (!this.progressThrottle.shouldSend(progress)) return;
     void this.pushService.onProgress(progress).catch(() => undefined);

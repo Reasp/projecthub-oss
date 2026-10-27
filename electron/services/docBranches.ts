@@ -430,7 +430,7 @@ export async function openDocBranch(projectRoot: string, params: OpenDocBranchPa
   return withLock(lockKey(repo), async () => {
     const store = await readStore(repo);
     const id = `db-${store.next}`;
-    const base = await snapshotDocs(repo, await resolveHead(repo), `docs: снимок для ветки ${id} «${title}»`);
+    const base = await snapshotDocs(repo, await resolveHead(repo), `docs: snapshot for branch ${id} “${title}”`);
     // Пустое старое значение: ref должен не существовать (ветка с таким номером осталась от чужой копии store).
     await repo.git(['update-ref', '-m', `docs: open ${id}`, refOf(id), base, ''], { cwd: repo.top });
     const stamp = repo.now().toISOString();
@@ -517,7 +517,7 @@ export async function updateDocInBranch(
       parents: [tip],
       expectedTip: tip,
       files: [{ repoPath, content: next }],
-      message: `docs(${meta.id}): правка ${docIdOfPath(repo, repoPath) ?? repoPath}`
+      message: `docs(${meta.id}): edit ${docIdOfPath(repo, repoPath) ?? repoPath}`
     });
     await touch(repo, meta.id, meta.status === 'proposed' ? { status: 'open' } : {});
     return { docId: docIdOfPath(repo, repoPath) ?? doc, path: toProjectPath(repo, repoPath) };
@@ -558,7 +558,7 @@ function mergeFile(
     if (r === 'ours') return { merged: o, conflicts: [] };
     if (r === 'theirs') return { merged: t, conflicts: [] };
     if (r && typeof r === 'object') return { merged: r.text, conflicts: [] };
-    return { merged: o, conflicts: [{ key: 'file:', label: '(документ целиком)', scope: 'section', base: b, ours: o, theirs: t }] };
+    return { merged: o, conflicts: [{ key: 'file:', label: '(whole document)', scope: 'section', base: b, ours: o, theirs: t }] };
   };
   if (branch === null) {
     // Ветка удалила документ: удаляем, если основная его не меняла.
@@ -679,7 +679,7 @@ export async function resolveDocBranch(
     if (conflicts.length) return { status: 'conflict', conflicts, branch: meta };
     if (!diff.files.some((f) => f.mainChanged) && !diff.renumbered.length) return { status: 'up-to-date', conflicts: [], branch: meta };
 
-    const snapshot = await snapshotDocs(repo, await resolveHead(repo), `docs: снимок основной для ${meta.id}`);
+    const snapshot = await snapshotDocs(repo, await resolveHead(repo), `docs: snapshot of main for ${meta.id}`);
     const files: FileWrite[] = [];
     for (const f of diff.files) {
       const target = toRepoPath(repo, f.path);
@@ -691,7 +691,7 @@ export async function resolveDocBranch(
       parents: [tip, snapshot],
       expectedTip: tip,
       files,
-      message: `docs(${meta.id}): подтянута основная`
+      message: `docs(${meta.id}): merged main`
     });
     const updated = await touch(repo, meta.id, { base: snapshot, accepted: {} });
     return { status: 'synced', conflicts: [], branch: updated };

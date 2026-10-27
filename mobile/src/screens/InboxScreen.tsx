@@ -22,7 +22,7 @@ import { Badge, Button, Card, EmptyState, SectionTitle } from '../components/ui'
 import { Screen } from '../components/Screen';
 import { checksSummary, criteriaDone, projectName, timeAgo, type FeedSource } from '../protocol/inbox';
 import { inScope } from '../protocol/scope';
-import { canApproveInApp, capabilitiesFor, hitlText, type AgentTaskGroup, type HitlItem } from '../protocol/models';
+import { canApproveInApp, capabilitiesFor, hitlRiskReason, hitlText, type AgentTaskGroup, type HitlItem } from '../protocol/models';
 import { useT } from '../i18n/react';
 import { failureText } from '../app/errorText';
 import type { Dict } from '../i18n';
@@ -73,6 +73,7 @@ function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem;
   };
   const who = [item.agentName, item.role].filter(Boolean).join(' · ');
   const text = hitlText(item, tr.models.hitlText);
+  const riskReason = hitlRiskReason(item, tr.models.hitlText);
   const canDecide = canDecideOn(source);
   return (
     <Card className="mb-2 border-amber-900/60">
@@ -91,7 +92,7 @@ function HitlCard({ source, item, multi }: { source: FeedSource; item: HitlItem;
               </Badge>
             )}
           </div>
-          {item.riskReason && <div className="mt-0.5 text-[12px] text-slate-500">{item.riskReason}</div>}
+          {riskReason && <div className="mt-0.5 text-[12px] text-slate-500">{riskReason}</div>}
         </div>
       </div>
       {(item.command || item.filePath || text.details) && (

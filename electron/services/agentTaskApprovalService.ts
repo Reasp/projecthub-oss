@@ -119,7 +119,7 @@ export class AgentTaskApprovalService {
         sessionId: channel === 'window' ? 'ui' : channel,
         projectPath,
         type: 'file_write',
-        title: `Подтверждена задача агента: ${taskId}`,
+        title: `Agent task confirmed: ${taskId}`,
         tool: 'task_approve',
         filePath: path.relative(projectPath, filePath).split(path.sep).join('/'),
         ...(fmString(data.reporter) ? { agentName: fmString(data.reporter) } : {})

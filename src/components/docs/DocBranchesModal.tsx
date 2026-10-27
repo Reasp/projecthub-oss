@@ -6,6 +6,7 @@ import { hostLabelText } from '../../i18n/hostLabels';
 import { useDialog } from '../../hooks/useDialog';
 import { InitDiffView } from '../projects/InitDiffView';
 import type { DocBranchDiff, DocBranchFile, DocBranchesOverview, DocResolution } from '../../types/electron';
+import { docPartLabel } from '../../lib/docPartLabel';
 
 interface DocBranchesModalProps {
   projectPath: string;
@@ -260,7 +261,7 @@ export const DocBranchesModal: React.FC<DocBranchesModalProps> = ({ projectPath,
                             )}
                           </div>
                           {file.parts.length > 0 && (
-                            <p className="text-[11px] text-slate-400">{b.parts.replace('{parts}', file.parts.map((p) => p.label).join('; '))}</p>
+                            <p className="text-[11px] text-slate-400">{b.parts.replace('{parts}', file.parts.map((p) => docPartLabel(p, b.specialParts)).join('; '))}</p>
                           )}
                         </div>
                         <button
@@ -291,7 +292,7 @@ export const DocBranchesModal: React.FC<DocBranchesModalProps> = ({ projectPath,
                             return (
                               <div key={c.key} className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 space-y-2" data-testid="doc-branch-conflict">
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="text-xs text-rose-200">{b.conflictTitle.replace('{label}', c.label)}</span>
+                                  <span className="text-xs text-rose-200">{b.conflictTitle.replace('{label}', docPartLabel(c, b.specialParts))}</span>
                                   <div className="flex gap-1.5">
                                     {pick('ours', b.takeOurs)}
                                     {pick('theirs', b.takeTheirs)}

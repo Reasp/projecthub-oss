@@ -3,6 +3,7 @@ import { RefreshCw, UploadCloud, Terminal, Copy, KeyRound, FileText, TriangleAle
 import { useTranslation } from '../../../i18n';
 import type { RoleExportTarget, RoleSyncFile, RoleSyncFileAction, RoleSyncOptionsInput, RoleSyncPlan, TerminalHookSettings } from '../../../types/electron';
 import { hookEnvSnippets, inferSyncOptions } from './roleSyncView';
+import { appFailureText } from '../../../lib/appErrorText';
 
 /**
  * Экспорт ролей ProjectHub в нативные субагенты Claude Code / Codex / Antigravity и хуки терминала (TASK-77, TASK-106,
@@ -157,9 +158,9 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
           <div className="font-mono text-[11px] truncate" title={f.relPath}>{f.relPath}</div>
           {(f.error || f.modified || notes.length > 0) && (
             <div className="text-[11px] text-muted-foreground">
-              {f.error ? <span className="text-amber-400">{f.error}</span> : null}
+              {f.error ? <span className="text-amber-400">{appFailureText({ error: f.error, errorKey: f.errorKey }, t.appErrors)}</span> : null}
               {f.modified && f.action === 'orphan' ? <span className="text-amber-400">{s.modifiedByHand} </span> : null}
-              {notes.join('; ')}
+              {notes.map((n) => appFailureText({ error: n.code, errorKey: n }, t.appErrors)).join('; ')}
             </div>
           )}
         </div>
@@ -276,7 +277,7 @@ export const RoleSyncPanel: React.FC<RoleSyncPanelProps> = ({ projectPath, refre
               <div className="font-semibold">{s.skippedTitle}</div>
               {plan.skipped.map((sk) => (
                 <div key={`${sk.target}-${sk.roleSlug}`}>
-                  {sk.roleSlug} → {targetLabel[sk.target]}: {sk.reason}
+                  {sk.roleSlug} → {targetLabel[sk.target]}: {appFailureText({ error: sk.reason, errorKey: sk.reasonKey }, t.appErrors)}
                 </div>
               ))}
             </div>

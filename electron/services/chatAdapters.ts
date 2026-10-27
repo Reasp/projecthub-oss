@@ -1,6 +1,7 @@
 import { PrHostingError, describeHttpError, type PrHttp } from './prHosting.js';
 import { MATTERMOST_ALLOW_EMOJI, MATTERMOST_DENY_EMOJI, mattermostHitlMessage, slackHitlBlocks, slackResolvedBlocks } from './chatButtons.js';
 import type { Language } from '../../src/i18n/types.js';
+import { AppError } from '../../src/lib/appError.js';
 
 /**
  * Адаптеры рабочих чатов (TASK-138.4, decision-110): отправка уведомления в канал, правка сообщения после решения,
@@ -96,7 +97,10 @@ export function slackText(message: ChatMessage, extra?: string): string {
 /** Slack отвечает 200 и `{ ok: false, error }` — ошибка с кодом Slack. */
 async function slackCall(http: PrHttp, method: string, body?: Record<string, unknown>): Promise<Record<string, unknown>> {
   const json = obj(await callJson(http, `/${method}`, body ? jsonInit('POST', body) : undefined));
-  if (json.ok !== true) throw new PrHostingError(200, `Slack: ${text(json.error) || 'ошибка'}${json.error === 'not_in_channel' ? ' — пригласите бота в канал' : ''}`);
+  if (json.ok !== true) {
+    const detail = text(json.error);
+    throw new PrHostingError(200, new AppError(!detail ? 'hosting.slackUnknown' : detail === 'not_in_channel' ? 'hosting.slackNotInChannel' : 'hosting.slackFailed', detail ? { detail } : undefined));
+  }
   return json;
 }
 

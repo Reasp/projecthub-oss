@@ -11,6 +11,8 @@ import {
 } from '../services/projectScanner';
 import { gitService } from '../services/gitService';
 import { checkTemplateAvailable } from '../services/templateWizard';
+import { getHostLanguage } from '../services/hostLanguage';
+import { hostText } from '../i18n/hostText';
 import type { IpcContext } from './types';
 
 export function registerProjectsIpc(ctx: IpcContext) {
@@ -95,7 +97,7 @@ export function registerProjectsIpc(ctx: IpcContext) {
     if (!win) return null;
     const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory'],
-      title: 'Выберите папку проекта с Backlog.md или репозиторием'
+      title: hostText(getHostLanguage()).dialogs.selectProjectFolder
     });
     if (result.canceled || result.filePaths.length === 0) {
       return null;

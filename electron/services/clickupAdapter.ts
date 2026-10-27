@@ -1,5 +1,6 @@
 import type { RemoteStatus, RemoteTask, TrackerTarget, TrackerTargetGroup } from './trackerTypes.js';
 import { TrackerHttpError, type TrackerAdapter, type TrackerHttp } from './trackerAdapter.js';
+import { AppError } from '../../src/lib/appError.js';
 
 /**
  * Адаптер ClickUp API v2 (TASK-128, decision-103). Модель адаптеров — `trackerAdapter.ts`, список — `trackerAdapters.ts`.
@@ -90,7 +91,7 @@ export function createClickUpAdapter(options: ClickUpAdapterOptions = {}): Track
       if (!res.ok) {
         const o = obj(json);
         const code = text(o.ECODE) || `http_${res.status}`;
-        throw new TrackerHttpError(res.status, code, text(o.err) || `ClickUp ответил ${res.status}`);
+        throw new TrackerHttpError(res.status, code, text(o.err) || new AppError('tracker.httpStatus', { service: 'ClickUp', status: res.status }));
       }
       return json;
     }
@@ -108,7 +109,7 @@ export function createClickUpAdapter(options: ClickUpAdapterOptions = {}): Track
   /** После записи читаем задачу заново: база берёт то, что хранит ClickUp (decision-103 п. 5). */
   const reread = async (http: TrackerHttp, json: unknown): Promise<RemoteTask> => {
     const parsed = parseClickUpTask(json);
-    if (!parsed) throw new TrackerHttpError(0, 'invalid_response', 'ClickUp вернул задачу без id');
+    if (!parsed) throw new TrackerHttpError(0, 'invalid_response', new AppError('tracker.noTaskId', { service: 'ClickUp' }));
     return (await getTask(http, parsed.id)) ?? parsed;
   };
 

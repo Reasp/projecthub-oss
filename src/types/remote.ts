@@ -2,6 +2,7 @@ import type { RemoteEndpoint } from '../utils/remoteEndpoints';
 import type { DeviceProjectRights } from '../utils/projectAccess';
 import type { HitlTextKey } from './electron';
 import type { AppErrorKey } from '../lib/appError';
+import type { HitlRiskReasonKey } from '../lib/hitlRiskReason';
 
 /** LAN Direct и Relay (decision-11 п.2) — WebRTC выведен из scope, `RTCPeerConnection` в коде не было. */
 export type RemoteConnectionMode = 'lan' | 'relay';
@@ -764,6 +765,7 @@ export interface RemotePendingApproval {
   type?: string;
   risk?: RemoteHitlRisk;
   riskReason?: string;
+  riskReasonKey?: HitlRiskReasonKey;
   title?: string;
   details?: string;
   /** Заголовок и пояснение кодом (TASK-205): телефон собирает текст на своём языке, `title`/`details` — запасной текст. */
@@ -784,6 +786,7 @@ export interface RemoteHitlDetail {
   tool?: string;
   risk?: RemoteHitlRisk;
   riskReason?: string;
+  riskReasonKey?: HitlRiskReasonKey;
   /** Команда целиком, без усечения. */
   command?: string;
   filePath?: string;
@@ -973,6 +976,7 @@ export interface RemoteEventPayloads {
     type?: string;
     risk?: RemoteHitlRisk;
     riskReason?: string;
+    riskReasonKey?: HitlRiskReasonKey;
     description: string;
     details?: string;
     command?: string;

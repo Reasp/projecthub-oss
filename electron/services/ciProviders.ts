@@ -1,4 +1,5 @@
 import { PrHostingError, describeHttpError, type PrHttp, type RepoRef } from './prHosting.js';
+import { AppError } from '../../src/lib/appError.js';
 
 /**
  * Адаптеры CI/CD (TASK-138.3, decision-109): GitHub Actions, GitLab CI, Jenkins. Чистый модуль без Electron и
@@ -210,7 +211,7 @@ export const githubActionsAdapter: CiAdapter = {
   },
   async getRun(http, repo, runId) {
     const run = parseGithubRun(await getJson(http, `/repos/${enc(repo.path)}/actions/runs/${encodeURIComponent(runId)}`));
-    if (!run) throw new PrHostingError(404, `Запуск ${runId} не найден`);
+    if (!run) throw new PrHostingError(404, new AppError('ci.runNotFound', { run: runId }));
     const jobs = obj(await getJson(http, `/repos/${enc(repo.path)}/actions/runs/${encodeURIComponent(runId)}/jobs?filter=latest&per_page=100`));
     return { ...run, jobs: arr(jobs.jobs).map(parseGithubJob).filter((j): j is CiJob => Boolean(j)) };
   },
@@ -219,11 +220,11 @@ export const githubActionsAdapter: CiAdapter = {
     const res = await call(http, `/repos/${enc(repo.path)}/actions/jobs/${encodeURIComponent(jobId)}/logs`);
     if (res.status < 300) return res.text();
     const location = res.headers.get('location');
-    if (!location || !http.download) throw new PrHostingError(res.status, 'GitHub не отдал адрес лога');
+    if (!location || !http.download) throw new PrHostingError(res.status, new AppError('ci.logNoAddress'));
     const url = new URL(location);
-    if (url.protocol !== 'https:') throw new PrHostingError(res.status, 'Адрес лога GitHub не https');
+    if (url.protocol !== 'https:') throw new PrHostingError(res.status, new AppError('ci.logNotHttps'));
     const log = await http.download(url.toString());
-    if (!log.ok) throw new PrHostingError(log.status, `Лог задания недоступен (HTTP ${log.status})`);
+    if (!log.ok) throw new PrHostingError(log.status, new AppError('ci.logUnavailable', { status: log.status }));
     return log.text();
   },
   async retry(http, repo, runId) {
@@ -305,7 +306,7 @@ export const gitlabCiAdapter: CiAdapter = {
   },
   async getRun(http, repo, runId) {
     const run = parseGitlabPipeline(await getJson(http, `${gitlabProject(repo)}/pipelines/${encodeURIComponent(runId)}`));
-    if (!run) throw new PrHostingError(404, `Пайплайн ${runId} не найден`);
+    if (!run) throw new PrHostingError(404, new AppError('ci.pipelineNotFound', { run: runId }));
     const jobs = await getJson(http, `${gitlabProject(repo)}/pipelines/${encodeURIComponent(runId)}/jobs?per_page=100`);
     return { ...run, jobs: arr(jobs).map(parseGitlabJob).filter((j): j is CiJob => Boolean(j)) };
   },
@@ -409,7 +410,7 @@ export const jenkinsAdapter: CiAdapter = {
     const [number, branch] = splitJenkinsRun(runId);
     const base = jenkinsJobUrlPath(job.path, branch);
     const run = parseJenkinsBuild(await getJson(http, `${base}/${number}/api/json?tree=${encodeURIComponent(JENKINS_BUILD_TREE)}`), job.path.replace('{branch}', branch ?? ''));
-    if (!run) throw new PrHostingError(404, `Сборка ${number} не найдена`);
+    if (!run) throw new PrHostingError(404, new AppError('ci.buildNotFound', { number }));
     let jobs: CiJob[] = [];
     try {
       jobs = arr(obj(await getJson(http, `${base}/${number}/wfapi/describe`)).stages)

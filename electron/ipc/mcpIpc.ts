@@ -4,6 +4,8 @@ import { remoteControlService } from '../services/remoteControlService';
 import { telegramService } from '../services/telegramService';
 import { notificationService } from '../services/notificationService';
 import { secretStorageService, SECRETS_BACKUP_FILE_NAME, SECRETS_FILE_NAME } from '../services/secretStorageService';
+import { getHostLanguage } from '../services/hostLanguage';
+import { hostText } from '../i18n/hostText';
 import { hitlService } from '../services/hitlService';
 import type { DeviceRights } from '../../src/types/remote';
 
@@ -82,7 +84,7 @@ export function registerMcpIpc() {
     // Аудит решения человека: имя ключа, без значения.
     for (const key of result.restored) {
       hitlService.recordHumanDecision(
-        { sessionId: 'ui', projectPath: '', type: 'file_write', title: `Секрет восстановлен из резервной копии: ${key}`, tool: 'secret_restore', filePath: SECRETS_FILE_NAME },
+        { sessionId: 'ui', projectPath: '', type: 'file_write', title: `Secret restored from backup: ${key}`, tool: 'secret_restore', filePath: SECRETS_FILE_NAME },
         'allow',
         { kind: 'local' },
         'secret-restore'
@@ -96,7 +98,7 @@ export function registerMcpIpc() {
     const result = await secretStorageService.deleteFromBackup(list);
     for (const key of result.removed) {
       hitlService.recordHumanDecision(
-        { sessionId: 'ui', projectPath: '', type: 'file_write', title: `Запись резервной копии секрета удалена: ${key}`, tool: 'secret_backup_delete', filePath: SECRETS_BACKUP_FILE_NAME },
+        { sessionId: 'ui', projectPath: '', type: 'file_write', title: `Secret backup entry deleted: ${key}`, tool: 'secret_backup_delete', filePath: SECRETS_BACKUP_FILE_NAME },
         'allow',
         { kind: 'local' },
         'secret-backup-delete'
@@ -180,7 +182,7 @@ export function registerMcpIpc() {
   });
 
   ipcMain.handle('remote:testTelegramNotification', async (_event, text?: string) => {
-    return await remoteControlService.sendTelegramNotification(text || 'Тестовое уведомление от ProjectHub! 🚀');
+    return await remoteControlService.sendTelegramNotification(text || hostText(getHostLanguage()).dialogs.telegramTest);
   });
 
   ipcMain.handle('remote:startTunnel', async () => {

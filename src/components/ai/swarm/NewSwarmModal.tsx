@@ -643,7 +643,7 @@ export const NewSwarmModal: React.FC = () => {
                       const warnings = unsupportedRoleFeatures(agent.engine, role);
                       if (warnings.length === 0) return null;
                       return (
-                        <span title={`${t.swarm.roleUnsupportedPrefix}: ${warnings.join(', ')}`}>
+                        <span title={`${t.swarm.roleUnsupportedPrefix}: ${warnings.map((w) => t.roles.unsupportedFeatures[w]).join(', ')}`}>
                           <TriangleAlert className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                         </span>
                       );

@@ -1,4 +1,5 @@
 import { useTranslation } from '../../i18n/useTranslation';
+import { hitlRiskReasonText, type HitlRiskReasonKey } from '../../lib/hitlRiskReason';
 
 type Risk = 'low' | 'moderate' | 'high';
 
@@ -9,9 +10,10 @@ const TONE: Record<Risk, string> = {
 };
 
 /** Класс риска запроса HITL (TASK-140.4, decision-112): считает хост, причина — в подсказке. */
-export function RiskBadge({ risk, reason }: { risk?: Risk; reason?: string }) {
+export function RiskBadge({ risk, reason: fallback, reasonKey }: { risk?: Risk; reason?: string; reasonKey?: HitlRiskReasonKey }) {
   const { t } = useTranslation();
   if (!risk) return null;
+  const reason = hitlRiskReasonText(reasonKey, fallback, t.hitl.requestText.risks);
   const label = risk === 'high' ? t.aiStudio.approval.riskHigh : risk === 'moderate' ? t.aiStudio.approval.riskModerate : t.aiStudio.approval.riskLow;
   return (
     <span

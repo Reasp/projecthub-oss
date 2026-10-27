@@ -230,17 +230,15 @@ function setupBuildInfo(): void {
     prompt: async (current, onDisk) => {
       console.log(`[Main] Build replaced on disk: running ${formatBuildInfo(current)}, on disk ${formatBuildInfo(onDisk)}`);
       const agents = collectActiveSessions().reduce((sum, session) => sum + session.activeAgents, 0);
+      const tx = hostText(getHostLanguage()).rebuilt;
       const options = {
         type: 'info' as const,
-        buttons: ['Позже', 'Перезапустить'],
+        buttons: [tx.later, tx.restart],
         defaultId: 1,
         cancelId: 0,
-        title: 'ProjectHub пересобран',
-        message: 'Приложение на диске заменено новой сборкой, а работает прежняя.',
-        detail:
-          `Работает: ${formatBuildInfo(current)}\nНа диске: ${formatBuildInfo(onDisk)}\n\n` +
-          (agents > 0 ? `Сейчас работают агенты (${agents}): перезапуск прервёт их.\n\n` : '') +
-          'Перезапустить, чтобы открыть новую сборку?'
+        title: tx.title,
+        message: tx.message,
+        detail: tx.detail(formatBuildInfo(current), formatBuildInfo(onDisk), agents)
       };
       const result = win && !win.isDestroyed() ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
       if (result.response !== 1) return;

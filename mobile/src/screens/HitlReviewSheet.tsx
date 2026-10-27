@@ -3,7 +3,8 @@ import { FingerprintIcon, XIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import { useServices } from '../app/context';
 import { Badge, Button, Sheet, Spinner } from '../components/ui';
-import { diffLineKind, hitlText, type HitlItem } from '../protocol/models';
+import { diffLineKind, hitlRiskReason, hitlText, type HitlItem } from '../protocol/models';
+import { parseHitlRiskReasonKey } from '../../../src/lib/hitlRiskReason';
 import { useT } from '../i18n/react';
 import type { RemoteHitlDetail } from '../../../src/types/remote';
 
@@ -42,6 +43,9 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
 
   const truncated = Boolean(detail?.diff?.truncated || detail?.detailsTruncated);
   const text = hitlText(detail ? { title: detail.title, details: detail.details, textKey: detail.textKey ?? item.textKey } : item, tr.models.hitlText);
+  const riskReason = detail?.riskReason
+    ? hitlRiskReason({ riskReason: detail.riskReason, riskReasonKey: parseHitlRiskReasonKey(detail.riskReasonKey) }, tr.models.hitlText)
+    : hitlRiskReason(item, tr.models.hitlText);
   const decide = async (approve: boolean) => {
     setBusy(true);
     platform.haptic(approve ? 'heavy' : 'warning');
@@ -77,7 +81,7 @@ export function HitlReviewSheet({ item, open, onClose }: { item: HitlItem; open:
         {(detail?.tool || item.tool) && <Badge tone="warning">{detail?.tool || item.tool}</Badge>}
         <Badge tone="danger">{tr.inbox.risk[detail?.risk ?? item.risk ?? 'high']}</Badge>
       </div>
-      {(detail?.riskReason || item.riskReason) && <div className="mt-1 text-[12px] text-slate-500">{detail?.riskReason || item.riskReason}</div>}
+      {riskReason && <div className="mt-1 text-[12px] text-slate-500">{riskReason}</div>}
 
       {loading && (
         <div className="mt-4 flex justify-center">

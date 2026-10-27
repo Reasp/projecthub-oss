@@ -95,7 +95,10 @@ export interface HitlPushPayload {
   cmd?: string;
   file?: string;
   risk: HitlRisk;
+  /** Причина класса: why — английский запасной текст, wk — код, wt — инструмент кода unknownTool (TASK-202.11). */
   why?: string;
+  wk?: string;
+  wt?: string;
   proj?: string;
   agent?: string;
   /** Может ли устройство решать: без права кнопок нет. */
@@ -191,6 +194,8 @@ export function hitlPushPayload(
     ...(request.filePath ? { file: request.filePath } : {}),
     risk: request.risk ?? 'high',
     ...(request.riskReason ? { why: request.riskReason } : {}),
+    ...(request.riskReasonKey ? { wk: request.riskReasonKey.code } : {}),
+    ...(request.riskReasonKey?.params?.tool ? { wt: request.riskReasonKey.params.tool } : {}),
     ...(request.projectPath ? { proj: projectName(request.projectPath) } : {}),
     ...(request.agentName || request.role ? { agent: request.agentName || request.role } : {}),
     dec: ctx.canDecide,
@@ -224,10 +229,10 @@ export function encodePushPayload(payload: PushPayload, limit = WEB_PUSH_MAX_PLA
   }
   if (payload.t !== 'hitl') throw new Error('Push payload is too large');
   for (const n of [1200, 600, 300, 160, 80]) {
-    const p: HitlPushPayload = { ...payload, title: cut(payload.title, n)!, ...cutKey(payload.tk, n), cmd: cut(payload.cmd, n), file: cut(payload.file, n), why: cut(payload.why, 120) };
+    const p: HitlPushPayload = { ...payload, title: cut(payload.title, n)!, ...cutKey(payload.tk, n), cmd: cut(payload.cmd, n), file: cut(payload.file, n), why: cut(payload.why, 120), wt: cut(payload.wt, 80) };
     if (fits(p)) return Buffer.from(JSON.stringify(p), 'utf8');
   }
-  const bare: HitlPushPayload = { ...payload, title: cut(payload.title, 80)!, ...cutKey(payload.tk, 80), cmd: cut(payload.cmd, 80), file: cut(payload.file, 80), why: undefined, ep: [] };
+  const bare: HitlPushPayload = { ...payload, title: cut(payload.title, 80)!, ...cutKey(payload.tk, 80), cmd: cut(payload.cmd, 80), file: cut(payload.file, 80), why: undefined, wt: undefined, ep: [] };
   if (fits(bare)) return Buffer.from(JSON.stringify(bare), 'utf8');
   throw new Error('Push payload is too large');
 }

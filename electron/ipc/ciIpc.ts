@@ -38,7 +38,7 @@ export function registerCiIpc() {
         sessionId: 'ui',
         projectPath: project,
         type: 'command',
-        title: job ? 'Запуск ручного задания CI из окна' : 'Перезапуск упавших заданий CI из окна',
+        title: job ? 'Manual CI job started from the window' : 'Failed CI jobs rerun from the window',
         details: where,
         command: `ci_rerun ${str(provider)} ${str(runId)}${job ? ` ${job}` : ''}`,
         origin: 'studio',

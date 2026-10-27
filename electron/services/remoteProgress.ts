@@ -1,4 +1,5 @@
 import type { SwarmSession } from './swarmTypes.js';
+import { hostText, type HostText } from '../i18n/hostText.js';
 
 /**
  * Ход агента на экране блокировки телефона (TASK-140.7, [[decision-121]] п. 1): что показать о рое и когда слать push.
@@ -11,7 +12,7 @@ export interface AgentProgress {
   swarmId: string;
   title: string;
   state: ProgressState;
-  /** Фаза по-русски: «итерация 2 из 5 — проверки», «агентов работает: 2 из 3». */
+  /** Фаза на языке хоста: «iteration 2 of 5 — checks», «agents working: 2 of 3». */
   step: string;
   /** 0–100 для цикла «до готовности»; `undefined` — неопределённый прогресс. */
   percent?: number;
@@ -23,15 +24,6 @@ export interface AgentProgress {
 /** Не чаще раза в 20 секунд на рой, кроме смены состояния или итерации. */
 export const PROGRESS_MIN_INTERVAL_MS = 20_000;
 
-const PHASE_TEXT: Record<string, string> = {
-  running_agent: 'агент работает',
-  checking: 'проверки',
-  verifying: 'сверка критериев',
-  finished: 'готово',
-  failed: 'не удалось',
-  stopped: 'остановлено'
-};
-
 function stateOf(status: SwarmSession['status'], waiting: boolean): ProgressState {
   if (status === 'completed') return 'done';
   if (status === 'failed') return 'failed';
@@ -39,9 +31,9 @@ function stateOf(status: SwarmSession['status'], waiting: boolean): ProgressStat
   return waiting ? 'waiting' : 'running';
 }
 
-export function progressFromSession(session: SwarmSession, waiting = false): AgentProgress {
+export function progressFromSession(session: SwarmSession, waiting = false, tx: HostText['progress'] = hostText('en').progress): AgentProgress {
   const state = stateOf(session.status, waiting);
-  const title = [session.taskId, session.taskTitle].filter(Boolean).join(' · ') || 'Агент';
+  const title = [session.taskId, session.taskTitle].filter(Boolean).join(' · ') || tx.agent;
   const base = { swarmId: session.id, title, state, projectPath: session.projectPath };
   const loop = session.doneLoop;
   if (loop) {
@@ -49,10 +41,10 @@ export function progressFromSession(session: SwarmSession, waiting = false): Age
     const iteration = Math.min(max, Math.max(1, loop.currentIteration || loop.iterations.length || 1));
     // Идущая итерация засчитывается наполовину: полоса не стоит на месте весь ход агента.
     const done = state === 'done' ? max : iteration - (state === 'running' || state === 'waiting' ? 0.5 : 0);
-    const phase = state === 'waiting' ? 'ждёт решения' : PHASE_TEXT[loop.phase] ?? loop.phase;
+    const phase = state === 'waiting' ? tx.waiting : tx.phases[loop.phase] ?? loop.phase;
     return {
       ...base,
-      step: state === 'done' ? `готово за ${iteration} из ${max}` : `итерация ${iteration} из ${max} — ${phase}`,
+      step: state === 'done' ? tx.doneIn(iteration, max) : tx.iteration(iteration, max, phase),
       percent: Math.round((Math.max(0, done) / max) * 100),
       iteration,
       maxIterations: max
@@ -62,11 +54,11 @@ export function progressFromSession(session: SwarmSession, waiting = false): Age
   const active = session.agents.filter((a) => ['running', 'pending', 'preparing'].includes(a.status)).length;
   const failed = session.agents.filter((a) => a.status === 'failed').length;
   let step: string;
-  if (state === 'waiting') step = 'ждёт решения';
-  else if (state === 'done') step = total > 1 ? `готово: ${total - failed} из ${total}` : 'готово';
-  else if (state === 'failed') step = session.error ? `ошибка: ${session.error.slice(0, 120)}` : 'ошибка';
-  else if (state === 'stopped') step = 'остановлено';
-  else step = total > 1 ? `агентов работает: ${active} из ${total}` : 'агент работает';
+  if (state === 'waiting') step = tx.waiting;
+  else if (state === 'done') step = total > 1 ? tx.doneOf(total - failed, total) : tx.done;
+  else if (state === 'failed') step = session.error ? tx.failedWith(session.error.slice(0, 120)) : tx.failed;
+  else if (state === 'stopped') step = tx.stopped;
+  else step = total > 1 ? tx.agentsRunning(active, total) : tx.agentRunning;
   return { ...base, step, ...(state === 'done' ? { percent: 100 } : {}) };
 }
 

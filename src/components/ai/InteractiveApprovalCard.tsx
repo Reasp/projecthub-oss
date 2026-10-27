@@ -322,7 +322,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
               <span>{t.aiStudio.approval.title}</span>
             </h4>
             <div className="flex items-center gap-1.5">
-              <RiskBadge risk={request.risk} reason={request.riskReason} />
+              <RiskBadge risk={request.risk} reason={request.riskReason} reasonKey={request.riskReasonKey} />
               {queueInfo && queueInfo.total > 1 && (
                 <span className="text-[11px] bg-amber-500/30 text-amber-200 border border-amber-500/40 px-2 py-0.5 rounded-full font-mono font-bold">
                   {queueInfo.current} / {queueInfo.total}

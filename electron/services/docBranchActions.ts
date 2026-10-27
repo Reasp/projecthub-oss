@@ -32,8 +32,8 @@ export interface DocBranchesOverview {
 }
 
 function sourceLabel(source: HitlDecisionSource): string {
-  if (source.kind === 'remote') return source.deviceName ? `человек (${source.deviceName})` : 'человек (устройство)';
-  return 'человек (ProjectHub)';
+  if (source.kind === 'remote') return source.deviceName ? `human (${source.deviceName})` : 'human (device)';
+  return 'human (ProjectHub)';
 }
 
 export function summarize(diff: DocBranchDiff): DocBranchSummary {
@@ -96,7 +96,7 @@ export async function mergeDocBranchAsHuman(
         sessionId: source.kind === 'remote' ? `remote-${source.deviceId ?? 'device'}` : 'ui',
         projectPath,
         type: 'file_write',
-        title: `Принята ветка документации ${branchId}${result.status === 'partial' ? ' (часть документов)' : ''}`,
+        title: `Documentation branch accepted: ${branchId}${result.status === 'partial' ? ' (some documents)' : ''}`,
         tool: 'doc_branch_merge',
         ...(result.written[0] ? { filePath: result.written[0] } : {}),
         ...(result.branch.author ? { agentName: result.branch.author } : {})
@@ -118,7 +118,7 @@ export async function closeDocBranchAsHuman(projectPath: string, branchId: strin
       sessionId: source.kind === 'remote' ? `remote-${source.deviceId ?? 'device'}` : 'ui',
       projectPath,
       type: 'file_write',
-      title: `Отклонена ветка документации ${branchId}`,
+      title: `Documentation branch rejected: ${branchId}`,
       tool: 'doc_branch_close',
       ...(meta.author ? { agentName: meta.author } : {})
     },

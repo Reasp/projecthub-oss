@@ -32,6 +32,7 @@ export function hitlDetailForPhone(request: HitlRequest): RemoteHitlDetail {
     ...(request.tool || request.type ? { tool: request.tool || request.type } : {}),
     ...(request.risk ? { risk: request.risk } : {}),
     ...(request.riskReason ? { riskReason: request.riskReason } : {}),
+    ...(request.riskReasonKey ? { riskReasonKey: request.riskReasonKey } : {}),
     // Команду не режем: одобряется ровно то, что будет выполнено.
     ...(request.command ? { command: request.command } : {}),
     ...(request.filePath || request.diff?.filePath ? { filePath: request.filePath || request.diff?.filePath } : {})

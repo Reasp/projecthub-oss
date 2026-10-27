@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { appEventBus } from './eventBus.js';
 import { HitlAuditLog, commandPreview, hashCommand, truncateComment } from './hitlAudit.js';
-import { isConfirmationSufficient, riskOfRequest } from './hitlRisk.js';
+import { isConfirmationSufficient, riskOfRequest, riskReasonKey } from './hitlRisk.js';
 import { editionRegistry } from '../extensions/editionRegistry.js';
 import type {
   ApprovalResponse,
@@ -241,7 +241,8 @@ export class HitlService extends EventEmitter {
       ...(input.memberId || this.sessionOwners.has(input.sessionId) ? { memberId: input.memberId || this.sessionOwners.get(input.sessionId) } : {}),
       orphaned: false,
       risk: assessed.risk,
-      riskReason: assessed.reason
+      riskReason: assessed.reason,
+      riskReasonKey: riskReasonKey(assessed)
     };
     if (this.closed) {
       return Promise.reject(new ApprovalCancelledError('The application is closing'));

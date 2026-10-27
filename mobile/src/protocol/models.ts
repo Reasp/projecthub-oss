@@ -2,6 +2,7 @@ import type { DeviceRights, RemotePendingAgentTask, RemoteHitlRisk, RemotePendin
 import type { HitlLineParam, HitlTextKey, HitlTextLine } from '../../../src/types/electron';
 import { describeHitlRequest, type HitlText, type HitlTextLabels } from '../../../src/lib/agentStatusText';
 import { appFailureText } from '../../../src/lib/appErrorText';
+import { hitlRiskReasonText, parseHitlRiskReasonKey, type HitlRiskReasonKey } from '../../../src/lib/hitlRiskReason';
 import { t } from '../i18n';
 
 /**
@@ -150,6 +151,7 @@ export interface HitlItem {
   /** Класс риска от хоста (TASK-140.4, decision-112); у хостов до него нет. */
   risk?: RemoteHitlRisk;
   riskReason?: string;
+  riskReasonKey?: HitlRiskReasonKey;
 }
 
 /**
@@ -215,7 +217,8 @@ export function hitlFromEvent(data: unknown): HitlItem | null {
     filePath: str('filePath'),
     expiresAt: typeof d.expiresAt === 'number' ? d.expiresAt : undefined,
     risk: d.risk === 'low' || d.risk === 'moderate' || d.risk === 'high' ? d.risk : undefined,
-    riskReason: str('riskReason')
+    riskReason: str('riskReason'),
+    ...(parseHitlRiskReasonKey(d.riskReasonKey) ? { riskReasonKey: parseHitlRiskReasonKey(d.riskReasonKey) } : {})
   };
 }
 
@@ -270,6 +273,11 @@ function parseTextLine(raw: unknown): HitlTextLine | null {
 /** Заголовок и пояснение запроса на языке телефона (TASK-205): по коду, без кода — текст хоста. */
 export function hitlText(item: Pick<HitlItem, 'title' | 'details' | 'textKey'>, labels: HitlTextLabels = t().models.hitlText): HitlText {
   return describeHitlRequest(item, labels);
+}
+
+/** Причина класса риска на языке телефона; хост без кода — его текст. */
+export function hitlRiskReason(item: Pick<HitlItem, 'riskReason' | 'riskReasonKey'>, labels: HitlTextLabels = t().models.hitlText): string | undefined {
+  return hitlRiskReasonText(item.riskReasonKey, item.riskReason, labels.risks);
 }
 
 export function hitlFromPending(p: RemotePendingApproval): HitlItem {

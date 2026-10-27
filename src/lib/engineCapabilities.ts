@@ -12,12 +12,14 @@ export const ENGINE_CAPABILITIES: Record<RoleEngine, { tools: boolean; maxTurns:
   api: { tools: true, maxTurns: true }
 };
 
-/** Список читаемых предупреждений: что роль просит, но выбранный движок не умеет нативно. */
-export function unsupportedRoleFeatures(engine: RoleEngine, role: RoleDefinition | undefined): string[] {
+export type UnsupportedRoleFeature = 'tools' | 'maxTurns';
+
+/** Что роль просит, но выбранный движок не умеет нативно: коды, подписи — `t.roles.unsupportedFeatures`. */
+export function unsupportedRoleFeatures(engine: RoleEngine, role: RoleDefinition | undefined): UnsupportedRoleFeature[] {
   if (!role) return [];
   const caps = ENGINE_CAPABILITIES[engine];
-  const warnings: string[] = [];
-  if (role.tools && role.tools.length > 0 && !caps.tools) warnings.push('ограничение набора инструментов');
-  if (role.maxTurns && role.maxTurns > 0 && !caps.maxTurns) warnings.push('лимит ходов');
+  const warnings: UnsupportedRoleFeature[] = [];
+  if (role.tools && role.tools.length > 0 && !caps.tools) warnings.push('tools');
+  if (role.maxTurns && role.maxTurns > 0 && !caps.maxTurns) warnings.push('maxTurns');
   return warnings;
 }

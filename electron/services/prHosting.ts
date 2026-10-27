@@ -1,5 +1,7 @@
 import type { PRCreateOptions, PullRequest } from '../../src/types/electron';
 import type { PrInfo } from './prSnapshot.js';
+import { AppError, type AppErrorParams } from '../../src/lib/appError.js';
+import type { AppErrorCode } from '../../src/i18n/appErrorText.js';
 
 /**
  * Pull/merge requests через REST и GraphQL хостингов (TASK-138.2, decision-105): разбор адреса remote,
@@ -39,12 +41,19 @@ export interface PrHostingAdapter {
   headRefspec(pr: PullRequest, localRef: string): string | null;
 }
 
-export class PrHostingError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string
-  ) {
-    super(message);
+/** Причина ошибки хостинга: текст ответа сервиса (показывается как есть) или своя причина кодом (TASK-202.11). */
+export type HostingReason = string | AppError;
+
+export function hostingErrorKey(reason: HostingReason): [AppErrorCode, AppErrorParams | undefined] {
+  return typeof reason === 'string' ? ['hosting.response', { detail: reason }] : [reason.appErrorKey.code, reason.appErrorKey.params];
+}
+
+export class PrHostingError extends AppError {
+  readonly status: number;
+
+  constructor(status: number, reason: HostingReason) {
+    super(...hostingErrorKey(reason));
+    this.status = status;
     this.name = 'PrHostingError';
   }
 }
@@ -363,7 +372,7 @@ async function githubGraphql(http: PrHttp, repo: RepoRef, query: string, variabl
   // Частичный ответ (нет прав на проверки) принимается; без репозитория — ошибка.
   if (!repository) {
     const message = text(obj(arr(json.errors)[0]).message);
-    throw new PrHostingError(200, clip(message || 'Репозиторий не найден или нет доступа'));
+    throw new PrHostingError(200, message ? clip(message) : new AppError('hosting.repoNotFound'));
   }
   return obj(repository);
 }
@@ -381,7 +390,7 @@ export const githubPrAdapter: PrHostingAdapter = {
   async get(http, repo, number) {
     const r = await githubGraphql(http, repo, GH_GET_QUERY, { ...ownerName(repo), number });
     const pr = parseGithubPrNode(r.pullRequest);
-    if (!pr) throw new PrHostingError(404, `PR #${number} не найден`);
+    if (!pr) throw new PrHostingError(404, new AppError('hosting.prNotFound', { number }));
     return pr;
   },
   diff(http, repo, number) {
@@ -395,7 +404,7 @@ export const githubPrAdapter: PrHostingAdapter = {
       jsonInit('POST', { title: options.title, body: options.body, head: options.sourceBranch, base, draft: options.draft === true })
     );
     const pr = parseGithubRestPr(json);
-    if (!pr) throw new PrHostingError(200, 'GitHub не вернул созданный PR');
+    if (!pr) throw new PrHostingError(200, new AppError('hosting.prNotReturned', { service: 'GitHub' }));
     return pr;
   },
   async comment(http, repo, number, body) {
@@ -490,7 +499,7 @@ export const gitlabPrAdapter: PrHostingAdapter = {
   },
   async get(http, repo, number) {
     const pr = parseGitlabMr(await getJson(http, `${gitlabProject(repo)}/merge_requests/${number}`));
-    if (!pr) throw new PrHostingError(404, `MR !${number} не найден`);
+    if (!pr) throw new PrHostingError(404, new AppError('hosting.mrNotFound', { number }));
     return pr;
   },
   async diff(http, repo, number) {
@@ -524,7 +533,7 @@ export const gitlabPrAdapter: PrHostingAdapter = {
         })
       )
     );
-    if (!pr) throw new PrHostingError(200, 'GitLab не вернул созданный MR');
+    if (!pr) throw new PrHostingError(200, new AppError('hosting.mrNotReturned', { service: 'GitLab' }));
     return pr;
   },
   async comment(http, repo, number, body) {
@@ -596,7 +605,7 @@ export const giteaPrAdapter: PrHostingAdapter = {
   },
   async get(http, repo, number) {
     const pr = parseGiteaPr(await getJson(http, `/repos/${enc(repo.path)}/pulls/${number}`));
-    if (!pr) throw new PrHostingError(404, `PR #${number} не найден`);
+    if (!pr) throw new PrHostingError(404, new AppError('hosting.prNotFound', { number }));
     if (pr.headSha) {
       try {
         const status = obj(await getJson(http, `/repos/${enc(repo.path)}/commits/${encodeURIComponent(pr.headSha)}/status`));
@@ -619,7 +628,7 @@ export const giteaPrAdapter: PrHostingAdapter = {
         jsonInit('POST', { head: options.sourceBranch, base, title: options.draft ? `WIP: ${options.title}` : options.title, body: options.body })
       )
     );
-    if (!pr) throw new PrHostingError(200, 'Gitea не вернула созданный PR');
+    if (!pr) throw new PrHostingError(200, new AppError('hosting.prNotReturned', { service: 'Gitea' }));
     return pr;
   },
   async comment(http, repo, number, body) {
@@ -697,7 +706,7 @@ export const bitbucketPrAdapter: PrHostingAdapter = {
   },
   async get(http, repo, number) {
     const pr = parseBitbucketPr(await getJson(http, `${bitbucketRepo(repo)}/pullrequests/${number}`));
-    if (!pr) throw new PrHostingError(404, `PR #${number} не найден`);
+    if (!pr) throw new PrHostingError(404, new AppError('hosting.prNotFound', { number }));
     try {
       const statuses = obj(await getJson(http, `${bitbucketRepo(repo)}/pullrequests/${number}/statuses?pagelen=50`));
       pr.checksStatus = bitbucketChecks(arr(statuses.values).map((s) => text(obj(s).state)));
@@ -725,7 +734,7 @@ export const bitbucketPrAdapter: PrHostingAdapter = {
         })
       )
     );
-    if (!pr) throw new PrHostingError(200, 'Bitbucket не вернул созданный PR');
+    if (!pr) throw new PrHostingError(200, new AppError('hosting.prNotReturned', { service: 'Bitbucket' }));
     return pr;
   },
   async comment(http, repo, number, body) {

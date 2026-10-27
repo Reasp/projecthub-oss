@@ -1,4 +1,5 @@
 import type { RemoteStatus, RemoteTask, TrackerTarget } from './trackerTypes.js';
+import { AppError } from '../../src/lib/appError.js';
 import {
   arr,
   MAX_RATE_WAIT_MS,
@@ -80,7 +81,7 @@ export function createLinearAdapter(options: TrackerCallOptions = {}): TrackerAd
         continue;
       }
       if (!res.ok || (arr(json.errors).length && !json.data)) {
-        throw new TrackerHttpError(res.status, code || `http_${res.status}`, text(first.message) || `Linear ответил ${res.status}`);
+        throw new TrackerHttpError(res.status, code || `http_${res.status}`, text(first.message) || new AppError('tracker.httpStatus', { service: 'Linear', status: res.status }));
       }
       return obj(json.data);
     }
@@ -98,7 +99,7 @@ export function createLinearAdapter(options: TrackerCallOptions = {}): TrackerAd
 
   async function stateId(http: TrackerHttp, teamId: string, status: string): Promise<string> {
     const found = (await teamStates(http, teamId)).find((s) => s.name.toLowerCase() === status.toLowerCase());
-    if (!found) throw new TrackerHttpError(0, 'unknown_status', `В команде Linear нет статуса «${status}»`);
+    if (!found) throw new TrackerHttpError(0, 'unknown_status', new AppError('tracker.linearUnknownStatus', { status }));
     return found.id;
   }
 
@@ -120,7 +121,7 @@ export function createLinearAdapter(options: TrackerCallOptions = {}): TrackerAd
   const mutated = (data: Record<string, unknown>, key: string): RemoteTask => {
     const payload = obj(data[key]);
     const parsed = payload.success === false ? null : parseLinearIssue(payload.issue);
-    if (!parsed) throw new TrackerHttpError(0, 'invalid_response', 'Linear не вернул задачу');
+    if (!parsed) throw new TrackerHttpError(0, 'invalid_response', new AppError('tracker.noTask', { service: 'Linear' }));
     return parsed;
   };
 
@@ -181,7 +182,7 @@ export function createLinearAdapter(options: TrackerCallOptions = {}): TrackerAd
       if (fields.description !== undefined) input.description = fields.description;
       if (fields.status !== undefined) {
         const raw = await rawIssue(http, id);
-        if (!raw) throw new TrackerHttpError(404, 'not_found', `Задача Linear ${id} не найдена`);
+        if (!raw) throw new TrackerHttpError(404, 'not_found', new AppError('tracker.taskNotFoundIn', { service: 'Linear', id }));
         input.stateId = await stateId(http, text(obj(raw.team).id), fields.status);
       }
       return mutated(

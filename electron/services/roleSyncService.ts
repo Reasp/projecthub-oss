@@ -22,6 +22,7 @@ import {
   planFileWrite,
   planMergedFile,
   readMarker,
+  roleNoteText,
   type ExportTarget,
   type FileAction,
   type SkippedRoleExport
@@ -29,6 +30,18 @@ import {
 import { hookScriptFile } from './terminalHookScript.js';
 import type { ModelTierSettings } from './modelTiers.js';
 import type { RoleDefinition } from './roleTypes.js';
+import type { AppErrorKey } from '../../src/lib/appError.js';
+
+/** Пропущенный файл: английский текст причины и код для окна (TASK-202.11). */
+export interface RoleSyncSkip {
+  relPath: string;
+  reason: string;
+  reasonKey: AppErrorKey;
+}
+
+function skip(relPath: string, reasonKey: AppErrorKey): RoleSyncSkip {
+  return { relPath, reason: roleNoteText(reasonKey), reasonKey };
+}
 
 export type RoleSyncFileKind = 'agent' | 'hookScript' | 'hookSettings';
 
@@ -43,9 +56,11 @@ export interface RoleSyncFile {
   /** Нужное содержимое; null — файл должен исчезнуть (orphan). */
   desired: string | null;
   current: string | null;
-  notes: string[];
-  /** Почему файл нельзя обновить (невалидный JSON настроек). */
+  /** Заметки кодом словаря ошибок (TASK-202.11). */
+  notes: AppErrorKey[];
+  /** Почему файл нельзя обновить (невалидный JSON настроек): английский текст и код. */
   error?: string;
+  errorKey?: AppErrorKey;
 }
 
 export interface RoleSyncOptions {
@@ -86,7 +101,7 @@ export interface RoleSyncChoices {
 export interface RoleSyncResult {
   written: string[];
   deleted: string[];
-  skipped: Array<{ relPath: string; reason: string }>;
+  skipped: RoleSyncSkip[];
   plan: RoleSyncPlan;
 }
 
@@ -107,14 +122,10 @@ const HOOK_SETTINGS_PATH: Record<ExportTarget, string> = {
 };
 
 /** Что человеку нужно знать о хуках движка до установки (предпросмотр). */
-const HOOK_INSTALL_NOTES: Record<ExportTarget, string[]> = {
+const HOOK_INSTALL_NOTES: Record<ExportTarget, AppErrorKey[]> = {
   claude: [],
-  codex: ['Codex загружает хуки только для доверенного .codex/ и после подтверждения в /hooks'],
-  antigravity: [
-    'Antigravity считает отказом сбой хука: без Node.js на машине все вызовы инструментов в проекте будут отклонены',
-    'хуки работают только в доверенном рабочем каталоге Antigravity',
-    'одобрение в ProjectHub не выдаёт разрешение движка в режиме agy -p'
-  ]
+  codex: [{ code: 'roles.hookCodexTrust' }],
+  antigravity: [{ code: 'roles.hookAgyFailClosed' }, { code: 'roles.hookAgyTrusted' }, { code: 'roles.hookAgyHeadless' }]
 };
 
 function abs(projectPath: string, relPath: string): string {
@@ -212,7 +223,7 @@ export async function planRoleSync(projectPath: string, options: RoleSyncOptions
     const merged = mergeHookSettings(current, target, { timeoutSec: options.hookTimeoutSec, install });
     const notes = install ? HOOK_INSTALL_NOTES[target] : [];
     if (!merged.ok) {
-      files.push({ relPath, kind: 'hookSettings', target, desired: null, current, notes, action: 'conflict', error: merged.error });
+      files.push({ relPath, kind: 'hookSettings', target, desired: null, current, notes, action: 'conflict', error: merged.error, errorKey: merged.errorKey });
       continue;
     }
     files.push({ relPath, kind: 'hookSettings', target, desired: merged.content, current, notes, ...planMergedFile(current, merged.content) });
@@ -227,7 +238,7 @@ export async function applyRoleSync(projectPath: string, options: RoleSyncOption
   const deleteOrphans = new Set(choices.deleteOrphans ?? []);
   const written: string[] = [];
   const deleted: string[] = [];
-  const skipped: Array<{ relPath: string; reason: string }> = [];
+  const skipped: RoleSyncSkip[] = [];
 
   for (const file of plan.files) {
     const target = abs(projectPath, file.relPath);
@@ -240,20 +251,20 @@ export async function applyRoleSync(projectPath: string, options: RoleSyncOption
         }
         break;
       case 'conflict':
-        if (file.error) skipped.push({ relPath: file.relPath, reason: file.error });
+        if (file.errorKey) skipped.push(skip(file.relPath, file.errorKey));
         else if (file.desired !== null && overwrite.has(file.relPath)) {
           await writeAtomic(target, file.desired);
           written.push(file.relPath);
-        } else skipped.push({ relPath: file.relPath, reason: 'изменён вручную' });
+        } else skipped.push(skip(file.relPath, { code: 'roles.skipModified' }));
         break;
       case 'orphan':
         if (deleteOrphans.has(file.relPath)) {
           await fs.unlink(target);
           deleted.push(file.relPath);
-        } else skipped.push({ relPath: file.relPath, reason: 'роли больше нет' });
+        } else skipped.push(skip(file.relPath, { code: 'roles.skipOrphan' }));
         break;
       case 'foreign':
-        skipped.push({ relPath: file.relPath, reason: 'файл создан не ProjectHub' });
+        skipped.push(skip(file.relPath, { code: 'roles.skipForeign' }));
         break;
       case 'unchanged':
         break;

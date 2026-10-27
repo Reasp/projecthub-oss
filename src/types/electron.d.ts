@@ -1947,6 +1947,7 @@ export interface ApprovalRequest {
   /** Класс риска (TASK-140.4, decision-112): считает хост. */
   risk?: 'low' | 'moderate' | 'high';
   riskReason?: string;
+  riskReasonKey?: import('../lib/hitlRiskReason').HitlRiskReasonKey;
   expiresAt?: number;
   /** Восстановлен после перезапуска: агент уже не ждёт ответа, решение попадёт только в аудит. */
   orphaned?: boolean;
@@ -2141,15 +2142,17 @@ export interface RoleSyncFile {
   modified?: boolean;
   desired: string | null;
   current: string | null;
-  notes: string[];
+  /** Заметки кодом словаря ошибок (TASK-202.11). */
+  notes: import('../lib/appError').AppErrorKey[];
   error?: string;
+  errorKey?: import('../lib/appError').AppErrorKey;
 }
 
 export interface RoleSyncPlan {
   projectPath: string;
   options: RoleSyncOptionsInput & { hookTimeoutSec: number };
   files: RoleSyncFile[];
-  skipped: Array<{ target: RoleExportTarget; roleSlug: string; reason: string }>;
+  skipped: Array<{ target: RoleExportTarget; roleSlug: string; reason: string; reasonKey?: import('../lib/appError').AppErrorKey }>;
   summary: {
     create: number;
     update: number;
@@ -2165,7 +2168,7 @@ export interface RoleSyncPlan {
 export interface RoleSyncResult {
   written: string[];
   deleted: string[];
-  skipped: Array<{ relPath: string; reason: string }>;
+  skipped: Array<{ relPath: string; reason: string; reasonKey?: import('../lib/appError').AppErrorKey }>;
   plan: RoleSyncPlan;
 }
 

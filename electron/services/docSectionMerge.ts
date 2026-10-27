@@ -88,7 +88,7 @@ function parseFrontmatter(lines: string[]): DocPart[] {
       current.text += line;
     } else {
       // Комментарии и пустые строки до первого ключа.
-      current = { key: 'fm:', label: '(начало frontmatter)', scope: 'frontmatter', text: line };
+      current = { key: 'fm:', label: '(start of frontmatter)', scope: 'frontmatter', text: line };
       parts.push(current);
     }
   }
@@ -96,7 +96,7 @@ function parseFrontmatter(lines: string[]): DocPart[] {
 }
 
 function parseBody(lines: string[]): DocPart[] {
-  const parts: DocPart[] = [{ key: 'body:', label: '(текст до первого заголовка)', scope: 'section', text: '' }];
+  const parts: DocPart[] = [{ key: 'body:', label: '(text before the first heading)', scope: 'section', text: '' }];
   const stack: Array<{ level: number; title: string }> = [];
   const seen = new Map<string, number>();
   let fence: string | null = null;

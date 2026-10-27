@@ -8,6 +8,7 @@
 import type { AgentStatusCode, ApprovalRequest, HitlTextCode, HitlTextLine, ProjectAgentStatus, QuestionData } from '../types/electron';
 import type { AppErrorLabels } from '../i18n/appErrorText';
 import { appFailureText } from './appErrorText';
+import type { HitlRiskCode } from './hitlRiskReason';
 
 /** Шаблоны с подстановкой {detail}: команда для `executing`, текст ошибки для `failed`. */
 export type AgentStatusLabels = Record<AgentStatusCode, string>;
@@ -30,6 +31,8 @@ export interface HitlTextLabels {
   questions: Partial<Record<HitlTextCode, HitlQuestionLabels>>;
   /** Шаблоны строк пояснения `HitlTextKey.lines` (TASK-202.8). */
   lines: Record<string, string>;
+  /** Причины класса риска по коду (TASK-202.11). */
+  risks: Record<HitlRiskCode, string>;
 }
 
 const fill = (template: string, vars: Record<string, string>) =>

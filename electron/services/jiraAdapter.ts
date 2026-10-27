@@ -1,4 +1,5 @@
 import type { RemoteStatus, RemoteTask, TrackerTarget } from './trackerTypes.js';
+import { AppError } from '../../src/lib/appError.js';
 import {
   arr,
   callTrackerJson,
@@ -84,7 +85,7 @@ export function createJiraAdapter(options: TrackerCallOptions = {}): TrackerAdap
     const all = arr(json.transitions).map(obj);
     const found = all.find((t) => text(obj(t.to).name).toLowerCase() === status.toLowerCase());
     if (!found) {
-      throw new TrackerHttpError(0, 'no_transition', `В Jira нет перехода из текущего статуса ${key} в «${status}»`);
+      throw new TrackerHttpError(0, 'no_transition', new AppError('tracker.jiraNoTransition', { key, status }));
     }
     await call(http, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, { method: 'POST', body: JSON.stringify({ transition: { id: text(found.id) } }) });
   }
@@ -94,7 +95,7 @@ export function createJiraAdapter(options: TrackerCallOptions = {}): TrackerAdap
     const types = arr(obj(await call(http, `/rest/api/2/project/${encodeURIComponent(projectKey)}`)).issueTypes).map(obj);
     const pool = types.filter((t) => (t.subtask === true) === subtask);
     const chosen = (subtask ? pool[0] : (pool.find((t) => /^(task|задача)$/i.test(text(t.name))) ?? pool[0])) ?? undefined;
-    if (!chosen) throw new TrackerHttpError(0, 'no_issue_type', `В проекте Jira ${projectKey} нет типа ${subtask ? 'подзадачи' : 'задачи'}`);
+    if (!chosen) throw new TrackerHttpError(0, 'no_issue_type', new AppError(subtask ? 'tracker.jiraNoSubtaskType' : 'tracker.jiraNoTaskType', { project: projectKey }));
     return text(chosen.id);
   }
 
@@ -181,13 +182,13 @@ export function createJiraAdapter(options: TrackerCallOptions = {}): TrackerAdap
       if (task.parentId) fields.parent = { key: task.parentId };
       const created = obj(await call(http, '/rest/api/2/issue', { method: 'POST', body: JSON.stringify({ fields }) }));
       const key = text(created.key);
-      if (!key) throw new TrackerHttpError(0, 'invalid_response', 'Jira не вернула ключ задачи');
+      if (!key) throw new TrackerHttpError(0, 'invalid_response', new AppError('tracker.jiraNoKey'));
       let fresh = await getTask(http, key);
       if (task.status && fresh && fresh.status.toLowerCase() !== task.status.toLowerCase()) {
         await transition(http, key, task.status);
         fresh = await getTask(http, key);
       }
-      if (!fresh) throw new TrackerHttpError(0, 'invalid_response', `Jira не отдала созданную задачу ${key}`);
+      if (!fresh) throw new TrackerHttpError(0, 'invalid_response', new AppError('tracker.jiraCreatedMissing', { key }));
       return fresh;
     },
 
@@ -200,7 +201,7 @@ export function createJiraAdapter(options: TrackerCallOptions = {}): TrackerAdap
       }
       if (fields.status !== undefined) await transition(http, id, fields.status);
       const fresh = await getTask(http, id);
-      if (!fresh) throw new TrackerHttpError(404, 'not_found', `Задача Jira ${id} не найдена`);
+      if (!fresh) throw new TrackerHttpError(404, 'not_found', new AppError('tracker.taskNotFoundIn', { service: 'Jira', id }));
       return fresh;
     },
 

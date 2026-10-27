@@ -179,7 +179,7 @@ export const HitlCenterModal: React.FC = () => {
                       </span>
                     )}
                     {req.tool && <span className="text-[11px] font-mono text-slate-500 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">{req.tool}</span>}
-                    <RiskBadge risk={req.risk} reason={req.riskReason} />
+                    <RiskBadge risk={req.risk} reason={req.riskReason} reasonKey={req.riskReasonKey} />
                   </div>
                   <div className="text-xs font-semibold text-slate-100 break-words">{describeHitlRequest(req, t.hitl.requestText).title}</div>
                   {req.command && (

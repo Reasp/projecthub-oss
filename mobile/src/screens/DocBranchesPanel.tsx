@@ -3,6 +3,7 @@ import { GitBranchIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import clsx from 'clsx';
 import type { RemoteDocBranchDiff, RemoteDocBranchMerge, RemoteDocBranches } from '../../../src/types/remote';
 import { collapseUnchanged, lineDiff } from '../../../src/lib/lineDiff';
+import { docPartLabel } from '../../../src/lib/docPartLabel';
 import { useServices } from '../app/context';
 import { useLanguage, useT } from '../i18n/react';
 import { hostLabelText } from '../../../src/i18n/hostLabels';
@@ -78,7 +79,7 @@ function FileBlock({
             <div className="text-[12px] text-rose-200">{tr.conflictHint}</div>
             {file.conflicts.map((c) => (
               <div key={c.key} className="rounded-lg border border-rose-500/30 bg-rose-950/20 p-2">
-                <div className="mb-1.5 text-[12px] font-medium text-rose-100">{c.label}</div>
+                <div className="mb-1.5 text-[12px] font-medium text-rose-100">{docPartLabel(c, tr.specialParts)}</div>
                 {(
                   [
                     ['ours', tr.ours, c.ours],

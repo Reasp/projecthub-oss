@@ -62,7 +62,7 @@ function defaultDeps(): CommitGuardDeps {
             sessionId: `git-commit-${treeHash.slice(0, 12)}`,
             projectPath: root,
             type: 'command',
-            title: 'Коммит с находками сканера секретов',
+            title: 'Commit with secret scanner findings',
             command: `git commit -m ${JSON.stringify(message.split('\n')[0].slice(0, 120))}`,
             tool: 'git commit'
           },
@@ -109,6 +109,6 @@ export async function guardedCommit(
   }
 
   const ok = await deps.commit(root, message);
-  if (!ok) return { ok: false, reason: 'error', error: 'git commit завершился ошибкой' };
+  if (!ok) return { ok: false, reason: 'error', error: 'git commit failed' };
   return overridden ? { ok: true, overridden: true } : { ok: true };
 }

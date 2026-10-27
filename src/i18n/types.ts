@@ -738,6 +738,8 @@ export interface TranslationDictionary {
     };
     tools: string;
     unsupportedWarning: string;
+    /** Что роль просит, а движок не умеет нативно (TASK-202.11). */
+    unsupportedFeatures: Record<import('../lib/engineCapabilities').UnsupportedRoleFeature, string>;
     dod: string;
     dodPlaceholder: string;
     handoffTo: string;
@@ -1172,6 +1174,8 @@ export interface TranslationDictionary {
       mainChanged: string;
       renumbered: string;
       parts: string;
+      /** Служебные части документа по ключу (TASK-202.11). */
+      specialParts: import('../lib/docPartLabel').DocSpecialPartLabels;
       resultTitle: string;
       removedDoc: string;
       conflictTitle: string;

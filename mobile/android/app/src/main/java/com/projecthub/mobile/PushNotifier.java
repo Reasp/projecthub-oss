@@ -151,7 +151,7 @@ final class PushNotifier {
         StringBuilder big = new StringBuilder(title);
         if (!p.optString("cmd", "").isEmpty()) big.append("\n$ ").append(p.optString("cmd"));
         else if (!p.optString("file", "").isEmpty()) big.append("\n").append(p.optString("file"));
-        String why = p.optString("why", "");
+        String why = HitlRiskReason.of(ctx, p.optString("wk", ""), p.optString("wt", ""), p.optString("why", ""));
         big.append("\n").append(riskText(ctx, risk)).append(why.isEmpty() ? "" : " — " + why);
         String who = p.optString("agent", "");
         String proj = p.optString("proj", "");

@@ -1,4 +1,6 @@
 import type { FieldValues, RemoteStatus, RemoteTask, TrackerTarget, TrackerTargetGroup } from './trackerTypes.js';
+import { AppError } from '../../src/lib/appError.js';
+import { hostingErrorKey, type HostingReason } from './prHosting.js';
 
 /**
  * Модель адаптеров трекеров (TASK-128, decision-103 п. 1; ссылки от адреса подключения — TASK-129, decision-106)
@@ -43,13 +45,15 @@ export interface TrackerAdapter {
   parseLink(reference: string, ctx?: TrackerLinkContext): string | null;
 }
 
-export class TrackerHttpError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
+/** Ошибка API трекера: code — код сервиса для ветвлений, текст — ответ сервиса как есть или своя причина кодом (TASK-202.11). */
+export class TrackerHttpError extends AppError {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, reason: HostingReason) {
+    super(...hostingErrorKey(reason));
+    this.status = status;
+    this.code = code;
     this.name = 'TrackerHttpError';
   }
 }
@@ -128,7 +132,7 @@ export async function callTrackerJson(
     }
     if (!res.ok) {
       const d = options.describe(json, res.status);
-      throw new TrackerHttpError(res.status, d.code || `http_${res.status}`, d.message || `${options.label} ответил ${res.status}`);
+      throw new TrackerHttpError(res.status, d.code || `http_${res.status}`, d.message || new AppError('tracker.httpStatus', { service: options.label, status: res.status }));
     }
     options.onHeaders?.(res.headers);
     return json;

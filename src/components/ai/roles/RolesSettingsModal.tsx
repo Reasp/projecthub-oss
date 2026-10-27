@@ -494,7 +494,7 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
               {warnings.length > 0 && (
                 <div className="flex items-center gap-1.5 mt-2 text-[11px] text-amber-500">
                   <TriangleAlert className="w-3.5 h-3.5" />
-                  {t.roles.unsupportedWarning}: {warnings.join(', ')}
+                  {t.roles.unsupportedWarning}: {warnings.map((w) => t.roles.unsupportedFeatures[w]).join(', ')}
                 </div>
               )}
             </div>

@@ -1,4 +1,5 @@
 import type { RemoteStatus, RemoteTask, TrackerTarget, TrackerTargetGroup } from './trackerTypes.js';
+import { AppError } from '../../src/lib/appError.js';
 import {
   arr,
   callTrackerJson,
@@ -51,7 +52,7 @@ export function parseGithubIssue(json: unknown): RemoteTask | null {
 
 function splitId(id: string): { repo: string; number: string } {
   const m = ID_RE.exec(id);
-  if (!m) throw new TrackerHttpError(0, 'invalid_id', `Неверный id задачи GitHub: ${id}`);
+  if (!m) throw new TrackerHttpError(0, 'invalid_id', new AppError('tracker.githubInvalidId', { id }));
   return { repo: `${encodeURIComponent(m[1])}/${encodeURIComponent(m[2])}`, number: m[3] };
 }
 
@@ -83,7 +84,7 @@ export function createGithubIssuesAdapter(options: TrackerCallOptions = {}): Tra
 
   const patch = async (http: TrackerHttp, path: string, body: Record<string, unknown>): Promise<RemoteTask> => {
     const parsed = parseGithubIssue(await call(http, path, { method: 'PATCH', body: JSON.stringify(body) }));
-    if (!parsed) throw new TrackerHttpError(0, 'invalid_response', 'GitHub вернул issue без номера');
+    if (!parsed) throw new TrackerHttpError(0, 'invalid_response', new AppError('tracker.githubNoNumber'));
     return parsed;
   };
 
@@ -140,7 +141,7 @@ export function createGithubIssuesAdapter(options: TrackerCallOptions = {}): Tra
       const created = parseGithubIssue(
         await call(http, `/repos/${repoPath(target)}/issues`, { method: 'POST', body: JSON.stringify({ title: task.title, body: task.description }) })
       );
-      if (!created) throw new TrackerHttpError(0, 'invalid_response', 'GitHub вернул issue без номера');
+      if (!created) throw new TrackerHttpError(0, 'invalid_response', new AppError('tracker.githubNoNumber'));
       if (task.status === 'closed') {
         const { repo, number } = splitId(created.id);
         return patch(http, `/repos/${repo}/issues/${number}`, { state: 'closed' });
@@ -154,7 +155,7 @@ export function createGithubIssuesAdapter(options: TrackerCallOptions = {}): Tra
       if (fields.title !== undefined) body.title = fields.title;
       if (fields.description !== undefined) body.body = fields.description;
       if (fields.status !== undefined) {
-        if (fields.status !== 'open' && fields.status !== 'closed') throw new TrackerHttpError(0, 'unknown_status', `У GitHub нет статуса «${fields.status}»`);
+        if (fields.status !== 'open' && fields.status !== 'closed') throw new TrackerHttpError(0, 'unknown_status', new AppError('tracker.githubUnknownStatus', { status: fields.status }));
         body.state = fields.status;
       }
       return patch(http, `/repos/${repo}/issues/${number}`, body);
