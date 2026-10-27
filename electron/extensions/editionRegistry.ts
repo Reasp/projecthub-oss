@@ -1,4 +1,6 @@
-import type { HitlRequest } from '../services/hitlTypes';
+import type { HitlAuditEntry, HitlRequest } from '../services/hitlTypes';
+import { onAuditAppend } from '../services/hitlAudit';
+import { getStatePath } from '../services/appPaths';
 import { AppError, withAppErrorKey, type AppErrorKey } from '../../src/lib/appError';
 import type { ProjectToolContext, ProjectToolResult } from '../services/projectAgentTools';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -312,6 +314,10 @@ export interface EditionMainApi {
    * поиск, память, без HITL, процессов и управления компьютером (TASK-195). `null` — встроенный MCP ещё не поднят.
    */
   createProjectMcpServer(projectRoot: string, sessionId: string, memberId?: string): McpServer | null;
+  /** Каждая записанная строка аудита HITL (TASK-148): цепочка хэшей и выгрузка в SIEM. */
+  onAuditEntry(listener: (entry: HitlAuditEntry) => void): void;
+  /** Каталог аудита хоста (`<userData>/audit`). */
+  auditDir(): string;
 }
 
 export interface SaveTextFileOptions {
@@ -406,6 +412,8 @@ export const editionRegistry = {
         launcherProvider = provider;
       },
       createProjectMcpServer: (projectRoot, sessionId, memberId) => projectMcpFactory?.(projectRoot, sessionId, memberId) ?? null,
+      onAuditEntry: (listener) => onAuditAppend(listener),
+      auditDir: () => getStatePath('audit'),
       setHitlRouting: (routing) => {
         hitlRouting = routing;
       },

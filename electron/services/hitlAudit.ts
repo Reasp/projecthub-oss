@@ -99,6 +99,16 @@ export function toCsv(entries: HitlAuditEntry[]): string {
   return lines.join('\n');
 }
 
+const appendListeners: Array<(entry: HitlAuditEntry) => void> = [];
+
+/**
+ * Подписка на каждую записанную строку аудита (TASK-148): модуль Enterprise ведёт по ним цепочку хэшей и отправляет
+ * события в SIEM. Сбой подписчика не мешает записи.
+ */
+export function onAuditAppend(listener: (entry: HitlAuditEntry) => void): void {
+  appendListeners.push(listener);
+}
+
 export class HitlAuditLog {
   private writeChain: Promise<void> = Promise.resolve();
 
@@ -116,6 +126,13 @@ export class HitlAuditLog {
       .then(async () => {
         await fs.mkdir(this.dir, { recursive: true });
         await fs.appendFile(file, line, 'utf-8');
+        for (const listener of appendListeners) {
+          try {
+            listener(entry);
+          } catch (err) {
+            console.warn('[HitlAudit] audit listener failed:', err);
+          }
+        }
       })
       .catch((err) => {
         console.error('[HitlAudit] append failed:', err);
