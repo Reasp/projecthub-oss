@@ -84,7 +84,7 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --verify-tag \
               --title "ProjectHub ${GITHUB_REF_NAME}" \
-              --notes "Open edition of ProjectHub ${GITHUB_REF_NAME}. Windows: ProjectHub-Setup-<version>.exe (installer) or ProjectHub-<version>.exe (portable). macOS: .dmg or .zip, arm64 and x64, unsigned build. Linux: .AppImage. The latest*.yml files are used by the in-app updater."
+              --notes "Open edition of ProjectHub ${GITHUB_REF_NAME}. Windows: ProjectHub-Setup-<version>.exe (installer) or ProjectHub-<version>.exe (portable). macOS: .dmg or .zip, arm64 and x64 (on Intel Macs the documentation search is unavailable), unsigned build. Linux: .AppImage. The latest*.yml files are used by the in-app updater."
           fi
 
   build:
@@ -131,6 +131,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # One electron-builder run packages macOS arm64 and x64 (two runs would overwrite each other's
+      # latest-mac.yml), but `npm ci` on the arm64 runner installs only arm64 optional natives (TASK-222,
+      # decision-178). Add the other architecture from package-lock.json; afterPack drops the foreign one.
+      - name: Native packages of both macOS architectures
+        if: runner.os == 'macOS'
+        run: node scripts/release/mac-natives.mjs install
 
       - name: Build stamp (build/build-info.json)
         run: node scripts/build-info.mjs
