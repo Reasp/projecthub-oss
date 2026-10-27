@@ -953,6 +953,13 @@ const api: IElectronAPI = {
   listHitlAuditMonths: () => ipcRenderer.invoke('hitl:auditMonths'),
   getHitlInfo: () => ipcRenderer.invoke('hitl:auditInfo'),
   exportHitlAudit: (query?: any, format?: 'jsonl' | 'json' | 'csv') => ipcRenderer.invoke('hitl:exportAudit', query, format),
+  // Перенос профиля (TASK-224, decision-175)
+  profileExport: (password: string, sections?: string[]) => ipcRenderer.invoke('profile:export', password, sections),
+  profileChooseFile: () => ipcRenderer.invoke('profile:chooseFile'),
+  profilePreview: (filePath: string, password: string) => ipcRenderer.invoke('profile:preview', filePath, password),
+  profileApply: (token: string, sections: string[]) => ipcRenderer.invoke('profile:apply', token, sections),
+  profileCloneProject: (remote: string, name: string) => ipcRenderer.invoke('profile:cloneProject', remote, name),
+  profileRelaunch: () => ipcRenderer.invoke('profile:relaunch'),
   onBusEvent: (callback: (event: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('bus:event', handler);

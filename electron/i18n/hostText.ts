@@ -123,7 +123,16 @@ export interface HostText {
   studio: { cancelledByUser: string; emptyPrompt: string; mcpUnavailableWarning: string; stepLimit: (max: number) => string };
   /** Заголовки системных диалогов сохранения. */
   /** Системные диалоги и тестовое уведомление Telegram (TASK-202.11 — выбор папки, экспорт HITL, тест). */
-  dialogs: { exportTrace: string; exportSwarm: string; selectProjectFolder: string; exportHitlAudit: string; telegramTest: string };
+  dialogs: {
+    exportTrace: string;
+    exportSwarm: string;
+    selectProjectFolder: string;
+    exportHitlAudit: string;
+    telegramTest: string;
+    exportProfile: string;
+    importProfile: string;
+    cloneProjectInto: string;
+  };
   /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
   chat: { testTitle: string; testBody: string; usageLabel: string };
   /** Имя устройства, которое привёл соседний ПК федерации (decision-111): сохраняется в записи токена. */
@@ -308,7 +317,10 @@ const en: HostText = {
     exportSwarm: 'Export swarm session',
     selectProjectFolder: 'Choose a project folder with Backlog.md or a repository',
     exportHitlAudit: 'Export HITL decision history',
-    telegramTest: 'Test notification from ProjectHub! 🚀'
+    telegramTest: 'Test notification from ProjectHub! 🚀',
+    exportProfile: 'Export ProjectHub profile',
+    importProfile: 'Import ProjectHub profile',
+    cloneProjectInto: 'Folder to clone the project into'
   },
   chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' },
   remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}` },
@@ -501,7 +513,10 @@ const ru: HostText = {
     exportSwarm: 'Экспорт swarm-сессии',
     selectProjectFolder: 'Выберите папку проекта с Backlog.md или репозиторием',
     exportHitlAudit: 'Экспорт истории решений HITL',
-    telegramTest: 'Тестовое уведомление от ProjectHub! 🚀'
+    telegramTest: 'Тестовое уведомление от ProjectHub! 🚀',
+    exportProfile: 'Экспорт профиля ProjectHub',
+    importProfile: 'Импорт профиля ProjectHub',
+    cloneProjectInto: 'Папка, куда клонировать проект'
   },
   chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' },
   remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}` },

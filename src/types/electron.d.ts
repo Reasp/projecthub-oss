@@ -817,6 +817,8 @@ export type {
 import type { ConflictFileContent, ConflictResolution, FinishMergeResult, MergeActionResult, MergeState } from '../../electron/services/mergeConflicts';
 export type { BaseSyncResult as PullBaseResult } from '../../electron/services/baseSync';
 import type { BaseSyncResult as PullBaseResult } from '../../electron/services/baseSync';
+import type { ProfileSectionId } from '../lib/profileSections';
+import type { ProfilePreview } from '../../electron/services/profileService';
 
 export interface PullRequest {
   id: number | string;
@@ -1766,6 +1768,13 @@ export interface IElectronAPI {
   listHitlAuditMonths: () => Promise<string[]>;
   getHitlInfo: () => Promise<{ auditDir: string | null; queueDir: string | null; hostId: string }>;
   exportHitlAudit: (query?: HitlAuditQuery, format?: 'jsonl' | 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }>;
+  // Перенос профиля (TASK-224, decision-175)
+  profileExport: (password: string, sections?: ProfileSectionId[]) => Promise<{ canceled: boolean; filePath?: string; sections?: ProfileSectionId[] }>;
+  profileChooseFile: () => Promise<string | null>;
+  profilePreview: (filePath: string, password: string) => Promise<ProfilePreview | null>;
+  profileApply: (token: string, sections: ProfileSectionId[]) => Promise<{ applied: ProfileSectionId[] }>;
+  profileCloneProject: (remote: string, name: string) => Promise<string | null>;
+  profileRelaunch: () => Promise<void>;
   onBusEvent: (callback: (event: AppBusEvent) => void) => () => void;
 
   // Уведомления: трей, ОС, звук, Telegram (TASK-63)

@@ -21,7 +21,8 @@ import {
   KeyRound,
   Unplug,
   Network,
-  ShareNetwork
+  ShareNetwork,
+  ArrowRightLeft
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
@@ -31,6 +32,8 @@ import { useWorkspaceTabs, type WorkspaceTabId } from '../../hooks/useWorkspaceT
 import { WorkspaceTabsConfigModal } from '../projects/WorkspaceTabsConfigModal';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { withGroupSeparators } from '../../lib/activityBarGroups';
+import { ProfileTransferModal } from '../settings/ProfileTransferModal';
+import { profileTransferText } from '../../i18n/profileTransferText';
 
 interface ContextMenuState {
   isOpen: boolean;
@@ -49,7 +52,7 @@ type TabDef = { label: string; hotkey?: string; icon: React.ComponentType<{ clas
  * и голосовые подсказки.
  */
 export const ActivityBar: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const {
     selectedProject,
     activeTab,
@@ -75,6 +78,7 @@ export const ActivityBar: React.FC = () => {
   const openConnections = useConnectionsStore((s) => s.open);
 
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [hiddenMenuAnchor, setHiddenMenuAnchor] = useState<{ top: number; left: number } | null>(null);
   const [draggedTabId, setDraggedTabId] = useState<WorkspaceTabId | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<WorkspaceTabId | null>(null);
@@ -291,6 +295,19 @@ export const ActivityBar: React.FC = () => {
       >
         <Unplug className="w-[18px] h-[18px]" />
       </button>
+
+      {/* Перенос профиля на другой компьютер (TASK-224, decision-175): уровень пользователя, не проекта. */}
+      <button
+        type="button"
+        onClick={() => setProfileOpen(true)}
+        className={itemClass(false)}
+        title={profileTransferText(language).open}
+        aria-label={profileTransferText(language).open}
+        data-testid="activity-profile"
+      >
+        <ArrowRightLeft className="w-[18px] h-[18px]" />
+      </button>
+      {profileOpen && <ProfileTransferModal onClose={() => setProfileOpen(false)} />}
 
       {selectedProject && (
         <button
