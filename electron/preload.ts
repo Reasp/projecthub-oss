@@ -960,6 +960,9 @@ const api: IElectronAPI = {
   profileApply: (token: string, sections: string[]) => ipcRenderer.invoke('profile:apply', token, sections),
   profileCloneProject: (remote: string, name: string) => ipcRenderer.invoke('profile:cloneProject', remote, name),
   profileRelaunch: () => ipcRenderer.invoke('profile:relaunch'),
+  // База знаний компании (TASK-223)
+  knowledgeBaseIndex: (projectPath: string) => ipcRenderer.invoke('kb:index', projectPath),
+  knowledgeBaseRead: (projectPath: string, id: string) => ipcRenderer.invoke('kb:read', projectPath, id),
   onBusEvent: (callback: (event: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('bus:event', handler);

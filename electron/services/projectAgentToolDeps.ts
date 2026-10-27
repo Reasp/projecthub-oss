@@ -1,7 +1,8 @@
 import type { ProjectToolDeps } from './projectAgentTools';
 import { projectRegistry } from './projectRegistry';
 import { hitlService } from './hitlService';
-import { searchProjectDocs } from './ragSearch';
+import { searchWithKnowledgeBase } from './knowledgeBaseService';
+import { editionRegistry } from '../extensions/editionRegistry';
 import { appEventBus } from './eventBus';
 import { AgentTaskNotifyBatcher } from './agentTaskNotify';
 import { agentTaskApproval, agentTaskSettings } from './agentTaskApprovalInstance';
@@ -27,8 +28,9 @@ export const projectAgentToolDeps: ProjectToolDeps = {
   recordAutoDecision(info, decision, rule, detail) {
     return hitlService.recordAutoDecision(info, decision, rule, detail);
   },
-  async searchDocs(projectRoot, query, limit) {
-    return searchProjectDocs({ projectPath: projectRoot, query, mode: 'all', limit });
+  async searchDocs(projectRoot, query, limit, memberId) {
+    // База знаний компании (TASK-223): участнику команды — только если ему открыт её проект.
+    return searchWithKnowledgeBase(projectRoot, query, limit, (kbRoot) => !memberId || editionRegistry.memberCanAccessProject(memberId, kbRoot));
   },
   // Карточка режима `ask` (decision-89): общая очередь HITL, решение и аудит — там же.
   async requestApproval(request) {

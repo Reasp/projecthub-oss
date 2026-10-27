@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useProjectStore } from '../store/useProjectStore';
+import { useKnowledgeBaseStore } from '../store/useKnowledgeBaseStore';
 import { useDialog } from './useDialog';
 import { useI18n } from '../i18n';
 import { headingAnchorKey, refLeaveGuards, type DocRef } from '../utils/docRefs';
@@ -28,12 +29,23 @@ export function useDocRefs(): DocRefNavigation {
   const docsList = useProjectStore((state) => state.docsList);
   const tasks = useProjectStore((state) => state.tasks);
   const headings = useProjectStore((state) => state.docLinkIndex.headings);
+  // База знаний компании (TASK-223): документы подключённой базы знаний для ссылок [[kb:doc-N]].
+  const projectPath = useProjectStore((state) => state.selectedProject?.path ?? null);
+  const kbDocs = useKnowledgeBaseStore((state) => state.docs);
+  const kbName = useKnowledgeBaseStore((state) => state.name);
+  useEffect(() => {
+    void useKnowledgeBaseStore.getState().load(projectPath);
+  }, [projectPath]);
 
   return useMemo(() => {
     const docs = new Map(docsList.map((doc) => [doc.id.toLowerCase(), doc]));
     const taskMap = new Map(tasks.map((task) => [task.id.toLowerCase(), task]));
 
     const resolve = (ref: DocRef): ResolvedDocRef | null => {
+      if (ref.kb) {
+        const doc = kbDocs[ref.id];
+        return doc ? { title: `${kbName ?? 'KB'}: ${doc.title}` } : null;
+      }
       if (ref.kind === 'mem') return { title: ref.id };
       if (ref.kind === 'task') {
         const task = taskMap.get(ref.id);
@@ -48,6 +60,11 @@ export function useDocRefs(): DocRefNavigation {
     };
 
     const open = (ref: DocRef) => {
+      // Документ базы знаний открывается поверх текущего, не заменяя его (TASK-223).
+      if (ref.kb) {
+        void useKnowledgeBaseStore.getState().open(ref.id);
+        return;
+      }
       void (async () => {
         // Переход закрывает карточку задачи и заменяет открытый документ: несохранённую правку
         // без спроса не теряем (TASK-122).
@@ -69,5 +86,5 @@ export function useDocRefs(): DocRefNavigation {
     };
 
     return { resolve, open };
-  }, [docsList, tasks, headings, confirm, t]);
+  }, [docsList, tasks, headings, kbDocs, kbName, confirm, t]);
 }

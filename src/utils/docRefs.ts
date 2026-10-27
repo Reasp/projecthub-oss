@@ -21,6 +21,8 @@ export interface DocRef {
   anchor?: string;
   /** Встраивание Obsidian `![[…]]`: показывается ссылкой-карточкой, а не текстом документа. */
   embed?: boolean;
+  /** Ссылка на базу знаний компании `[[kb:doc-N]]` (TASK-223): документ другого проекта. */
+  kb?: boolean;
 }
 
 export type DocRefToken = { type: 'text'; value: string } | ({ type: 'ref' } & DocRef);
@@ -29,9 +31,10 @@ const ID = '(?:decision|doc|task|mem)-\\d+(?:\\.\\d+)*';
 
 // Цель вики-ссылки: идентификатор, либо имя файла Backlog.md в форме Obsidian — с необязательной папкой,
 // заголовком после « - » и расширением `.md`. Сопоставление по идентификатору, остальное — для чтения.
-const WIKI_TARGET = `((?:[^\\[\\]|#\\n]*[\\\\/])?(${ID})(?:\\s+-\\s[^\\[\\]|#\\n]*?)?(?:\\.md)?)`;
+const WIKI_TARGET = `((?:[^\\[\\]|#\\n]*[\\\\/])?(kb:)?(${ID})(?:\\s+-\\s[^\\[\\]|#\\n]*?)?(?:\\.md)?)`;
 
-// Группы: 1 — `!` встраивания, 2 — цель как написана, 3 — id, 4 — якорь, 5 — подпись, 6 — упоминание без скобок.
+// Группы: 1 — `!` встраивания, 2 — цель как написана, 3 — `kb:` базы знаний (TASK-223), 4 — id, 5 — якорь, 6 — подпись,
+// 7 — упоминание без скобок.
 // Упоминание без скобок не считается ссылкой внутри пути или имени файла
 // (`backlog/docs/doc-7 - Аудит.md`, `task-28-fix`) и внутри более длинного слова.
 const REF_PATTERN = new RegExp(
@@ -77,17 +80,18 @@ export function tokenizeDocRefs(text: string): DocRefToken[] {
   let last = 0;
   for (const match of text.matchAll(REF_PATTERN)) {
     const index = match.index ?? 0;
-    const wiki = match[3] !== undefined;
-    const rawId = wiki ? match[3] : match[6];
+    const wiki = match[4] !== undefined;
+    const rawId = wiki ? match[4] : match[7];
     const kind = docRefKind(rawId);
     if (!kind) continue;
     if (index > last) tokens.push({ type: 'text', value: text.slice(last, index) });
-    const anchor = wiki ? wikiAnchor(match[4]) : undefined;
-    const alias = wiki ? match[5]?.trim() : undefined;
+    const anchor = wiki ? wikiAnchor(match[5]) : undefined;
+    const alias = wiki ? match[6]?.trim() : undefined;
     const shown = wiki ? wikiLabel(match[2], rawId) : rawId;
     const ref: DocRef = { kind, id: rawId.toLowerCase(), label: alias || (anchor ? `${shown}#${anchor}` : shown), wiki };
     if (anchor) ref.anchor = anchor;
     if (match[1]) ref.embed = true;
+    if (wiki && match[3]) ref.kb = true;
     tokens.push({ type: 'ref', ...ref });
     last = index + match[0].length;
   }

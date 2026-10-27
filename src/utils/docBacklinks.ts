@@ -43,7 +43,8 @@ export function collectRefs(markdown: string): Map<string, 'link' | 'mention'> {
       return ' ';
     });
     for (const token of tokenizeDocRefs(withoutLinks)) {
-      if (token.type !== 'ref') continue;
+      // Ссылка на базу знаний компании — документ другого проекта, не обратная ссылка здесь (TASK-223).
+      if (token.type !== 'ref' || token.kb) continue;
       if (token.wiki) refs.set(token.id, 'link');
       else if (!refs.has(token.id)) refs.set(token.id, 'mention');
     }

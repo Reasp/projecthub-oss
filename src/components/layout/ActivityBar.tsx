@@ -33,6 +33,7 @@ import { WorkspaceTabsConfigModal } from '../projects/WorkspaceTabsConfigModal';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { withGroupSeparators } from '../../lib/activityBarGroups';
 import { ProfileTransferModal } from '../settings/ProfileTransferModal';
+import { KnowledgeBaseDocModal } from '../docs/KnowledgeBaseDocModal';
 import { profileTransferText } from '../../i18n/profileTransferText';
 
 interface ContextMenuState {
@@ -308,6 +309,8 @@ export const ActivityBar: React.FC = () => {
         <ArrowRightLeft className="w-[18px] h-[18px]" />
       </button>
       {profileOpen && <ProfileTransferModal onClose={() => setProfileOpen(false)} />}
+      {/* Документ базы знаний по ссылке [[kb:doc-N]] (TASK-223): окно-портал, само следит за своим состоянием. */}
+      <KnowledgeBaseDocModal />
 
       {selectedProject && (
         <button

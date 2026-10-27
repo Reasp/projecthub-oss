@@ -43,6 +43,7 @@ import type { HitlEngine, HitlOrigin, HitlRequest, HitlTextLine, RolePermissions
 import { keyedHitlText } from './hitlText.js';
 import type { AgentTaskCreatedInfo } from './agentTaskNotify.js';
 import type { RagSearchResult } from '../../src/types/electron';
+import { projectAccessKey } from '../../src/utils/projectAccess';
 import { createDocInBranch, readDocInBranch, updateDocInBranch, type DocBranchEnv } from './docBranches.js';
 import { callDocBranchTool, isDocBranchToolName, listBranchDocs, type DocBranchChange } from './docBranchTools.js';
 import { keepFrontmatterFormatting } from './docSectionMerge.js';
@@ -367,7 +368,8 @@ export interface ProjectToolContext {
 export interface ProjectToolDeps {
   listProjectRoots(): Promise<string[]>;
   recordAutoDecision(info: Omit<HitlRequest, 'id' | 'createdAt'>, decision: 'allow' | 'deny', rule: string, detail?: string): string;
-  searchDocs(projectRoot: string, query: string, limit: number): Promise<RagSearchResult[]>;
+  /** Поиск по проекту и подключённой базе знаний (TASK-223); `memberId` закрывает базу знаний участнику без доступа к ней. */
+  searchDocs(projectRoot: string, query: string, limit: number, memberId?: string): Promise<RagSearchResult[]>;
   /**
    * Карточка HITL для режима `ask` (decision-89): `true` — человек одобрил. Без зависимости режим `ask`
    * отказывает — спросить некого.
@@ -849,12 +851,15 @@ export async function callProjectTool(name: string, args: Record<string, unknown
         if (!query) return { text: 'Missing query.', isError: true };
         const limitRaw = Number(args.limit);
         const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(20, Math.floor(limitRaw)) : 8;
-        const results = await deps.searchDocs(root, query, limit);
+        const results = await deps.searchDocs(root, query, limit, ctx.memberId);
         if (results.length === 0) return { text: 'Nothing found.', isError: false };
+        const ownKey = projectAccessKey(root);
+        // Результат базы знаний компании помечен её именем: ссылка на него — [[kb:doc-N]] (TASK-223).
+        const source = (r: RagSearchResult) => (r.projectPath && projectAccessKey(r.projectPath) !== ownKey ? `[knowledge base ${r.projectName}] ` : '');
         return {
           text: results
             .slice(0, limit)
-            .map((r) => `### ${r.fileRelative}${r.heading ? ` — ${r.heading}` : ''} (${r.category}, ${r.type})\n${r.snippet.trim()}`)
+            .map((r) => `### ${source(r)}${r.fileRelative}${r.heading ? ` — ${r.heading}` : ''} (${r.category}, ${r.type})\n${r.snippet.trim()}`)
             .join('\n\n'),
           isError: false
         };

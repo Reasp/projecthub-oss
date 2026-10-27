@@ -318,6 +318,8 @@ export interface EditionMainApi {
   onAuditEntry(listener: (entry: HitlAuditEntry) => void): void;
   /** Каталог аудита хоста (`<userData>/audit`). */
   auditDir(): string;
+  /** Открыт ли участнику проект хоста (TASK-223: база знаний компании в поиске участника по сети). */
+  setMemberProjectAccess(check: (memberId: string, projectPath: string) => boolean): void;
 }
 
 export interface SaveTextFileOptions {
@@ -375,6 +377,7 @@ let projectMcpFactory: ((projectRoot: string, sessionId: string, memberId?: stri
 const ownershipGuards: Array<(ownerMemberId: string | undefined, actorMemberId: string | undefined, action: OwnershipAction) => AppError | null> = [];
 let deviceNotifier: DeviceNotifier = () => undefined;
 const agentTools = new Map<string, EditionAgentTool>();
+let memberProjectAccess: ((memberId: string, projectPath: string) => boolean) | null = null;
 
 export const editionRegistry = {
   api(): EditionMainApi {
@@ -414,6 +417,9 @@ export const editionRegistry = {
       createProjectMcpServer: (projectRoot, sessionId, memberId) => projectMcpFactory?.(projectRoot, sessionId, memberId) ?? null,
       onAuditEntry: (listener) => onAuditAppend(listener),
       auditDir: () => getStatePath('audit'),
+      setMemberProjectAccess: (check) => {
+        memberProjectAccess = check;
+      },
       setHitlRouting: (routing) => {
         hitlRouting = routing;
       },
@@ -588,6 +594,16 @@ export const editionRegistry = {
     };
   },
 
+  /** Открыт ли участнику проект; без модуля участников участников нет и проверка проходит. */
+  memberCanAccessProject(memberId: string, projectPath: string): boolean {
+    try {
+      return memberProjectAccess ? memberProjectAccess(memberId, projectPath) : true;
+    } catch (err) {
+      console.warn('[edition] Проверка доступа участника к проекту упала:', err);
+      return false;
+    }
+  },
+
   emitAgentRun(record: AgentRunRecord): void {
     for (const listener of runListeners) {
       try {
@@ -650,6 +666,7 @@ export const editionRegistry = {
     ownershipGuards.length = 0;
     deviceNotifier = () => undefined;
     agentTools.clear();
+    memberProjectAccess = null;
   }
 };
 

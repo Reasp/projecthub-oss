@@ -11,6 +11,7 @@ import { registerMcpIpc } from './mcpIpc';
 import { registerProcessIpc } from './processIpc';
 import { registerHitlIpc } from './hitlIpc';
 import { registerProfileIpc } from './profileIpc';
+import { registerKnowledgeBaseIpc } from './knowledgeBaseIpc';
 import { registerRolesIpc } from './rolesIpc';
 import { registerSkillsIpc } from './skillsIpc';
 import { registerDiagnosticsIpc } from './diagnosticsIpc';
@@ -66,4 +67,5 @@ export function registerAllIpc(ctx: IpcContext) {
   // Последним: модули ee/ регистрируют свои каналы поверх открытых (decision-123 п. 4).
   registerEditionIpc(ctx);
   registerProfileIpc(ctx);
+  registerKnowledgeBaseIpc();
 }
