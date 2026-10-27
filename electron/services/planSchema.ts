@@ -76,8 +76,8 @@ const SubtaskSchema = z.preprocess(
     };
   },
   z.object({
-    key: z.string().min(1, 'пустой ключ узла'),
-    title: z.string().min(3, 'слишком короткий заголовок'),
+    key: z.string().min(1, 'empty node key'),
+    title: z.string().min(3, 'title is too short'),
     description: z.string(),
     acceptanceCriteria: z.array(z.string()),
     dependsOn: z.array(z.string()),
@@ -90,26 +90,26 @@ const SubtaskSchema = z.preprocess(
 /** Схема плана: то же строение, что у отчёта done-loop, но со своим корнем. */
 export const PlanSchema = z.object({
   summary: z.string().optional().default(''),
-  subtasks: z.array(SubtaskSchema).min(1, 'в плане нет подзадач')
+  subtasks: z.array(SubtaskSchema).min(1, 'the plan has no subtasks')
 });
 
 export const PLAN_EXAMPLE = `{
-  "summary": "Как задача разбита и почему именно так, 2-4 предложения",
+  "summary": "How the task is split and why, 2-4 sentences",
   "subtasks": [
     {
       "key": "parser",
-      "title": "Разбор конфига: чистый модуль и тесты",
-      "description": "### Что сделать\\nОдно-два предложения о сути.\\n\\n### Где\\n- файл или модуль\\n- второй файл",
-      "acceptanceCriteria": ["Разбор покрыт unit-тестами", "Неверный конфиг даёт понятную ошибку"],
+      "title": "Config parsing: pure module and tests",
+      "description": "### What to do\\nOne or two sentences about the point.\\n\\n### Where\\n- file or module\\n- second file",
+      "acceptanceCriteria": ["Parsing is covered by unit tests", "An invalid config gives a clear error"],
       "dependsOn": [],
       "modelTier": "balanced",
       "size": "small"
     },
     {
       "key": "ui",
-      "title": "Экран настроек поверх разобранного конфига",
-      "description": "Что сделать и в каких файлах",
-      "acceptanceCriteria": ["Значения из конфига видны на экране"],
+      "title": "Settings screen on top of the parsed config",
+      "description": "What to do and in which files",
+      "acceptanceCriteria": ["Config values are visible on the screen"],
       "dependsOn": ["parser"]
     }
   ]
@@ -148,7 +148,7 @@ export function normalizePlan(plan: AgentPlan): { plan: AgentPlan; warnings: str
 
   for (const [i, raw] of plan.subtasks.entries()) {
     if (subtasks.length >= MAX_PLAN_NODES) {
-      warnings.push(`В плане больше ${MAX_PLAN_NODES} подзадач — лишние отброшены`);
+      warnings.push(`The plan has more than ${MAX_PLAN_NODES} subtasks — the extra ones were dropped`);
       break;
     }
     let key = planKey(raw.key, `node-${i + 1}`);
@@ -157,7 +157,7 @@ export function normalizePlan(plan: AgentPlan): { plan: AgentPlan; warnings: str
       let n = 2;
       while (used.has(`${base}-${n}`)) n += 1;
       key = `${base}-${n}`;
-      warnings.push(`Ключ «${base}» повторялся — переименован в «${key}»`);
+      warnings.push(`Key "${base}" was repeated — renamed to "${key}"`);
     }
     used.add(key);
 
@@ -166,7 +166,7 @@ export function normalizePlan(plan: AgentPlan): { plan: AgentPlan; warnings: str
     if (title.length > MAX_SUBTASK_TITLE) {
       const cut = title.slice(0, MAX_SUBTASK_TITLE).trimEnd();
       description = description ? `${title}\n\n${description}` : title;
-      warnings.push(`Заголовок «${cut.slice(0, 40)}…» длиннее ${MAX_SUBTASK_TITLE} символов — обрезан, полный текст в описании`);
+      warnings.push(`Title "${cut.slice(0, 40)}…" is longer than ${MAX_SUBTASK_TITLE} characters — cut, the full text is in the description`);
       title = cut;
     }
 
@@ -187,11 +187,11 @@ export function normalizePlan(plan: AgentPlan): { plan: AgentPlan; warnings: str
     const deps: string[] = [];
     for (const dep of node.dependsOn) {
       if (dep === node.key) {
-        warnings.push(`Подзадача «${node.key}» зависела от самой себя — связь снята`);
+        warnings.push(`Subtask "${node.key}" depended on itself — the link was removed`);
         continue;
       }
       if (!known.has(dep)) {
-        warnings.push(`Подзадача «${node.key}» зависела от неизвестного «${dep}» — связь снята`);
+        warnings.push(`Subtask "${node.key}" depended on unknown "${dep}" — the link was removed`);
         continue;
       }
       if (!deps.includes(dep)) deps.push(dep);
@@ -270,35 +270,35 @@ export function parseAgentPlan(text: string): ParsedPlan {
   let candidate: string | null;
   if (fenced.length > 0) {
     candidate = extractJsonObject(fenced[fenced.length - 1][1]);
-    if (!candidate) return { ok: false, errors: [`Блок ${PLAN_FENCE} не содержит JSON-объекта`] };
+    if (!candidate) return { ok: false, errors: [`The ${PLAN_FENCE} block contains no JSON object`] };
   } else {
     const objects = jsonObjectsIn(source).filter((o) => /"subtasks"\s*:/.test(o));
     candidate = objects.length > 0 ? objects[objects.length - 1] : null;
   }
-  if (!candidate) return { ok: false, errors: [`В ответе нет плана (блок \`\`\`${PLAN_FENCE}\`\`\` с полем subtasks)`] };
+  if (!candidate) return { ok: false, errors: [`The answer has no plan (a \`\`\`${PLAN_FENCE}\`\`\` block with the subtasks field)`] };
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(candidate);
   } catch (err) {
-    return { ok: false, errors: [`JSON плана не разобрался: ${err instanceof Error ? err.message : String(err)}`] };
+    return { ok: false, errors: [`The plan JSON could not be parsed: ${err instanceof Error ? err.message : String(err)}`] };
   }
 
   const result = PlanSchema.safeParse(parsed);
   if (!result.success) {
     const errors = result.error.issues.slice(0, 5).map((issue) => {
-      const where = issue.path.length > 0 ? issue.path.join('.') : 'план';
+      const where = issue.path.length > 0 ? issue.path.join('.') : 'plan';
       return `${where} — ${issue.message}`;
     });
     return { ok: false, errors };
   }
 
   const { plan, warnings } = normalizePlan(result.data);
-  if (plan.subtasks.length === 0) return { ok: false, errors: ['После нормализации в плане не осталось подзадач'] };
+  if (plan.subtasks.length === 0) return { ok: false, errors: ['No subtasks left in the plan after normalization'] };
 
   const cycle = findCycle(plan.subtasks);
   if (cycle.length > 0) {
-    return { ok: false, errors: [`Зависимости образуют цикл: ${cycle.join(' → ')}. Зависимости должны идти только вперёд.`] };
+    return { ok: false, errors: [`The dependencies form a cycle: ${cycle.join(' → ')}. Dependencies must only point forward.`] };
   }
 
   return { ok: true, plan, warnings };
@@ -307,10 +307,10 @@ export function parseAgentPlan(text: string): ParsedPlan {
 /** Замечания к неудачной попытке — текст, который уходит модели в повторном запросе. */
 export function planRetryPrompt(errors: string[], attempt: number, maxAttempts = MAX_PLAN_ATTEMPTS): string {
   return [
-    `План не принят (попытка ${attempt} из ${maxAttempts}). Замечания:`,
+    `The plan was not accepted (attempt ${attempt} of ${maxAttempts}). Remarks:`,
     ...errors.map((e) => `- ${e}`),
     '',
-    `Пришли план заново: один блок \`\`\`${PLAN_FENCE}\`\`\` с JSON по той же схеме и без текста после него.`
+    `Send the plan again: one \`\`\`${PLAN_FENCE}\`\`\` block with JSON in the same schema and no text after it.`
   ].join('\n');
 }
 
@@ -318,28 +318,28 @@ export function planRetryPrompt(errors: string[], attempt: number, maxAttempts =
 export function buildPlanInstructions(taskId: string, criteria: string[]): string {
   const acLines = criteria.map((c, i) => `${i + 1}. ${c}`).join('\n');
   return [
-    '## Как составить план',
-    `Тебе нужно разбить задачу ${taskId} на подзадачи, которые разные агенты выполнят параллельно в отдельных git-worktree.`,
-    'Ничего не реализуй и не меняй файлы: твой результат — только план.',
+    '## How to make the plan',
+    `Split task ${taskId} into subtasks that different agents will do in parallel in separate git worktrees.`,
+    'Do not implement anything and do not change files: your result is only the plan.',
     '',
-    'Правила разбиения:',
-    `- От 2 до ${MAX_PLAN_NODES} подзадач. Если задача не делится — верни одну подзадачу.`,
-    '- Подзадачи без зависимости между собой должны трогать разные файлы: они выполняются одновременно и сливаются в одну ветку, общие файлы дадут конфликт.',
-    '- Зависимость ставь, только если подзадача действительно не может начаться без результата другой.',
-    `- Заголовок — до ${MAX_SUBTASK_TITLE} символов, по-русски, без номеров и префиксов.`,
-    '- У каждой подзадачи — проверяемые критерии приёмки: что конкретно должно работать.',
-    '- Описание подзадачи — Markdown, а не сплошная строка: короткие разделы с заголовками `###` (что сделать, где, почему), перечисления списком. Переносы строк внутри JSON-строки пиши как `\\n`.',
-    '- Чистые модули и тесты выделяй в отдельные подзадачи от интеграции и UI.',
+    'Splitting rules:',
+    `- From 2 to ${MAX_PLAN_NODES} subtasks. If the task cannot be split, return one subtask.`,
+    '- Subtasks that do not depend on each other must touch different files: they run at the same time and are merged into one branch, shared files will conflict.',
+    '- Add a dependency only if a subtask really cannot start without the result of another.',
+    `- Title — up to ${MAX_SUBTASK_TITLE} characters, in the language of the parent task, without numbers or prefixes.`,
+    '- Every subtask has verifiable acceptance criteria: what exactly must work.',
+    '- The subtask description is Markdown, not one long line: short sections with `###` headings (what to do, where, why), lists for enumerations. Write line breaks inside a JSON string as `\\n`.',
+    '- Put pure modules and tests into subtasks separate from integration and UI.',
     '',
-    criteria.length > 0 ? `Критерии приёмки родительской задачи — их должен покрывать план целиком:\n${acLines}\n` : null,
-    '## Формат ответа',
+    criteria.length > 0 ? `Acceptance criteria of the parent task — the plan as a whole must cover them:\n${acLines}\n` : null,
+    '## Answer format',
     // Живой прогон на qwen2.5:7b-instruct показал, что модель переносит в ответ критерии из
     // примера дословно, поэтому пример отдельно помечен как образец формата.
-    `Последним блоком сообщения верни ограду \`\`\`${PLAN_FENCE}\`\`\` с JSON. Пример ниже показывает только структуру — не копируй из него тексты, всё содержимое должно быть про эту задачу:`,
+    `As the last block of the message return a \`\`\`${PLAN_FENCE}\`\`\` fence with JSON. The example below shows only the structure — do not copy its texts, all content must be about this task:`,
     '```' + PLAN_FENCE,
     PLAN_EXAMPLE,
     '```',
-    'Поле `dependsOn` содержит только ключи подзадач из этого же плана. Циклов быть не должно.'
+    'The `dependsOn` field contains only keys of subtasks from this plan. There must be no cycles.'
   ]
     .filter((line): line is string => line !== null)
     .join('\n');

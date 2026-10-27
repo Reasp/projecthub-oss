@@ -124,7 +124,7 @@ interface Outcome {
 /** Лимит прочитанного файла, отдаваемого модели до общей усечки результата. */
 const READ_MAX_CHARS = 100_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 5 * 60_000;
-const STOPPED = 'Агент остановлен — инструмент не исполнен.';
+const STOPPED = 'The agent was stopped — the tool was not run.';
 
 function approvalTimeoutMs(config: AIProviderConfig): number | undefined {
   const min = config.autoApproveRules?.approvalTimeoutMin;
@@ -161,7 +161,7 @@ export class ApiToolExecutor {
         const message = err instanceof Error ? err.message : String(err);
         outcome = err instanceof Error && err.name === 'ApprovalCancelledError'
           ? { result: { content: message, isError: true }, status: 'rejected' }
-          : { result: { content: `Ошибка инструмента ${call.name}: ${message}`, isError: true }, status: 'error' };
+          : { result: { content: `Tool ${call.name} failed: ${message}`, isError: true }, status: 'error' };
       }
     }
     ctx.onToolUpdate?.(call, { kind: plan.kind, status: outcome.status, result: outcome.chatResult ?? outcome.result.content });
@@ -184,13 +184,13 @@ export class ApiToolExecutor {
   private async run(call: AIToolCall, args: Record<string, unknown>, plan: ApiToolPlan, ctx: ApiToolContext): Promise<Outcome> {
     if (plan.kind === 'computer' && plan.verdict !== 'deny') {
       if (!this.deps.callComputerTool) {
-        return { result: { content: 'Управление компьютером агенту недоступно.', isError: true }, status: 'error' };
+        return { result: { content: 'Computer control is not available to the agent.', isError: true }, status: 'error' };
       }
       ctx.onExecute?.(call, plan);
       ctx.onToolUpdate?.(call, { kind: plan.kind, status: 'running' });
       const result = await this.deps.callComputerTool(call.name, args, ctx);
       // Чату — текст и число картинок, модели — результат прокси целиком, с изображениями.
-      const images = result.images?.length ? `[изображений: ${result.images.length}]` : '';
+      const images = result.images?.length ? `[images: ${result.images.length}]` : '';
       return {
         result,
         status: result.isError ? 'error' : 'done',
@@ -200,7 +200,7 @@ export class ApiToolExecutor {
 
     if (plan.kind === 'memory' && plan.verdict !== 'deny') {
       if (!this.deps.callMemoryTool) {
-        return { result: { content: 'Память проекта агенту недоступна.', isError: true }, status: 'error' };
+        return { result: { content: 'Project memory is not available to the agent.', isError: true }, status: 'error' };
       }
       ctx.onExecute?.(call, plan);
       ctx.onToolUpdate?.(call, { kind: plan.kind, status: 'running' });
@@ -210,7 +210,7 @@ export class ApiToolExecutor {
 
     if (plan.kind === 'notify' && plan.verdict !== 'deny') {
       if (!this.deps.callNotifyTool) {
-        return { result: { content: '«Входящие» телефона агенту недоступны.', isError: true }, status: 'error' };
+        return { result: { content: 'The phone Inbox is not available to the agent.', isError: true }, status: 'error' };
       }
       ctx.onExecute?.(call, plan);
       const result = await this.deps.callNotifyTool(args, ctx);
@@ -225,7 +225,7 @@ export class ApiToolExecutor {
 
     if (plan.verdict === 'deny') {
       this.deps.recordAutoDecision({ ...meta, type: plan.approvalType, title: `${call.name}: ${plan.rule}`, ...detailOf() }, 'deny', plan.rule, plan.reason);
-      return { result: { content: plan.reason || `Инструмент ${call.name} отклонён политикой (${plan.rule}).`, isError: true }, status: 'rejected' };
+      return { result: { content: plan.reason || `Tool ${call.name} was rejected by the policy (${plan.rule}).`, isError: true }, status: 'rejected' };
     }
 
     let requestId: string;
@@ -243,12 +243,12 @@ export class ApiToolExecutor {
       }
       const allowed = plan.kind === 'question' ? true : plan.approvalType === 'question' ? approvedRead(answer) : answer.approved;
       if (!allowed) {
-        return { result: { content: `Отклонено пользователем${answer.text ? `: ${answer.text}` : ''}`, isError: true }, status: 'rejected' };
+        return { result: { content: `Rejected by the user${answer.text ? `: ${answer.text}` : ''}`, isError: true }, status: 'rejected' };
       }
     }
 
     if (!ctx.isActive()) {
-      this.deps.recordOutcome(requestId, 'not_executed', 'Агент остановлен');
+      this.deps.recordOutcome(requestId, 'not_executed', 'Agent stopped');
       return { result: { content: STOPPED, isError: true }, status: 'rejected' };
     }
     ctx.onExecute?.(call, plan);
@@ -374,29 +374,29 @@ export class ApiToolExecutor {
       case 'read': {
         const abs = path.resolve(ctx.workDir, plan.filePath || '');
         const content = await this.deps.readFile(abs);
-        return { content: content.length > READ_MAX_CHARS ? `${content.slice(0, READ_MAX_CHARS)}\n…[файл усечён]` : content };
+        return { content: content.length > READ_MAX_CHARS ? `${content.slice(0, READ_MAX_CHARS)}\n…[file truncated]` : content };
       }
       case 'list': {
         const entries = await this.deps.listDir(path.resolve(ctx.workDir, plan.filePath || '.'));
-        return { content: entries.map((e) => (e.isDirectory ? `${e.name}/` : e.name)).sort().join('\n') || '(пусто)' };
+        return { content: entries.map((e) => (e.isDirectory ? `${e.name}/` : e.name)).sort().join('\n') || '(empty)' };
       }
       case 'search':
         return { content: await this.deps.searchDocs(ctx.projectPath, String(args.query || '')) };
       case 'write': {
         const content = typeof args.content === 'string' ? args.content : '';
         await this.deps.writeFile(ctx.workDir, plan.filePath!, content);
-        return { content: `Файл ${plan.filePath} записан (${content.length} символов).` };
+        return { content: `File ${plan.filePath} written (${content.length} characters).` };
       }
       case 'command': {
         const onUpdate = ctx.onToolUpdate;
         onUpdate?.(call, { kind: plan.kind, status: 'running' });
         if (plan.background) {
-          if (!this.deps.startBackgroundProcess) return { content: 'Фоновые процессы агенту недоступны.', isError: true };
+          if (!this.deps.startBackgroundProcess) return { content: 'Background processes are not available to the agent.', isError: true };
           const name = String(args.name || `agent-${Date.now().toString(36)}`).trim();
           const info = await this.deps.startBackgroundProcess(ctx.projectPath, plan.command!, name, ctx.workDir);
           return {
-            content: `Процесс "${info.name}" запущен в фоне (pid ${info.pid ?? '?'}, id "${info.id}"). `
-              + 'Цикл агента не блокируется; логи и остановка — во вкладке Processes.'
+            content: `Process "${info.name}" started in the background (pid ${info.pid ?? '?'}, id "${info.id}"). `
+              + 'The agent loop is not blocked; logs and stopping are in the Processes tab.'
           };
         }
         const timeoutMs = commandTimeoutMs(ctx.config);
@@ -408,22 +408,22 @@ export class ApiToolExecutor {
         });
         if (res.timedOut) {
           const hint = ctx.allowBackground
-            ? ' Для долгоживущих процессов (dev-серверы, вотчеры) запускай run_command с background: true.'
+            ? ' For long-running processes (dev servers, watchers) call run_command with background: true.'
             : '';
-          return { content: `Команда прервана по таймауту (${Math.round(timeoutMs / 1000)} с).${hint}\n${res.output}`, isError: true };
+          return { content: `The command was stopped by the timeout (${Math.round(timeoutMs / 1000)} s).${hint}\n${res.output}`, isError: true };
         }
-        const output = res.truncated ? `[… вывод усечён …]\n${res.output}` : res.output;
-        if (res.exitCode === 0) return { content: output || 'Команда успешно выполнена (код 0)' };
-        return { content: `Команда завершилась с кодом ${res.exitCode}:\n${output}`, isError: true };
+        const output = res.truncated ? `[… output truncated …]\n${res.output}` : res.output;
+        if (res.exitCode === 0) return { content: output || 'The command succeeded (exit code 0)' };
+        return { content: `The command exited with code ${res.exitCode}:\n${output}`, isError: true };
       }
       case 'sync':
-        if (!this.deps.runBaseSync) return { content: 'Подтягивание основной ветки агенту недоступно.', isError: true };
+        if (!this.deps.runBaseSync) return { content: 'Merging the base branch is not available to the agent.', isError: true };
         ctx.onToolUpdate?.(call, { kind: plan.kind, status: 'running' });
         return this.deps.runBaseSync(baseSyncAction(args.action), ctx);
       case 'question':
-        return { content: answer?.text || (answer?.approved ? 'Подтверждено пользователем' : 'Без ответа') };
+        return { content: answer?.text || (answer?.approved ? 'Confirmed by the user' : 'No answer') };
       default:
-        return { content: `Инструмент ${call.name} недоступен агенту.`, isError: true };
+        return { content: `Tool ${call.name} is not available to the agent.`, isError: true };
     }
   }
 }

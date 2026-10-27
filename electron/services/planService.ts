@@ -715,7 +715,7 @@ export class PlanService extends EventEmitter {
         projectPath: plan.projectPath,
         taskId: node.taskId,
         taskTitle: node.title,
-        prompt: `Выполни подзадачу ${node.taskId} «${node.title}» из плана задачи ${plan.taskId}.`,
+        prompt: `Do subtask ${node.taskId} “${node.title}” from the plan of task ${plan.taskId}.`,
         agent,
         ...(plan.integrationBranch ? { baseBranch: plan.integrationBranch } : {}),
         useWorktrees: true,

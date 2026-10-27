@@ -48,12 +48,12 @@ export async function automationToolRun(
   args: { ruleKey: string; fromAgentSession: boolean }
 ): Promise<{ isError: boolean; text: string }> {
   if (args.fromAgentSession) {
-    return { isError: true, text: 'ProjectHub: automation_run недоступен агентам ProjectHub — автоматизации запускает человек или внешний клиент.' };
+    return { isError: true, text: 'ProjectHub: automation_run is not available to ProjectHub agents — automations are started by a human or an external client.' };
   }
   const key = String(args.ruleKey || '').trim();
-  if (!key) return { isError: true, text: 'ProjectHub: не указан ruleKey — возьмите ключ из automation_list.' };
+  if (!key) return { isError: true, text: 'ProjectHub: ruleKey is not set — take the key from automation_list.' };
   const res = await engine.runNow(key, 'mcp');
   return res.ok
     ? { isError: false, text: JSON.stringify({ started: true, runIds: res.runIds }) }
-    : { isError: true, text: `ProjectHub: правило не запущено — ${res.reason}` };
+    : { isError: true, text: `ProjectHub: the rule was not started — ${res.reason}` };
 }

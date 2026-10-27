@@ -41,7 +41,7 @@ export function createApiToolExecutorDeps(): ApiToolExecutorDeps {
     },
     searchDocs: async (projectPath, query) => {
       const results = await searchProjectDocs({ projectPath, query, mode: 'all', limit: 5 });
-      return results.map((r) => `- [${r.category}] ${r.fileRelative}${r.heading ? ` — ${r.heading}` : ''}: ${r.snippet}`).join('\n') || 'Ничего не найдено';
+      return results.map((r) => `- [${r.category}] ${r.fileRelative}${r.heading ? ` — ${r.heading}` : ''}: ${r.snippet}`).join('\n') || 'Nothing found';
     },
     parseQuestion: (args) => claudeBridgeService.parseQuestionData(args),
     callComputerTool: async (name, args, ctx) => {

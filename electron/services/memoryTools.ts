@@ -31,12 +31,12 @@ export const MEMORY_AUDIT_RULE = 'memory';
 
 const DESCRIPTIONS: Record<MemoryToolName, string> = {
   memory_write:
-    'Сохранить факт в память проекта (backlog/memory), чтобы следующие сессии и другие агенты его знали. '
-    + 'Сохраняй неочевидное: что пробовали и почему не сработало, ловушки окружения, договорённости с человеком. '
-    + 'Не сохраняй то, что уже есть в коде, задачах и ADR, и никогда не сохраняй секреты. '
-    + 'Похожий факт уже есть — запись будет отклонена с его id: обнови его через replace.',
-  memory_search: 'Найти факты в памяти проекта по словам запроса (заголовок, описание, текст факта).',
-  memory_delete: 'Удалить устаревший или ошибочный факт из памяти проекта по id (mem-N).'
+    'Save a fact to project memory (backlog/memory) so that later sessions and other agents know it. '
+    + 'Save what is not obvious: what was tried and why it did not work, environment traps, agreements with the human. '
+    + 'Do not save what is already in the code, tasks and ADRs, and never save secrets. '
+    + 'If a similar fact exists, the write is rejected with its id: update that fact with replace.',
+  memory_search: 'Find facts in project memory by query words (title, description, fact text).',
+  memory_delete: 'Delete an outdated or wrong fact from project memory by id (mem-N).'
 };
 
 /** Определения в формате Anthropic tools (`input_schema`) — их же получает MCP-сервер как описания. */
@@ -47,11 +47,11 @@ export const MEMORY_TOOL_DEFINITIONS: ReadonlyArray<{ name: MemoryToolName; desc
     input_schema: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: `Короткий заголовок факта (до ${MEMORY_LIMITS.title} символов)` },
-        description: { type: 'string', description: `Одна строка: о чём факт и когда он нужен (до ${MEMORY_LIMITS.description} символов)` },
-        body: { type: 'string', description: `Сам факт; для project и feedback — строки «Почему:» и «Как применять:» (до ${MEMORY_LIMITS.body} символов)` },
-        type: { type: 'string', enum: [...MEMORY_TYPES], description: 'project — о проекте и окружении, feedback — как работать, reference — где что искать' },
-        replace: { type: 'string', description: 'id факта (mem-N), который нужно обновить целиком' }
+        title: { type: 'string', description: `Short fact title (up to ${MEMORY_LIMITS.title} characters)` },
+        description: { type: 'string', description: `One line: what the fact is about and when it is needed (up to ${MEMORY_LIMITS.description} characters)` },
+        body: { type: 'string', description: `The fact itself; for project and feedback — lines "Why:" and "How to apply:" (up to ${MEMORY_LIMITS.body} characters)` },
+        type: { type: 'string', enum: [...MEMORY_TYPES], description: 'project — about the project and environment, feedback — how to work, reference — where to find things' },
+        replace: { type: 'string', description: 'id of the fact (mem-N) to replace entirely' }
       },
       required: ['title', 'description', 'body', 'type']
     }
@@ -62,8 +62,8 @@ export const MEMORY_TOOL_DEFINITIONS: ReadonlyArray<{ name: MemoryToolName; desc
     input_schema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Слова для поиска' },
-        limit: { type: 'number', description: 'Сколько фактов вернуть (1–10, по умолчанию 5)' }
+        query: { type: 'string', description: 'Words to search for' },
+        limit: { type: 'number', description: 'How many facts to return (1–10, default 5)' }
       },
       required: ['query']
     }
@@ -73,7 +73,7 @@ export const MEMORY_TOOL_DEFINITIONS: ReadonlyArray<{ name: MemoryToolName; desc
     description: DESCRIPTIONS.memory_delete,
     input_schema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'id факта, например mem-3' } },
+      properties: { id: { type: 'string', description: 'Fact id, for example mem-3' } },
       required: ['id']
     }
   }
@@ -131,15 +131,15 @@ function formatFact(f: MemoryEntry): string {
 export function memoryErrorText(err: MemoryError): string {
   switch (err.code) {
     case 'secret_detected':
-      return `Не сохранено: в факте похоже на секрет (${(err.details.secretKinds ?? []).join(', ')}). Убери значение и опиши факт без него.`;
+      return `Not saved: the fact looks like it contains a secret (${(err.details.secretKinds ?? []).join(', ')}). Remove the value and describe the fact without it.`;
     case 'duplicate':
-      return `Не сохранено: похожий факт уже есть — ${err.details.duplicateOf} «${err.details.duplicateTitle}». Обнови его: memory_write с replace: "${err.details.duplicateOf}".`;
+      return `Not saved: a similar fact already exists — ${err.details.duplicateOf} “${err.details.duplicateTitle}”. Update it: memory_write with replace: "${err.details.duplicateOf}".`;
     case 'invalid_draft':
-      return `Не сохранено: ${(err.details.issues ?? []).map((i) => (i.field ? `${i.field}: ${i.code}` : i.code)).join(', ')}.`;
+      return `Not saved: ${(err.details.issues ?? []).map((i) => (i.field ? `${i.field}: ${i.code}` : i.code)).join(', ')}.`;
     case 'not_found':
-      return `Факт не найден: ${err.message}`;
+      return `Fact not found: ${err.message}`;
     case 'invalid_project':
-      return 'Память недоступна: путь сессии не принадлежит зарегистрированному проекту ProjectHub.';
+      return 'Memory is unavailable: the session path does not belong to a registered ProjectHub project.';
     default:
       return err.message;
   }
@@ -152,7 +152,7 @@ export async function callMemoryTool(
   ctx: MemoryToolContext,
   deps: MemoryToolDeps
 ): Promise<MemoryToolResult> {
-  if (!isMemoryToolName(name)) return { text: `Неизвестный инструмент памяти: ${name}`, isError: true };
+  if (!isMemoryToolName(name)) return { text: `Unknown memory tool: ${name}`, isError: true };
 
   const root = await resolveMemoryProjectRoot(ctx.sessionPath, deps);
   const audit = (decision: 'allow' | 'deny', title: string, filePath?: string, detail?: string) =>
@@ -184,11 +184,11 @@ export async function callMemoryTool(
   try {
     if (name === 'memory_search') {
       const query = str(args.query).trim();
-      if (!query) return { text: 'Не указан запрос (query).', isError: true };
+      if (!query) return { text: 'No query given (query).', isError: true };
       const limitRaw = Number(args.limit);
       const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(10, Math.floor(limitRaw)) : 5;
       const found = await searchMemory(root, query, limit);
-      if (found.length === 0) return { text: 'В памяти проекта ничего не найдено.', isError: false };
+      if (found.length === 0) return { text: 'Nothing found in project memory.', isError: false };
       return { text: found.map(formatFact).join('\n\n'), isError: false };
     }
 
@@ -196,7 +196,7 @@ export async function callMemoryTool(
       const id = str(args.id).trim();
       const { relativePath } = await deleteMemoryFact(root, id);
       audit('allow', `memory_delete: ${id.toLowerCase()}`, relativePath);
-      return { text: `Удалено: ${id.toLowerCase()} (${relativePath}).`, isError: false };
+      return { text: `Deleted: ${id.toLowerCase()} (${relativePath}).`, isError: false };
     }
 
     const type = str(args.type).trim();
@@ -211,9 +211,9 @@ export async function callMemoryTool(
     };
     const replace = str(args.replace).trim() || undefined;
     const result = await writeMemoryFact(root, draft, { replace });
-    audit('allow', `memory_write: ${result.fact.id}${result.replaced ? ' (обновлён)' : ''}`, result.relativePath);
+    audit('allow', `memory_write: ${result.fact.id}${result.replaced ? ' (updated)' : ''}`, result.relativePath);
     return {
-      text: `${result.replaced ? 'Обновлено' : 'Сохранено'}: ${result.fact.id} (${result.relativePath}).`,
+      text: `${result.replaced ? 'Updated' : 'Saved'}: ${result.fact.id} (${result.relativePath}).`,
       isError: false
     };
   } catch (err) {
@@ -222,7 +222,7 @@ export async function callMemoryTool(
       return { text: memoryErrorText(err), isError: true };
     }
     const message = err instanceof Error ? err.message : String(err);
-    return { text: `Ошибка памяти проекта: ${message}`, isError: true };
+    return { text: `Project memory error: ${message}`, isError: true };
   }
 }
 
@@ -232,8 +232,8 @@ export async function callMemoryTool(
  */
 export function buildMemoryInstructions(toolPrefix = MEMORY_TOOL_PREFIX): string {
   return [
-    `Память проекта пополняется инструментом ${toolPrefix}write. Сохраняй туда неочевидные выводы, которые пригодятся в следующих сессиях: `
-      + 'что пробовали и почему не сработало, ловушки окружения, договорённости с человеком. '
-      + `Не дублируй код, задачи и ADR, не сохраняй секреты. Перед записью можно проверить похожее через ${toolPrefix}search.`
+    `Project memory is written with the ${toolPrefix}write tool. Save there non-obvious conclusions that will help in later sessions: `
+      + 'what was tried and why it did not work, environment traps, agreements with the human. '
+      + `Do not duplicate code, tasks and ADRs, do not save secrets. Before writing you can look for a similar fact with ${toolPrefix}search.`
   ].join('\n');
 }

@@ -285,9 +285,9 @@ export class RemoteInboxService {
     const roleSlug = prior?.agents.find((a) => a.config.roleSlug)?.config.roleSlug;
     if (!roleSlug) throw new AppError('inbox.noRoleToRestart');
     const prompt = [
-      `Задача ${task.id} возвращена с проверки человеком.`,
-      `Комментарий проверяющего:\n${comment}`,
-      'Исправь замечания и доведи задачу до критериев приёмки.'
+      `Task ${task.id} was returned from review by a human.`,
+      `Reviewer comment:\n${comment}`,
+      'Fix the remarks and bring the task to its acceptance criteria.'
     ].join('\n\n');
     const res = await this.deps.startAgent({
       projectPath,

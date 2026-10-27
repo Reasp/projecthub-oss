@@ -110,10 +110,10 @@ export function planApiToolCall(
     ({ kind, verdict: 'deny', rule, reason, approvalType });
 
   if (kind === 'unknown') {
-    return deny('unknown-tool', `Инструмент ${name} недоступен агенту.`);
+    return deny('unknown-tool', `Tool ${name} is not available to the agent.`);
   }
   if (!isApiToolAllowed(name, rules?.allowedTools)) {
-    return deny('tool-not-allowed', `Инструмент ${name} не входит в allow-список роли.`, kind === 'computer' ? 'computer_action' : 'command');
+    return deny('tool-not-allowed', `Tool ${name} is not on the role allow list.`, kind === 'computer' ? 'computer_action' : 'command');
   }
   if (kind === 'computer') {
     return { kind, verdict: 'allow', rule: 'computer-proxy', approvalType: 'computer_action' };
@@ -153,17 +153,17 @@ export function planApiToolCall(
     case 'write':
       verdict = evaluateToolRequest(narrowed, workDir, 'write_file', { filePath }, { autonomous: options.autonomous });
       approvalType = 'file_write';
-      if (!filePath) verdict = { verdict: 'deny', rule: 'bad-args', reason: 'Не указан путь файла (filePath).' };
+      if (!filePath) verdict = { verdict: 'deny', rule: 'bad-args', reason: 'No file path given (filePath).' };
       break;
     case 'command':
       verdict = evaluateToolRequest(narrowed, workDir, 'run_command', { command }, { autonomous: options.autonomous });
       approvalType = 'command';
-      if (!command.trim()) verdict = { verdict: 'deny', rule: 'bad-args', reason: 'Не указана команда (command).' };
+      if (!command.trim()) verdict = { verdict: 'deny', rule: 'bad-args', reason: 'No command given (command).' };
       else if (args.background === true && !options.allowBackground) {
         verdict = {
           verdict: 'deny',
           rule: 'background-not-allowed',
-          reason: 'Фоновые процессы агенту Swarm недоступны: процесс пережил бы агента. Запусти команду без background, с ожиданием результата.'
+          reason: 'Background processes are not available to a Swarm agent: the process would outlive the agent. Run the command without background and wait for the result.'
         };
       }
       break;

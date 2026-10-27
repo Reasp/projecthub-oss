@@ -14,6 +14,6 @@ export function setAgentNotifier(fn: AgentNotifier | null): void {
 }
 
 export function notifyHuman(ctx: NoteContext, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> {
-  if (!notifier) return Promise.resolve({ isError: true, text: 'ProjectHub: «Входящие» телефона недоступны в этом процессе.' });
+  if (!notifier) return Promise.resolve({ isError: true, text: 'ProjectHub: the phone Inbox is not available in this process.' });
   return notifier(ctx, args);
 }

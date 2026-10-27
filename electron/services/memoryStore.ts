@@ -164,28 +164,28 @@ function draftText(draft: MemoryDraft): string {
 export async function writeMemoryFact(projectRoot: string, draft: MemoryDraft, options: WriteMemoryOptions = {}): Promise<WriteMemoryResult> {
   const issues = validateMemoryDraft(draft);
   if (issues.length > 0) {
-    throw new MemoryError('invalid_draft', `Факт не прошёл проверку формата: ${issues.map((i) => i.code).join(', ')}`, { issues });
+    throw new MemoryError('invalid_draft', `The fact failed the format check: ${issues.map((i) => i.code).join(', ')}`, { issues });
   }
   const secrets = detectSecrets(draftText(draft));
   if (secrets.length > 0) {
     const secretKinds = secrets.map((s) => s.kind);
-    throw new MemoryError('secret_detected', `В факте найден секрет (${secretKinds.join(', ')}) — секреты в память проекта не пишутся`, { secretKinds });
+    throw new MemoryError('secret_detected', `A secret was found in the fact (${secretKinds.join(', ')}) — secrets are never written to project memory`, { secretKinds });
   }
   const replaceId = options.replace?.trim().toLowerCase();
   if (replaceId !== undefined && !isValidMemoryId(replaceId)) {
-    throw new MemoryError('invalid_id', `Неверный id факта: ${options.replace}`);
+    throw new MemoryError('invalid_id', `Invalid fact id: ${options.replace}`);
   }
 
   return withProjectLock(projectRoot, async () => {
     const snapshot = await readMemory(projectRoot);
     const existing = replaceId ? snapshot.facts.find((f) => f.id === replaceId) : undefined;
-    if (replaceId && !existing) throw new MemoryError('not_found', `Факт ${replaceId} не найден`);
+    if (replaceId && !existing) throw new MemoryError('not_found', `Fact ${replaceId} not found`);
 
     const duplicate = findDuplicate(draft, snapshot.facts, { excludeId: replaceId });
     if (duplicate) {
       throw new MemoryError(
         'duplicate',
-        `Похожий факт уже есть: ${duplicate.fact.id} «${duplicate.fact.title}». Обнови его через replace или сформулируй иначе`,
+        `A similar fact already exists: ${duplicate.fact.id} “${duplicate.fact.title}”. Update it with replace or phrase this one differently`,
         { duplicateOf: duplicate.fact.id, duplicateTitle: duplicate.fact.title }
       );
     }
@@ -215,11 +215,11 @@ export async function writeMemoryFact(projectRoot: string, draft: MemoryDraft, o
 /** Удаляет факт и пересобирает индекс. */
 export async function deleteMemoryFact(projectRoot: string, id: string): Promise<{ relativePath: string }> {
   const factId = String(id ?? '').trim().toLowerCase();
-  if (!isValidMemoryId(factId)) throw new MemoryError('invalid_id', `Неверный id факта: ${id}`);
+  if (!isValidMemoryId(factId)) throw new MemoryError('invalid_id', `Invalid fact id: ${id}`);
   return withProjectLock(projectRoot, async () => {
     const snapshot = await readMemory(projectRoot);
     const target = snapshot.facts.find((f) => f.id === factId);
-    if (!target) throw new MemoryError('not_found', `Факт ${factId} не найден`);
+    if (!target) throw new MemoryError('not_found', `Fact ${factId} not found`);
     await fs.rm(path.join(memoryDirOf(projectRoot), target.fileName), { force: true });
     await writeIndex(projectRoot, snapshot.facts.filter((f) => f.id !== factId));
     return { relativePath: memoryRelativePath(target.fileName) };

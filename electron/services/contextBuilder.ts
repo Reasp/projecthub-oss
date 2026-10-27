@@ -61,11 +61,11 @@ export const MEMORY_CONTEXT_RELEVANT = 3;
 const MEMORY_CONTEXT_BODY_MAX = 600;
 const DEFAULT_RAG_LIMIT = 5;
 const PART_LABELS: Record<ContextPartKey, string> = {
-  task: 'Текущая задача',
-  memory: 'Память проекта',
-  rag: 'Релевантная документация',
-  gitnexus: 'Связанный код (GitNexus)',
-  git: 'Git-статус'
+  task: 'Current task',
+  memory: 'Project memory',
+  rag: 'Relevant documentation',
+  gitnexus: 'Related code (GitNexus)',
+  git: 'Git status'
 };
 /** Порядок приоритета при обрезке — младшие обрезаются первыми. */
 const PART_PRIORITY: ContextPartKey[] = ['task', 'memory', 'rag', 'gitnexus', 'git'];
@@ -86,13 +86,13 @@ interface RawPart {
 export function buildComputerUseInstructions(toolPrefix = 'computer_'): string {
   const t = (name: string) => `${toolPrefix}${name}`;
   return [
-    '## Управление компьютером',
-    `Тебе доступны инструменты ${toolPrefix}* — управление рабочим столом пользователя через ProjectHub. Порядок работы:`,
-    `1. Сначала структура, а не пиксели: ${t('list_windows')} или ${t('get_frontmost_app')}, затем ${t('get_ui_tree')} / ${t('find_element')} с window_id из списка окон.`,
-    `2. Действуй по элементам: ${t('click_element')}, ${t('set_value')}, ${t('press_button')}, ${t('select_menu_item')}. Приложение — ${t('open_application')} (на Windows имя процесса, например notepad.exe). Ввод текста и сочетания клавиш — ${t('type')} / ${t('key')} с target_app или target_window_id.`,
-    `3. ${t('screenshot')} — чтобы проверить результат или если дерево доступности пустое. Координаты с изображения передавай с coordinate_space: "screenshot", ProjectHub пересчитает их; bounds из дерева доступности уже экранные.`,
-    `4. Координатные клики (${t('left_click')} и подобные) — крайний случай.`,
-    '5. Действия вне разрешённых приложений, в файловых диалогах и опасные инструменты требуют подтверждения человека. Отказ, блокировку или kill-switch не обходи другими инструментами — остановись и сообщи пользователю.'
+    '## Computer control',
+    `You have the ${toolPrefix}* tools — control of the user desktop through ProjectHub. How to work:`,
+    `1. Structure first, not pixels: ${t('list_windows')} or ${t('get_frontmost_app')}, then ${t('get_ui_tree')} / ${t('find_element')} with a window_id from the window list.`,
+    `2. Act on elements: ${t('click_element')}, ${t('set_value')}, ${t('press_button')}, ${t('select_menu_item')}. To start an application — ${t('open_application')} (on Windows the process name, for example notepad.exe). Text input and key combinations — ${t('type')} / ${t('key')} with target_app or target_window_id.`,
+    `3. ${t('screenshot')} — to check the result or when the accessibility tree is empty. Pass coordinates taken from the image with coordinate_space: "screenshot", ProjectHub converts them; bounds from the accessibility tree are already in screen coordinates.`,
+    `4. Coordinate clicks (${t('left_click')} and similar) are the last resort.`,
+    '5. Actions outside allowed applications, in file dialogs and dangerous tools need human confirmation. Do not work around a refusal, a block or the kill switch with other tools — stop and tell the user.'
   ].join('\n');
 }
 
@@ -110,7 +110,7 @@ export function buildMemoryContextText(
   const lines: string[] = [];
   const hits = query.trim() ? searchMemoryFacts(query, facts, relevant).map((h) => h.fact) : [];
   if (hits.length > 0) {
-    lines.push('Относится к задаче:');
+    lines.push('Relevant to the task:');
     for (const f of hits) {
       const body = f.body.length > bodyMax ? `${f.body.slice(0, bodyMax).trimEnd()}…` : f.body;
       lines.push(`### ${f.id}: ${f.title}`, body, '');
@@ -118,11 +118,11 @@ export function buildMemoryContextText(
   }
   const rest = [...facts].reverse().filter((f) => !hits.includes(f));
   if (rest.length > 0) {
-    lines.push(hits.length > 0 ? 'Остальные факты (полный текст — memory_search или backlog/memory):' : 'Факты (полный текст — memory_search или backlog/memory):');
+    lines.push(hits.length > 0 ? 'Other facts (full text — memory_search or backlog/memory):' : 'Facts (full text — memory_search or backlog/memory):');
     for (const f of rest) lines.push(`- ${f.id}: ${f.title} — ${f.description}`);
   }
   if (toolPrefix) {
-    if (facts.length === 0) lines.push('Память проекта пока пуста.');
+    if (facts.length === 0) lines.push('Project memory is empty so far.');
     lines.push('', buildMemoryInstructions(toolPrefix));
   }
   return lines.join('\n').trim();
@@ -153,7 +153,7 @@ export function assembleContext(rawParts: RawPart[], maxChars: number): AgentCon
     const partCap = PART_MAX_CHARS[key];
     const cappedBudget = partCap !== undefined ? Math.min(budget, partCap) : budget;
     const fits = text.length <= cappedBudget;
-    const finalText = fits ? text : `${text.slice(0, cappedBudget).trimEnd()}\n…(обрезано)`;
+    const finalText = fits ? text : `${text.slice(0, cappedBudget).trimEnd()}\n…(truncated)`;
     if (!fits) truncatedKeys.push(key);
 
     parts.push({ key, label, text: finalText });
@@ -266,7 +266,7 @@ export async function buildAgentContext(options: AgentContextOptions): Promise<A
           ...(status.created ?? []),
           ...(status.deleted ?? [])
         ];
-        const lines = [`Ветка: ${status.current ?? 'unknown'}`, `Изменённых файлов: ${changed.length}`];
+        const lines = [`Branch: ${status.current ?? 'unknown'}`, `Changed files: ${changed.length}`];
         if (changed.length > 0) lines.push(changed.slice(0, 20).join('\n'));
         rawParts.push({ key: 'git', text: lines.join('\n') });
       }

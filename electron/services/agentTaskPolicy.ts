@@ -111,20 +111,20 @@ export function decideTaskCreate(input: {
 }): TaskCreateDecision {
   const limits = input.limits ?? AGENT_TASK_LIMITS;
   if (input.mode === 'deny') {
-    return { action: 'deny', reason: 'role-deny', message: 'Роли запрещено заводить задачи (permissions.taskCreate: deny). Опиши задачу в ответе — человек заведёт её сам.' };
+    return { action: 'deny', reason: 'role-deny', message: 'The role may not create tasks (permissions.taskCreate: deny). Describe the task in your answer — a human will create it.' };
   }
   if (input.sessionCount >= limits.perSession) {
     return {
       action: 'deny',
       reason: 'session-limit',
-      message: `Лимит: не больше ${limits.perSession} задач за сессию агента. Перечисли оставшиеся в ответе — человек решит, заводить ли их.`
+      message: `Limit: no more than ${limits.perSession} tasks per agent session. List the rest in your answer — a human will decide whether to create them.`
     };
   }
   if (input.dayCount >= limits.perProjectPerDay) {
     return {
       action: 'deny',
       reason: 'daily-limit',
-      message: `Лимит: агенты уже завели ${input.dayCount} задач в проекте за последние 24 часа (не больше ${limits.perProjectPerDay}). Подожди подтверждения человека.`
+      message: `Limit: agents have already created ${input.dayCount} tasks in the project in the last 24 hours (no more than ${limits.perProjectPerDay}). Wait for a human to confirm.`
     };
   }
   return input.mode === 'ask' ? { action: 'ask' } : { action: 'create-pending' };
@@ -184,7 +184,7 @@ const BACKLOG_CLI_RISKY_FLAG_RE = /(?:^|\s)(?:-a|--assignee|-l|--label|--labels|
  * заметки, критерии) не затрагивается; на назначение агента и метки — отказ.
  */
 export function autonomousTaskWriteViolation(tool: string, input: Record<string, unknown>): string | null {
-  const redirect = 'В автономном запуске задачи заводятся и меняются только инструментами ProjectHub task_create/task_update (decision-89).';
+  const redirect = 'In an autonomous run tasks are created and changed only with the ProjectHub tools task_create/task_update (decision-89).';
   if (/^mcp__backlog__(task_create|draft_)/i.test(tool)) return redirect;
   if (/^mcp__backlog__task_edit$/i.test(tool) && Object.keys(input).some((k) => /assignee|label/i.test(k))) return redirect;
 

@@ -62,7 +62,7 @@ export function isAttachmentRelPath(value: unknown): value is string {
 export function promptWithAttachments(text: string, paths: readonly string[]): string {
   const body = text.trim();
   if (paths.length === 0) return body;
-  const list = ['Вложения с телефона (файлы в проекте):', ...paths.map((p) => `- ${p}`)].join('\n');
+  const list = ['Attachments from the phone (files in the project):', ...paths.map((p) => `- ${p}`)].join('\n');
   return body ? `${body}\n\n${list}` : list;
 }
 
@@ -163,7 +163,7 @@ export async function writeAttachmentFile(projectPath: string, relPath: string, 
   const root = path.resolve(projectPath);
   const dirRoot = path.join(root, ...ATTACHMENT_DIR.split('/'));
   await fsp.mkdir(dirRoot, { recursive: true });
-  await fsp.writeFile(path.join(dirRoot, '.gitignore'), '# Вложения с телефона (ProjectHub) — не для git\n*\n', { flag: 'wx' }).catch(() => undefined);
+  await fsp.writeFile(path.join(dirRoot, '.gitignore'), '# Attachments from the phone (ProjectHub) — not for git\n*\n', { flag: 'wx' }).catch(() => undefined);
   const parsed = path.posix.parse(relPath);
   for (let i = 0; i < 100; i++) {
     const candidate = i === 0 ? relPath : `${parsed.dir}/${parsed.name}-${i}${parsed.ext}`;
