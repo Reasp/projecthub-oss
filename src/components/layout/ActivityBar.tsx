@@ -174,6 +174,8 @@ export const ActivityBar: React.FC = () => {
       className="w-12 h-full flex flex-col items-center bg-ph-chrome border-r border-ph-line shrink-0 select-none"
       aria-label={t.tabs.customizeTabs}
     >
+      {/* Место под светофор macOS (TASK-211): видно, только когда кнопки окна слева */}
+      <div className="titlebar-controls-spacer w-full shrink-0" aria-hidden />
       {/* Список проектов: показывает и прячет сайдбар (Ctrl+[) */}
       <button
         type="button"

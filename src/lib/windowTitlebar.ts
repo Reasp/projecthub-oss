@@ -1,9 +1,10 @@
 /**
- * Встроенный заголовок окна (TASK-210): системной полосы нет, кнопки окна Windows и Linux рисуются поверх шапки
- * (`titleBarOverlay`). Окно узнаёт их место из Window Controls Overlay и отдаёт его CSS: класс `titlebar-overlay`
- * у `<html>` включает перетаскивание за шапку, переменные `--titlebar-inset-*` — отступ под кнопки окна.
+ * Встроенный заголовок окна (TASK-210): системной полосы нет, кнопки окна рисуются поверх шапки (`titleBarOverlay`):
+ * справа на Windows и Linux, светофор слева на macOS (TASK-211). Окно узнаёт их место из Window Controls Overlay и
+ * отдаёт его CSS: класс `titlebar-overlay` у `<html>` включает перетаскивание за шапку, переменные `--titlebar-inset-*`
+ * — отступ под кнопки окна, класс `titlebar-controls-left` — место под светофор в Activity Bar.
  *
- * Без overlay (macOS, браузерный стенд, старый Chromium) ничего не меняется: шапка не перетаскивает окно.
+ * Без overlay (полноэкранный режим, браузерный стенд, старый Chromium) ничего не меняется: шапка не перетаскивает окно.
  */
 
 interface TitlebarOverlay extends EventTarget {
@@ -24,13 +25,15 @@ export function installTitlebarOverlay(root: HTMLElement = document.documentElem
   if (!overlay) return () => undefined;
   const apply = () => {
     if (!overlay.visible) {
-      root.classList.remove('titlebar-overlay');
+      root.classList.remove('titlebar-overlay', 'titlebar-controls-left');
       root.style.removeProperty('--titlebar-inset-left');
       root.style.removeProperty('--titlebar-inset-right');
       return;
     }
     const insets = titlebarInsets(overlay.getTitlebarAreaRect(), window.innerWidth);
     root.classList.add('titlebar-overlay');
+    // Кнопки окна слева (светофор macOS, TASK-211): Activity Bar опускает значки под шапку.
+    root.classList.toggle('titlebar-controls-left', insets.left > 0);
     root.style.setProperty('--titlebar-inset-left', `${insets.left}px`);
     root.style.setProperty('--titlebar-inset-right', `${insets.right}px`);
   };

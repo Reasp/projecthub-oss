@@ -29,6 +29,25 @@
     -webkit-app-region: no-drag;
   }
 
+  /*
+    Кнопки окна слева — светофор macOS (TASK-211). Activity Bar шириной 3rem получает сверху пустую перетаскиваемую
+    полосу высотой шапки, а первый заголовок справа от него — отступ на ту часть светофора, что не поместилась над
+    Activity Bar.
+  */
+  .titlebar-controls-spacer {
+    display: none;
+  }
+
+  .titlebar-controls-left .titlebar-controls-spacer {
+    display: block;
+    height: 2.5rem;
+    -webkit-app-region: drag;
+  }
+
+  .titlebar-leading {
+    padding-left: calc(max(0px, var(--titlebar-inset-left, 0px) - 3rem) + var(--titlebar-leading-base, 1rem));
+  }
+
   /* Видимый фокус с клавиатуры, как focusBorder в VS Code. Мышью рамка не появляется. */
   button:focus-visible,
   [role='tab']:focus-visible,

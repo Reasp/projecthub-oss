@@ -129,7 +129,7 @@ export const Sidebar: React.FC = () => {
     <>
       <aside className="w-72 h-full flex flex-col bg-ph-chrome border-r border-ph-line shrink-0 select-none">
         {/* Заголовок секции с панелью действий */}
-        <div className="app-titlebar h-10 pl-4 pr-2 flex items-center justify-between shrink-0">
+        <div className="app-titlebar titlebar-leading h-10 pr-2 flex items-center justify-between shrink-0">
           <h1 className="ph-section-title truncate">{t.sidebar.title}</h1>
           <div className="flex items-center">
             <button onClick={() => openRemoteHosts()} title={t.federation.title} className="ph-icon-button relative">

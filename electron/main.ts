@@ -260,6 +260,8 @@ function checkRebuilt(): void {
  * высота — шапки рабочей области (`h-10`).
  */
 const TITLE_BAR_OVERLAY = { color: '#18181b', symbolColor: '#9c9ca3', height: 40 };
+/** Светофор macOS по центру шапки высотой 40 px: кнопки высотой ~14 px (TASK-211). */
+const MAC_TRAFFIC_LIGHTS = { x: 14, y: 13 };
 
 function createWindow() {
   const distPath = path.join(__dirname, '../dist');
@@ -288,8 +290,11 @@ function createWindow() {
     minHeight: WINDOW_MIN_SIZE.height,
     backgroundColor: '#0f1117',
     autoHideMenuBar: true,
-    // Встроенный заголовок (TASK-210): шапка окна — заголовок, кнопки окна рисуются поверх неё. macOS — пока системный.
-    ...(process.platform === 'darwin' ? {} : { titleBarStyle: 'hidden' as const, titleBarOverlay: TITLE_BAR_OVERLAY }),
+    // Встроенный заголовок (TASK-210): шапка окна — заголовок, кнопки окна рисуются поверх неё. На macOS (TASK-211) —
+    // светофор в шапке; titleBarOverlay включает Window Controls Overlay, и окно получает отступ под светофор слева.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, titleBarOverlay: { height: TITLE_BAR_OVERLAY.height }, trafficLightPosition: MAC_TRAFFIC_LIGHTS }
+      : { titleBarStyle: 'hidden' as const, titleBarOverlay: TITLE_BAR_OVERLAY }),
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
