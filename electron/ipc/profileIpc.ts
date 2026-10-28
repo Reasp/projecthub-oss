@@ -1,6 +1,6 @@
 import { app, dialog, ipcMain } from 'electron';
 import { PROFILE_FILE_EXTENSION, profileSectionList as sectionList } from '../services/profileFormat';
-import { cloneProfileProject, profileService, setProfileAppVersion, type ProfileHostCall } from '../services/profileService';
+import { addProfileReloader, cloneProfileProject, profileService, setProfileAppVersion, type ProfileHostCall } from '../services/profileService';
 import { federationClientService } from '../services/federationClientService';
 import { getHostLanguage } from '../services/hostLanguage';
 import { hostText } from '../i18n/hostText';
@@ -18,6 +18,9 @@ function hostCall(hostId: string): ProfileHostCall {
 
 export function registerProfileIpc(ctx: IpcContext) {
   setProfileAppVersion(app.getVersion());
+  addProfileReloader(async (applied) => {
+    if (applied.includes('notifications')) await (await import('../services/notificationService')).notificationService.init();
+  });
 
   ipcMain.handle('profile:export', async (_event, password: unknown, sections?: unknown) => {
     if (typeof password !== 'string') return { canceled: true };

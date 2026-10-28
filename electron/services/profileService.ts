@@ -353,6 +353,13 @@ export function setProfileAppVersion(version: string): void {
   appVersion = version;
 }
 
+const extraReloaders: Array<(applied: ProfileSectionId[]) => unknown> = [];
+
+/** Дополнительное перечитывание после применения профиля — для сервисов, которых нет в ph-agent. */
+export function addProfileReloader(reload: (applied: ProfileSectionId[]) => unknown): void {
+  extraReloaders.push(reload);
+}
+
 /** Перечитать сервисы, которые держат разделы профиля в памяти. Импорт — по требованию: без циклов загрузки модулей. */
 async function reloadSections(applied: ProfileSectionId[]): Promise<void> {
   const has = (id: ProfileSectionId) => applied.includes(id);
@@ -362,7 +369,8 @@ async function reloadSections(applied: ProfileSectionId[]): Promise<void> {
   if (has('agentPricing')) tasks.push(import('./pricingService.js').then((m) => m.pricingService.reload()));
   if (has('llmModelCatalog')) tasks.push(import('./llmModelCatalogService.js').then((m) => m.llmModelCatalogService.invalidate()));
   if (has('connections')) tasks.push(import('./connectionServiceInstance.js').then((m) => m.connectionService.invalidate()));
-  if (has('notifications')) tasks.push(import('./notificationService.js').then((m) => m.notificationService.init()));
+  // Сервисы окна (уведомления держат трей) подключает IPC окна: у ph-agent их нет (decision-119 п. 2).
+  for (const reload of extraReloaders) tasks.push(Promise.resolve().then(() => reload(applied)));
   if (has('uiLanguage')) {
     tasks.push(
       fs
