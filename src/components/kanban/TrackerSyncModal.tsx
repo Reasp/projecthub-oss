@@ -423,7 +423,7 @@ const RunJournal: React.FC<{ summary: TrackerRunSummary }> = ({ summary }) => {
         <ul className="max-h-56 overflow-y-auto space-y-0.5 font-mono text-[11px]">
           {summary.entries.map((e, i) => (
             <li key={i} className={KIND_CLASS[e.kind] ?? 'text-slate-300'}>
-              {ts.kinds[e.kind]}: {e.taskId ?? ''}
+              {ts.kinds[e.kind]}: {e.taskId ?? (e.kind === 'import' ? `(${ts.newTask})` : '')}
               {e.externalId ? ` #${e.externalId}` : ''}
               {e.title ? ` «${e.title}»` : ''}
               {e.fields?.length ? ` [${e.fields.map((f) => ts.fields[f]).join(', ')}]` : ''}

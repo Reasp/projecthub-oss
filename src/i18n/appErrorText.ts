@@ -389,6 +389,7 @@ const EN = {
   'tracker.disabled': 'Sync is disabled in the project settings',
   'tracker.taskFileNotFound': 'The file of task {id} was not found',
   'tracker.taskCreateFailed': 'Could not create the task file',
+  'tracker.duplicateLink': 'Tracker task {id} is linked from several tasks ({tasks}); it is not synced until the link stays in one of them',
   // Синхронизация задач с внешним трекером (TASK-128, decision-103).
   'tracker.conflict': '{winner} won; overwritten: {lost}',
   'tracker.conflictNoBase': '{winner} won, no base; overwritten: {lost}',
@@ -1324,6 +1325,7 @@ export const appErrorTextRu: AppErrorLabels = {
   'tracker.disabled': 'Синхронизация выключена в настройках проекта',
   'tracker.taskFileNotFound': 'Файл задачи {id} не найден',
   'tracker.taskCreateFailed': 'Не удалось создать файл задачи',
+  'tracker.duplicateLink': 'Задача трекера {id} связана с несколькими задачами ({tasks}); она не синхронизируется, пока ссылка не останется в одной',
   'tracker.conflict': 'победил {winner}; перезаписано: {lost}',
   'tracker.conflictNoBase': 'победил {winner}, без базы; перезаписано: {lost}',
   'hosting.response': '{detail}',

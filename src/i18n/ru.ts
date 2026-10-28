@@ -4246,9 +4246,11 @@ export const ru: TranslationDictionary = {
       conflict: 'конфликт',
       missingRemote: 'нет в трекере',
       missingLocal: 'нет в проекте',
+      relinked: 'ссылка обновлена',
       unmappedStatus: 'статус без соответствия',
       error: 'ошибка'
     },
+    newTask: 'новая',
     fields: { title: 'заголовок', description: 'описание', status: 'статус' }
   },
   connections: {

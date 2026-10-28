@@ -17,9 +17,11 @@ import { AppError } from '../../src/lib/appError.js';
 export interface LocalTaskFile extends LocalTaskInfo {
   filePath: string;
   references: string[];
+  /** Задача в `backlog/archive/tasks`: не синхронизируется, но её ссылки считаются занятыми — без повторного импорта. */
+  archived?: boolean;
 }
 
-const TASK_DIRS = ['tasks', 'completed'];
+const TASK_DIRS: Array<{ sub: string; archived?: boolean }> = [{ sub: 'tasks' }, { sub: 'completed' }, { sub: path.join('archive', 'tasks'), archived: true }];
 
 const fmString = (value: unknown): string | undefined => {
   if (value === undefined || value === null || value === '') return undefined;
@@ -63,7 +65,7 @@ export async function projectStatuses(root: string): Promise<string[]> {
 /** Задачи проекта; `parseLink` выбирает из `references` ссылки своего адаптера. */
 export async function readLocalTasks(root: string, parseLink: (ref: string) => string | null): Promise<LocalTaskFile[]> {
   const out: LocalTaskFile[] = [];
-  for (const sub of TASK_DIRS) {
+  for (const { sub, archived } of TASK_DIRS) {
     const dir = path.join(root, 'backlog', sub);
     if (!existsSync(dir)) continue;
     for (const name of await fs.readdir(dir)) {
@@ -82,7 +84,8 @@ export async function readLocalTasks(root: string, parseLink: (ref: string) => s
           links: references.map((r) => parseLink(r)).filter((id): id is string => Boolean(id)),
           references,
           parentTaskId: fmString(data.parent_task_id),
-          filePath
+          filePath,
+          ...(archived ? { archived } : {})
         });
       } catch {
         // битый файл задачи не прячет остальные
@@ -107,22 +110,27 @@ async function writeAtomic(file: string, body: string): Promise<void> {
 /** Изменить поля задачи и добавить ссылку на внешнюю задачу. Остальные поля и разделы файла не трогаются. */
 export async function updateLocalTaskFile(
   filePath: string,
-  change: { fields?: Partial<FieldValues>; addReference?: string }
+  change: { fields?: Partial<FieldValues>; addReference?: string; dropReference?: (ref: string) => boolean }
 ): Promise<void> {
   const { eol, data, content } = parseFile(await fs.readFile(filePath, 'utf-8'));
   let body = content;
   if (change.fields?.title !== undefined) data.title = sanitizeRemoteTitle(change.fields.title);
   if (change.fields?.status !== undefined) data.status = change.fields.status;
   if (change.fields?.description !== undefined) body = applyDescription(body, sanitizeRemoteDescription(change.fields.description));
-  if (change.addReference) {
+  if (change.addReference || change.dropReference) {
+    // Прежняя ссылка (старый адрес переименованного репозитория) убирается, новая добавляется в конец списка.
     const refs = fmList(data.references);
-    if (!refs.includes(change.addReference)) data.references = [...refs, change.addReference];
+    const kept = change.dropReference ? refs.filter((r) => !change.dropReference!(r)) : refs;
+    data.references = change.addReference && !kept.includes(change.addReference) ? [...kept, change.addReference] : kept;
   }
   const text = matter.stringify(body, normalizeFrontmatter(withUpdatedDate(data)));
   await writeAtomic(filePath, eol === '\n' ? text : text.replace(/\n/g, eol));
 }
 
-/** Новая задача из внешней: файл Backlog.md, статус по таблице, ссылка в `references`. */
+/**
+ * Новая задача из внешней: файл Backlog.md, статус по таблице, ссылка в `references` — одной записью файла, чтобы
+ * сбой не оставил задачу без ссылки (её импортировали бы снова).
+ */
 export async function createLocalTaskFromRemote(
   root: string,
   input: { title: string; description: string; status: string; reference: string; parentTaskId?: string; labels?: string[] }
@@ -131,9 +139,10 @@ export async function createLocalTaskFromRemote(
     title: sanitizeRemoteTitle(input.title),
     description: sanitizeRemoteDescription(input.description),
     labels: input.labels ?? [],
+    status: input.status,
+    references: [input.reference],
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {})
   });
   if (!created) throw new AppError('tracker.taskCreateFailed');
-  await updateLocalTaskFile(created.filePath, { fields: { status: input.status }, addReference: input.reference });
   return { id: created.id, filePath: created.filePath };
 }

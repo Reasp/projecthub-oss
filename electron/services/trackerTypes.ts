@@ -78,6 +78,8 @@ export type TrackerJournalKind =
   | 'conflict'
   | 'missingRemote'
   | 'missingLocal'
+  /** Внешняя задача сменила id (переименован репозиторий, ключ команды) или ссылка восстановлена по базе — ссылка переписана. */
+  | 'relinked'
   | 'unmappedStatus'
   | 'error';
 

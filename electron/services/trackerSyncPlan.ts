@@ -56,6 +56,10 @@ export type PlanAction =
   | { kind: 'base'; externalId: string; taskId: string; local: FieldValues; remote: FieldValues }
   | { kind: 'missingRemote'; externalId: string; taskId: string; title: string }
   | { kind: 'missingLocal'; externalId: string; taskId: string }
+  /** Задача из базы есть, но ссылки в ней нет (сбой между созданием во внешнем трекере и записью ссылки) — вернуть ссылку. */
+  | { kind: 'relink'; externalId: string; taskId: string; url?: string }
+  /** Одна внешняя задача в `references` нескольких задач: пара не сверяется, пока ссылка не останется в одной. */
+  | { kind: 'duplicateLink'; externalId: string; taskIds: string[] }
   | { kind: 'unmappedStatus'; externalId?: string; taskId?: string; status: string; side: 'local' | 'remote' };
 
 export interface PlanInput {
@@ -243,12 +247,23 @@ export function planPair(
 export function planSync(input: PlanInput): PlanAction[] {
   const mapping = buildStatusMapping(input.localStatuses, input.remoteStatuses, input.config.statusMap);
   const remoteById = new Map(input.remote.map((t) => [t.id, t]));
+  const holders = new Map<string, LocalTaskInfo[]>();
+  for (const task of input.local) {
+    for (const id of new Set(task.links)) holders.set(id, [...(holders.get(id) ?? []), task]);
+  }
   const linked = new Map<string, LocalTaskInfo>();
-  for (const task of input.local) for (const id of task.links) if (!linked.has(id)) linked.set(id, task);
+  for (const [id, tasks] of holders) linked.set(id, tasks[0]);
+  const localById = new Map(input.local.map((t) => [t.id, t]));
 
   const actions: PlanAction[] = [];
 
   for (const [externalId, local] of linked) {
+    const all = holders.get(externalId)!;
+    if (all.length > 1) {
+      // Какую из задач считать парой — решает человек; молча брать первую нельзя.
+      actions.push({ kind: 'duplicateLink', externalId, taskIds: all.map((t) => t.id) });
+      continue;
+    }
     const remote = remoteById.get(externalId);
     if (!remote) {
       actions.push({ kind: 'missingRemote', externalId, taskId: local.id, title: local.title });
@@ -269,7 +284,13 @@ export function planSync(input: PlanInput): PlanAction[] {
     if (linked.has(remote.id)) continue;
     const known = input.base[remote.id];
     if (known) {
-      actions.push({ kind: 'missingLocal', externalId: remote.id, taskId: known.taskId });
+      const local = localById.get(known.taskId);
+      if (local && local.links.length === 0) {
+        actions.push({ kind: 'relink', externalId: remote.id, taskId: local.id, ...(remote.url ? { url: remote.url } : {}) });
+        actions.push(...planPair(remote.id, local, remote, known, mapping, input.config.conflictPolicy));
+      } else {
+        actions.push({ kind: 'missingLocal', externalId: remote.id, taskId: known.taskId });
+      }
       continue;
     }
     if (!input.config.importClosed && isClosedType(remote.statusType)) continue;
@@ -281,8 +302,10 @@ export function planSync(input: PlanInput): PlanAction[] {
 
   const label = lc(input.config.exportLabel ?? '');
   if (label) {
+    // Задача из базы уже выгружалась: без ссылки она после сбоя записи, вторая копия в трекере не нужна.
+    const exported = new Set(Object.values(input.base).map((b) => b.taskId));
     for (const local of input.local) {
-      if (local.links.length > 0 || !local.labels.some((l) => lc(l) === label)) continue;
+      if (local.links.length > 0 || exported.has(local.id) || !local.labels.some((l) => lc(l) === label)) continue;
       actions.push({ kind: 'export', local, remoteStatus: mapping.toRemote(local.status) });
     }
   }

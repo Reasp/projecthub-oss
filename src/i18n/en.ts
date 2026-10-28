@@ -4245,9 +4245,11 @@ export const en: TranslationDictionary = {
       conflict: 'conflict',
       missingRemote: 'missing in tracker',
       missingLocal: 'missing in project',
+      relinked: 'link updated',
       unmappedStatus: 'unmapped status',
       error: 'error'
     },
+    newTask: 'new',
     fields: { title: 'title', description: 'description', status: 'status' }
   },
   connections: {

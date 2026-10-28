@@ -40,6 +40,8 @@ export const PROJECT_CONFIG_PATH = path.join('.projecthub', 'tracker-sync.json')
 export const STATE_DIR_NAME = 'tracker-sync';
 const MAX_RUNS = 20;
 const MAX_ENTRIES = 300;
+/** Сколько пропавших из списка задач за запуск проверить запросом: не переехали ли они (переименование). */
+const MAX_MOVED_LOOKUPS = 20;
 const SCHEDULER_TICK_MS = 60_000;
 
 export interface TrackerSyncDeps {
@@ -148,7 +150,7 @@ export class TrackerSyncService {
   private readonly deps: TrackerSyncDeps;
   private readonly states = new Map<string, TrackerSyncLocalState>();
   private readonly configs = new Map<string, TrackerSyncConfig>();
-  private readonly running = new Map<string, Promise<TrackerRunSummary>>();
+  private readonly running = new Map<string, { dryRun: boolean; job: Promise<TrackerRunSummary> }>();
   private timer: NodeJS.Timeout | null = null;
 
   constructor(deps: TrackerSyncDeps) {
@@ -291,9 +293,16 @@ export class TrackerSyncService {
   private execute(projectPath: string, dryRun: boolean): Promise<TrackerRunSummary> {
     const key = path.resolve(projectPath);
     const pending = this.running.get(key);
-    if (pending) return pending;
+    // Тот же режим уже идёт — его итог. Другой (запуск во время предпросмотра) — после него, а не итог предпросмотра.
+    if (pending) {
+      if (pending.dryRun === dryRun) return pending.job;
+      return pending.job.then(
+        () => this.execute(projectPath, dryRun),
+        () => this.execute(projectPath, dryRun)
+      );
+    }
     const job = this.runOnce(key, dryRun).finally(() => this.running.delete(key));
-    this.running.set(key, job);
+    this.running.set(key, { dryRun, job });
     return job;
   }
 
@@ -329,26 +338,32 @@ export class TrackerSyncService {
     let actions: PlanAction[];
     const localById = new Map<string, Awaited<ReturnType<typeof readLocalTasks>>[number]>();
     let localStatuses: string[];
+    const remoteIds = new Set<string>();
+    // Связь «внешний id → локальный id» для подзадач: уже связанные и созданные в этом запуске.
+    const localOf = new Map<string, string>();
     try {
-      const [remoteStatuses, remote, local] = await Promise.all([
+      const [remoteStatuses, remoteAll, all] = await Promise.all([
         adapter.getStatuses(http, config.target),
         adapter.listTasks(http, config.target),
         readLocalTasks(projectPath, (ref) => adapter.parseLink(ref, link))
       ]);
       localStatuses = await projectStatuses(projectPath);
+      // Архивная задача не синхронизируется, но её внешняя задача занята — иначе её импортировали бы заново.
+      const archivedLinks = new Set(all.filter((t) => t.archived).flatMap((t) => t.links));
+      const local = all.filter((t) => !t.archived);
+      const remote = remoteAll.filter((r) => !archivedLinks.has(r.id));
+      for (const t of all) for (const id of t.links) localOf.set(id, t.id);
       for (const t of local) localById.set(t.id, t);
+      for (const r of remote) remoteIds.add(r.id);
       actions = planSync({ local, remote, base: state.base, config, localStatuses, remoteStatuses });
     } catch (err) {
       return finish(false, err, state);
     }
 
-    // Связь «внешний id → локальный id» для подзадач: уже связанные и созданные в этом запуске.
-    const localOf = new Map<string, string>();
-    for (const t of localById.values()) for (const id of t.links) localOf.set(id, t.id);
-
+    const lookups = { left: MAX_MOVED_LOOKUPS };
     for (const action of actions) {
       try {
-        await this.apply(action, { projectPath, dryRun, state, adapter, http, link, config, localById, localOf, localStatuses, entries });
+        await this.apply(action, { projectPath, dryRun, state, adapter, http, link, config, localById, localOf, localStatuses, entries, remoteIds, lookups });
       } catch (err) {
         if (err instanceof ConnectionAuthError) {
           entries.push({ kind: 'error', ...errorDetail(err) });
@@ -376,6 +391,9 @@ export class TrackerSyncService {
       localOf: Map<string, string>;
       localStatuses: string[];
       entries: TrackerJournalEntry[];
+      /** id задач трекера из списка этого запуска. */
+      remoteIds: Set<string>;
+      lookups: { left: number };
     }
   ): Promise<void> {
     const { state, adapter, http, entries, dryRun } = c;
@@ -388,11 +406,46 @@ export class TrackerSyncService {
       case 'base':
         setBase(action.externalId, action.taskId, action.local, action.remote);
         return;
-      case 'missingRemote':
+      case 'missingRemote': {
+        // Переименование репозитория GitHub или ключа команды Linear меняет id: сервис находит задачу по старому id
+        // (редирект, прежний идентификатор) и отдаёт новый — ссылка переписывается вместо повторного импорта.
+        const moved = await this.movedTask(action.externalId, c);
+        if (moved) {
+          const file = c.localById.get(action.taskId);
+          if (!file) throw new AppError('tracker.taskFileNotFound', { id: action.taskId });
+          if (!dryRun) {
+            await updateLocalTaskFile(file.filePath, {
+              dropReference: (ref) => adapter.parseLink(ref, c.link) === action.externalId,
+              addReference: adapter.linkFor(moved.id, { ...c.link, url: moved.url })
+            });
+            const base = state.base[action.externalId];
+            if (base) state.base[moved.id] = base;
+            delete state.base[action.externalId];
+          }
+          c.localOf.set(moved.id, action.taskId);
+          entries.push({ kind: 'relinked', taskId: action.taskId, externalId: moved.id, title: clip(action.title), detail: action.externalId });
+          return;
+        }
         entries.push({ kind: 'missingRemote', taskId: action.taskId, externalId: action.externalId, title: clip(action.title) });
         return;
+      }
       case 'missingLocal':
         entries.push({ kind: 'missingLocal', taskId: action.taskId, externalId: action.externalId });
+        return;
+      case 'relink': {
+        const file = c.localById.get(action.taskId);
+        if (!file) throw new AppError('tracker.taskFileNotFound', { id: action.taskId });
+        if (!dryRun) await updateLocalTaskFile(file.filePath, { addReference: adapter.linkFor(action.externalId, { ...c.link, ...(action.url ? { url: action.url } : {}) }) });
+        c.localOf.set(action.externalId, action.taskId);
+        entries.push({ kind: 'relinked', taskId: action.taskId, externalId: action.externalId, title: clip(file.title) });
+        return;
+      }
+      case 'duplicateLink':
+        entries.push({
+          kind: 'error',
+          externalId: action.externalId,
+          ...errorDetail(new AppError('tracker.duplicateLink', { id: action.externalId, tasks: action.taskIds.join(', ') }))
+        });
         return;
       case 'unmappedStatus':
         entries.push({
@@ -437,8 +490,11 @@ export class TrackerSyncService {
       case 'import': {
         const r = action.remote;
         const status = action.localStatus ?? c.localStatuses[0] ?? 'To Do';
+        // Уже связана в этом запуске: задача переехала (переименование) и ссылка переписана выше.
+        if (c.localOf.has(r.id)) return;
         const parentTaskId = r.parentId ? c.localOf.get(r.parentId) : undefined;
-        let taskId = '(новая)';
+        // Номер новой задачи выдаётся при записи: в предпросмотре его нет, окно пишет «новая».
+        let taskId: string | undefined;
         if (!dryRun) {
           const created = await createLocalTaskFromRemote(c.projectPath, {
             title: r.title,
@@ -451,7 +507,7 @@ export class TrackerSyncService {
           c.localOf.set(r.id, created.id);
           setBase(r.id, created.id, asWritten({ title: r.title, description: r.description, status }), remoteFields(r));
         }
-        entries.push({ kind: 'import', taskId, externalId: r.id, title: clip(r.title) });
+        entries.push({ kind: 'import', ...(taskId ? { taskId } : {}), externalId: r.id, title: clip(r.title) });
         return;
       }
       case 'export': {
@@ -470,14 +526,38 @@ export class TrackerSyncService {
             ...(parentExternal ? { parentId: parentExternal } : {})
           });
           externalId = created.id;
+          // База — на диск сразу после создания во внешнем трекере: если запись ссылки в файл сорвётся, следующий
+          // запуск вернёт ссылку по базе (`relink`), а не выгрузит задачу второй раз.
+          setBase(created.id, l.id, { title: l.title, description: l.description, status: l.status }, remoteFields(created));
+          await this.saveState(state);
           await updateLocalTaskFile(file.filePath, { addReference: adapter.linkFor(created.id, { ...c.link, url: created.url }) });
           c.localOf.set(created.id, l.id);
-          setBase(created.id, l.id, { title: l.title, description: l.description, status: l.status }, remoteFields(created));
         }
         entries.push({ kind: 'export', taskId: l.id, ...(externalId ? { externalId } : {}), title: clip(l.title) });
         return;
       }
     }
+  }
+
+  /**
+   * Новая версия пропавшей из списка задачи: сервис нашёл её по старому id и вернул другой id, который есть в списке
+   * этого запуска и ещё ни с чем не связан. Ошибки поиска (кроме входа) — не переезд.
+   */
+  private async movedTask(
+    oldId: string,
+    c: { adapter: TrackerAdapter; http: TrackerHttp; remoteIds: Set<string>; localOf: Map<string, string>; lookups: { left: number } }
+  ): Promise<RemoteTask | null> {
+    if (c.lookups.left <= 0) return null;
+    c.lookups.left -= 1;
+    let found: RemoteTask | null;
+    try {
+      found = await c.adapter.getTask(c.http, oldId);
+    } catch (err) {
+      if (err instanceof ConnectionAuthError) throw err;
+      return null;
+    }
+    if (!found || found.id === oldId || !c.remoteIds.has(found.id) || c.localOf.has(found.id)) return null;
+    return found;
   }
 
   /** Какие проекты используют подключения — для окна «Подключения» (decision-102 п. 7). */

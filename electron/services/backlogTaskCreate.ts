@@ -25,18 +25,32 @@ export interface CreateBacklogTaskInput {
   assignee?: string[];
   /** Автор (`reporter`, нативное поле Backlog.md): у задач агентов — `agent:<роль>` (decision-89). */
   reporter?: string;
+  /** Статус новой задачи; по умолчанию `To Do`. */
+  status?: string;
+  /** Ссылки (`references`, нативное поле Backlog.md) — например, на задачу внешнего трекера. */
+  references?: string[];
 }
 
 export interface CreatedBacklogTask {
   id: string;
   title: string;
-  status: 'To Do';
+  status: string;
   labels: string[];
   milestone?: string;
   created: string;
   filePath: string;
   description: string;
   acceptanceCriteria: ReturnType<typeof parseTaskBody>['criteria'];
+}
+
+/** Предел части имени файла из заголовка: длинный заголовок (из трекера, от агента) давал ENAMETOOLONG на Windows. */
+export const TASK_FILE_SLUG_MAX = 80;
+
+/** Часть имени файла задачи из заголовка, не длиннее `TASK_FILE_SLUG_MAX`; полный заголовок остаётся во frontmatter. */
+export function taskFileSlug(title: string): string {
+  const slug = sanitizeTaskFileTitle(title);
+  const cut = slug.length > TASK_FILE_SLUG_MAX ? slug.slice(0, TASK_FILE_SLUG_MAX).replace(/[-_.]+$/, '') : slug;
+  return cut || 'task';
 }
 
 /**
@@ -56,15 +70,16 @@ export async function createBacklogTaskFile(projectPath: string, task: CreateBac
     const parentNumber = task.parentTaskId ? taskNumberFromName(task.parentTaskId) : null;
     const id = await allocateBacklogId(projectPath, 'task', parentNumber !== null ? { parentTaskId: `TASK-${parentNumber}` } : {});
     const number = id.slice('TASK-'.length);
-    const fileName = `task-${number} - ${sanitizeTaskFileTitle(task.title) || 'task'}.md`;
+    const fileName = `task-${number} - ${taskFileSlug(task.title)}.md`;
     const fullPath = path.join(tasksDir, fileName);
     const createdDate = nowBacklogTimestamp();
     const labels = task.labels || [];
+    const status = task.status?.trim() || 'To Do';
 
     const frontmatter: Record<string, unknown> = {
       id,
       title: task.title,
-      status: 'To Do',
+      status,
       assignee: task.assignee ?? [],
       ...(task.reporter ? { reporter: task.reporter } : {}),
       created_date: createdDate,
@@ -73,6 +88,7 @@ export async function createBacklogTaskFile(projectPath: string, task: CreateBac
       ...(task.parentTaskId ? { parent_task_id: task.parentTaskId } : {}),
       ...(task.milestone ? { milestone: task.milestone } : {}),
       ...(task.priority ? { priority: task.priority } : {}),
+      ...(task.references?.length ? { references: task.references } : {}),
       type: task.type || 'task'
     };
 
@@ -86,7 +102,7 @@ export async function createBacklogTaskFile(projectPath: string, task: CreateBac
     return {
       id,
       title: task.title,
-      status: 'To Do',
+      status,
       labels,
       milestone: task.milestone,
       created: createdDate,

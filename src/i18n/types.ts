@@ -3855,7 +3855,9 @@ export interface TranslationDictionary {
     journalPreview: string;
     journalRun: string;
     noChanges: string;
-    kinds: Record<'import' | 'export' | 'push' | 'pull' | 'conflict' | 'missingRemote' | 'missingLocal' | 'unmappedStatus' | 'error', string>;
+    kinds: Record<'import' | 'export' | 'push' | 'pull' | 'conflict' | 'missingRemote' | 'missingLocal' | 'relinked' | 'unmappedStatus' | 'error', string>;
+    /** Импорт в предпросмотре: номер задачи появится при записи. */
+    newTask: string;
     fields: Record<'title' | 'description' | 'status', string>;
   };
   /** Окно «Подключения» (TASK-138.1, decision-102). */

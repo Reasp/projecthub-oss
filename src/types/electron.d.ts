@@ -2803,7 +2803,7 @@ export interface ConnectionRemoveResult {
 // ─────────────────── Синхронизация с трекерами (TASK-128, decision-103) — зеркало electron/services/trackerTypes.ts ───────────────────
 
 export type TrackerField = 'title' | 'description' | 'status';
-export type TrackerJournalKind = 'import' | 'export' | 'push' | 'pull' | 'conflict' | 'missingRemote' | 'missingLocal' | 'unmappedStatus' | 'error';
+export type TrackerJournalKind = 'import' | 'export' | 'push' | 'pull' | 'conflict' | 'missingRemote' | 'missingLocal' | 'relinked' | 'unmappedStatus' | 'error';
 
 export interface RemoteStatus {
   name: string;
