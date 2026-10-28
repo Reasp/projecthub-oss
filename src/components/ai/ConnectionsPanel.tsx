@@ -4,7 +4,7 @@ import type { AIProviderConfig, LlmProfileView, LlmProviderPreset } from '../../
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
-import { addOptionGroups, hasAnthropicKey, legacyIcon, legacyProviderOf, presetIcon, type AddOption } from '../../lib/connections';
+import { addOptionGroups, hasAnthropicKey, legacyIcon, legacyMigratedPatch, legacyProviderOf, presetIcon, type AddOption } from '../../lib/connections';
 import { CLI_ENGINE_ENV, CLI_ENGINE_NAME } from '../../lib/cliAccountEngines';
 import { ClaudeAccountRow, ClaudeAccountWarnings, cleanIpcError, useClaudeAccountActions } from './ClaudeAccountParts';
 import { ConnectionRow, connectionBadge } from './ConnectionRow';
@@ -95,7 +95,7 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ form, onForm
     try {
       const profile = await window.api.importLegacyLlmProfile(legacy);
       await reloadProfiles();
-      onFormChange({ provider: 'openai-compatible', profileId: profile.id, engine: undefined });
+      onFormChange(legacyMigratedPatch(profile.id));
     } catch (err) {
       setError(cleanIpcError(err));
     } finally {

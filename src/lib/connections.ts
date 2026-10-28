@@ -92,10 +92,18 @@ export function addOptionGroups(presets: Pick<LlmProviderPreset, 'id' | 'name' |
 export function defaultModelPatch(
   form: Pick<AIProviderConfig, 'provider' | 'apiKey' | 'engine'>,
   selection: Pick<AIProviderConfig, 'provider' | 'profileId' | 'model'>
-): Pick<AIProviderConfig, 'provider' | 'profileId' | 'model' | 'engine'> {
+): Pick<AIProviderConfig, 'provider' | 'profileId' | 'model' | 'engine' | 'apiKey' | 'baseUrl'> {
+  // Уход со старого провайдера: его ключ и адрес не остаются в поле (ревью TASK-172) — иначе ключ OpenRouter
+  // считался бы ключом Anthropic и уходил на api.anthropic.com при переключении на API.
+  const dropLegacy = legacyProviderOf(form) && selection.provider !== form.provider ? { apiKey: '', baseUrl: undefined } : {};
   if (selection.provider === 'anthropic') {
-    // С другого провайдера — подписка: ключ мог остаться в поле, но API-путь включается только явно.
-    return { provider: 'anthropic', profileId: undefined, model: selection.model, engine: claudeEngineOf(form) };
+    // С другого провайдера — подписка: API-путь включается только явно.
+    return { provider: 'anthropic', profileId: undefined, model: selection.model, engine: claudeEngineOf(form), ...dropLegacy };
   }
-  return { provider: selection.provider, profileId: selection.profileId, model: selection.model, engine: undefined };
+  return { provider: selection.provider, profileId: selection.profileId, model: selection.model, engine: undefined, ...dropLegacy };
+}
+
+/** Перенос старого провайдера в профиль сервера: ключ уже в профиле, в общем поле он не остаётся. */
+export function legacyMigratedPatch(profileId: string): Pick<AIProviderConfig, 'provider' | 'profileId' | 'engine' | 'apiKey' | 'baseUrl'> {
+  return { provider: 'openai-compatible', profileId, engine: undefined, apiKey: '', baseUrl: undefined };
 }
