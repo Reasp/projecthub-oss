@@ -4,6 +4,7 @@ import { ConnectionService, type ConnectionSocket } from './connectionService';
 import { getUserDataDir } from './appPaths';
 import { AppError } from '../../src/lib/appError';
 import { secretStorageService } from './secretStorageService';
+import { getHostLanguage } from './hostLanguage';
 
 /** Боевой экземпляр слоя подключений (TASK-138.1, decision-102): `userData`, `safeStorage`, системный браузер. */
 export const connectionService = new ConnectionService({
@@ -31,6 +32,7 @@ export const connectionService = new ConnectionService({
       }
     };
   },
+  language: () => getHostLanguage(),
   openExternal: async (url) => {
     // Только http(s), как и `shell:openExternal` в mcpIpc.
     if (!/^https?:\/\//i.test(url)) throw new AppError('connections.httpOnly');

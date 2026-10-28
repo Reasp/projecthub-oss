@@ -42,6 +42,8 @@ import {
 import { LoopbackError, startLoopbackServer } from './oauthLoopback.js';
 import { AppError } from '../../src/lib/appError.js';
 import { registerSensitiveValue, unregisterSensitiveValue } from './sensitiveValues.js';
+import { hostText } from '../i18n/hostText.js';
+import type { Language } from '../../src/i18n/types.js';
 
 /**
  * Слой подключений к внешним сервисам (TASK-138.1, decision-102).
@@ -84,6 +86,8 @@ export interface ConnectionServiceDeps {
   now?: () => number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   browserTimeoutMs?: number;
+  /** Язык хоста для страниц возврата OAuth в браузере; без него — английский. */
+  language?: () => Language;
 }
 
 interface HttpResult {
@@ -525,6 +529,12 @@ export class ConnectionService {
     const clientSecret = String(input.clientSecret ?? '').trim() || existingSecret?.clientSecret || undefined;
     if (service.clientSecretRequired[input.method] && !clientSecret) throw new AppError('connections.clientSecretRequired', { service: service.label });
     if (clientSecret) registerSensitiveValue(clientSecret);
+    let released = false;
+    const releaseClientSecret = () => {
+      if (released) return;
+      released = true;
+      if (clientSecret) unregisterSensitiveValue(clientSecret);
+    };
     const scopes = resolveScopes(service, input.scopes ?? existing?.scopes);
     const ctx: OAuthContext = {
       service,
@@ -535,9 +545,16 @@ export class ConnectionService {
       scopes,
       label: input.label,
       redirectPort: input.redirectPort ?? existing?.redirectPort,
-      reconnectId
+      reconnectId,
+      releaseClientSecret
     };
-    return input.method === 'oauth-browser' ? this.startBrowserFlow(ctx) : this.startDeviceFlow(ctx);
+    try {
+      return input.method === 'oauth-browser' ? await this.startBrowserFlow(ctx) : await this.startDeviceFlow(ctx);
+    } catch (err) {
+      // Вход не начался (порт занят, сервис отклонил код устройства) — секрет больше не нужен.
+      releaseClientSecret();
+      throw err;
+    }
   }
 
   private newFlow(ctx: OAuthContext, method: ConnectionFlowView['method'], expiresAt: number): FlowEntry {
@@ -561,7 +578,8 @@ export class ConnectionService {
     const pkce = createPkcePair();
     const state = createState();
     const timeoutMs = this.deps.browserTimeoutMs ?? BROWSER_FLOW_TIMEOUT_MS;
-    const loop = await startLoopbackServer({ state, port: ctx.redirectPort, timeoutMs });
+    const lang = this.deps.language?.() ?? 'en';
+    const loop = await startLoopbackServer({ state, port: ctx.redirectPort, timeoutMs, text: hostText(lang).oauthPage, lang });
     const authorizeUrl = buildAuthorizeUrl({
       spec: ctx.spec,
       baseUrl: ctx.baseUrl,
@@ -598,6 +616,8 @@ export class ConnectionService {
         await this.completeFlow(entry, ctx, 'oauth-browser', parsed.token);
       } catch (err) {
         this.failFlow(entry, err);
+      } finally {
+        ctx.releaseClientSecret();
       }
     })();
 
@@ -651,6 +671,8 @@ export class ConnectionService {
         throw new Error('expired');
       } catch (err) {
         this.failFlow(entry, err);
+      } finally {
+        ctx.releaseClientSecret();
       }
     })();
 
@@ -695,7 +717,6 @@ export class ConnectionService {
     } finally {
       unregisterSensitiveValue(token.accessToken);
       unregisterSensitiveValue(token.refreshToken);
-      if (ctx.clientSecret) unregisterSensitiveValue(ctx.clientSecret);
     }
   }
 
@@ -743,6 +764,10 @@ export class ConnectionService {
     const pending = this.refreshing.get(record.id);
     if (pending) return pending;
     const run = (async () => {
+      // Токен уже обновил другой запрос, пока этот ждал ответа 401 (ревью TASK-138.1): у GitLab и Linear refresh-токен
+      // одноразовый, и повторное обновление старым дало бы `invalid_grant` и ложное «войдите снова».
+      const stored = await this.readSecret(record.id);
+      if (stored && stored.token !== secret.token) return stored;
       const service = this.serviceOf(record);
       if (!service.oauth || !secret.refreshToken || !record.oauthClientId) {
         await this.markNeedsReauth(record.id, 'token_expired');
@@ -1000,4 +1025,6 @@ interface OAuthContext {
   label?: string;
   redirectPort?: number;
   reconnectId?: string;
+  /** Снять регистрацию `clientSecret` в реестре маскировки — один раз, чем бы ни кончился вход. */
+  releaseClientSecret: () => void;
 }

@@ -612,10 +612,11 @@ export class PRService {
     try {
       backend = await this.resolveBackend(projectPath);
     } catch (err) {
-      return { ...branch, ok: false, prs: [], unresolved: urls, error: errorText(err) };
+      // Ошибка с кодом — окно показывает её на своём языке (ревью TASK-138.2, decision-165).
+      return { ...branch, ok: false, prs: [], unresolved: urls, ...appErrorFields(err) };
     }
     if (backend.kind === 'none' || !backend.remote) {
-      return { ...branch, ok: !urls.length, prs: [], unresolved: urls, ...(urls.length ? { error: this.noBackendError(backend).message } : {}) };
+      return { ...branch, ok: !urls.length, prs: [], unresolved: urls, ...(urls.length ? appErrorFields(this.noBackendError(backend)) : {}) };
     }
 
     const repoPath = backend.kind === 'connection' ? backend.repo.path : backend.remote.path;
@@ -644,7 +645,7 @@ export class PRService {
       }
       return { ...branch, ok: true, prs, unresolved };
     } catch (err) {
-      return { ...branch, ok: false, prs: [], unresolved: [...urls], error: errorText(err) };
+      return { ...branch, ok: false, prs: [], unresolved: [...urls], ...appErrorFields(err) };
     }
   }
 

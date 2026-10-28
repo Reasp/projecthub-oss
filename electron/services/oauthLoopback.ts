@@ -30,17 +30,39 @@ export interface LoopbackHandle {
   close(): void;
 }
 
-const PAGE = (title: string, text: string) =>
-  `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>` +
+/** Тексты страниц возврата — на языке хоста (`hostText().oauthPage`); по умолчанию английские. */
+export interface LoopbackPageText {
+  signedIn: string;
+  cancelled: string;
+  invalid: string;
+}
+
+const DEFAULT_PAGE_TEXT: LoopbackPageText = {
+  signedIn: 'Signed in, you can close this tab.',
+  cancelled: 'Sign-in was cancelled.',
+  invalid: 'Invalid request.'
+};
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+const PAGE = (lang: string, text: string) =>
+  `<!doctype html><html lang="${escapeHtml(lang)}"><head><meta charset="utf-8"><title>ProjectHub</title>` +
   '<style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;' +
   'justify-content:center;height:100vh;margin:0}main{max-width:28rem;text-align:center}</style></head>' +
-  `<body><main><h1>${title}</h1><p>${text}</p></main></body></html>`;
+  `<body><main><h1>ProjectHub</h1><p>${escapeHtml(text)}</p></main></body></html>`;
 
-const SUCCESS_PAGE = PAGE('ProjectHub', 'Вход выполнен, вкладку можно закрыть. / Signed in, you can close this tab.');
-const DENIED_PAGE = PAGE('ProjectHub', 'Вход отменён. / Sign-in was cancelled.');
-const BAD_PAGE = PAGE('ProjectHub', 'Неверный запрос. / Invalid request.');
-
-export function startLoopbackServer(options: { state: string; port?: number; timeoutMs: number }): Promise<LoopbackHandle> {
+export function startLoopbackServer(options: {
+  state: string;
+  port?: number;
+  timeoutMs: number;
+  text?: LoopbackPageText;
+  lang?: string;
+}): Promise<LoopbackHandle> {
+  const text = options.text ?? DEFAULT_PAGE_TEXT;
+  const lang = options.lang ?? 'en';
+  const SUCCESS_PAGE = PAGE(lang, text.signedIn);
+  const DENIED_PAGE = PAGE(lang, text.cancelled);
+  const BAD_PAGE = PAGE(lang, text.invalid);
   return new Promise((resolveHandle, rejectHandle) => {
     let settle: { resolve: (code: string) => void; reject: (err: LoopbackError) => void } | null = null;
     const code = new Promise<string>((resolve, reject) => {

@@ -123,6 +123,8 @@ export interface HostText {
   studio: { cancelledByUser: string; emptyPrompt: string; mcpUnavailableWarning: string; stepLimit: (max: number) => string };
   /** Заголовок вкладки терминала входа в CLI (TASK-202.13). */
   terminal: { loginTitle: (account: string) => string };
+  /** Страницы возврата OAuth в браузере (loopback, TASK-138.1). */
+  oauthPage: { signedIn: string; cancelled: string; invalid: string };
   /** Заголовки системных диалогов сохранения. */
   /** Системные диалоги и тестовое уведомление Telegram (TASK-202.11 — выбор папки, экспорт HITL, тест). */
   dialogs: {
@@ -316,6 +318,7 @@ const en: HostText = {
     mcpUnavailableWarning: 'The built-in ProjectHub MCP server is unavailable: Claude Code was started without permission checks, the exclusion and deny lists do not apply to this answer.'
   },
   terminal: { loginTitle: (account) => `Sign-in: ${account}` },
+  oauthPage: { signedIn: 'Signed in, you can close this tab.', cancelled: 'Sign-in was cancelled.', invalid: 'Invalid request.' },
   dialogs: {
     exportTrace: 'Export agent trace',
     exportSwarm: 'Export swarm session',
@@ -514,6 +517,7 @@ const ru: HostText = {
     mcpUnavailableWarning: 'Встроенный MCP-сервер ProjectHub недоступен: Claude Code запущен без проверки разрешений, списки исключений и запрещённых команд в этом ответе не применяются.'
   },
   terminal: { loginTitle: (account) => `Вход: ${account}` },
+  oauthPage: { signedIn: 'Вход выполнен, вкладку можно закрыть.', cancelled: 'Вход отменён.', invalid: 'Неверный запрос.' },
   dialogs: {
     exportTrace: 'Экспорт трассы агента',
     exportSwarm: 'Экспорт swarm-сессии',
