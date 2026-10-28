@@ -858,7 +858,25 @@ class RemoteControlService {
   private validateDeviceToken(deviceId: string, token: string): DeviceTokenRecord | null {
     const record = this.deviceTokens.get(deviceId);
     if (!record) return null;
-    return this.constantTimeEqual(record.token, token) ? record : null;
+    if (!this.constantTimeEqual(record.token, token)) return null;
+    if (record.peerHostId) this.retireOlderIntroductions(deviceId, record.peerHostId);
+    return record;
+  }
+
+  /**
+   * ПК вошёл по токену знакомства (decision-143): прежние токены той же пары больше не нужны. Удаляются только сейчас, а
+   * не при выдаче нового (ревью TASK-186): ПК мог продолжать работать по старому токену, а новый — отозваться телефоном
+   * при ответе `already`, и пара ломалась при следующем разрыве.
+   */
+  private retireOlderIntroductions(deviceId: string, peerHostId: string): void {
+    let changed = false;
+    for (const [id, other] of this.deviceTokens.entries()) {
+      if (id !== deviceId && other.peerHostId === peerHostId && !this.connectedDevices.has(id)) {
+        this.deviceTokens.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) this.persistDeviceTokens().catch(() => undefined);
   }
 
   /** Отзыв токена конкретного устройства (в отличие от `regenerateToken`, не трогает остальных). */
@@ -3380,12 +3398,10 @@ class RemoteControlService {
   private async enrollIntroducedPeer(params: Record<string, unknown>, caller: RemoteDevice): Promise<RemoteEnrollment> {
     this.assertOwnerFullDevice(caller);
     const peerHostId = String(params.peerHostId).trim();
-    if (!/^[A-Za-z0-9_.-]{3,128}$/.test(peerHostId)) throw new Error('peerHostId does not look like a ProjectHub hostId');
+    if (!/^[A-Za-z0-9_.-]{3,128}$/.test(peerHostId)) throw new AppError('remote.peerHostIdInvalid');
     if (peerHostId === this.hostId) throw new AppError('remote.sameComputer');
     const name = (typeof params.deviceName === 'string' && params.deviceName.trim() ? params.deviceName.trim() : peerHostId).slice(0, 120);
-    for (const [id, record] of this.deviceTokens.entries()) {
-      if (record.peerHostId === peerHostId) this.deviceTokens.delete(id);
-    }
+    // Прежние токены пары не удаляются здесь: ими ПК может пользоваться сейчас. Их снимет первое рукопожатие нового.
     const deviceId = `fed_${crypto.randomBytes(8).toString('hex')}`;
     const record: DeviceTokenRecord = {
       token: crypto.randomBytes(32).toString('hex'),
