@@ -370,6 +370,7 @@ const api: IElectronAPI = {
   getClaudeAuthStatus: (query?: { projectPath?: string; accountId?: string; force?: boolean }) =>
     ipcRenderer.invoke('ai:getClaudeAuthStatus', query),
   claudeLogout: (query?: { projectPath?: string; accountId?: string }) => ipcRenderer.invoke('ai:claudeLogout', query),
+  listCliSessions: (query: { projectPath: string; cwd?: string; claudeAccountId?: string }) => ipcRenderer.invoke('ai:listCliSessions', query),
   // Профили аккаунтов Claude Code (TASK-152, decision-87)
   claudeAccounts: {
     overview: () => ipcRenderer.invoke('claudeAccounts:overview'),

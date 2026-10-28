@@ -50,6 +50,7 @@ import { VoiceBadge } from '../voice/VoiceBadge';
 import { SwarmArenaView } from './swarm/SwarmArenaView';
 import { ProviderErrorCard } from './ProviderErrorCard';
 import { SessionHistoryModal } from './SessionHistoryModal';
+import { CliCommandModal } from './CliCommandModal';
 
 export const AIStudioView: React.FC = () => {
   const { t, language } = useTranslation();
@@ -911,6 +912,8 @@ export const AIStudioView: React.FC = () => {
       {/* Roles Registry (decision-9, TASK-60) */}
       <RolesSettingsModal isOpen={isRolesModalOpen} onClose={() => setIsRolesModalOpen(false)} />
       {isHistoryOpen && <SessionHistoryModal projectPath={projectPath} onClose={() => setIsHistoryOpen(false)} />}
+      {/* Слеш-команды Claude Code, которые Studio выполняет сама (TASK-230). */}
+      <CliCommandModal />
     </div>
   );
 };

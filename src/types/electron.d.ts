@@ -1366,6 +1366,8 @@ export interface IElectronAPI {
   generateTaskDraft: (request: TaskDraftRequest) => Promise<TaskDraftResponse>;
   getClaudeAuthStatus: (query?: { projectPath?: string; accountId?: string; force?: boolean }) => Promise<ClaudeAuthStatus>;
   claudeLogout: (query?: { projectPath?: string; accountId?: string }) => Promise<boolean>;
+  /** Сессии Claude Code рабочей папки под аккаунтом вкладки Studio (TASK-230, `/resume`). */
+  listCliSessions: (query: { projectPath: string; cwd?: string; claudeAccountId?: string }) => Promise<CliSessionSummary[]>;
   /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
   claudeAccounts: {
     overview: () => Promise<ClaudeAccountsOverview>;
@@ -3339,8 +3341,17 @@ export interface CreatePtyOptions {
   title?: string;
   cols?: number;
   rows?: number;
-  /** Профиль аккаунта для `claude-login`; для остальных типов аккаунт берётся по проекту. */
+  /** Профиль аккаунта: для `claude-login` — обязателен; для `claude` — аккаунт вкладки Studio, иначе по проекту. */
   claudeAccountId?: string;
+  /** `claude --resume <id>` вместо новой сессии (TASK-230: продолжить разговор Studio в терминале). */
+  resumeSessionId?: string;
+}
+
+/** Сессия Claude Code рабочей папки (TASK-230, `/resume` в Studio). */
+export interface CliSessionSummary {
+  id: string;
+  updatedAt: number;
+  title: string;
 }
 
 export interface ClaudeUsageLimitWindow {

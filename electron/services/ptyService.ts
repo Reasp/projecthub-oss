@@ -14,6 +14,7 @@ import {
 } from './ptyExitTtl.js';
 import type { PtySession, CreatePtyOptions } from '../../src/types/electron';
 import { getHostLanguage } from './hostLanguage.js';
+import { isCliSessionId } from './claudeCliSessions.js';
 import { hostText } from '../i18n/hostText.js';
 
 /** Команда входа в профиль аккаунта во встроенном терминале по движку профиля. */
@@ -128,13 +129,15 @@ class PtyService {
         args = ['-l', '-c', command];
       }
     } else if (options.type === 'claude') {
+      // Продолжение сессии Studio (TASK-230): id проверен форматом, в командную строку идёт только UUID.
+      const command = isCliSessionId(options.resumeSessionId) ? `claude --resume ${options.resumeSessionId}` : 'claude';
       if (isWin) {
         // Use cmd.exe /c claude or powershell for maximum Windows compatibility
         shell = process.env.COMSPEC || 'cmd.exe';
-        args = ['/c', 'claude'];
+        args = ['/c', command];
       } else {
         shell = process.env.SHELL || '/bin/bash';
-        args = ['-l', '-c', 'claude'];
+        args = ['-l', '-c', command];
       }
     } else {
       if (isWin) {
@@ -170,7 +173,9 @@ class PtyService {
       account = loginAccount;
       accountEnv = cliAccountEnv(loginEngine, loginAccount);
     } else {
-      const claudeAccount = loginAccount ?? (await claudeAccountService.resolve({ projectPath: options.projectPath })).account;
+      // Аккаунт вкладки Studio (TASK-230): сессия CLI лежит в каталоге того аккаунта, под которым её начали.
+      const slotAccountId = options.type === 'claude' && options.claudeAccountId ? options.claudeAccountId : undefined;
+      const claudeAccount = loginAccount ?? (await claudeAccountService.resolve({ projectPath: options.projectPath, ...(slotAccountId ? { slotAccountId } : {}) })).account;
       account = claudeAccount;
       accountEnv = { CLAUDE_CONFIG_DIR: claudeAccount.configDir };
       if (!loginAccount) {

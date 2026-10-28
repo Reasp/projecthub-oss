@@ -49,6 +49,9 @@ import { hitlService } from '../services/hitlService';
 import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
 import { studioLiveRuns } from '../services/studioLiveRuns';
 import type { IpcContext } from './types';
+import path from 'node:path';
+import { claudeAccountService } from '../services/claudeAccountService';
+import { listCliSessions } from '../services/claudeCliSessions';
 
 /** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
 function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
@@ -218,6 +221,17 @@ export function registerAiIpc(ctx: IpcContext) {
       ...(typeof query?.projectPath === 'string' ? { projectPath: query.projectPath } : {}),
       ...(typeof query?.accountId === 'string' ? { accountId: query.accountId } : {})
     });
+  });
+
+  // Сессии Claude Code рабочей папки для `/resume` в Agents Studio (TASK-230): под аккаунтом вкладки.
+  ipcMain.handle('ai:listCliSessions', async (_event, query?: { projectPath?: unknown; cwd?: unknown; claudeAccountId?: unknown }) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    const cwd = typeof query?.cwd === 'string' && query.cwd.trim() ? path.resolve(query.cwd) : projectPath;
+    const rel = path.relative(projectPath, cwd);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return [];
+    const slotAccountId = typeof query?.claudeAccountId === 'string' && query.claudeAccountId ? query.claudeAccountId : undefined;
+    const { account } = await claudeAccountService.resolve({ projectPath, ...(slotAccountId ? { slotAccountId } : {}) });
+    return listCliSessions(account.configDir, cwd);
   });
 
   // Streaming & Session Lifecycle

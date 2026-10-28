@@ -23,6 +23,7 @@ import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { upsertToolCall } from '../lib/aiToolCalls';
 import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
+import { studioCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
 import { canWriteStudioSession } from '../utils/studioRemote';
 import { getDictionary } from '../i18n';
 import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib/studioSessionTitle';
@@ -95,6 +96,14 @@ interface AIStudioState {
   clearSession: (projectPath: string, sessionId?: string) => void;
   sendMessage: (projectPath: string, text: string, opts?: SendMessageOptions) => Promise<void>;
   /**
+   * Слеш-команда Claude Code, которую Studio выполняет сама (TASK-230): `/resume` — выбор сессии CLI, интерактивные
+   * команды — продолжение в терминале. Окно Studio показывает диалог по этому полю.
+   */
+  cliCommand: PendingCliCommand | null;
+  clearCliCommand: () => void;
+  /** Привязать вкладку к сессии Claude Code: следующее сообщение продолжит её через `--resume`. */
+  attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string) => void;
+  /**
    * Повтор ответа, упавшего с ошибкой (TASK-70.6): сообщение пользователя и ответ с ошибкой убираются
    * из диалога, и сообщение отправляется заново — с текущими настройками провайдера и модели.
    */
@@ -138,6 +147,17 @@ export interface CreateSessionOptions {
   /** Агент новой вкладки (TASK-221): выбран на телефоне при открытии сессии; без поля — агент активной вкладки. */
   agent?: StudioSessionAgent;
 }
+
+/** Перехваченная слеш-команда Claude Code вкладки (TASK-230). */
+export type PendingCliCommand = StudioCliCommand & {
+  projectPath: string;
+  sessionId: string;
+  claudeAccountId?: string;
+  /** Сессия CLI вкладки, если разговор уже начат. */
+  cliSessionId?: string;
+  /** Рабочее дерево вкладки: каталог сессий CLI и терминала. */
+  workspaceRoot: string;
+};
 
 export interface SendMessageOptions {
   /** Сессия, в которую идёт сообщение; по умолчанию — активная вкладка. */
@@ -524,6 +544,18 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
       },
 
+      cliCommand: null,
+      clearCliCommand: () => set({ cliCommand: null }),
+      attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string) => {
+        set((state) => ({
+          cliCommand: null,
+          sessions: {
+            ...state.sessions,
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => (s.id === sessionId ? { ...s, claudeCliSessionId: cliSessionId } : s))
+          }
+        }));
+      },
+
       renameSession: (projectPath: string, sessionId: string, newTitle: string) => {
         const cleanTitle = newTitle.trim();
         if (!cleanTitle) return;
@@ -672,6 +704,22 @@ export const useAIStudioStore = create<AIStudioState>()(
         const requestConfig = opts.config ?? sessionRequestConfig(get().config, currentSession.agent);
         const requestMode = opts.mode ?? get().mode;
         const claudeAccountId = requestConfig.provider === 'anthropic' ? sessionClaudeAccountId(currentSession.agent) : undefined;
+        // Интерактивные команды Claude Code в `claude -p` не работают — Studio выполняет их сама (TASK-230). С телефона
+        // (`opts.sessionId`) диалога нет: команда уходит в CLI как раньше.
+        const cli = opts.sessionId ? null : studioCliCommand(text, requestConfig);
+        if (cli) {
+          set({
+            cliCommand: {
+              ...cli,
+              projectPath,
+              sessionId: activeSessionId,
+              ...(claudeAccountId ? { claudeAccountId } : {}),
+              ...(currentSession.claudeCliSessionId ? { cliSessionId: currentSession.claudeCliSessionId } : {}),
+              workspaceRoot: useProjectStore.getState().workspaceRoot || projectPath
+            }
+          });
+          return;
+        }
         const lastSelection = {
           provider: requestConfig.provider,
           ...(requestConfig.profileId ? { profileId: requestConfig.profileId } : {}),

@@ -400,7 +400,15 @@ interface ProjectState {
 
   // PTY Terminal Actions
   fetchPtySessions: () => Promise<void>;
-  createPtySessionAction: (projectPath: string, type: 'claude' | 'shell', title?: string, cwd?: string, worktreeBranch?: string) => Promise<PtySession | null>;
+  createPtySessionAction: (
+    projectPath: string,
+    type: 'claude' | 'shell',
+    title?: string,
+    cwd?: string,
+    worktreeBranch?: string,
+    /** Продолжить сессию Claude Code вкладки Studio под её аккаунтом (TASK-230). */
+    claude?: { resumeSessionId?: string; claudeAccountId?: string }
+  ) => Promise<PtySession | null>;
   closePtySessionAction: (sessionId: string) => Promise<boolean>;
   setActivePtySessionId: (id: string | null) => void;
   setTerminalMode: (mode: 'pty' | 'process_logs') => void;
@@ -1068,7 +1076,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     type: 'claude' | 'shell',
     title?: string,
     cwd?: string,
-    worktreeBranch?: string
+    worktreeBranch?: string,
+    claude?: { resumeSessionId?: string; claudeAccountId?: string }
   ) => {
     if (!window.api?.createPtySession) return null;
     try {
@@ -1080,7 +1089,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         type,
         title,
         cwd: cwd || activeRoot || undefined,
-        worktreeBranch
+        worktreeBranch,
+        ...(claude?.resumeSessionId ? { resumeSessionId: claude.resumeSessionId } : {}),
+        ...(claude?.claudeAccountId ? { claudeAccountId: claude.claudeAccountId } : {})
       });
       if (session) {
         set((state) => ({
