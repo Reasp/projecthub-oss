@@ -122,6 +122,8 @@ import treeKill from 'tree-kill';
 import { buildHostEndpoints, relayEndpoint, type RemoteEndpoint } from '../../src/utils/remoteEndpoints.js';
 import { isPeerIntroduction, peerAddressCandidates } from '../../src/utils/fleetIntroduce.js';
 import { firstReachableAddress, PeerUnreachableError } from './peerReachability.js';
+import { profileFromJson, profileSectionList } from './profileFormat.js';
+import { profileService } from './profileService.js';
 import matter from 'gray-matter';
 import {
   MOBILE_CLIENT_DIST,
@@ -222,7 +224,10 @@ const REMOTE_WRITE_METHODS = new Set([
   'create_project',
   // Ветки документации (decision-151): принять правки агента в основную или отклонить — решение человека, как HITL.
   'merge_doc_branch',
-  'close_doc_branch'
+  'close_doc_branch',
+  // Профиль владельца с другого ПК (TASK-225): предпросмотр запоминает чужой документ, применение пишет настройки.
+  'profile_preview',
+  'profile_apply'
 ]);
 
 interface DeviceTokenRecord {
@@ -347,7 +352,10 @@ const HOST_WIDE_METHODS = new Set([
   'voice_chunk',
   'voice_command',
   'create_project',
-  'get_pending_approvals'
+  'get_pending_approvals',
+  'profile_get',
+  'profile_preview',
+  'profile_apply'
 ]);
 
 /** Проект у этих методов необязателен: без него — сводка по всем проектам, суженная правами устройства. */
@@ -3270,6 +3278,16 @@ class RemoteControlService {
     };
   }
 
+  /**
+   * Профиль хоста — настройки владельца (TASK-225): участник общего хоста и устройство без права full его не читают
+   * и не пишут.
+   */
+  private assertProfileOwner(caller: RemoteDevice): void {
+    if (caller.memberId || this.effectiveDeviceRights(caller) !== 'full') {
+      throw new AppError('remote.profileOwnerOnly');
+    }
+  }
+
   /** Знакомить ПК и принимать знакомство может только устройство владельца с полными правами (decision-143 п. 2, 3). */
   private assertOwnerFullDevice(caller: RemoteDevice): void {
     if (caller.memberId || this.effectiveDeviceRights(caller) !== 'full') {
@@ -3603,6 +3621,23 @@ class RemoteControlService {
 
       case 'revoke_introduced_device': {
         return await this.revokeIntroducedDevice(String(params.deviceId || ''), device);
+      }
+
+      // Профиль ProjectHub с домашнего хоста (TASK-225, decision-175 п. 5): формат и слияние те же, что у файла
+      // профиля; секреты вырезаются на выходе и на входе. Только устройство владельца с правом full.
+      case 'profile_get': {
+        this.assertProfileOwner(device);
+        return await profileService.collect(profileSectionList(params.sections));
+      }
+
+      case 'profile_preview': {
+        this.assertProfileOwner(device);
+        return await profileService.preview(profileFromJson(params.profile));
+      }
+
+      case 'profile_apply': {
+        this.assertProfileOwner(device);
+        return await profileService.apply(String(params.token || ''), profileSectionList(params.sections));
       }
 
       case 'get_projects': {

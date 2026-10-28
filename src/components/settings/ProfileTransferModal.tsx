@@ -6,10 +6,33 @@ import { profileTransferText } from '../../i18n/profileTransferText';
 import { appErrorText } from '../../lib/appErrorText';
 import { PROFILE_PASSWORD_MIN, PROFILE_SECTIONS, type ProfileSectionId } from '../../lib/profileSections';
 import type { ProfilePreview } from '../../../electron/services/profileService';
+import type { FederationPeerState } from '../../types/remote';
+
+/** Откуда предпросмотр: файл, профиль домашнего хоста здесь или профиль этого ПК на хосте (TASK-225). */
+type PreviewSource = { kind: 'file' } | { kind: 'fromHost' | 'toHost'; hostId: string; name: string };
+
+const HOME_HOST_KEY = 'projecthub.profile.homeHost';
+
+function readHomeHost(): string {
+  try {
+    return localStorage.getItem(HOME_HOST_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveHomeHost(hostId: string): void {
+  try {
+    localStorage.setItem(HOME_HOST_KEY, hostId);
+  } catch {
+    // Нет хранилища — выбор живёт до закрытия окна.
+  }
+}
 
 /**
  * Перенос профиля ProjectHub (TASK-224, decision-175): экспорт настроек в файл с паролем и импорт с предпросмотром
- * по разделам. Рендерится порталом в `document.body`, `z-[9999]` (правило 19, decision-17).
+ * по разделам, а также обмен профилем с домашним хостом федерации (TASK-225). Рендерится порталом в `document.body`,
+ * `z-[9999]` (правило 19, decision-17).
  */
 export function ProfileTransferModal({ onClose }: { onClose: () => void }) {
   const { t, language } = useTranslation();
@@ -28,6 +51,26 @@ export function ProfileTransferModal({ onClose }: { onClose: () => void }) {
   const [chosen, setChosen] = useState<ProfileSectionId[]>([]);
   const [applied, setApplied] = useState<number | null>(null);
   const [cloned, setCloned] = useState<Record<string, string>>({});
+
+  const [source, setSource] = useState<PreviewSource>({ kind: 'file' });
+  const [peers, setPeers] = useState<FederationPeerState[]>([]);
+  const [homeHost, setHomeHost] = useState(readHomeHost);
+  const [appliedOnHost, setAppliedOnHost] = useState<number | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    window.api
+      .listFederationPeers()
+      .then((list) => {
+        if (alive) setPeers(list.filter((peer) => peer.paired));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const host = peers.find((peer) => peer.hostId === homeHost) ?? peers[0];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -75,21 +118,47 @@ export function ProfileTransferModal({ onClose }: { onClose: () => void }) {
   const doPreview = () =>
     run(async () => {
       if (!file) return;
-      const res = await window.api.profilePreview(file, importPassword);
-      if (!res) return;
-      setPreview(res);
-      setChosen(res.sections.filter((s) => s.change !== 'same').map((s) => s.id));
-      setApplied(null);
+      showPreview(await window.api.profilePreview(file, importPassword), { kind: 'file' });
+    });
+
+  const showPreview = (res: ProfilePreview | null, from: PreviewSource) => {
+    if (!res) return;
+    setSource(from);
+    setPreview(res);
+    setChosen(res.sections.filter((s) => s.change !== 'same').map((s) => s.id));
+    setApplied(null);
+    setAppliedOnHost(null);
+  };
+
+  const doPull = () =>
+    run(async () => {
+      if (!host) return;
+      showPreview(await window.api.profilePreviewFromHost(host.hostId, [...PROFILE_SECTIONS]), { kind: 'fromHost', hostId: host.hostId, name: host.machineName });
+    });
+
+  const doPush = () =>
+    run(async () => {
+      if (!host) return;
+      const sections = PROFILE_SECTIONS.filter((id) => id !== 'projects');
+      showPreview(await window.api.profilePreviewOnHost(host.hostId, sections), { kind: 'toHost', hostId: host.hostId, name: host.machineName });
     });
 
   const doApply = () =>
     run(async () => {
       if (!preview) return;
-      const res = await window.api.profileApply(preview.token, chosen);
-      setApplied(res.applied.length);
+      if (source.kind === 'toHost') {
+        const res = await window.api.profileApplyOnHost(source.hostId, preview.token, chosen);
+        setAppliedOnHost(res.applied.length);
+      } else {
+        const res = await window.api.profileApply(preview.token, chosen);
+        setApplied(res.applied.length);
+      }
       setPreview(null);
       setImportPassword('');
     });
+
+  const newerLabel = (incomingNewer: boolean) =>
+    source.kind === 'file' ? (incomingNewer ? p.newer : p.older) : incomingNewer === (source.kind === 'fromHost') ? p.hostNewer : p.localNewer;
 
   const clone = (remote: string, name: string) =>
     run(async () => {
@@ -101,6 +170,76 @@ export function ProfileTransferModal({ onClose }: { onClose: () => void }) {
   const input = 'w-full px-2.5 py-1.5 rounded-md bg-background border border-border text-sm focus:outline-none focus:border-primary';
   const button = 'px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40';
   const secondary = 'px-3 py-1.5 rounded-md text-sm border border-border hover:bg-secondary disabled:opacity-40';
+
+  const results = (
+    <>
+      {preview && (
+        <div className="space-y-3" data-testid="profile-preview">
+          <div className="text-xs text-muted-foreground">
+            {source.kind === 'file'
+              ? p.madeAt(new Date(preview.exportedAt).toLocaleString(language), preview.appVersion)
+              : source.kind === 'fromHost'
+                ? p.fromHost(source.name)
+                : p.toHost(source.name)}
+          </div>
+          <div className="space-y-1">
+            {preview.sections.map((s) => (
+              <label key={s.id} className="flex items-center gap-2 text-xs">
+                <input type="checkbox" disabled={s.change === 'same'} checked={chosen.includes(s.id)} onChange={() => setChosen((c) => toggle(c, s.id))} />
+                <span className="min-w-[180px]">{p.sections[s.id]}</span>
+                <span className={s.change === 'same' ? 'text-muted-foreground' : 'text-amber-300'}>{p.change[s.change]}</span>
+                {s.change === 'changed' && <span className="text-muted-foreground">· {newerLabel(s.incomingNewer)}</span>}
+              </label>
+            ))}
+          </div>
+          <button className={button} disabled={busy || chosen.length === 0} onClick={doApply} data-testid="profile-apply">
+            {source.kind === 'toHost' ? p.applyOnHost : p.apply}
+          </button>
+
+          {preview.missingProjects.length > 0 && (
+            <div className="space-y-2 border-t border-border pt-3">
+              <div className="font-medium text-xs">{p.projectsTitle}</div>
+              <p className="text-xs text-muted-foreground">{p.projectsHint}</p>
+              {preview.missingProjects.map((proj) => (
+                <div key={proj.remote} className="flex items-center gap-2 text-xs">
+                  <span className="font-medium">{proj.name}</span>
+                  <span className="font-mono text-muted-foreground truncate flex-1" title={proj.remote}>{proj.remote}</span>
+                  {cloned[proj.remote] ? (
+                    <span className="text-emerald-400">{p.cloned(cloned[proj.remote])}</span>
+                  ) : (
+                    <button className={secondary} disabled={busy} onClick={() => clone(proj.remote, proj.name)}>
+                      {p.clone}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {applied !== null && (
+        <div className="flex items-center gap-3 text-xs" data-testid="profile-applied">
+          <span className="text-emerald-400">{p.applied(applied)}</span>
+          {applied > 0 && (
+            <>
+              <span className="text-muted-foreground">{p.restartHint}</span>
+              <button className={secondary} onClick={() => void window.api.profileRelaunch()}>
+                {p.restart}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {appliedOnHost !== null && (
+        <div className="flex items-center gap-3 text-xs" data-testid="profile-applied-host">
+          <span className="text-emerald-400">{p.appliedOnHost(appliedOnHost)}</span>
+          {appliedOnHost > 0 && <span className="text-muted-foreground">{p.hostRestartHint}</span>}
+        </div>
+      )}
+    </>
+  );
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" data-testid="profile-transfer-modal">
@@ -169,58 +308,44 @@ export function ProfileTransferModal({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
-            {preview && (
-              <div className="space-y-3" data-testid="profile-preview">
-                <div className="text-xs text-muted-foreground">{p.madeAt(new Date(preview.exportedAt).toLocaleString(language), preview.appVersion)}</div>
-                <div className="space-y-1">
-                  {preview.sections.map((s) => (
-                    <label key={s.id} className="flex items-center gap-2 text-xs">
-                      <input type="checkbox" disabled={s.change === 'same'} checked={chosen.includes(s.id)} onChange={() => setChosen((c) => toggle(c, s.id))} />
-                      <span className="min-w-[180px]">{p.sections[s.id]}</span>
-                      <span className={s.change === 'same' ? 'text-muted-foreground' : 'text-amber-300'}>{p.change[s.change]}</span>
-                      {s.change === 'changed' && <span className="text-muted-foreground">· {s.incomingNewer ? p.newer : p.older}</span>}
-                    </label>
-                  ))}
-                </div>
-                <button className={button} disabled={busy || chosen.length === 0} onClick={doApply} data-testid="profile-apply">
-                  {p.apply}
-                </button>
+            {source.kind === 'file' && results}
+          </section>
 
-                {preview.missingProjects.length > 0 && (
-                  <div className="space-y-2 border-t border-border pt-3">
-                    <div className="font-medium text-xs">{p.projectsTitle}</div>
-                    <p className="text-xs text-muted-foreground">{p.projectsHint}</p>
-                    {preview.missingProjects.map((proj) => (
-                      <div key={proj.remote} className="flex items-center gap-2 text-xs">
-                        <span className="font-medium">{proj.name}</span>
-                        <span className="font-mono text-muted-foreground truncate flex-1" title={proj.remote}>{proj.remote}</span>
-                        {cloned[proj.remote] ? (
-                          <span className="text-emerald-400">{p.cloned(cloned[proj.remote])}</span>
-                        ) : (
-                          <button className={secondary} disabled={busy} onClick={() => clone(proj.remote, proj.name)}>
-                            {p.clone}
-                          </button>
-                        )}
-                      </div>
+          <section className="space-y-3 border-t border-border pt-5" data-testid="profile-home-host">
+            <h3 className="font-semibold">{p.homeTitle}</h3>
+            <p className="text-xs text-muted-foreground">{p.homeHint}</p>
+            {peers.length === 0 ? (
+              <p className="text-xs text-muted-foreground">{p.noPeers}</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-xs">
+                  {p.homeHost}
+                  <select
+                    className="px-2 py-1.5 rounded-md bg-background border border-border text-sm"
+                    value={host?.hostId ?? ''}
+                    onChange={(e) => {
+                      setHomeHost(e.target.value);
+                      saveHomeHost(e.target.value);
+                    }}
+                    data-testid="profile-home-select"
+                  >
+                    {peers.map((peer) => (
+                      <option key={peer.hostId} value={peer.hostId}>
+                        {peer.machineName}
+                        {peer.status === 'connected' ? '' : ` (${p.peerOffline})`}
+                      </option>
                     ))}
-                  </div>
-                )}
+                  </select>
+                </label>
+                <button className={secondary} disabled={busy || !host} onClick={doPull} data-testid="profile-pull">
+                  {p.pull}
+                </button>
+                <button className={secondary} disabled={busy || !host} onClick={doPush} data-testid="profile-push">
+                  {p.push}
+                </button>
               </div>
             )}
-
-            {applied !== null && (
-              <div className="flex items-center gap-3 text-xs" data-testid="profile-applied">
-                <span className="text-emerald-400">{p.applied(applied)}</span>
-                {applied > 0 && (
-                  <>
-                    <span className="text-muted-foreground">{p.restartHint}</span>
-                    <button className={secondary} onClick={() => void window.api.profileRelaunch()}>
-                      {p.restart}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+            {source.kind !== 'file' && results}
           </section>
         </div>
       </div>

@@ -1774,6 +1774,9 @@ export interface IElectronAPI {
   profilePreview: (filePath: string, password: string) => Promise<ProfilePreview | null>;
   profileApply: (token: string, sections: ProfileSectionId[]) => Promise<{ applied: ProfileSectionId[] }>;
   profileCloneProject: (remote: string, name: string) => Promise<string | null>;
+  profilePreviewFromHost: (hostId: string, sections: ProfileSectionId[]) => Promise<ProfilePreview | null>;
+  profilePreviewOnHost: (hostId: string, sections: ProfileSectionId[]) => Promise<ProfilePreview | null>;
+  profileApplyOnHost: (hostId: string, token: string, sections: ProfileSectionId[]) => Promise<{ applied: ProfileSectionId[] }>;
   profileRelaunch: () => Promise<void>;
   // База знаний компании (TASK-223)
   knowledgeBaseIndex: (projectPath: string) => Promise<{ name: string; docs: Array<{ id: string; title: string; category: 'doc' | 'decision' }> } | null>;

@@ -1,6 +1,7 @@
 import { app, dialog, ipcMain } from 'electron';
-import { PROFILE_FILE_EXTENSION, PROFILE_SECTIONS, isProfileSectionId, type ProfileSectionId } from '../services/profileFormat';
-import { cloneProfileProject, profileService, setProfileAppVersion } from '../services/profileService';
+import { PROFILE_FILE_EXTENSION, profileSectionList as sectionList } from '../services/profileFormat';
+import { cloneProfileProject, profileService, setProfileAppVersion, type ProfileHostCall } from '../services/profileService';
+import { federationClientService } from '../services/federationClientService';
 import { getHostLanguage } from '../services/hostLanguage';
 import { hostText } from '../i18n/hostText';
 import type { IpcContext } from './types';
@@ -8,10 +9,11 @@ import type { IpcContext } from './types';
 /**
  * IPC переноса профиля (TASK-224, decision-175): экспорт в файл, предпросмотр и применение импорта, клонирование
  * проекта из профиля. Пароль идёт в main и никуда не сохраняется; файл выбирает человек системным диалогом.
+ * Домашний хост (TASK-225) — сопряжённый ПК федерации: права проверяет он сам по токену этого ПК.
  */
 
-function sectionList(value: unknown): ProfileSectionId[] {
-  return Array.isArray(value) ? value.filter(isProfileSectionId) : [...PROFILE_SECTIONS];
+function hostCall(hostId: string): ProfileHostCall {
+  return (method, params) => federationClientService.call(hostId, method, params);
 }
 
 export function registerProfileIpc(ctx: IpcContext) {
@@ -53,6 +55,21 @@ export function registerProfileIpc(ctx: IpcContext) {
   ipcMain.handle('profile:apply', async (_event, token: unknown, sections: unknown) => {
     if (typeof token !== 'string') return { applied: [] };
     return profileService.apply(token, sectionList(sections));
+  });
+
+  ipcMain.handle('profile:previewFromHost', async (_event, hostId: unknown, sections: unknown) => {
+    if (typeof hostId !== 'string' || !hostId) return null;
+    return profileService.previewFromHost(hostCall(hostId), sectionList(sections));
+  });
+
+  ipcMain.handle('profile:previewOnHost', async (_event, hostId: unknown, sections: unknown) => {
+    if (typeof hostId !== 'string' || !hostId) return null;
+    return profileService.previewOnHost(hostCall(hostId), sectionList(sections));
+  });
+
+  ipcMain.handle('profile:applyOnHost', async (_event, hostId: unknown, token: unknown, sections: unknown) => {
+    if (typeof hostId !== 'string' || !hostId || typeof token !== 'string') return { applied: [] };
+    return profileService.applyOnHost(hostCall(hostId), token, sectionList(sections));
   });
 
   ipcMain.handle('profile:cloneProject', async (_event, remote: unknown, name: unknown) => {

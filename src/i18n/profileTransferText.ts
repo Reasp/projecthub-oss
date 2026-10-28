@@ -39,6 +39,20 @@ export interface ProfileTransferLabels {
   cloned: (path: string) => string;
   close: string;
   working: string;
+  homeTitle: string;
+  homeHint: string;
+  homeHost: string;
+  noPeers: string;
+  peerOffline: string;
+  pull: string;
+  push: string;
+  fromHost: (name: string) => string;
+  toHost: (name: string) => string;
+  hostNewer: string;
+  localNewer: string;
+  applyOnHost: string;
+  appliedOnHost: (count: number) => string;
+  hostRestartHint: string;
 }
 
 const en: ProfileTransferLabels = {
@@ -88,7 +102,21 @@ const en: ProfileTransferLabels = {
   clone: 'Clone…',
   cloned: (path) => `Cloned to ${path}`,
   close: 'Close',
-  working: 'Working…'
+  working: 'Working…',
+  homeTitle: 'Home host',
+  homeHint: 'A computer paired over federation: your main PC or ph-agent on a server. The same merge as with a file, no password; the host lets only your device with full rights read or change its profile.',
+  homeHost: 'Host',
+  noPeers: 'No paired computers. Add one in Remote hosts.',
+  peerOffline: 'not connected',
+  pull: 'Take profile from host',
+  push: 'Send profile to host',
+  fromHost: (name) => `Profile of ${name}: changes on this computer`,
+  toHost: (name) => `Profile of this computer: changes on ${name}`,
+  hostNewer: 'host is newer',
+  localNewer: 'this computer is newer',
+  applyOnHost: 'Apply selected on host',
+  appliedOnHost: (count) => `Applied on host: ${count} sections.`,
+  hostRestartHint: 'Restart ProjectHub on the host so that it picks up the settings.'
 };
 
 const ru: ProfileTransferLabels = {
@@ -138,7 +166,21 @@ const ru: ProfileTransferLabels = {
   clone: 'Клонировать…',
   cloned: (path) => `Склонировано в ${path}`,
   close: 'Закрыть',
-  working: 'Выполняется…'
+  working: 'Выполняется…',
+  homeTitle: 'Домашний хост',
+  homeHint: 'Компьютер, сопряжённый по федерации: основной ПК или ph-agent на сервере. Слияние то же, что с файлом, без пароля; читать и менять свой профиль хост разрешает только вашему устройству с полными правами.',
+  homeHost: 'Хост',
+  noPeers: 'Нет сопряжённых компьютеров. Добавьте компьютер в «Удалённых хостах».',
+  peerOffline: 'не подключён',
+  pull: 'Взять профиль с хоста',
+  push: 'Отправить профиль на хост',
+  fromHost: (name) => `Профиль ${name}: изменения на этом компьютере`,
+  toHost: (name) => `Профиль этого компьютера: изменения на ${name}`,
+  hostNewer: 'на хосте новее',
+  localNewer: 'здесь новее',
+  applyOnHost: 'Применить выбранное на хосте',
+  appliedOnHost: (count) => `Применено на хосте разделов: ${count}.`,
+  hostRestartHint: 'Перезапустите ProjectHub на хосте, чтобы он подхватил настройки.'
 };
 
 export const PROFILE_TRANSFER_TEXT: Record<Language, ProfileTransferLabels> = { en, ru };

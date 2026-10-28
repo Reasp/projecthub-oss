@@ -16,6 +16,8 @@ import {
   mergeValue,
   missingProjects,
   planSection,
+  profileFromJson,
+  sanitizeProfile,
   stripSecrets,
   type ProfileDocument,
   type ProfileProject,
@@ -81,6 +83,29 @@ export interface ProfileServiceDeps {
   remoteOf: (projectPath: string) => Promise<string | null>;
   appVersion: () => string | undefined;
   now: () => number;
+}
+
+/** Вызов RPC на сопряжённом хосте федерации (`federationClientService.call` с выбранным hostId). */
+export type ProfileHostCall = (method: 'profile_get' | 'profile_preview' | 'profile_apply', params: Record<string, unknown>) => Promise<unknown>;
+
+const SECTION_CHANGES: readonly SectionChange[] = ['new', 'changed', 'same'];
+
+/** Предпросмотр, который вернул хост: только известные разделы и поля, без проектов для клонирования. */
+export function parseProfilePreview(value: unknown): ProfilePreview {
+  const v = (value && typeof value === 'object' ? value : {}) as Partial<ProfilePreview>;
+  if (typeof v.token !== 'string' || !v.token) throw new AppError('profile.hostAnswerInvalid');
+  const sections: ProfileSectionPreview[] = [];
+  for (const s of Array.isArray(v.sections) ? v.sections : []) {
+    if (!s || !isProfileSectionId(s.id) || !SECTION_CHANGES.includes(s.change)) continue;
+    sections.push({ id: s.id, change: s.change, incomingNewer: s.incomingNewer === true, updatedAt: typeof s.updatedAt === 'string' ? s.updatedAt : '' });
+  }
+  return {
+    token: v.token,
+    exportedAt: typeof v.exportedAt === 'string' ? v.exportedAt : '',
+    ...(typeof v.appVersion === 'string' ? { appVersion: v.appVersion } : {}),
+    sections,
+    missingProjects: []
+  };
 }
 
 async function readJson(file: string): Promise<{ data: unknown; mtime: Date } | null> {
@@ -243,6 +268,25 @@ export class ProfileService {
       applied.push(id);
     }
     return { applied };
+  }
+
+  /** Профиль с домашнего хоста по федерации (TASK-225): документ хоста сливается здесь по тем же правилам, что файл. */
+  async previewFromHost(call: ProfileHostCall, ids: readonly ProfileSectionId[]): Promise<ProfilePreview> {
+    return this.preview(profileFromJson(await call('profile_get', { sections: ids })));
+  }
+
+  /**
+   * Отправка профиля этой машины на хост: план слияния считает хост по своему диску, применение — `applyOnHost` по
+   * его токену. Список проектов не отправляется: клонировать на хосте отсюда нечем.
+   */
+  async previewOnHost(call: ProfileHostCall, ids: readonly ProfileSectionId[]): Promise<ProfilePreview> {
+    const doc = await this.collect(ids.filter((id) => id !== 'projects'));
+    return parseProfilePreview(await call('profile_preview', { profile: sanitizeProfile(doc) }));
+  }
+
+  async applyOnHost(call: ProfileHostCall, token: string, ids: readonly ProfileSectionId[]): Promise<{ applied: ProfileSectionId[] }> {
+    const res = (await call('profile_apply', { token, sections: ids })) as { applied?: unknown } | null;
+    return { applied: Array.isArray(res?.applied) ? res.applied.filter(isProfileSectionId) : [] };
   }
 
   private dropExpired(): void {

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { AppError } from '../../src/lib/appError.js';
 import { detectSecrets } from './secretPatterns.js';
-import { PROFILE_PASSWORD_MIN, isProfileSectionId, type ProfileSectionId, type SectionChange } from '../../src/lib/profileSections.js';
+import { PROFILE_PASSWORD_MIN, PROFILE_SECTIONS, isProfileSectionId, type ProfileSectionId, type SectionChange } from '../../src/lib/profileSections.js';
 
 /**
  * Профиль ProjectHub — переносимая часть состояния (TASK-224, [[decision-175]] п. 3–4, 6): формат файла, шифрование
@@ -21,6 +21,11 @@ export const PROFILE_FILE_FORMAT = 'projecthub-profile-encrypted';
 export const PROFILE_FILE_EXTENSION = 'phprofile';
 
 export { PROFILE_SECTIONS, PROFILE_PASSWORD_MIN, isProfileSectionId, type ProfileSectionId, type SectionChange } from '../../src/lib/profileSections.js';
+
+/** Разделы из запроса (IPC, RPC): известные id; не список — все разделы. */
+export function profileSectionList(value: unknown): ProfileSectionId[] {
+  return Array.isArray(value) ? value.filter(isProfileSectionId) : [...PROFILE_SECTIONS];
+}
 
 export interface ProfileSection {
   /** Время изменения раздела на машине-источнике (ISO): по нему решается спор скалярных настроек. */

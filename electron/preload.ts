@@ -959,6 +959,9 @@ const api: IElectronAPI = {
   profilePreview: (filePath: string, password: string) => ipcRenderer.invoke('profile:preview', filePath, password),
   profileApply: (token: string, sections: string[]) => ipcRenderer.invoke('profile:apply', token, sections),
   profileCloneProject: (remote: string, name: string) => ipcRenderer.invoke('profile:cloneProject', remote, name),
+  profilePreviewFromHost: (hostId: string, sections: string[]) => ipcRenderer.invoke('profile:previewFromHost', hostId, sections),
+  profilePreviewOnHost: (hostId: string, sections: string[]) => ipcRenderer.invoke('profile:previewOnHost', hostId, sections),
+  profileApplyOnHost: (hostId: string, token: string, sections: string[]) => ipcRenderer.invoke('profile:applyOnHost', hostId, token, sections),
   profileRelaunch: () => ipcRenderer.invoke('profile:relaunch'),
   // База знаний компании (TASK-223)
   knowledgeBaseIndex: (projectPath: string) => ipcRenderer.invoke('kb:index', projectPath),
