@@ -177,6 +177,7 @@ export class ApiToolExecutor {
       ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
       ...(ctx.agentName ? { agentName: ctx.agentName } : {}),
       ...(ctx.role ? { role: ctx.role } : {}),
+      ...(ctx.taskId ? { taskId: ctx.taskId } : {}),
       tool
     };
   }

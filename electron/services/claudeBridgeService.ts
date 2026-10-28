@@ -561,6 +561,7 @@ class ClaudeBridgeService extends EventEmitter {
       agentName: ctx.agentName,
       role: ctx.role,
       ...(ctx.claudeAccount ? { claudeAccount: ctx.claudeAccount } : {}),
+      ...(ctx.taskId ? { taskId: ctx.taskId } : {}),
       tool: toolName
     } as const;
     // Автономный запуск (Automations, назначенные задачи): выход Playwright MCP за браузер — отказ (decision-55 п. 3).

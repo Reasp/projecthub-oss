@@ -533,6 +533,7 @@ export class HitlService extends EventEmitter {
       agentName: request.agentName,
       role: request.role,
       ...(request.claudeAccount ? { claudeAccount: request.claudeAccount } : {}),
+      ...(request.taskId ? { taskId: request.taskId } : {}),
       tool: request.tool,
       type: request.type,
       ...(request.risk ? { risk: request.risk } : {}),

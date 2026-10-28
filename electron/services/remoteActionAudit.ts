@@ -55,13 +55,27 @@ export function remoteAuditFile(dir: string, ts: number): string {
 }
 
 let writes: Promise<unknown> = Promise.resolve();
+const listeners = new Set<(entry: RemoteAuditEntry) => void>();
+
+/** Подписка на записанные строки — журнал аудита Enterprise (TASK-148) кладёт их в цепочку и SIEM. */
+export function onRemoteAuditAppend(listener: (entry: RemoteAuditEntry) => void): void {
+  listeners.add(listener);
+}
 
 /** Запись в журнал; сбой записи не ломает само действие — только предупреждение в лог. */
 export function appendRemoteAudit(entry: Omit<RemoteAuditEntry, 'v'>, dir = path.join(getUserDataDir(), 'audit')): Promise<void> {
-  const line = `${JSON.stringify({ v: REMOTE_AUDIT_VERSION, ...entry })}\n`;
+  const full: RemoteAuditEntry = { v: REMOTE_AUDIT_VERSION, ...entry };
+  const line = `${JSON.stringify(full)}\n`;
   const op = async () => {
     await fs.mkdir(dir, { recursive: true });
     await fs.appendFile(remoteAuditFile(dir, entry.ts), line, 'utf8');
+    for (const listener of listeners) {
+      try {
+        listener(full);
+      } catch (err) {
+        console.warn('[RemoteAudit] Подписчик журнала упал:', err);
+      }
+    }
   };
   const next = writes.then(op, op);
   writes = next.catch((err) => console.warn('[RemoteAudit] Не удалось записать журнал:', err));

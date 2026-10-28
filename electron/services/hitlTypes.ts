@@ -153,6 +153,8 @@ export interface HitlRequest {
   hostId?: string;
   /** Участник общего хоста, чей агент спрашивает (TASK-142.3): ему запрос и уходит. Пусто — владелец хоста. */
   memberId?: string;
+  /** Задача, над которой работает агент (Swarm, Studio с задачей, назначенная задача) — в аудит (TASK-148). */
+  taskId?: string;
   /** Имя инструмента движка (Bash, Write, run_command …). */
   tool?: string;
   /** Класс риска; считает `hitlService.request` (`classifyRisk`), вызывающий сервис может только ужесточить. */
@@ -240,6 +242,8 @@ export interface HitlAuditEntry {
   deviceName?: string;
   /** Участник общего хоста (decision-126). */
   memberId?: string;
+  /** Задача агента (TASK-148). */
+  taskId?: string;
   rule?: string;
   /** Версия политики проекта, действовавшей при записи (TASK-148.1): хэш `.projecthub/policy.json`. */
   policyVersion?: string;

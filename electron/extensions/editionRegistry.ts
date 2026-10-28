@@ -1,5 +1,6 @@
 import type { HitlAuditEntry, HitlRequest } from '../services/hitlTypes';
 import { onAuditAppend } from '../services/hitlAudit';
+import { onRemoteAuditAppend, type RemoteAuditEntry } from '../services/remoteActionAudit';
 import { getStatePath } from '../services/appPaths';
 import { AppError, withAppErrorKey, type AppErrorKey } from '../../src/lib/appError';
 import type { ProjectToolContext, ProjectToolResult } from '../services/projectAgentTools';
@@ -321,6 +322,8 @@ export interface EditionMainApi {
   createProjectMcpServer(projectRoot: string, sessionId: string, memberId?: string): McpServer | null;
   /** Каждая записанная строка аудита HITL (TASK-148): цепочка хэшей и выгрузка в SIEM. */
   onAuditEntry(listener: (entry: HitlAuditEntry) => void): void;
+  /** Каждая записанная строка журнала действий удалённых устройств (`remote-*.jsonl`) — туда же. */
+  onRemoteAuditEntry(listener: (entry: RemoteAuditEntry) => void): void;
   /** Каталог аудита хоста (`<userData>/audit`). */
   auditDir(): string;
   /** Открыт ли участнику проект хоста (TASK-223: база знаний компании в поиске участника по сети). */
@@ -474,6 +477,7 @@ export const editionRegistry = {
       },
       createProjectMcpServer: (projectRoot, sessionId, memberId) => projectMcpFactory?.(projectRoot, sessionId, memberId) ?? null,
       onAuditEntry: (listener) => onAuditAppend(listener),
+      onRemoteAuditEntry: (listener) => onRemoteAuditAppend(listener),
       auditDir: () => getStatePath('audit'),
       setMemberProjectAccess: (check) => {
         memberProjectAccess = check;
