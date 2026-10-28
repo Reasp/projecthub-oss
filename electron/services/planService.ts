@@ -53,6 +53,8 @@ import {
 } from './planDispatcher.js';
 import { PlanStore } from './planStore.js';
 import type { AgentPlan, PlanNode, PlanOutcome, PlanSettings, PlanState } from './planTypes.js';
+import { projectContentText } from '../i18n/projectContentText.js';
+import { getHostLanguage } from './hostLanguage.js';
 import { AppError, appErrorFields, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import type { AgentSlotConfig, SwarmEventPayload, SwarmSession } from './swarmTypes.js';
 
@@ -419,11 +421,12 @@ export class PlanService extends EventEmitter {
   private async writeParentPlanSection(plan: PlanState, agentPlan: AgentPlan): Promise<void> {
     const file = await findTaskFile(plan.projectPath, plan.taskId);
     if (!file) return;
+    const tx = projectContentText(getHostLanguage()).plan;
     const lines = [
       agentPlan.summary,
       '',
       ...plan.nodes.map((node) => {
-        const deps = node.dependsOn.length > 0 ? ` (после ${node.dependsOn.join(', ')})` : '';
+        const deps = node.dependsOn.length > 0 ? tx.after(node.dependsOn.join(', ')) : '';
         return `- ${node.taskId} — ${node.title}${deps}`;
       })
     ];
@@ -966,7 +969,7 @@ export class PlanService extends EventEmitter {
       type: 'swarm:finished',
       swarmId: plan.id,
       projectPath: plan.projectPath,
-      name: `План ${plan.taskId}`,
+      name: projectContentText(getHostLanguage()).plan.name(plan.taskId),
       mode: 'plan',
       outcome: outcome === 'success' || outcome === 'partial' ? 'completed' : outcome === 'stopped' ? 'stopped' : 'failed',
       agentsTotal: progress.total,
@@ -982,11 +985,13 @@ export class PlanService extends EventEmitter {
     if (!file) return;
 
     const progress = planProgress(plan.nodes);
+    // Итог пишется в файл задачи человека — на языке хоста (decision-165 п. 14).
+    const tx = projectContentText(getHostLanguage()).plan;
     const rows = plan.nodes.map((node) => {
       const parts = [
-        `- ${node.taskId} — ${node.title}: ${STATE_LABELS[node.state] ?? node.state}`,
-        node.mergeCommit ? `коммит ${node.mergeCommit.slice(0, 7)}` : '',
-        node.iterations ? `итераций ${node.iterations}` : '',
+        `- ${node.taskId} — ${node.title}: ${tx.states[node.state] ?? node.state}`,
+        node.mergeCommit ? tx.commit(node.mergeCommit.slice(0, 7)) : '',
+        node.iterations ? tx.iterations(node.iterations) : '',
         node.costUsd ? `${node.costUsd.toFixed(2)} $` : '',
         node.reason ? `(${node.reason})` : ''
       ].filter(Boolean);
@@ -994,14 +999,14 @@ export class PlanService extends EventEmitter {
     });
 
     const summary = [
-      `План выполнен: ${OUTCOME_LABELS[plan.outcome ?? 'partial']}. Подзадач — ${progress.total}, влито — ${progress.merged}.`,
+      tx.finished(tx.outcomes[plan.outcome ?? 'partial'], progress.total, progress.merged),
       plan.reason ? `\n${plan.reason}` : '',
       '',
-      '**Подзадачи**',
+      tx.subtasks,
       ...rows,
       '',
-      plan.integrationBranch ? `**Интеграционная ветка**: \`${plan.integrationBranch}\` — слейте её сами, планировщик в базовую ветку не сливает.` : '',
-      plan.totalCostUsd !== undefined ? `**Стоимость плана**: ${plan.totalCostUsd.toFixed(2)} $` : ''
+      plan.integrationBranch ? tx.integrationBranch(plan.integrationBranch) : '',
+      plan.totalCostUsd !== undefined ? tx.cost(plan.totalCostUsd.toFixed(2)) : ''
     ]
       .filter((line) => line !== '')
       .join('\n');
@@ -1035,26 +1040,5 @@ export class PlanService extends EventEmitter {
     await this.store.flush();
   }
 }
-
-const STATE_LABELS: Record<string, string> = {
-  pending: 'не запускалась',
-  running: 'выполняется',
-  completed: 'выполнена, не слита',
-  merging: 'сливается',
-  merged: 'влита',
-  conflict: 'конфликт слияния',
-  failed: 'не выполнена',
-  blocked: 'заблокирована',
-  skipped: 'пропущена',
-  missing: 'удалена из Backlog'
-};
-
-const OUTCOME_LABELS: Record<PlanOutcome, string> = {
-  success: 'все подзадачи влиты',
-  partial: 'выполнен частично',
-  failed: 'провален',
-  budget_exceeded: 'остановлен по бюджету',
-  stopped: 'остановлен человеком'
-};
 
 export const planService = new PlanService();

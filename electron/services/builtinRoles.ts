@@ -7,19 +7,22 @@
  * вендора роль не выбирает, тир разрешается по таблице тиров пользователя.
  */
 import type { RoleDefinition } from './roleTypes.js';
+import type { Language } from '../../src/i18n/types.js';
+import { BUILTIN_ROLE_TEXT, builtinRoleText, type BuiltinRoleSlug } from '../i18n/builtinRoleText.js';
 
-function builtin(def: Omit<RoleDefinition, 'source'>): RoleDefinition {
-  return { ...def, source: 'builtin' };
+/** Имя и DoD — из словаря по `slug` (TASK-202.13): здесь английские, на языке хоста — `localizedBuiltinRoles`. */
+function builtin(def: Omit<RoleDefinition, 'source' | 'dod'> & { slug: BuiltinRoleSlug }): RoleDefinition {
+  const text = BUILTIN_ROLE_TEXT.en[def.slug];
+  return { ...def, name: text.name, dod: [...text.dod], source: 'builtin' };
 }
 
 export const BUILTIN_ROLES: RoleDefinition[] = [
   builtin({
     slug: 'architect',
-    name: 'Архитектор',
+    name: 'Architect',
     modelTier: 'frontier',
     tools: ['read', 'search', 'question'],
     permissions: { allowFileWrite: false, allowCommands: false },
-    dod: ['Спецификация покрывает все критерии приёмки задачи', 'Указаны затронутые файлы и модули', 'Отмечены риски и альтернативы'],
     handoffTo: ['implementer'],
     systemPrompt:
       'You are the architect in a team of ProjectHub agents. Your job is to study the codebase and write ' +
@@ -28,11 +31,10 @@ export const BUILTIN_ROLES: RoleDefinition[] = [
   }),
   builtin({
     slug: 'implementer',
-    name: 'Реализатор',
+    name: 'Implementer',
     modelTier: 'balanced',
     tools: ['read', 'write', 'command', 'search'],
     permissions: { allowFileWrite: true, allowCommands: true },
-    dod: ['Код реализует спецификацию/задачу', 'Проект собирается', 'Изменения ограничены рамками задачи'],
     handoffTo: ['reviewer', 'tester'],
     systemPrompt:
       'You are the implementing agent in a ProjectHub team. Write code from the specification or the task description, ' +
@@ -41,11 +43,10 @@ export const BUILTIN_ROLES: RoleDefinition[] = [
   }),
   builtin({
     slug: 'reviewer',
-    name: 'Ревьюер',
+    name: 'Reviewer',
     modelTier: 'frontier',
     tools: ['read', 'search', 'question'],
     permissions: { allowFileWrite: false, allowCommands: false },
-    dod: ['Проверены корректность и соответствие задаче', 'Даны конкретные замечания с указанием файла/строки'],
     handoffTo: ['implementer'],
     systemPrompt:
       'You are the reviewer in a ProjectHub team. Study the changes (diff, files) and give specific remarks on ' +
@@ -54,11 +55,10 @@ export const BUILTIN_ROLES: RoleDefinition[] = [
   }),
   builtin({
     slug: 'tester',
-    name: 'Тестировщик',
+    name: 'Tester',
     modelTier: 'balanced',
     tools: ['read', 'write', 'command'],
     permissions: { allowFileWrite: true, writeExcludePatterns: ['!tests/**', '!**/*.test.*', '!**/*.spec.*'], allowCommands: true },
-    dod: ['Добавлены/обновлены тесты на изменённую логику', 'Тесты и сборка проходят'],
     handoffTo: ['doc-writer'],
     systemPrompt:
       'You are the tester in a ProjectHub team. Write and run tests for the changed logic, check ' +
@@ -66,17 +66,12 @@ export const BUILTIN_ROLES: RoleDefinition[] = [
   }),
   builtin({
     slug: 'manager',
-    name: 'Менеджер',
+    name: 'Manager',
     modelTier: 'balanced',
     tools: ['read', 'search', 'question'],
     // Право роли «менеджер» (decision-89): задачи заводятся без карточки, но с меткой agent-created —
     // автозапуск их не берёт, пока человек не подтвердит.
     permissions: { allowFileWrite: false, allowCommands: false, taskCreate: 'propose' },
-    dod: [
-      'Задачи не дублируют существующие (проверено через task_list)',
-      'У каждой задачи проверяемые критерии приёмки',
-      'Задачи ждут подтверждения человека — в итоге перечислено, что подтвердить'
-    ],
     handoffTo: [],
     systemPrompt:
       'You are the manager in a team of ProjectHub agents. Split the goal into Backlog.md tasks with the task_create tool: ' +
@@ -87,11 +82,10 @@ export const BUILTIN_ROLES: RoleDefinition[] = [
   }),
   builtin({
     slug: 'doc-writer',
-    name: 'Технический писатель',
+    name: 'Technical writer',
     modelTier: 'cheap',
     tools: ['read', 'write'],
     permissions: { allowFileWrite: true, writeExcludePatterns: ['!backlog/docs/**', '!backlog/decisions/**'], allowCommands: false },
-    dod: ['Документация отражает фактическое поведение', 'Соблюдён формат backlog/docs (frontmatter, id/title)'],
     handoffTo: [],
     systemPrompt:
       'You are the technical writer in a ProjectHub team. Update or create documentation in backlog/docs ' +
@@ -99,3 +93,11 @@ export const BUILTIN_ROLES: RoleDefinition[] = [
       'Edit only backlog/docs and backlog/decisions.'
   })
 ];
+
+/** Встроенные роли на языке хоста: имя и DoD видят человек в окне и модель в задании роли. */
+export function localizedBuiltinRoles(language: Language): RoleDefinition[] {
+  return BUILTIN_ROLES.map((role) => {
+    const text = builtinRoleText(role.slug, language);
+    return text ? { ...role, name: text.name, dod: [...text.dod] } : role;
+  });
+}

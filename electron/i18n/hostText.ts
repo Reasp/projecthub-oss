@@ -121,6 +121,8 @@ export interface HostText {
     quitConfirm: { cancel: string; quit: string; title: string; message: (n: number) => string; detail: string };
   };
   studio: { cancelledByUser: string; emptyPrompt: string; mcpUnavailableWarning: string; stepLimit: (max: number) => string };
+  /** Заголовок вкладки терминала входа в CLI (TASK-202.13). */
+  terminal: { loginTitle: (account: string) => string };
   /** Заголовки системных диалогов сохранения. */
   /** Системные диалоги и тестовое уведомление Telegram (TASK-202.11 — выбор папки, экспорт HITL, тест). */
   dialogs: {
@@ -136,7 +138,7 @@ export interface HostText {
   /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
   chat: { testTitle: string; testBody: string; usageLabel: string };
   /** Имя устройства, которое привёл соседний ПК федерации (decision-111): сохраняется в записи токена. */
-  remote: { phoneName: string; viaPeer: (device: string, peer: string) => string };
+  remote: { phoneName: string; viaPeer: (device: string, peer: string) => string; studioProfile: string };
   /** Заметка хода роя в Implementation Notes задачи (TASK-76, TASK-202.7). */
   sessionNote: {
     modes: Record<string, string>;
@@ -312,6 +314,7 @@ const en: HostText = {
     emptyPrompt: 'Please enter a message.',
     mcpUnavailableWarning: 'The built-in ProjectHub MCP server is unavailable: Claude Code was started without permission checks, the exclusion and deny lists do not apply to this answer.'
   },
+  terminal: { loginTitle: (account) => `Sign-in: ${account}` },
   dialogs: {
     exportTrace: 'Export agent trace',
     exportSwarm: 'Export swarm session',
@@ -323,7 +326,7 @@ const en: HostText = {
     cloneProjectInto: 'Folder to clone the project into'
   },
   chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' },
-  remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}` },
+  remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}`, studioProfile: 'Profile' },
   sessionNote: {
     modes: { fan_out: 'arena (fan-out)', handoff: 'pipeline (handoff)', done_loop: '“until done” loop' },
     statuses: { completed: 'success', failed: 'failure', stopped: 'stopped' },
@@ -508,6 +511,7 @@ const ru: HostText = {
     emptyPrompt: 'Пожалуйста, введите сообщение.',
     mcpUnavailableWarning: 'Встроенный MCP-сервер ProjectHub недоступен: Claude Code запущен без проверки разрешений, списки исключений и запрещённых команд в этом ответе не применяются.'
   },
+  terminal: { loginTitle: (account) => `Вход: ${account}` },
   dialogs: {
     exportTrace: 'Экспорт трассы агента',
     exportSwarm: 'Экспорт swarm-сессии',
@@ -519,7 +523,7 @@ const ru: HostText = {
     cloneProjectInto: 'Папка, куда клонировать проект'
   },
   chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' },
-  remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}` },
+  remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}`, studioProfile: 'Профиль' },
   sessionNote: {
     modes: { fan_out: 'арена (fan-out)', handoff: 'конвейер (handoff)', done_loop: 'цикл «до готовности»' },
     statuses: { completed: 'успех', failed: 'провал', stopped: 'остановлена' },

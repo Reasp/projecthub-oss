@@ -37,6 +37,7 @@ import {
   type SeverityCounts
 } from './dependencyAudit.js';
 import { MAX_REGISTRY_LOOKUPS, parseNpmViewOutput, type RegistryMeta } from './dependencyDiff.js';
+import { getHostLanguage } from './hostLanguage.js';
 
 export const SECURITY_REPORT_VERSION = 1;
 export const AUDIT_TIMEOUT_MS = 120_000;
@@ -361,7 +362,7 @@ export class SecurityHealthService {
       severity: top.severity,
       title: title.text,
       titleKey: title.key,
-      summary: `${summarizeCounts(counts)} · ${names}`,
+      summary: `${summarizeCounts(counts, getHostLanguage())} · ${names}`,
       count: relevant.length,
       key: relevant.flatMap((f) => f.advisories.map((a) => `${f.package}:${a.id}`)).sort().join(',').slice(0, 500) || names,
       at
@@ -425,7 +426,7 @@ export class SecurityHealthService {
     if (existing) return { ok: true, taskId: existing, existed: true };
     const finding = report.ecosystems.flatMap((e) => e.findings).find((f) => f.ecosystem === ecosystem && f.package === pkg);
     if (!finding) return { ok: false, ...appErrorFields(new AppError('security.findingNotFound', { pkg })) };
-    const task = buildFindingTask(finding, path.basename(root));
+    const task = buildFindingTask(finding, path.basename(root), getHostLanguage());
     const created = await this.deps.createTask(root, { ...task, priority: priorityFor(finding.severity) });
     if (!created) return { ok: false, ...appErrorFields(new AppError('security.taskCreateFailed')) };
     const fresh = (await this.getReport(root)) ?? report;

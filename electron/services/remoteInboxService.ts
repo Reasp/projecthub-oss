@@ -4,6 +4,8 @@ import { AppError } from '../../src/lib/appError.js';
 import type { AppBusEvent } from './hitlTypes.js';
 import type { SwarmSession } from './swarmTypes.js';
 import { stateFields, withVersion } from './stateFiles.js';
+import { projectContentText } from '../i18n/projectContentText.js';
+import { getHostLanguage } from './hostLanguage.js';
 import {
   INBOX_STATE_VERSION,
   InboxJournal,
@@ -268,10 +270,12 @@ export class RemoteInboxService {
     if (restart && device.rights !== 'full') throw new AppError('inbox.restartFullOnly');
 
     const status = action === 'done' ? 'Done' : 'In Progress';
-    const who = device.name || 'телефон';
+    // Заметка пишется в файл задачи — на языке хоста (decision-165 п. 14).
+    const tx = projectContentText(getHostLanguage()).inbox;
+    const who = device.name || tx.phone;
     const note = action === 'done'
-      ? `Принято с проверки (${who}, ${this.deps.timestamp()})${comment ? `: ${comment}` : ''}`
-      : `Возвращено с проверки (${who}, ${this.deps.timestamp()}): ${comment}`;
+      ? `${tx.accepted(who, this.deps.timestamp())}${comment ? `: ${comment}` : ''}`
+      : `${tx.returned(who, this.deps.timestamp())}: ${comment}`;
     const written = await this.deps.updateTask(projectPath, task.id, (data, content) => ({
       data: { ...data, status },
       content: this.deps.applyNote(content, note)

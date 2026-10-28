@@ -42,6 +42,7 @@ import type {
 } from '../../types/projectInit';
 import { TemplatesModal } from './TemplatesModal';
 import { InitDiffView } from './InitDiffView';
+import { rendererServiceText } from '../../i18n/rendererServiceText';
 
 /** `update` — обновление существующего проекта из новой версии шаблона (TASK-156). */
 export type ProjectInitMode = 'existing' | 'new' | 'folder' | 'update';
@@ -383,10 +384,7 @@ export const ProjectInitModal: React.FC<ProjectInitModalProps> = ({ isOpen, onCl
     onClose();
   };
 
-  const commitMessage =
-    mode === 'update'
-      ? language === 'en' ? 'chore: update ProjectHub template' : 'chore: обновление шаблона ProjectHub'
-      : language === 'en' ? 'chore: initialize ProjectHub' : 'chore: инициализация ProjectHub';
+  const commitMessage = mode === 'update' ? rendererServiceText(language).initCommit.update : rendererServiceText(language).initCommit.init;
   const commitText = report ? commitCommand(report, commitMessage) : '';
 
   const title = mode === 'new' ? ti.titleNew : mode === 'folder' ? ti.titleFolder : mode === 'update' ? ti.titleUpdate : ti.titleExisting;

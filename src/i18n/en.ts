@@ -2,6 +2,7 @@ import { providerErrorTextEn } from './providerErrorText';
 import { hitlRequestTextEn } from './hitlRequestText';
 import { appErrorTextEn } from './appErrorText';
 import type { TranslationDictionary } from './types';
+import { STUDIO_QUICK_PROMPTS } from '../utils/studioQuickPrompts';
 
 export const en: TranslationDictionary = {
   appErrors: appErrorTextEn,
@@ -1929,12 +1930,12 @@ export const en: TranslationDictionary = {
       gitCommitDesc: 'Generate conventional commit message'
     },
     quickActions: {
-      nextTask: 'Next Task',
-      commit: 'Commit',
-      deploy: 'Deploy',
-      nextTaskPrompt: 'Inspect active tasks in Backlog.md (status To Do / In Progress), analyze the requirements of the next task and start implementation following project rules.',
-      commitPrompt: 'Check git status and diff, run npm run lint:docs, generate a concise conventional commit message according to project rules, and propose the git commit command.',
-      deployPrompt: 'Verify release readiness, run tests and documentation validation, then build the desktop application (npm run pack:win / pack:mac).'
+      nextTask: STUDIO_QUICK_PROMPTS.en.nextTask.label,
+      commit: STUDIO_QUICK_PROMPTS.en.commit.label,
+      deploy: STUDIO_QUICK_PROMPTS.en.deploy.label,
+      nextTaskPrompt: STUDIO_QUICK_PROMPTS.en.nextTask.prompt,
+      commitPrompt: STUDIO_QUICK_PROMPTS.en.commit.prompt,
+      deployPrompt: STUDIO_QUICK_PROMPTS.en.deploy.prompt
     },
     input: {
       placeholder: 'Ask a question or describe a task (e.g. Implement auth, Refactor store)...',

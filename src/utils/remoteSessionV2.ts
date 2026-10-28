@@ -233,7 +233,7 @@ function buf(bytes: Uint8Array): ArrayBuffer {
 
 function defaultSubtle(): Subtle {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new Error('WebCrypto недоступен');
+  if (!subtle) throw new Error('WebCrypto is not available');
   return subtle;
 }
 

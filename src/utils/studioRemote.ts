@@ -81,10 +81,14 @@ export function sessionUpdatedAt(s: AISession): number {
 }
 
 /** «Claude · sonnet», «LM Studio · qwen3», «deepseek · deepseek-chat». */
-export function selectionLabel(sel: StudioModelSelection | undefined, profileNames: ReadonlyMap<string, string> = new Map()): string | undefined {
+export function selectionLabel(
+  sel: StudioModelSelection | undefined,
+  profileNames: ReadonlyMap<string, string> = new Map(),
+  profileFallback = 'Profile'
+): string | undefined {
   if (!sel?.model) return undefined;
   if (sel.provider === 'anthropic') return `Claude · ${sel.model}`;
-  if (sel.provider === 'openai-compatible') return `${(sel.profileId && profileNames.get(sel.profileId)) || 'Профиль'} · ${sel.model}`;
+  if (sel.provider === 'openai-compatible') return `${(sel.profileId && profileNames.get(sel.profileId)) || profileFallback} · ${sel.model}`;
   return `${sel.provider} · ${sel.model}`;
 }
 

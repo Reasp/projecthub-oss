@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import matter from 'gray-matter';
 import type { Milestone, CreateMilestoneParams } from '../../src/types/electron';
 import { allocateBacklogId } from './backlogIdAllocator';
+import { projectContentText } from '../i18n/projectContentText';
+import { getHostLanguage } from './hostLanguage';
 import { taskStage } from '../../src/utils/taskStatus';
 
 function fmString(value: unknown): string | undefined {
@@ -135,7 +137,7 @@ export async function createMilestone(
     frontmatter.description = params.description;
   }
 
-  const body = `\n# ${title}\n\n${params.description || 'Описание майлстоуна'}\n`;
+  const body = `\n# ${title}\n\n${params.description || projectContentText(getHostLanguage()).templates.milestoneDescription}\n`;
   const fileContent = matter.stringify(body, frontmatter);
 
   await fs.writeFile(fullPath, fileContent, 'utf-8');

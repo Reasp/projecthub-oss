@@ -20,6 +20,7 @@ import { logger } from './logger.js';
 import { keyedText } from '../../src/lib/appError.js';
 import { prReviewService, prWatcher } from './prReviewApp.js';
 import type { SwarmEventPayload, SwarmSession } from './swarmTypes.js';
+import { getHostLanguage } from './hostLanguage.js';
 
 /**
  * Automations в приложении (TASK-74, decision-52): движок `AutomationEngine` со всеми настоящими
@@ -83,13 +84,13 @@ const actions: ActionDeps = {
     const { summarizeCounts } = await import('./dependencyAudit.js');
     const res = await securityHealthService.runAudit(root, { reason: 'automation', minSeverity });
     if (res.fromCache) {
-      const cached = keyedText('automations.auditCached', { counts: summarizeCounts(res.report.counts) });
+      const cached = keyedText('automations.auditCached', { counts: summarizeCounts(res.report.counts, getHostLanguage()) });
       return { ok: true, detail: cached.text, detailKey: cached.key };
     }
     const failed = res.report.ecosystems.filter((e) => e.status === 'error' && !e.stale);
     const stale = res.report.ecosystems.filter((e) => e.stale);
     const parts = [
-      summarizeCounts(res.report.counts),
+      summarizeCounts(res.report.counts, getHostLanguage()),
       `new findings: ${res.newFindings.length}`,
       ...res.report.ecosystems.filter((e) => e.status !== 'done').map((e) => `${e.ecosystem}: ${e.message ?? e.status}`)
     ];

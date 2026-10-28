@@ -51,7 +51,7 @@ export function hashProjectPath(projectPath: string): string {
 function truncate(value: string, limit: number): string {
   if (value.length <= limit) return value;
   const dropped = value.length - limit;
-  return `${value.slice(0, limit)}\n…[усечено при сохранении: ещё ${dropped} символов]`;
+  return `${value.slice(0, limit)}\n…[truncated on save: ${dropped} more characters]`;
 }
 
 function compactArgs(args: Record<string, unknown> | undefined): Record<string, unknown> | undefined {

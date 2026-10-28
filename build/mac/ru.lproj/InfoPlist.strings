@@ -1,0 +1,3 @@
+/* Русские тексты запросов разрешений macOS (TASK-202.13). Английские — в package.json → build.mac.extendInfo. */
+"NSMicrophoneUsageDescription" = "ProjectHub использует микрофон для голосового управления и ассистента.";
+"NSLocalNetworkUsageDescription" = "ProjectHub подключается к другим вашим компьютерам и телефону в локальной сети.";

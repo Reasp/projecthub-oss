@@ -8,6 +8,8 @@ import { normalizeSection, sectionFromRelativePath } from '../../src/utils/docTr
 import { buildDocLinkIndex, type DocLinkSource } from '../../src/utils/docBacklinks';
 import { buildDocLinkGraph, type DocGraphSource } from '../../src/utils/docLinkGraph';
 import { allocateBacklogId } from './backlogIdAllocator';
+import { projectContentText } from '../i18n/projectContentText';
+import { getHostLanguage } from './hostLanguage';
 
 /**
  * YAML в frontmatter превращает незакавыченные значения вида `2026-09-03` в объекты Date,
@@ -174,7 +176,7 @@ async function readDocItem(
     data = parsed.data ?? {};
     content = parsed.content;
   } catch (e) {
-    console.error(`Frontmatter не парсится: ${filePath}`, e);
+    console.error(`Cannot parse frontmatter: ${filePath}`, e);
   }
 
   let title = toOptionalString(data.title);
@@ -335,41 +337,13 @@ export async function saveDocFile(filePath: string, content: string): Promise<bo
   return true;
 }
 
+// Заготовки пишутся в проект человека — на языке хоста (decision-165 п. 14).
 function decisionTemplate(title: string): string {
-  return `# ${title}
-
-## Контекст и проблематика
-Опишите контекст проблемы, технические ограничения и требования, которые привели к необходимости принятия этого архитектурного решения.
-
-## Рассматриваемые варианты
-1. **Вариант 1**: Плюсы и минусы
-2. **Вариант 2**: Плюсы и минусы
-
-## Принятое решение
-Опишите выбранный подход и обоснование выбора.
-
-## Последствия
-### Положительные
--
-
-### Отрицательные / Риски
--
-`;
+  return projectContentText(getHostLanguage()).templates.decision(title);
 }
 
 function docTemplate(title: string): string {
-  return `# ${title}
-
-## Обзор
-Краткое описание назначения и содержания данного документа.
-
-## Основные разделы
-### 1. Введение
-Описание архитектуры или процесса.
-
-### 2. Спецификация
-Детальные спецификации, схемы или примеры использования.
-`;
+  return projectContentText(getHostLanguage()).templates.doc(title);
 }
 
 /**

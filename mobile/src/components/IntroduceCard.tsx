@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LinkSimpleIcon } from '@phosphor-icons/react';
 import { useServices } from '../app/context';
+import { failureText } from '../app/errorText';
 import type { PhoneFleetHost } from '../protocol/fleet';
 import { useT } from '../i18n/react';
 import { Button, Sheet } from './ui';
@@ -104,7 +105,7 @@ export function IntroduceCard({ fleet }: { fleet: PhoneFleetHost[] }) {
           <p className="text-[12px] leading-snug text-slate-400">{tr.fleet.introduceSheetHint}</p>
           {failures.map((f) => (
             <p key={`${f.pair.to.hostId}>${f.pair.peer.hostId}`} className="text-[12px] text-red-300">
-              {tr.fleet.introduceFailed(tr.fleet.introducePair(f.pair.to.name, f.pair.peer.name), f.error || '')}
+              {tr.fleet.introduceFailed(tr.fleet.introducePair(f.pair.to.name, f.pair.peer.name), failureText(f))}
             </p>
           ))}
         </div>

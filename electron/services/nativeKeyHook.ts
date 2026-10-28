@@ -111,7 +111,7 @@ class NativeKeyHook {
 
   private async load(): Promise<{ ok: true; hook: HookEmitter } | Extract<KeyHookStartResult, { ok: false }>> {
     if (!this.hasPermission()) {
-      return { ok: false, problem: 'permission', detail: 'нет разрешения «Универсальный доступ»' };
+      return { ok: false, problem: 'permission', detail: 'no Accessibility permission' };
     }
     if (this.hook) return { ok: true, hook: this.hook };
     try {

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AppBusEvent, ApprovalRequest, HitlAuditEntry, HitlAuditQuery, HitlDecideResult } from '../types/electron';
 import { useAIStudioStore } from './useAIStudioStore';
+import { rendererServiceText } from '../i18n/rendererServiceText';
 
 /**
  * Стор единого HITL-контура (TASK-57): очередь запросов всех сессий и хостов, история решений,
@@ -132,7 +133,7 @@ export const useHitlStore = create<HitlState>((set, get) => ({
   },
 
   exportAudit: async (format) => {
-    if (!window.api?.exportHitlAudit) return { success: false, error: 'API недоступен' };
+    if (!window.api?.exportHitlAudit) return { success: false, error: rendererServiceText().apiUnavailable };
     return window.api.exportHitlAudit(get().auditQuery, format);
   },
 

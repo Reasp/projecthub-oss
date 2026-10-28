@@ -1,7 +1,9 @@
 /**
  * Шаблоны коммита и PR без модели (TASK-134.4: кнопки «AI» для них остаются шаблонами).
  * Черновик задачи моделью — `window.api.generateTaskDraft` (назначение «Черновик описания задачи»).
+ * Текст уходит в репозиторий человека — на языке окна (decision-165 п. 14).
  */
+import { rendererServiceText } from '../i18n/rendererServiceText';
 
 export async function generateCommitMessage(
   taskId?: string,
@@ -12,18 +14,19 @@ export async function generateCommitMessage(
     return `feat(${taskId}): ${taskTitle.toLowerCase()}`;
   }
 
+  const tx = rendererServiceText().commitDraft;
   if (changedFiles && changedFiles.length > 0) {
     const firstFile = changedFiles[0];
     if (firstFile.includes('docs/') || firstFile.includes('decisions/')) {
-      return 'docs: обновление документации и архитектурных решений';
+      return tx.docs;
     }
     if (firstFile.includes('test') || firstFile.includes('spec')) {
-      return 'test: добавление модульных тестов';
+      return tx.tests;
     }
-    return `feat: обновление модулей (${changedFiles.slice(0, 2).join(', ')})`;
+    return tx.modules(changedFiles.slice(0, 2).join(', '));
   }
 
-  return 'feat: реализация запланированных изменений';
+  return tx.planned;
 }
 
 export async function generatePRDraft(
@@ -32,17 +35,16 @@ export async function generatePRDraft(
   taskDescription?: string,
   branchName?: string
 ): Promise<{ title: string; description: string }> {
-  const prTitle = taskId && taskTitle ? `${taskId}: ${taskTitle}` : `feat: ${branchName || 'новые изменения'}`;
+  const tx = rendererServiceText().commitDraft;
+  const prTitle = taskId && taskTitle ? `${taskId}: ${taskTitle}` : `feat: ${branchName || tx.fallbackTitle}`;
 
-  const prDesc = `## 📋 Описание изменений
-${taskDescription || `В данном Pull Request реализованы изменения по задаче ${taskId || branchName}.`}
+  const prDesc = `## 📋 ${tx.prSummary}
+${taskDescription || tx.prDefaultDescription(String(taskId || branchName))}
 
-## 🔍 Что сделано:
-- [x] Реализована логика модуля
-- [x] Проверена совместимость с существующей архитектурой
-- [x] Протестирована сборка и отсутствие ошибок
+## 🔍 ${tx.prDone}
+${tx.prDoneItems.map((item) => `- [x] ${item}`).join('\n')}
 
-## 🔗 Связанные задачи:
+## 🔗 ${tx.prRelated}
 - Backlog: ${taskId ? `\`${taskId}\`` : '—'}
 `;
 

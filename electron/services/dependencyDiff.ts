@@ -253,11 +253,11 @@ export function parseNpmViewOutput(stdout: string, version?: string, stderr = ''
   const err = obj?.error as Record<string, unknown> | undefined;
   if (err && typeof err === 'object') {
     if (err.code === 'E404') return { notFound: true };
-    return { error: String(err.summary ?? err.code ?? 'ошибка npm view').split('\n')[0].slice(0, 200) };
+    return { error: String(err.summary ?? err.code ?? 'npm view failed').split('\n')[0].slice(0, 200) };
   }
   if (!obj) {
     if (/E404/.test(stderr)) return { notFound: true };
-    return { error: (stderr.split(/\r?\n/).find((l) => l.trim()) ?? 'npm view не вернул JSON').slice(0, 200) };
+    return { error: (stderr.split(/\r?\n/).find((l) => l.trim()) ?? 'npm view did not return JSON').slice(0, 200) };
   }
   const time = (obj.time && typeof obj.time === 'object' ? obj.time : 'created' in obj || 'modified' in obj ? obj : {}) as Record<string, unknown>;
   const meta: RegistryMeta = {};

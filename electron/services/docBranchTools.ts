@@ -151,7 +151,14 @@ export function docMergeHitlLines(diff: DocBranchDiff, files: DocBranchDiff['fil
     const change = f.change === 'added' || f.change === 'removed' ? f.change : 'modified';
     lines.push({ code: 'docFile', params: { doc: f.docId, title: f.title, change: { code: `docChange.${change}` } } });
     if (f.parts.length) {
-      const parts = f.parts.map((p) => ({ code: p.scope === 'frontmatter' ? 'docField' : 'docPart', params: { label: p.label, mark: mark(p.change) } }));
+      // Служебные части (начало frontmatter, текст до первого заголовка, документ целиком) — кодом словаря, как в окне.
+      const special = (key: string) => (key === 'fm:' ? 'docSpecial.fm' : key === 'body:' ? 'docSpecial.body' : key === 'file:' ? 'docSpecial.file' : null);
+      const parts = f.parts.map((p) => {
+        const code = special(p.key);
+        return code
+          ? { code: 'docPart', params: { label: { code }, mark: mark(p.change) } }
+          : { code: p.scope === 'frontmatter' ? 'docField' : 'docPart', params: { label: p.label, mark: mark(p.change) } };
+      });
       lines.push({ code: 'docParts', params: { parts } });
     }
     const notes: HitlTextLine[] = [

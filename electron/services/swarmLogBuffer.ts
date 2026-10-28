@@ -54,7 +54,7 @@ export function pushAgentLog(target: AgentLogTarget, line: string, limits: Agent
   // Одна строка больше всего буфера — оставляем её хвост, иначе буфер никогда не сойдётся.
   if (byteLength(text) > limits.maxBytes) {
     const keep = Math.max(1, Math.floor(limits.maxBytes / 2));
-    text = `…[усечено] ${text.slice(-keep)}`;
+    text = `…[truncated] ${text.slice(-keep)}`;
   }
   const logs = target.logs;
   let bytes = logBytesByArray.get(logs);

@@ -175,18 +175,6 @@ export function orderCandidates(list: RemoteEndpoint[], opts: CandidateOptions =
   return sorted;
 }
 
-export const ENDPOINT_KIND_LABEL: Record<EndpointKind, string> = {
-  lan: 'локальная сеть',
-  vpn: 'VPN',
-  tunnel: 'туннель',
-  relay: 'релей'
-};
-
-/** Короткая подпись адреса для экрана: `локальная сеть 192.168.1.5`, `туннель abc.trycloudflare.com`. */
-export function describeEndpoint(ep: RemoteEndpoint): string {
-  return `${ENDPOINT_KIND_LABEL[ep.kind]} ${hostOf(ep.url) ?? ep.url}`;
-}
-
 export interface HostAddress {
   address: string;
   kind: 'lan' | 'vpn';

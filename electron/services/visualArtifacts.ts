@@ -141,7 +141,7 @@ export function enforceMinScreenshots(result: CheckRunResult, minScreenshots = D
   const count = screenshotCount(result);
   if (count >= minScreenshots) return;
   result.status = 'failed';
-  result.detail = `нет скриншотов: найдено ${count}, нужно не меньше ${minScreenshots}`;
+  result.detail = `no screenshots: found ${count}, need at least ${minScreenshots}`;
 }
 
 export interface StoreEntry {

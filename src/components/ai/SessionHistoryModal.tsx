@@ -5,13 +5,14 @@ import { useAIStudioStore, type AISession } from '../../store/useAIStudioStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { selectionLabel, sessionUpdatedAt } from '../../utils/studioRemote';
+import { rendererServiceText } from '../../i18n/rendererServiceText';
 
 /**
  * История диалогов Agents Studio (TASK-140.10, decision-83): закрытые вкладки не удаляются, а уходят сюда.
  * Свежие сверху, поиск по названию и тексту, «Открыть» возвращает сессию во вкладки.
  */
 export const SessionHistoryModal: React.FC<{ projectPath: string; onClose: () => void }> = ({ projectPath, onClose }) => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const dialog = useDialog();
   const reopenSession = useAIStudioStore((s) => s.reopenSession);
   const [sessions, setSessions] = useState<AISession[] | null>(null);
@@ -89,7 +90,7 @@ export const SessionHistoryModal: React.FC<{ projectPath: string; onClose: () =>
             <ul className="divide-y divide-ph-line">
               {visible.map((s) => {
                 const lastUser = [...s.messages].reverse().find((m) => m.role === 'user');
-                const model = selectionLabel(s.lastSelection);
+                const model = selectionLabel(s.lastSelection, undefined, rendererServiceText(language).studioProfile);
                 return (
                   <li key={s.id} className="group flex items-start gap-3 px-4 py-2.5 hover:bg-ph-hover/50">
                     <button type="button" onClick={() => open(s)} className="min-w-0 flex-1 text-left">

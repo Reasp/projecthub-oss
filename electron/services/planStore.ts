@@ -32,7 +32,7 @@ export function compactPlanForStorage(plan: PlanState): StoredPlanState {
     version: PLAN_STORE_VERSION,
     architect: {
       ...plan.architect,
-      ...(raw && raw.length > RAW_RESPONSE_LIMIT ? { rawResponse: `${raw.slice(0, RAW_RESPONSE_LIMIT)}\n…[усечено]` } : {})
+      ...(raw && raw.length > RAW_RESPONSE_LIMIT ? { rawResponse: `${raw.slice(0, RAW_RESPONSE_LIMIT)}\n…[truncated]` } : {})
     },
     // Ключ провайдера в файл не пишем (как в swarmSessionStore).
     settings: {

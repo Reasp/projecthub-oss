@@ -55,6 +55,7 @@ import {
   type BargeInSeed
 } from './bargeInPreRoll';
 import { ttsPlayer } from './ttsPlayer';
+import { rendererServiceText } from '../i18n/rendererServiceText';
 import {
   DEFAULT_QWEN_VOICE_ID,
   QWEN_DRAFT_VOICE_ID,
@@ -540,14 +541,14 @@ class VoiceService {
         if (dev.kind === 'audioinput') {
           inputs.push({
             deviceId: dev.deviceId,
-            label: dev.label || (this.config.language === 'ru' ? `Микрофон ${inCount++}` : `Microphone ${inCount++}`),
+            label: dev.label || rendererServiceText().voice.microphone(inCount++),
             kind: 'audioinput',
             groupId: dev.groupId
           });
         } else if (dev.kind === 'audiooutput') {
           outputs.push({
             deviceId: dev.deviceId,
-            label: dev.label || (this.config.language === 'ru' ? `Динамики / Наушники ${outCount++}` : `Speakers / Headset ${outCount++}`),
+            label: dev.label || rendererServiceText().voice.speakers(outCount++),
             kind: 'audiooutput',
             groupId: dev.groupId
           });
@@ -691,9 +692,7 @@ class VoiceService {
 
       if (preferredDevice && currentTrack && currentLabel && currentLabel !== preferredDevice.label) {
         console.log(`[VoiceService] Preferred device "${preferredDevice.label}" plugged in, switching...`);
-        const msg = this.config.language === 'ru'
-          ? `Гарнитура подключена: «${preferredDevice.label}». Захват переключен.`
-          : `Headset connected: "${preferredDevice.label}". Switched capture.`;
+        const msg = rendererServiceText().voice.headsetConnected(preferredDevice.label);
         this.notifyDeviceNotice({ type: 'connect', message: msg });
         await this.restartAudioCapture();
         return;
@@ -706,9 +705,7 @@ class VoiceService {
       const isStillAvailable = devices.inputs.some((d) => !d.label || d.label === activeTrack.label);
       if (!isStillAvailable || activeTrack.readyState === 'ended') {
         console.log('[VoiceService] Active input device removed, falling back...');
-        const msg = this.config.language === 'ru'
-          ? 'Аудиоустройство отключено. Выполнен переход на резервный микрофон.'
-          : 'Audio device disconnected. Switched to fallback microphone.';
+        const msg = rendererServiceText().voice.deviceFallback;
         this.notifyDeviceNotice({ type: 'disconnect', message: msg });
         await this.restartAudioCapture(true);
       }
@@ -797,9 +794,7 @@ class VoiceService {
           console.warn('[VoiceService] WebSpeech error:', code);
           // 'no-speech' и 'aborted' — штатные события непрерывного режима, не ошибки
           if (code === 'no-speech' || code === 'aborted') return;
-          const msg = this.config.language === 'ru'
-            ? `Ошибка Web Speech API: ${code}`
-            : `Web Speech API error: ${code}`;
+          const msg = rendererServiceText().voice.webSpeechError(code);
           this.notifyError(msg);
           if (code === 'not-allowed' || code === 'service-not-allowed' || code === 'audio-capture') {
             // Фатально: останавливаем, иначе onend уйдёт в бесконечный рестарт
@@ -835,9 +830,7 @@ class VoiceService {
   /** engine: 'webspeech' — реальный запуск SpeechRecognition вместо Whisper-конвейера. */
   private startWebSpeechListening(): boolean {
     if (!this.isWebSpeechSupported || !this.recognition) {
-      const msg = this.config.language === 'ru'
-        ? 'Web Speech API недоступен в этой среде. Выберите движок Whisper в настройках голоса.'
-        : 'Web Speech API is not available in this environment. Select the Whisper engine in voice settings.';
+      const msg = rendererServiceText().voice.webSpeechUnavailable;
       this.notifyError(msg);
       this.setState('error');
       return false;
@@ -887,9 +880,7 @@ class VoiceService {
     }
 
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      const msg = this.config.language === 'ru'
-        ? 'Аудио-устройства не поддерживаются в данной среде'
-        : 'Audio recording devices not supported in this environment';
+      const msg = rendererServiceText().voice.audioUnsupported;
       this.notifyError(msg);
       this.setState('error');
       return false;
@@ -943,9 +934,7 @@ class VoiceService {
       if (activeTrack) {
         activeTrack.onended = () => {
           console.warn('[VoiceService] Audio track ended (device unplugged/disconnected)');
-          const msg = this.config.language === 'ru'
-            ? 'Аудиоустройство отключено. Переключаюсь на резервный микрофон...'
-            : 'Audio device disconnected. Switching to fallback microphone...';
+          const msg = rendererServiceText().voice.deviceSwitching;
           this.notifyDeviceNotice({ type: 'disconnect', message: msg });
           if (this.isListening) {
             this.restartAudioCapture(true);
@@ -1004,25 +993,19 @@ class VoiceService {
       return true;
     } catch (err: any) {
       console.error('[VoiceService] Failed to start hands-free listening:', err);
-      let errorMsg = err?.message || 'Ошибка запуска микрофона';
+      // Язык сообщений — язык окна, а не язык распознавания речи (`config.language`).
+      const vt = rendererServiceText().voice;
+      let errorMsg = err?.message || vt.micStartFailed;
       const errName = err?.name || '';
 
       if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError' || errorMsg.includes('device not found')) {
-        errorMsg = this.config.language === 'ru'
-          ? 'Микрофон не обнаружен в системе. Если вы подключены удаленно (RDP / AnyDesk / RustDesk), включите проброс микрофона в параметрах подключения.'
-          : 'Microphone not found. If connected via Remote Desktop (RDP / AnyDesk / RustDesk), enable microphone redirection in connection settings.';
+        errorMsg = vt.micNotFound;
       } else if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError' || errorMsg.includes('denied')) {
-        errorMsg = this.config.language === 'ru'
-          ? 'Доступ к микрофону заблокирован или запрещен разрешениями системы.'
-          : 'Microphone access is blocked or denied by system permissions.';
+        errorMsg = vt.micDenied;
       } else if (errName === 'NotReadableError') {
-        errorMsg = this.config.language === 'ru'
-          ? 'Микрофон занят другим приложением или аудиодрайвер записи недоступен.'
-          : 'Microphone is already in use by another application or audio driver is unavailable.';
+        errorMsg = vt.micBusy;
       } else if (errName === 'OverconstrainedError') {
-        errorMsg = this.config.language === 'ru'
-          ? 'Параметры аудиозаписи не поддерживаются текущим микрофоном.'
-          : 'Audio capture parameters are not supported by the current microphone.';
+        errorMsg = vt.micOverconstrained;
       }
 
       this.notifyError(errorMsg);
@@ -1394,11 +1377,7 @@ class VoiceService {
     // Только whisperApiKey: ключ AI Studio (Anthropic/DeepSeek) к Groq/OpenAI не подходит
     const apiKey = whisperApiKey?.trim();
     if (!apiKey && whisperProvider !== 'local') {
-      throw new Error(
-        this.config.language === 'ru'
-          ? `Не задан API-ключ для ${whisperProvider === 'groq' ? 'Groq' : 'OpenAI'} Whisper. Укажите его в настройках голоса.`
-          : `API key for ${whisperProvider === 'groq' ? 'Groq' : 'OpenAI'} Whisper is not set. Enter it in voice settings.`
-      );
+      throw new Error(rendererServiceText().voice.whisperKeyMissing(whisperProvider === 'groq' ? 'Groq' : 'OpenAI'));
     }
 
     let endpoint = 'https://api.groq.com/openai/v1/audio/transcriptions';

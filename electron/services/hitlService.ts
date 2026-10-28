@@ -120,7 +120,7 @@ interface PendingFile {
 
 function truncateText(value: string | undefined, limit: number): string {
   if (typeof value !== 'string') return '';
-  return value.length <= limit ? value : `${value.slice(0, limit)}\n…[усечено при сохранении]`;
+  return value.length <= limit ? value : `${value.slice(0, limit)}\n…[truncated on save]`;
 }
 
 function compactForDisk(request: HitlRequest): HitlRequest {

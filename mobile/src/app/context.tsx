@@ -47,7 +47,7 @@ export function ServicesProvider({ value, children }: { value: AppServices; chil
 
 export function useServices(): AppServices {
   const value = useContext(ServicesContext);
-  if (!value) throw new Error('ServicesProvider не подключён');
+  if (!value) throw new Error('ServicesProvider is not mounted');
   return value;
 }
 

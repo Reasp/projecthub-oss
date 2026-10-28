@@ -13,7 +13,7 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 /** P/Invoke через Reflection.Emit, без `Add-Type` (тот запускает csc.exe). `PreserveSig` — код NTSTATUS числом. */
 const NT_SETUP =
   "$ErrorActionPreference = 'Stop'; " +
-  "if ([IntPtr]::Size -ne 8) { throw 'нужна 64-битная PowerShell' }; " +
+  "if ([IntPtr]::Size -ne 8) { throw '64-bit PowerShell is required' }; " +
   "$a = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'PhSnap'), 'Run'); " +
   "$t = $a.DefineDynamicModule('PhSnap').DefineType('PhNt', 'Public,Class'); " +
   "$t.DefinePInvokeMethod('NtQuerySystemInformation', 'ntdll.dll', 'Public,Static,PinvokeImpl', 'Standard', [int], " +
@@ -125,7 +125,7 @@ export function createWindowsSnapshotSource(deps: WindowsSnapshotSourceDeps): Wi
 
   const goUnavailable = (reason: string) => {
     unavailable = true;
-    deps.log?.(`снимок процессов: помощник недоступен (${reason}), дальше — разовый запрос CIM`);
+    deps.log?.(`process snapshot: helper unavailable (${reason}), falling back to a one-off CIM query`);
     stopHelper();
     const waiting = [current, ...queue.splice(0)].filter((r): r is Pending => r !== null);
     finish();
@@ -139,7 +139,7 @@ export function createWindowsSnapshotSource(deps: WindowsSnapshotSourceDeps): Wi
       return;
     }
     // Помощник работал и упал: текущий запрос — запасным путём, следующий запустит нового помощника.
-    deps.log?.(`снимок процессов: помощник завершился (${reason})`);
+    deps.log?.(`process snapshot: helper exited (${reason})`);
     helper = null;
     const req = current;
     finish();
@@ -166,7 +166,7 @@ export function createWindowsSnapshotSource(deps: WindowsSnapshotSourceDeps): Wi
       pump();
       return;
     }
-    if (line.startsWith(HELPER_ERROR)) h.error = line.slice(HELPER_ERROR.length).trim() || 'ошибка снимка';
+    if (line.startsWith(HELPER_ERROR)) h.error = line.slice(HELPER_ERROR.length).trim() || 'snapshot error';
     else if (line) h.lines.push(line);
   };
 
@@ -183,7 +183,7 @@ export function createWindowsSnapshotSource(deps: WindowsSnapshotSourceDeps): Wi
       }
     });
     proc.on('error', (err) => onHelperGone(h, err.message));
-    proc.on('exit', (code) => onHelperGone(h, `код ${code}`));
+    proc.on('exit', (code) => onHelperGone(h, `code ${code}`));
     // Запись в stdin умершего помощника — EPIPE; о смерти сообщит 'exit'.
     proc.stdin?.on('error', () => undefined);
     // Помощник не держит ProjectHub и тесты живыми: пока ждём ответ, цикл событий держит таймер тайм-аута.

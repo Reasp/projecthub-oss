@@ -11,7 +11,8 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import matter from 'gray-matter';
 import { getRolesDir, getProjectRolesDir } from './appPaths.js';
-import { BUILTIN_ROLES } from './builtinRoles.js';
+import { localizedBuiltinRoles } from './builtinRoles.js';
+import { getHostLanguage } from './hostLanguage.js';
 import { ALL_TOOL_CATEGORIES, isRoleParseError } from './roleTypes.js';
 import { MODEL_TIERS, isModelTier, type ModelTier } from './modelTiers.js';
 import { isTaskCreateMode } from './agentTaskPolicy.js';
@@ -178,7 +179,8 @@ async function readRolesFromDir(dir: string, source: RoleSource): Promise<{ role
  */
 export async function loadRoles(projectPath?: string): Promise<{ roles: RoleDefinition[]; errors: RoleParseError[] }> {
   const byslug = new Map<string, RoleDefinition>();
-  for (const r of BUILTIN_ROLES) byslug.set(r.slug, r);
+  // Имя и DoD встроенных ролей — на языке хоста (TASK-202.13).
+  for (const r of localizedBuiltinRoles(getHostLanguage())) byslug.set(r.slug, r);
 
   const { roles: globalRoles, errors: globalErrors } = await readRolesFromDir(getRolesDir(), 'global');
   for (const r of globalRoles) byslug.set(r.slug, r);

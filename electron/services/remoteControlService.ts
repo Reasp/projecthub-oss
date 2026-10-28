@@ -4011,13 +4011,13 @@ class RemoteControlService {
         const current = selectionOf(config);
         return {
           current,
-          currentLabel: selectionLabel(current, new Map(profiles.map((p) => [p.id, p.name]))) || config.model,
+          currentLabel: selectionLabel(current, new Map(profiles.map((p) => [p.id, p.name])), hostText(getHostLanguage()).remote.studioProfile) || config.model,
           modes: STUDIO_MODES,
           claudeModels: claudeBridgeService.getAvailableModels().map((m) => ({ id: m.id, name: m.name, description: m.description })),
           ...claudeAccountsForPhone(claudeAccounts, projectAccountId),
           // Наружу — только id, имя и признак локального сервера: ни ключей, ни адресов, ни заголовков.
           profiles: withModels,
-          quickPrompts: studioQuickPromptList()
+          quickPrompts: studioQuickPromptList(getHostLanguage())
         };
       }
 

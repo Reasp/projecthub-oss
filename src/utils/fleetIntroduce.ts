@@ -7,6 +7,7 @@
  */
 
 import type { RemoteEndpoint } from './remoteEndpoints';
+import { appErrorKeyOf, type AppErrorKey } from '../lib/appError';
 
 /** ПК, сопряжённый с телефоном: `id` — профиль телефона, `hostId` — сам ПК. */
 export interface IntroduceHost {
@@ -29,7 +30,9 @@ export type IntroduceRpc = (profileId: string, method: IntroduceMethod, params?:
 export interface IntroduceOutcome {
   pair: IntroducePair;
   status: 'added' | 'already' | 'failed';
+  /** Английский текст причины; телефон показывает её по `errorKey` на своём языке (decision-165). */
   error?: string;
+  errorKey?: AppErrorKey;
 }
 
 /** Что ПК-B выдаёт для ПК-A (`enroll_device` с `peerHostId`). Те же поля, что `RemoteEnrollment`. */
@@ -119,10 +122,10 @@ async function introducePair(pair: IntroducePair, rpc: IntroduceRpc): Promise<In
   try {
     intro = await rpc(pair.peer.id, 'enroll_device', { deviceName: pair.to.name, rights: 'full', peerHostId: pair.to.hostId });
   } catch (err) {
-    return { pair, status: 'failed', error: errorText(err) };
+    return failed(pair, err);
   }
   if (!isPeerIntroduction(intro, pair.peer.hostId)) {
-    return { pair, status: 'failed', error: `${pair.peer.name}: нет ключа хоста в ответе — обновите ProjectHub на этом компьютере` };
+    return { pair, status: 'failed', error: `Computer “${pair.peer.name}” answered without a key: update ProjectHub on it`, errorKey: { code: 'remote.peerNoKey', params: { name: pair.peer.name } } };
   }
   const revoke = () => rpc(pair.peer.id, 'revoke_introduced_device', { deviceId: intro.deviceId }).catch(() => undefined);
   try {
@@ -134,8 +137,13 @@ async function introducePair(pair: IntroducePair, rpc: IntroduceRpc): Promise<In
     return { pair, status: 'added' };
   } catch (err) {
     await revoke();
-    return { pair, status: 'failed', error: errorText(err) };
+    return failed(pair, err);
   }
+}
+
+function failed(pair: IntroducePair, err: unknown): IntroduceOutcome {
+  const key = appErrorKeyOf(err);
+  return { pair, status: 'failed', error: errorText(err), ...(key ? { errorKey: key } : {}) };
 }
 
 function ipv4(host: string): number[] | null {

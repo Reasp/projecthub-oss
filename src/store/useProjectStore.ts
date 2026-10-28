@@ -55,6 +55,7 @@ export function isProcessOfAction(p: ManagedProcess, workspaceRoot: string, def:
 }
 import { getDictionary, type Language } from '../i18n';
 import { LANGUAGE_STORAGE_KEY, resolveInitialLanguage } from '../i18n/initialLanguage';
+import { rendererServiceText } from '../i18n/rendererServiceText';
 import { appErrorText, appFailureText } from '../lib/appErrorText';
 import { fallbackStatusConfig, type BacklogProjectConfig } from '../utils/taskStatus';
 import { buildRenumberMessage } from '../utils/renumberMessage';
@@ -670,7 +671,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   scanRoots: [],
   isSidebarOpen: loadInitialSidebarState(),
   isTerminalOpen: false,
-  terminalLogs: ['[ProjectHub] Система инициализирована.', '[ProjectHub] Реестр проектов загружен.'],
+  // Служебные строки журнала — английские, как логи (decision-165 п. 6).
+  terminalLogs: ['[ProjectHub] System initialized.', '[ProjectHub] Project registry loaded.'],
   processes: [],
   activeProcessId: null,
   actionConfig: null,
@@ -2397,7 +2399,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const created = await window.api.createDoc(project.path, params);
       if (created) {
-        get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.docCreated, { category: created.category === 'decision' ? 'ADR' : (get().language === 'ru' ? 'документ' : 'document'), path: created.fileRelative }));
+        get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.docCreated, { category: created.category === 'decision' ? 'ADR' : rendererServiceText(get().language).document, path: created.fileRelative }));
         await get().fetchDocs(project.path);
         await get().selectDoc(created);
       }

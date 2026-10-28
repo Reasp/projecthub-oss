@@ -8,6 +8,8 @@
  * Чистый модуль: без Electron, процессов и файловой системы.
  */
 import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
+import type { Language } from '../../src/i18n/types.js';
+import { projectContentText } from '../i18n/projectContentText.js';
 
 export type AuditSeverity = 'critical' | 'high' | 'moderate' | 'low' | 'info' | 'unknown';
 export const AUDIT_SEVERITIES: AuditSeverity[] = ['critical', 'high', 'moderate', 'low', 'info', 'unknown'];
@@ -319,9 +321,9 @@ export function newFindings(previous: AuditFinding[] | undefined, next: AuditFin
 }
 
 /** «critical 1, high 2» — только ненулевые уровни, от серьёзных к лёгким. */
-export function summarizeCounts(counts: SeverityCounts): string {
+export function summarizeCounts(counts: SeverityCounts, language: Language = 'en'): string {
   const parts = AUDIT_SEVERITIES.filter((s) => counts[s] > 0).map((s) => `${s} ${counts[s]}`);
-  return parts.length ? parts.join(', ') : 'уязвимостей нет';
+  return parts.length ? parts.join(', ') : projectContentText(language).audit.none;
 }
 
 export function mergeCounts(list: SeverityCounts[]): SeverityCounts {
@@ -331,25 +333,25 @@ export function mergeCounts(list: SeverityCounts[]): SeverityCounts {
 }
 
 /** Задача Backlog из находки: заголовок до ~100 символов (лимит пути Windows) и описание с advisories. */
-export function buildFindingTask(finding: AuditFinding, projectName?: string): { title: string; description: string; labels: string[] } {
+export function buildFindingTask(finding: AuditFinding, projectName?: string, language: Language = 'en'): { title: string; description: string; labels: string[] } {
+  // Задача пишется в backlog проекта — на языке хоста (decision-165 п. 14).
+  const tx = projectContentText(language).audit;
   const top = finding.advisories[0];
-  const titleCore = top ? top.title : finding.via?.length ? `через ${finding.via.join(', ')}` : 'уязвимость';
-  let title = `Уязвимость ${finding.package}: ${titleCore}`;
+  const titleCore = top ? top.title : finding.via?.length ? tx.via(finding.via.join(', ')) : tx.vulnerability;
+  let title = tx.title(finding.package, titleCore);
   if (title.length > 100) title = `${title.slice(0, 99)}…`;
   const lines: string[] = [
-    `Находка аудита зависимостей ProjectHub (${finding.ecosystem}${projectName ? `, проект ${projectName}` : ''}).`,
+    tx.intro(finding.ecosystem, projectName),
     '',
-    `- Пакет: \`${finding.package}\`${finding.version ? ` ${finding.version}` : ''}${finding.direct === false ? ' (транзитивная зависимость)' : ''}`,
-    `- Уровень: ${finding.severity}`
+    tx.package(`\`${finding.package}\`${finding.version ? ` ${finding.version}` : ''}`, finding.direct === false),
+    tx.severity(finding.severity)
   ];
-  if (finding.range) lines.push(`- Уязвимые версии: \`${finding.range}\``);
-  if (finding.via?.length) lines.push(`- Приходит через: ${finding.via.map((v) => `\`${v}\``).join(', ')}`);
+  if (finding.range) lines.push(tx.range(finding.range));
+  if (finding.via?.length) lines.push(tx.comesVia(finding.via.map((v) => `\`${v}\``).join(', ')));
   if (finding.fix?.available) {
-    lines.push(
-      `- Исправление: ${finding.fix.name && finding.fix.name !== finding.package ? `\`${finding.fix.name}\` ` : ''}${finding.fix.version ?? 'доступно'}${finding.fix.major ? ' (мажорное обновление)' : ''}`
-    );
+    lines.push(tx.fix(`${finding.fix.name && finding.fix.name !== finding.package ? `\`${finding.fix.name}\` ` : ''}${finding.fix.version ?? tx.fixAvailable}`, Boolean(finding.fix.major)));
   } else {
-    lines.push('- Исправления пока нет');
+    lines.push(tx.noFix);
   }
   if (finding.advisories.length) {
     lines.push('', '## Advisories', '');

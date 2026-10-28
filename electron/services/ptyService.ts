@@ -13,6 +13,8 @@ import {
   resolvePtyExitTtlMs
 } from './ptyExitTtl.js';
 import type { PtySession, CreatePtyOptions } from '../../src/types/electron';
+import { getHostLanguage } from './hostLanguage.js';
+import { hostText } from '../i18n/hostText.js';
 
 /** Команда входа в профиль аккаунта во встроенном терминале по движку профиля. */
 const LOGIN_COMMAND: Record<CliAccountEngine, string> = { 'claude-cli': 'claude auth login', 'codex-cli': 'codex login', 'gemini-cli': 'gemini' };
@@ -147,7 +149,7 @@ class PtyService {
     const projectName = options.projectName || path.basename(options.projectPath || '');
     const title = options.title
       || (loginAccount
-        ? `Вход: ${loginAccount.name}`
+        ? hostText(getHostLanguage()).terminal.loginTitle(loginAccount.name)
         : options.type === 'claude' ? `Claude: ${projectName}` : `Terminal: ${projectName}`);
 
     let extraEnv: Record<string, string> = {};
