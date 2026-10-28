@@ -404,7 +404,8 @@ class ClaudeBridgeService extends EventEmitter {
   private activeSessions = new Map<string, string>();
   /** Сессии, прерванные пользователем: их завершение считается отменой, а не ошибкой. */
   private abortedSessions = new Set<string>();
-  private sessionClaudeCliIds = new Map<string, string>();
+  /** Последний id разговора CLI вкладки и каталог аккаунта, под которым он записан. */
+  private sessionClaudeCliIds = new Map<string, { id: string; configDir: string }>();
   private claudeCliCheck: (ClaudeCliAvailability & { checkedAt: number }) | null = null;
   private claudeCliCheckPromise: Promise<ClaudeCliAvailability> | null = null;
   /** Поставщик адреса встроенного MCP-сервера для --permission-prompt-tool (внедряется из main.ts). */
@@ -891,7 +892,7 @@ class ClaudeBridgeService extends EventEmitter {
   }
 
   public getClaudeCliSessionId(sessionId: string): string | undefined {
-    return this.sessionClaudeCliIds.get(sessionId);
+    return this.sessionClaudeCliIds.get(sessionId)?.id;
   }
 
   public isSessionActive(sessionId: string): boolean {
@@ -1445,7 +1446,11 @@ class ClaudeBridgeService extends EventEmitter {
       return;
     }
 
-    const existingCliSessionId = req.claudeCliSessionId || this.sessionClaudeCliIds.get(sessionId);
+    // Аккаунт Claude Code (decision-87): вкладки Studio (TASK-170), иначе привязка проекта в реестре машины, иначе по умолчанию.
+    const account = (await claudeAccountService.resolve({ projectPath, slotAccountId: req.claudeAccountId })).account;
+    // Разговор CLI хранится в каталоге аккаунта: id, запомненный под другим аккаунтом, `--resume` не найдёт (TASK-170).
+    const cached = this.sessionClaudeCliIds.get(sessionId);
+    const existingCliSessionId = req.claudeCliSessionId || (cached?.configDir === account.configDir ? cached.id : undefined);
     const cliArgs = ['-p'];
     if (existingCliSessionId) {
       cliArgs.push('--resume', existingCliSessionId);
@@ -1505,8 +1510,6 @@ class ClaudeBridgeService extends EventEmitter {
     // Human-in-the-loop (TASK-42): разрешения запрашиваются через встроенный MCP-сервер
     // до выполнения инструмента. --dangerously-skip-permissions — только как запасной
     // вариант при auto-approve, если сервер поднять не удалось.
-    // Аккаунт Claude Code (decision-87): вкладки Studio (TASK-170), иначе привязка проекта в реестре машины, иначе по умолчанию.
-    const account = (await claudeAccountService.resolve({ projectPath, slotAccountId: req.claudeAccountId })).account;
     const hitl = await this.prepareCliPermissions(sessionId, projectPath, req.config, onChunk, {
       origin: 'studio',
       engine: 'claude-cli',
@@ -1614,7 +1617,7 @@ class ClaudeBridgeService extends EventEmitter {
           const event = JSON.parse(trimmed);
 
           if (event.session_id) {
-            this.sessionClaudeCliIds.set(sessionId, event.session_id);
+            this.sessionClaudeCliIds.set(sessionId, { id: event.session_id, configDir: account.configDir });
             onChunk({ claudeCliSessionId: event.session_id });
           }
 

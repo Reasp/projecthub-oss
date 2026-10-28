@@ -22,7 +22,7 @@ import { useProjectStore } from './useProjectStore';
 import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { upsertToolCall } from '../lib/aiToolCalls';
-import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
+import { effectiveSessionAgent, keepsClaudeCliSession, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
 import { studioCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
 import { canWriteStudioSession } from '../utils/studioRemote';
 import { getDictionary } from '../i18n';
@@ -590,7 +590,12 @@ export const useAIStudioStore = create<AIStudioState>()(
         set((state) => ({
           sessions: {
             ...state.sessions,
-            [projectPath]: (state.sessions[projectPath] || []).map((s) => (s.id === sessionId ? { ...s, agent } : s))
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => {
+              if (s.id !== sessionId) return s;
+              // Другой аккаунт Claude Code или провайдер — прежний разговор CLI под ним не найдётся (`--resume`).
+              const keep = keepsClaudeCliSession(effectiveSessionAgent(state.config, s.agent), agent);
+              return keep ? { ...s, agent } : { ...s, agent, claudeCliSessionId: undefined };
+            })
           }
         }));
       },

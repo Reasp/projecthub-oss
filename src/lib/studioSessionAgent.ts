@@ -72,6 +72,14 @@ export function withClaudeAccount(current: StudioSessionAgent, accountId: string
   return accountId ? { ...rest, claudeAccountId: accountId } : rest;
 }
 
+/**
+ * Сохраняет ли смена агента продолжение разговора CLI (`--resume`). Разговор лежит в каталоге аккаунта Claude Code:
+ * смена модели его не трогает, смена аккаунта или уход на другого провайдера — начинают новый (ревью TASK-170).
+ */
+export function keepsClaudeCliSession(before: StudioSessionAgent, after: StudioSessionAgent): boolean {
+  return before.provider === 'anthropic' && after.provider === 'anthropic' && before.claudeAccountId === after.claudeAccountId;
+}
+
 /** Агент запуска Claude CLI вкладки: аккаунт имеет смысл только у провайдера `anthropic`. */
 export function sessionClaudeAccountId(agent: StudioSessionAgent | undefined): string | undefined {
   return agent?.provider === 'anthropic' ? agent.claudeAccountId : undefined;
