@@ -121,6 +121,7 @@ import { resolveTunnelCommand } from './tunnelCommand.js';
 import treeKill from 'tree-kill';
 import { buildHostEndpoints, relayEndpoint, type RemoteEndpoint } from '../../src/utils/remoteEndpoints.js';
 import { isPeerIntroduction, peerAddressCandidates } from '../../src/utils/fleetIntroduce.js';
+import { buildInvitePairingUrl } from '../../src/utils/remotePairingLink.js';
 import { firstReachableAddress, PeerUnreachableError } from './peerReachability.js';
 import { profileFromJson, profileSectionList } from './profileFormat.js';
 import { profileService } from './profileService.js';
@@ -2466,6 +2467,22 @@ class RemoteControlService {
       return;
     }
 
+    // Маршруты модулей редакции (TASK-228: `/sso/` — вход участника через IdP компании). Без токена: проверку
+    // делает сам модуль.
+    const editionRoute = editionRegistry.httpRoute(url.pathname);
+    if (editionRoute) {
+      try {
+        await editionRoute(req, res, url);
+      } catch (err) {
+        logger.warn(`[RemoteControl] Edition HTTP route ${url.pathname} failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal Error' }));
+        }
+      }
+      return;
+    }
+
     // Встроенный клиент (`/`, `/remote`), Telegram Mini App (`/telegram`) и их ассеты (`/m/…`) —
     // одна сборка `mobile/` (TASK-140.1, decision-79 п. 1).
     const route = resolveMobileClientRoute(url.pathname);
@@ -4549,4 +4566,24 @@ editionRegistry.setDeviceDirectory({
   revoke: (deviceId) => {
     remoteControlService.disconnectDevice(deviceId);
   }
+});
+// Ссылка сопряжения по коду участника из main (TASK-228: после входа через IdP): та же, что строит окно «Команда».
+editionRegistry.setInvitePairingUrlProvider((code) => {
+  const status = remoteControlService.getStatus();
+  if (!status.enabled || !status.hostId) return null;
+  return buildInvitePairingUrl(
+    {
+      hostId: status.hostId,
+      key: '',
+      relayServerUrl: status.relayServerUrl,
+      mode: status.mode,
+      port: status.port,
+      ...(status.localAddresses?.[0] ? { localIp: status.localAddresses[0] } : {}),
+      ...(status.tunnelStatus === 'active' && status.tunnelUrl ? { tunnelUrl: status.tunnelUrl } : {}),
+      ...(status.endpoints ? { endpoints: status.endpoints } : {}),
+      ...(status.hostKey ? { hostKey: status.hostKey } : {}),
+      ...(status.hostKeyFingerprint ? { hostKeyFingerprint: status.hostKeyFingerprint } : {})
+    },
+    code
+  );
 });

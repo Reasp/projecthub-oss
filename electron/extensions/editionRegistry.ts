@@ -4,6 +4,7 @@ import { getStatePath } from '../services/appPaths';
 import { AppError, withAppErrorKey, type AppErrorKey } from '../../src/lib/appError';
 import type { ProjectToolContext, ProjectToolResult } from '../services/projectAgentTools';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /**
  * Точки расширения для платных модулей `ee/` (TASK-151, decision-123 п. 4). Код открытый (MIT): он не знает ни о
@@ -320,7 +321,14 @@ export interface EditionMainApi {
   auditDir(): string;
   /** Открыт ли участнику проект хоста (TASK-223: база знаний компании в поиске участника по сети). */
   setMemberProjectAccess(check: (memberId: string, projectPath: string) => boolean): void;
+  /** HTTP-маршрут по префиксу пути на сервере удалённого доступа (TASK-228: вход участника через IdP). Ответ пишет обработчик. */
+  addHttpRoute(prefix: string, handler: EditionHttpHandler): void;
+  /** Ссылка сопряжения по одноразовому коду участника (decision-126): адреса и ключ сессий хоста; `null` — хоста нет. */
+  invitePairingUrl(code: string): string | null;
 }
+
+/** Обработчик HTTP-маршрута модуля редакции. */
+export type EditionHttpHandler = (req: IncomingMessage, res: ServerResponse, url: URL) => void | Promise<void>;
 
 export interface SaveTextFileOptions {
   title: string;
@@ -378,6 +386,8 @@ const ownershipGuards: Array<(ownerMemberId: string | undefined, actorMemberId: 
 let deviceNotifier: DeviceNotifier = () => undefined;
 const agentTools = new Map<string, EditionAgentTool>();
 let memberProjectAccess: ((memberId: string, projectPath: string) => boolean) | null = null;
+const httpRoutes = new Map<string, EditionHttpHandler>();
+let invitePairingUrlProvider: ((code: string) => string | null) | null = null;
 
 export const editionRegistry = {
   api(): EditionMainApi {
@@ -435,8 +445,25 @@ export const editionRegistry = {
       },
       addAgentTool: (tool) => {
         agentTools.set(tool.name, tool);
-      }
+      },
+      addHttpRoute: (prefix, handler) => {
+        if (!/^\/[a-z0-9-]+\/$/.test(prefix)) throw new Error(`HTTP route prefix must look like /name/: ${prefix}`);
+        httpRoutes.set(prefix, handler);
+      },
+      invitePairingUrl: (code) => invitePairingUrlProvider?.(code) ?? null
     };
+  },
+
+  /** Маршрут модуля редакции для пути запроса; `/sso` без косой черты тоже ведёт в `/sso/`. */
+  httpRoute(pathname: string): EditionHttpHandler | undefined {
+    for (const [prefix, handler] of httpRoutes) {
+      if (pathname.startsWith(prefix) || pathname === prefix.slice(0, -1)) return handler;
+    }
+    return undefined;
+  },
+
+  setInvitePairingUrlProvider(provider: (code: string) => string | null): void {
+    invitePairingUrlProvider = provider;
   },
 
   /** Инструменты агентов от модулей редакции; встроенные с тем же именем отсекает `projectAgentTools`. */

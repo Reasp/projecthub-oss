@@ -928,7 +928,18 @@ const EN = {
   'queue.noteMergedReviewed': 'Merged by queue #{n} (attempt {attempt}) into {base}: {sha}, review: {by}.',
   'queue.noteMergedReviewedWith': 'Merged by queue #{n} (attempt {attempt}) into {base}: {sha}, review: {by} — {comment}.',
   'queue.noteCancelled': 'Merge queue #{n}: removed from the queue ({actor}).',
-  'queue.prBody': 'ProjectHub merge queue #{n}: checks, acceptance criteria and the secret scanner passed on {base} + {branch}.'
+  'queue.prBody': 'ProjectHub merge queue #{n}: checks, acceptance criteria and the secret scanner passed on {base} + {branch}.',
+  // Вход участников через IdP компании (TASK-228, decision-184).
+  'sso.issuerInvalid': 'The identity provider address must start with https:// (http:// only on this computer)',
+  'sso.clientIdEmpty': 'Enter the client ID registered in the identity provider',
+  'sso.publicUrlInvalid': 'The host address for sign-in must be an http:// or https:// address without a path',
+  'sso.notConfigured': 'Sign-in through the identity provider is not set up on this host',
+  'sso.discoveryFailed': 'Could not read the identity provider settings: {detail}',
+  'sso.discoveryIssuerMismatch': 'The identity provider reports issuer {actual} instead of {expected}',
+  'sso.tokenInvalid': 'The identity provider token did not pass the check: {detail}',
+  'sso.tokenKeyUnknown': 'The identity provider token is signed with an unknown key',
+  'sso.memberDisabled': 'The account of this member is disabled in the company identity provider',
+  'sso.linkNotFound': 'This member is not linked to an identity provider account'
 } as const;
 
 export type AppErrorCode = keyof typeof EN;
@@ -1785,5 +1796,15 @@ export const appErrorTextRu: AppErrorLabels = {
   'queue.noteMergedReviewed': 'Слито очередью #{n} (заход {attempt}) в {base}: {sha}, ревью: {by}.',
   'queue.noteMergedReviewedWith': 'Слито очередью #{n} (заход {attempt}) в {base}: {sha}, ревью: {by} — {comment}.',
   'queue.noteCancelled': 'Очередь слияния #{n}: снято с очереди ({actor}).',
-  'queue.prBody': 'Очередь слияния #{n} ProjectHub: проверки, критерии приёмки и сканер секретов пройдены на {base} + {branch}.'
+  'queue.prBody': 'Очередь слияния #{n} ProjectHub: проверки, критерии приёмки и сканер секретов пройдены на {base} + {branch}.',
+  'sso.issuerInvalid': 'Адрес поставщика учётных записей должен начинаться с https:// (http:// — только на этом компьютере)',
+  'sso.clientIdEmpty': 'Укажите ID клиента, зарегистрированного у поставщика учётных записей',
+  'sso.publicUrlInvalid': 'Адрес хоста для входа — http:// или https:// без пути',
+  'sso.notConfigured': 'Вход через поставщика учётных записей на этом хосте не настроен',
+  'sso.discoveryFailed': 'Не удалось прочитать настройки поставщика учётных записей: {detail}',
+  'sso.discoveryIssuerMismatch': 'Поставщик учётных записей сообщает issuer {actual} вместо {expected}',
+  'sso.tokenInvalid': 'Токен поставщика учётных записей не прошёл проверку: {detail}',
+  'sso.tokenKeyUnknown': 'Токен поставщика учётных записей подписан неизвестным ключом',
+  'sso.memberDisabled': 'Учётная запись этого участника отключена в системе учётных записей компании',
+  'sso.linkNotFound': 'Участник не связан с учётной записью поставщика'
 };
