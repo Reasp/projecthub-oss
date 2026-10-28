@@ -3515,7 +3515,8 @@ class RemoteControlService {
       case 'update_task_status':
       case 'toggle_task_criterion':
       case 'get_task':
-        return str(params.filePath) || null;
+        // Путь нормализуется до проверки прав: `open/../secret/…` проверялся бы по `open`, а читался в `secret`.
+        return str(params.filePath) ? path.resolve(str(params.filePath)) : null;
       case 'hitl_decision':
       case 'get_hitl_detail':
         return hitlService.getPending(str(params.requestId))?.projectPath || null;
@@ -4424,16 +4425,26 @@ class RemoteControlService {
    * Путь из RPC — файл задачи `backlog/tasks/*.md` внутри зарегистрированного проекта (decision-117 п. 6): с
    * телефона нельзя переписать произвольный файл, подсунув путь.
    */
+  /**
+   * Файл задачи для RPC: ровно `<проект>/backlog/tasks/<имя>.md` зарегистрированного проекта (самого глубокого, как
+   * при проверке прав), без символьных ссылок наружу. `node_modules/…/backlog/tasks` и `.worktrees/…` не проходят.
+   */
   private async assertTaskFile(raw: unknown): Promise<string> {
     const filePath = path.resolve(String(raw || ''));
-    const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
-    const inTasks = /(^|[\\/])backlog[\\/]tasks[\\/][^\\/]+\.md$/i.test(filePath);
-    const projects = await projectRegistry.getProjects();
-    const owner = projects.find((p) => {
-      const rel = path.relative(norm(path.resolve(p.path)), norm(filePath));
-      return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
-    });
-    if (!inTasks || !owner) throw new AppError('remote.taskFileOutside');
+    const projects = (await projectRegistry.getProjects()).map((p) => path.resolve(p.path));
+    const owner = owningProject(filePath, projects);
+    const parts = owner ? path.relative(owner, filePath).split(/[\\/]/) : [];
+    const inTasks = parts.length === 3 && parts[0].toLowerCase() === 'backlog' && parts[1].toLowerCase() === 'tasks' && /\.md$/i.test(parts[2]);
+    if (!owner || !inTasks) throw new AppError('remote.taskFileOutside');
+    const tasksDir = path.join(owner, 'backlog', 'tasks');
+    const real = async (p: string) => {
+      const r = await fs.realpath(p).catch(() => null);
+      return r && process.platform === 'win32' ? r.toLowerCase() : r;
+    };
+    const realDir = await real(tasksDir);
+    if (!realDir || (await real(path.dirname(filePath))) !== realDir) throw new AppError('remote.taskFileOutside');
+    const stat = await fs.lstat(filePath).catch(() => null);
+    if (stat?.isSymbolicLink()) throw new AppError('remote.taskFileOutside');
     return filePath;
   }
 
