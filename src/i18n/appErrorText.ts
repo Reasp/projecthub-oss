@@ -939,7 +939,23 @@ const EN = {
   'sso.tokenInvalid': 'The identity provider token did not pass the check: {detail}',
   'sso.tokenKeyUnknown': 'The identity provider token is signed with an unknown key',
   'sso.memberDisabled': 'The account of this member is disabled in the company identity provider',
-  'sso.linkNotFound': 'This member is not linked to an identity provider account'
+  'sso.linkNotFound': 'This member is not linked to an identity provider account',
+  // Организация из нескольких хостов команды (TASK-226, decision-185).
+  'org.alreadyTeamHost': 'This computer already hosts an organization',
+  'org.alreadyMember': 'This computer is already in an organization: leave it first',
+  'org.nameEmpty': 'Enter the organization name',
+  'org.notTeamHost': 'This computer does not host an organization',
+  'org.notMember': 'This computer is not in an organization',
+  'org.hostOffline': 'Turn on remote access: the other computer joins through this host’s address',
+  'org.inviteInvalid': 'The invitation code is wrong, expired or already used',
+  'org.joinRequestInvalid': 'The join request is not valid',
+  'org.joinSelf': 'A computer cannot join its own organization',
+  'org.hostNotFound': 'There is no such computer in the organization',
+  'org.invitationInvalid': 'Paste the whole invitation: the team host address and the code, like http://10.0.0.5:42150/org/join#ABCDE-FGHIJ',
+  'org.teamHostUnreachable': 'The team host did not answer: {detail}',
+  'org.joinRejected': 'The team host refused to add this computer: {detail}',
+  'org.ownerOnly': 'Only the owner’s device with full rights can manage the organization of this host',
+  'org.tooManyAttempts': 'Too many wrong codes from this address: try again in 10 minutes'
 } as const;
 
 export type AppErrorCode = keyof typeof EN;
@@ -1806,5 +1822,20 @@ export const appErrorTextRu: AppErrorLabels = {
   'sso.tokenInvalid': 'Токен поставщика учётных записей не прошёл проверку: {detail}',
   'sso.tokenKeyUnknown': 'Токен поставщика учётных записей подписан неизвестным ключом',
   'sso.memberDisabled': 'Учётная запись этого участника отключена в системе учётных записей компании',
-  'sso.linkNotFound': 'Участник не связан с учётной записью поставщика'
+  'sso.linkNotFound': 'Участник не связан с учётной записью поставщика',
+  'org.alreadyTeamHost': 'Этот компьютер уже ведёт организацию',
+  'org.alreadyMember': 'Этот компьютер уже в организации: сначала выйдите из неё',
+  'org.nameEmpty': 'Укажите название организации',
+  'org.notTeamHost': 'Этот компьютер не ведёт организацию',
+  'org.notMember': 'Этот компьютер не в организации',
+  'org.hostOffline': 'Включите удалённый доступ: другой компьютер присоединяется по адресу этого хоста',
+  'org.inviteInvalid': 'Код приглашения неверный, просрочен или уже использован',
+  'org.joinRequestInvalid': 'Неверный запрос на присоединение',
+  'org.joinSelf': 'Компьютер не может присоединиться к своей же организации',
+  'org.hostNotFound': 'Такого компьютера в организации нет',
+  'org.invitationInvalid': 'Вставьте приглашение целиком: адрес хоста команды и код, например http://10.0.0.5:42150/org/join#ABCDE-FGHIJ',
+  'org.teamHostUnreachable': 'Хост команды не ответил: {detail}',
+  'org.joinRejected': 'Хост команды не принял этот компьютер: {detail}',
+  'org.ownerOnly': 'Управлять организацией этого хоста может только устройство владельца с полными правами',
+  'org.tooManyAttempts': 'Слишком много неверных кодов с этого адреса: попробуйте через 10 минут'
 };

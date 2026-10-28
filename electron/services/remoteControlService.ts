@@ -581,6 +581,8 @@ class RemoteControlService {
 
   /** Общий секрет федерации: одинаковый на всех машинах пользователя, хранится в safeStorage. */
   private federationSecret = '';
+  /** Конверт записи организации, с которым открыт сокет релея (TASK-226): смена — повод переподключиться. */
+  private relayTeamCredentialSent = '';
   /** Производный от секрета `ownerId` — именно он уходит релею (TASK-66). */
   private federationOwnerId = '';
   private federationHeartbeatTimer: NodeJS.Timeout | null = null;
@@ -2771,6 +2773,10 @@ class RemoteControlService {
       // Каталог федерации включается только если задан общий секрет: без него релей видит хост
       // как одиночку и не показывает его чужим машинам (TASK-66, decision-11 п.2).
       if (this.federationOwnerId) relayUrl.searchParams.set('ownerId', this.federationOwnerId);
+      // Каталог организации (TASK-226): запись членства, подписанная хостом команды; релей проверит её нашим ключом.
+      const team = editionRegistry.relayTeamCredential();
+      if (team) relayUrl.searchParams.set('team', team);
+      this.relayTeamCredentialSent = team ?? '';
 
       const ws = new WebSocket(relayUrl.toString());
       this.relayWs = ws;
@@ -2808,8 +2814,25 @@ class RemoteControlService {
               this.federationProtocolError = null;
             }
 
+            if (msg.team && typeof msg.team === 'object') {
+              editionRegistry.emitRelayTeamStatus({ accepted: msg.team.accepted === true, ...(typeof msg.team.teamId === 'string' ? { teamId: msg.team.teamId } : {}), ...(typeof msg.team.reason === 'string' ? { reason: msg.team.reason } : {}), at: Date.now() });
+            } else if (this.relayTeamCredentialSent) {
+              // Релей без поддержки организаций молча игнорирует запись — это тоже «не принято».
+              editionRegistry.emitRelayTeamStatus({ accepted: false, reason: 'relay_unsupported', at: Date.now() });
+            }
+            this.sendRelayTeamRevocations(ws);
             this.startFederationHeartbeat();
             this.notifyStatusChanged();
+            return;
+          }
+
+          // Членство в организации изменилось на релее: хост отозван или запись истекла (TASK-226).
+          if (msg.type === 'team_status') {
+            editionRegistry.emitRelayTeamStatus({ accepted: msg.accepted === true, ...(typeof msg.reason === 'string' ? { reason: msg.reason } : {}), at: Date.now() });
+            return;
+          }
+          if (msg.type === 'team_revocations_ack') {
+            if (msg.ok !== true && msg.reason !== 'stale') logger.warn(`[RemoteControl] Relay rejected team revocations: ${String(msg.reason)}`);
             return;
           }
 
@@ -2891,6 +2914,38 @@ class RemoteControlService {
       logger.error(`[RemoteControl] Failed to connect to relay: ${err?.message}`);
       this.scheduleRelayReconnect();
     }
+  }
+
+  /** Список отзыва организации — релею, если этот хост — хост команды (TASK-226). */
+  private sendRelayTeamRevocations(ws: WebSocket): void {
+    const envelope = editionRegistry.relayTeamRevocations();
+    if (!envelope || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'team_revocations', envelope }));
+  }
+
+  /**
+   * Запись организации или список отзыва изменились (TASK-226): новая запись — переподключение к релею (она идёт в
+   * регистрации), новый список — отправка по открытому сокету.
+   */
+  public refreshRelayTeam(): void {
+    if (!this.enabled || !(this.mode === 'relay' || this.relayServerUrl)) return;
+    const credential = editionRegistry.relayTeamCredential() ?? '';
+    if (credential !== this.relayTeamCredentialSent || !this.relayWs || this.relayWs.readyState !== WebSocket.OPEN) {
+      void this.connectToRelay();
+      return;
+    }
+    this.sendRelayTeamRevocations(this.relayWs);
+  }
+
+  /** Ed25519-ключ хоста для модулей редакции: подпись записей организации (TASK-226). */
+  public async hostIdentity(): Promise<{ hostId: string; machineName: string; publicKeyPem: string; sign(data: string): Promise<string> }> {
+    const { privateKeyPem, publicKeyPem } = await this.ensureIdentity();
+    return {
+      hostId: this.hostId,
+      machineName: this.machineName || os.hostname(),
+      publicKeyPem,
+      sign: async (data: string) => crypto.sign(null, Buffer.from(data, 'utf8'), privateKeyPem).toString('base64url')
+    };
   }
 
   /** Запуск LAN-обнаружения: анонсируем себя и принимаем анонсы машин того же владельца. */
@@ -4566,6 +4621,17 @@ editionRegistry.setDeviceDirectory({
   revoke: (deviceId) => {
     remoteControlService.disconnectDevice(deviceId);
   }
+});
+// Ключ хоста, адрес его страницы и переподключение к релею для модуля организации (TASK-226).
+editionRegistry.setHostServices({
+  identity: () => remoteControlService.hostIdentity(),
+  origin: () => {
+    const status = remoteControlService.getStatus();
+    if (!status.enabled) return null;
+    if (status.tunnelStatus === 'active' && status.tunnelUrl) return status.tunnelUrl.replace(/\/+$/, '');
+    return `http://${status.localAddresses?.[0] || 'localhost'}:${status.port}`;
+  },
+  refreshRelayTeam: () => remoteControlService.refreshRelayTeam()
 });
 // Ссылка сопряжения по коду участника из main (TASK-228: после входа через IdP): та же, что строит окно «Команда».
 editionRegistry.setInvitePairingUrlProvider((code) => {

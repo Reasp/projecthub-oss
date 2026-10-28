@@ -325,6 +325,44 @@ export interface EditionMainApi {
   addHttpRoute(prefix: string, handler: EditionHttpHandler): void;
   /** Ссылка сопряжения по одноразовому коду участника (decision-126): адреса и ключ сессий хоста; `null` — хоста нет. */
   invitePairingUrl(code: string): string | null;
+  /** Постоянный Ed25519-ключ хоста (decision-11 п. 1): подпись записей организации (TASK-226). */
+  hostIdentity(): Promise<HostIdentity>;
+  /** Адрес страницы хоста для другой машины: туннель или первый LAN-адрес; `null` — удалённый доступ выключен. */
+  hostOrigin(): string | null;
+  /** Запись членства и список отзыва организации для релея (TASK-226). Один поставщик на процесс. */
+  setRelayTeamProvider(provider: RelayTeamProvider): void;
+  /** Запись или список отзыва изменились: хост переподключается к релею или отправляет новый список. */
+  refreshRelayTeam(): void;
+}
+
+export interface HostIdentity {
+  hostId: string;
+  machineName: string;
+  publicKeyPem: string;
+  /** Подпись Ed25519 строки (UTF-8), base64url. */
+  sign(data: string): Promise<string>;
+}
+
+/** Ответ релея о членстве хоста в организации: принято или почему нет (`revoked`, `expired`, `bad_signature`…). */
+export interface RelayTeamStatus {
+  accepted: boolean;
+  teamId?: string;
+  reason?: string;
+  at: number;
+}
+
+export interface RelayTeamProvider {
+  /** Конверт записи членства (base64url JSON) для query-параметра `team`; `null` — хост не в организации. */
+  credential(): string | null;
+  /** Подписанный список отзыва, если этот хост — хост команды. */
+  revocations(): unknown | null;
+  onStatus(status: RelayTeamStatus): void;
+}
+
+interface HostServices {
+  identity(): Promise<HostIdentity>;
+  origin(): string | null;
+  refreshRelayTeam(): void;
 }
 
 /** Обработчик HTTP-маршрута модуля редакции. */
@@ -388,6 +426,8 @@ const agentTools = new Map<string, EditionAgentTool>();
 let memberProjectAccess: ((memberId: string, projectPath: string) => boolean) | null = null;
 const httpRoutes = new Map<string, EditionHttpHandler>();
 let invitePairingUrlProvider: ((code: string) => string | null) | null = null;
+let hostServices: HostServices | null = null;
+let relayTeamProvider: RelayTeamProvider | null = null;
 
 export const editionRegistry = {
   api(): EditionMainApi {
@@ -450,8 +490,48 @@ export const editionRegistry = {
         if (!/^\/[a-z0-9-]+\/$/.test(prefix)) throw new Error(`HTTP route prefix must look like /name/: ${prefix}`);
         httpRoutes.set(prefix, handler);
       },
-      invitePairingUrl: (code) => invitePairingUrlProvider?.(code) ?? null
+      invitePairingUrl: (code) => invitePairingUrlProvider?.(code) ?? null,
+      hostIdentity: () => {
+        if (!hostServices) return Promise.reject(new Error('Host services are not available'));
+        return hostServices.identity();
+      },
+      hostOrigin: () => hostServices?.origin() ?? null,
+      setRelayTeamProvider: (provider) => {
+        relayTeamProvider = provider;
+      },
+      refreshRelayTeam: () => hostServices?.refreshRelayTeam()
     };
+  },
+
+  setHostServices(services: HostServices): void {
+    hostServices = services;
+  },
+
+  /** Конверт записи членства для релея; сбой модуля — хост просто без организации. */
+  relayTeamCredential(): string | null {
+    try {
+      return relayTeamProvider?.credential() ?? null;
+    } catch (err) {
+      console.warn('[edition] Запись организации не получена:', err);
+      return null;
+    }
+  },
+
+  relayTeamRevocations(): unknown | null {
+    try {
+      return relayTeamProvider?.revocations() ?? null;
+    } catch (err) {
+      console.warn('[edition] Список отзыва организации не получен:', err);
+      return null;
+    }
+  },
+
+  emitRelayTeamStatus(status: RelayTeamStatus): void {
+    try {
+      relayTeamProvider?.onStatus(status);
+    } catch (err) {
+      console.warn('[edition] Статус организации не принят модулем:', err);
+    }
   },
 
   /** Маршрут модуля редакции для пути запроса; `/sso` без косой черты тоже ведёт в `/sso/`. */
