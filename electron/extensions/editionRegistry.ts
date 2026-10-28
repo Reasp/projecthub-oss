@@ -212,6 +212,8 @@ export interface LauncherProvider {
 export interface HitlRouteRef {
   memberId?: string;
   createdAt: number;
+  /** Проект запроса: эскалация — старшим ролям в этом проекте (ревью TASK-227). */
+  projectPath?: string;
 }
 
 export interface HitlRouting {
@@ -289,6 +291,8 @@ export interface EditionMainApi {
   addDeviceRightsLimit(limit: (device: RemoteDeviceRef) => DeviceRightsName): void;
   /** Запрет метода RPC для устройства: ошибка с кодом — причина отказа (decision-165). */
   addRpcGuard(guard: (method: string, device: RemoteDeviceRef) => AppError | null): void;
+  /** Запрет метода по роли в проекте вызова (`null` — вызов без проекта); ревью TASK-227. */
+  addProjectRpcGuard(guard: (method: string, device: RemoteDeviceRef, projectPath: string | null) => AppError | null): void;
   /**
    * Сузить доступ устройства к проекту (TASK-180): проекты участника общего хоста. Расширить нельзя — берётся меньшее
    * из прав устройства на проект и возвращённого.
@@ -412,6 +416,7 @@ let textFileSaver: (options: SaveTextFileOptions) => Promise<SaveTextFileResult>
 let pdfSaver: (options: SaveHtmlAsPdfOptions) => Promise<SaveTextFileResult> = noWindowSave;
 const rightsLimits: Array<(device: RemoteDeviceRef) => DeviceRightsName> = [];
 const rpcGuards: Array<(method: string, device: RemoteDeviceRef) => AppError | null> = [];
+const projectRpcGuards: Array<(method: string, device: RemoteDeviceRef, projectPath: string | null) => AppError | null> = [];
 const projectAccessLimits: Array<(device: RemoteDeviceRef, projectPath: string) => ProjectAccessName> = [];
 let pairingRedeemer: ((input: { code: string; deviceId: string; deviceName: string }) => Promise<PairingRedemption | null>) | null = null;
 const remoteMethods = new Map<string, RemoteMethodSpec>();
@@ -450,6 +455,9 @@ export const editionRegistry = {
       },
       addRpcGuard: (guard) => {
         rpcGuards.push(guard);
+      },
+      addProjectRpcGuard: (guard) => {
+        projectRpcGuards.push(guard);
       },
       addProjectAccessLimit: (limit) => {
         projectAccessLimits.push(limit);
@@ -656,6 +664,19 @@ export const editionRegistry = {
     return null;
   },
 
+  /** Запрет метода по роли в проекте вызова; сбой проверки — отказ, как у `checkRpc`. */
+  checkProjectRpc(method: string, device: RemoteDeviceRef, projectPath: string | null): AppError | null {
+    for (const guard of projectRpcGuards) {
+      try {
+        const reason = guard(method, device, projectPath);
+        if (reason) return reason;
+      } catch (err) {
+        return new AppError('edition.rightsCheckFailed', { detail: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return null;
+  },
+
   async redeemPairingCode(input: { code: string; deviceId: string; deviceName: string }): Promise<PairingRedemption | null> {
     if (!pairingRedeemer || !input.code) return null;
     try {
@@ -764,6 +785,7 @@ export const editionRegistry = {
     pdfSaver = noWindowSave;
     rightsLimits.length = 0;
     rpcGuards.length = 0;
+    projectRpcGuards.length = 0;
     projectAccessLimits.length = 0;
     pairingRedeemer = null;
     remoteMethods.clear();

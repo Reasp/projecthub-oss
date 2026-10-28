@@ -1355,7 +1355,11 @@ class RemoteControlService {
     const ref = { id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights: this.effectiveDeviceRights(device) };
     // Запрос проекта, закрытого устройству, ему не виден (TASK-180).
     if (request.projectPath && this.projectAccessOf(device, request.projectPath) === 'none') return false;
-    return editionRegistry.hitlVisible({ ...(request.memberId ? { memberId: request.memberId } : {}), createdAt: request.createdAt }, ref, now);
+    return editionRegistry.hitlVisible(
+      { ...(request.memberId ? { memberId: request.memberId } : {}), createdAt: request.createdAt, ...(request.projectPath ? { projectPath: request.projectPath } : {}) },
+      ref,
+      now
+    );
   }
 
   /** Видит ли запрос устройство из реестра токенов (push, HTTP API). */
@@ -3625,6 +3629,10 @@ class RemoteControlService {
     // `hitl` сужают запись так же, как права устройства на хост.
     await this.refreshProjectRoots();
     const target = await this.rpcTargetProject(method, params, device);
+    // Роль в проекте вызова (ревью TASK-227): терминал, процессы и git основного дерева — по роли участника в этом
+    // проекте, а не по наибольшей роли на хосте.
+    const deniedInProject = editionRegistry.checkProjectRpc(method, deviceRef, target);
+    if (deniedInProject) throw deniedInProject;
     if (target) {
       const reason = projectAccessDenied(this.projectAccessOf(device, target), writeMethods.has(method) || extraMethod?.write === true, hitlRightsMethods.has(method));
       if (reason) {
