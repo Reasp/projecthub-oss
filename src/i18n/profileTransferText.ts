@@ -67,7 +67,7 @@ const en: ProfileTransferLabels = {
   passwordShort: (min) => `At least ${min} characters.`,
   passwordMismatch: 'The passwords do not match.',
   exportButton: 'Export to file…',
-  exported: (file, count) => `Saved ${count} sections to ${file}`,
+  exported: (file, count) => `Saved ${count} ${count === 1 ? 'section' : 'sections'} to ${file}`,
   importTitle: 'Import',
   importHint: 'Settings are merged by key: what exists only here stays, disputed values come from the newer side.',
   chooseFile: 'Choose file…',
@@ -115,7 +115,7 @@ const en: ProfileTransferLabels = {
   hostNewer: 'host is newer',
   localNewer: 'this computer is newer',
   applyOnHost: 'Apply selected on host',
-  appliedOnHost: (count) => `Applied on host: ${count} sections.`,
+  appliedOnHost: (count) => `Applied on host: ${count} ${count === 1 ? 'section' : 'sections'}.`,
   hostRestartHint: 'Restart ProjectHub on the host so that it picks up the settings.'
 };
 

@@ -37,6 +37,11 @@ export class LlmModelCatalogService {
     return this.filePathOverride ?? getStatePath('llm-model-catalog.json');
   }
 
+  /** Файл заменили снаружи (импорт профиля, TASK-224). */
+  invalidate(): void {
+    this.cache = null;
+  }
+
   private async loadCache(): Promise<Record<string, ModelCatalogEntry>> {
     if (this.cache) return this.cache;
     try {

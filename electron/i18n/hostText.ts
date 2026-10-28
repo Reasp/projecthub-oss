@@ -133,6 +133,7 @@ export interface HostText {
     telegramTest: string;
     exportProfile: string;
     importProfile: string;
+    profileFileFilter: string;
     cloneProjectInto: string;
   };
   /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
@@ -323,6 +324,7 @@ const en: HostText = {
     telegramTest: 'Test notification from ProjectHub! 🚀',
     exportProfile: 'Export ProjectHub profile',
     importProfile: 'Import ProjectHub profile',
+    profileFileFilter: 'ProjectHub profile',
     cloneProjectInto: 'Folder to clone the project into'
   },
   chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' },
@@ -520,6 +522,7 @@ const ru: HostText = {
     telegramTest: 'Тестовое уведомление от ProjectHub! 🚀',
     exportProfile: 'Экспорт профиля ProjectHub',
     importProfile: 'Импорт профиля ProjectHub',
+    profileFileFilter: 'Профиль ProjectHub',
     cloneProjectInto: 'Папка, куда клонировать проект'
   },
   chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' },

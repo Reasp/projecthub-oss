@@ -26,7 +26,7 @@ export function registerProfileIpc(ctx: IpcContext) {
     const options = {
       title: tx.exportProfile,
       defaultPath: `projecthub-profile-${new Date().toISOString().slice(0, 10)}.${PROFILE_FILE_EXTENSION}`,
-      filters: [{ name: 'ProjectHub profile', extensions: [PROFILE_FILE_EXTENSION] }]
+      filters: [{ name: tx.profileFileFilter, extensions: [PROFILE_FILE_EXTENSION] }]
     };
     const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
     if (result.canceled || !result.filePath) return { canceled: true };
@@ -40,7 +40,7 @@ export function registerProfileIpc(ctx: IpcContext) {
     const options = {
       title: tx.importProfile,
       properties: ['openFile' as const],
-      filters: [{ name: 'ProjectHub profile', extensions: [PROFILE_FILE_EXTENSION] }]
+      filters: [{ name: tx.profileFileFilter, extensions: [PROFILE_FILE_EXTENSION] }]
     };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (result.canceled || result.filePaths.length === 0) return null;

@@ -93,7 +93,8 @@ export function sanitizeProfile(doc: ProfileDocument): ProfileDocument {
 
 // ─────────────────────────── Шифрование ───────────────────────────
 
-const SCRYPT = { N: 2 ** 15, r: 8, p: 1, keyLength: 32, maxmem: 64 * 1024 * 1024 };
+// `maxmem` покрывает предел N = 2^17 из проверки файла (128·N·r = 128 МБ): иначе scrypt бросал сырую ошибку.
+const SCRYPT = { N: 2 ** 15, r: 8, p: 1, keyLength: 32, maxmem: 160 * 1024 * 1024 };
 
 interface EncryptedEnvelope {
   format: typeof PROFILE_FILE_FORMAT;
@@ -106,7 +107,12 @@ interface EncryptedEnvelope {
 }
 
 function deriveKey(password: string, salt: Buffer, params: { N: number; r: number; p: number }): Buffer {
-  return crypto.scryptSync(password.normalize('NFC'), salt, SCRYPT.keyLength, { N: params.N, r: params.r, p: params.p, maxmem: SCRYPT.maxmem });
+  try {
+    return crypto.scryptSync(password.normalize('NFC'), salt, SCRYPT.keyLength, { N: params.N, r: params.r, p: params.p, maxmem: SCRYPT.maxmem });
+  } catch {
+    // Параметры прошли проверку файла, но scrypt их не принял — для человека это повреждённый файл.
+    throw new AppError('profile.corruptFile');
+  }
 }
 
 export function encryptProfile(doc: ProfileDocument, password: string): string {

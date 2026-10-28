@@ -83,6 +83,9 @@ export function ProfileTransferModal({ onClose }: { onClose: () => void }) {
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     setError(null);
+    // Итог прошлой попытки не остаётся рядом с новой ошибкой.
+    setApplied(null);
+    setAppliedOnHost(null);
     try {
       await action();
     } catch (err) {

@@ -83,6 +83,11 @@ export interface ProfileServiceDeps {
   remoteOf: (projectPath: string) => Promise<string | null>;
   appVersion: () => string | undefined;
   now: () => number;
+  /**
+   * После записи разделов: сервисы с копией файла в памяти перечитывают его (ревью TASK-224/225). Иначе их следующая
+   * запись (обновление токена подключения и т. п.) вернула бы старое содержимое — особенно на хосте без перезапуска.
+   */
+  afterApply?: (applied: ProfileSectionId[]) => Promise<void>;
 }
 
 /** Вызов RPC на сопряжённом хосте федерации (`federationClientService.call` с выбранным hostId). */
@@ -122,6 +127,12 @@ async function writeAtomic(file: string, content: string): Promise<void> {
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(tmp, content, 'utf8');
   await fs.rename(tmp, file);
+}
+
+function withoutLocalFields(doc: ProfileDocument): ProfileDocument {
+  const automations = doc.sections.automations;
+  if (!automations) return doc;
+  return { ...doc, sections: { ...doc.sections, automations: { ...automations, data: withoutFields(automations.data, AUTOMATIONS_LOCAL_FIELDS) } } };
 }
 
 function withoutFields(value: unknown, fields: string[]): unknown {
@@ -183,13 +194,15 @@ export class ProfileService {
       if (section) sections[id] = section;
     }
     const appVersion = this.deps.appVersion();
-    return {
+    const doc: ProfileDocument = {
       format: PROFILE_FORMAT,
       version: PROFILE_VERSION,
       exportedAt: new Date(this.deps.now()).toISOString(),
       ...(appVersion ? { appVersion } : {}),
       sections
     };
+    // Секреты вырезаются здесь же для всех потребителей: файл, хост по федерации (`profile_get`) — ревью TASK-225.
+    return sanitizeProfile(doc);
   }
 
   async exportToFile(file: string, password: string, ids: readonly ProfileSectionId[]): Promise<{ sections: ProfileSectionId[] }> {
@@ -199,8 +212,11 @@ export class ProfileService {
   }
 
   /** Предпросмотр импорта документа: что изменится по разделам. Документ запоминается до `apply` по токену. */
-  async preview(doc: ProfileDocument): Promise<ProfilePreview> {
+  async preview(incomingDoc: ProfileDocument): Promise<ProfilePreview> {
     this.dropExpired();
+    // Поля, принадлежащие машине (доверие к правилам Automations), из чужого профиля не принимаются (ревью TASK-224):
+    // иначе файл профиля подтверждал бы правила проектов в обход decision-52.
+    const doc = withoutLocalFields(incomingDoc);
     const sections: ProfileSectionPreview[] = [];
     let missing: ProfileProject[] = [];
     for (const [id, incoming] of Object.entries(doc.sections)) {
@@ -267,6 +283,7 @@ export class ProfileService {
       }
       applied.push(id);
     }
+    if (applied.length) await this.deps.afterApply?.(applied).catch(() => undefined);
     return { applied };
   }
 
@@ -336,11 +353,32 @@ export function setProfileAppVersion(version: string): void {
   appVersion = version;
 }
 
+/** Перечитать сервисы, которые держат разделы профиля в памяти. Импорт — по требованию: без циклов загрузки модулей. */
+async function reloadSections(applied: ProfileSectionId[]): Promise<void> {
+  const has = (id: ProfileSectionId) => applied.includes(id);
+  const tasks: Array<Promise<unknown>> = [];
+  if (has('modelTiers')) tasks.push(import('./modelTierService.js').then((m) => m.modelTierService.reload()));
+  if (has('modelAssignments')) tasks.push(import('./modelAssignmentService.js').then((m) => m.modelAssignmentService.reload()));
+  if (has('agentPricing')) tasks.push(import('./pricingService.js').then((m) => m.pricingService.reload()));
+  if (has('llmModelCatalog')) tasks.push(import('./llmModelCatalogService.js').then((m) => m.llmModelCatalogService.invalidate()));
+  if (has('connections')) tasks.push(import('./connectionServiceInstance.js').then((m) => m.connectionService.invalidate()));
+  if (has('notifications')) tasks.push(import('./notificationService.js').then((m) => m.notificationService.init()));
+  if (has('uiLanguage')) {
+    tasks.push(
+      fs
+        .readFile(path.join(getUserDataDir(), 'ui-language.json'), 'utf8')
+        .then((text) => import('./hostLanguage.js').then((m) => m.setHostLanguage((JSON.parse(text) as { language?: unknown }).language)))
+    );
+  }
+  await Promise.allSettled(tasks);
+}
+
 export const profileService = new ProfileService({
   userDataDir: getUserDataDir,
   rolesDir: getRolesDir,
   projects: async () => (await projectRegistry.getProjects()).map((p) => p.path),
   remoteOf: gitRemote,
   appVersion: () => appVersion,
-  now: Date.now
+  now: Date.now,
+  afterApply: reloadSections
 });

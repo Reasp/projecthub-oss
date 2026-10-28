@@ -213,6 +213,11 @@ export class ConnectionService {
     return run;
   }
 
+  /** Файл заменили снаружи (импорт профиля, TASK-224): следующий доступ читает его заново, а не пишет старую копию. */
+  invalidate(): void {
+    this.file = null;
+  }
+
   private async load(): Promise<ConnectionsFile> {
     if (this.file) return this.file;
     try {
