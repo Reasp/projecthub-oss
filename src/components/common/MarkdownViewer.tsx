@@ -32,15 +32,19 @@ interface MarkdownViewerProps {
   content: string;
   className?: string;
   emptyMessage?: string | null;
+  /** Ссылки `[[id]]` не локального проекта, например проекта удалённого ПК (TASK-229); по умолчанию — свой проект. */
+  refs?: DocRefNavigation;
 }
 
 export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   content,
   className = '',
-  emptyMessage
+  emptyMessage,
+  refs
 }) => {
   const { t } = useI18n();
-  const docRefs = useDocRefs();
+  const localRefs = useDocRefs();
+  const docRefs = refs ?? localRefs;
   const effectiveEmptyMessage = emptyMessage !== undefined ? emptyMessage : t.markdown.emptyDocument;
 
   if (!content || !content.trim()) {

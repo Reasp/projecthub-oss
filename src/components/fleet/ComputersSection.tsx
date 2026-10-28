@@ -133,6 +133,7 @@ export const ComputersSection: React.FC = () => {
   const openSession = (host: FleetHostEntry, project: OverviewProject, session: OverviewSession) => {
     if (host.self) {
       useFleetStore.getState().closeRemoteSession();
+      useFleetStore.getState().closeRemoteProject();
       void openLocalSession(project, session);
       return;
     }
@@ -202,17 +203,38 @@ export const ComputersSection: React.FC = () => {
     // Громкий проект раскрыт по умолчанию, тихий — свёрнут; клик меняет это.
     const loud = p.attention !== 'quiet';
     const open = fleet.openProjects[key] ?? loud;
+    const shown = !host.self && fleet.remoteProject?.hostId === host.hostId && fleet.remoteProject.projectPath === p.path;
     const onProject = () => {
       if (host.self) {
         const info = useProjectStore.getState().projects.find((x) => x.path === p.path);
         if (info) useProjectStore.getState().selectProject(info);
+        // Тот же проект уже выбран — подписка стора не сработает, удалённые виды закрываются здесь.
+        fleet.closeRemoteSession();
+        fleet.closeRemoteProject();
+        fleet.toggleProject(host.hostId, p.path);
+        return;
       }
+      // Проект удалённого ПК открывается в основной области: задачи, агенты, документация (TASK-229).
+      fleet.openRemoteProject({ hostId: host.hostId, machineName: host.machineName || host.hostId, projectPath: p.path, projectName: p.name });
+      if (!open) fleet.toggleProject(host.hostId, p.path);
+    };
+    const onChevron = (e: React.MouseEvent) => {
+      if (host.self) return;
+      e.stopPropagation();
       fleet.toggleProject(host.hostId, p.path);
     };
     return (
       <div key={key}>
-        <button type="button" onClick={onProject} className="w-full pl-6 pr-2 h-6 flex items-center gap-1.5 hover:bg-ph-hover text-left" title={p.path} data-testid={`fleet-project-${p.name}`}>
-          {open ? <ChevronDown className="w-3 h-3 text-slate-500 shrink-0" /> : <ChevronRight className="w-3 h-3 text-slate-500 shrink-0" />}
+        <button
+          type="button"
+          onClick={onProject}
+          className={`w-full pl-6 pr-2 h-6 flex items-center gap-1.5 hover:bg-ph-hover text-left ${shown ? 'bg-ph-hover' : ''}`}
+          title={host.self ? p.path : fmt(t.fleet.project.open, { host: host.machineName || host.hostId })}
+          data-testid={`fleet-project-${p.name}`}
+        >
+          <span onClick={onChevron} className="shrink-0" data-testid={`fleet-project-toggle-${p.name}`}>
+            {open ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />}
+          </span>
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${DOT[p.attention]}`} />
           <span className="truncate text-xs text-slate-200 flex-1">{p.name}</span>
           {p.counts.waiting > 0 && <Count tone="amber">{p.counts.waiting}</Count>}

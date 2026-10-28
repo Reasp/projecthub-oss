@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Bot, Loader2, MessageSquare, Monitor, Send, Square, Terminal, X } from '../common/icons';
 import { useFleetStore } from '../../store/useFleetStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import type { RemoteAgentOutput, RemoteStudioSession } from '../../types/remote';
 import type { OverviewSession } from '../../utils/fleetOverview';
 
@@ -11,6 +11,8 @@ import type { OverviewSession } from '../../utils/fleetOverview';
  */
 
 const POLL_MS = 2000;
+const SESSION_RETRIES = 8;
+const SESSION_RETRY_MS = 500;
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return s.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
@@ -42,16 +44,30 @@ export const RemoteSessionView: React.FC = () => {
   const agentId = session?.agentId;
   const active = session?.state === 'running' || session?.state === 'waiting';
 
-  const loadStudio = useCallback(async () => {
-    if (!hostId || !projectPath || !sessionId) return;
-    try {
-      setStudio(await window.api.federationCall<RemoteStudioSession>(hostId, 'studio_get_session', { projectPath, sessionId }));
-      setLive('');
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [hostId, projectPath, sessionId]);
+  const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadStudio = useCallback(
+    async (attempt = 0) => {
+      if (!hostId || !projectPath || !sessionId) return;
+      if (retry.current) clearTimeout(retry.current);
+      try {
+        setStudio(await window.api.federationCall<RemoteStudioSession>(hostId, 'studio_get_session', { projectPath, sessionId }));
+        setLive('');
+        setError(null);
+      } catch (err) {
+        // Новую сессию с этого ПК хост сохраняет на диск чуть позже ответа `studio_send` (TASK-229): перечитать.
+        if (attempt < SESSION_RETRIES && /remote\.sessionNotFound/.test(err instanceof Error ? err.message : String(err))) {
+          retry.current = setTimeout(() => void loadStudio(attempt + 1), SESSION_RETRY_MS);
+          return;
+        }
+        setError(ipcErrorText(err));
+      }
+    },
+    [hostId, projectPath, sessionId]
+  );
+
+  useEffect(() => () => {
+    if (retry.current) clearTimeout(retry.current);
+  }, [sessionId]);
 
   const loadOutput = useCallback(async () => {
     if (!hostId || !sessionId || !agentId) return;
@@ -59,7 +75,7 @@ export const RemoteSessionView: React.FC = () => {
       setOutput(await window.api.federationCall<RemoteAgentOutput>(hostId, 'get_agent_output', { swarmId: sessionId, agentId }));
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(ipcErrorText(err));
     }
   }, [hostId, sessionId, agentId]);
 
@@ -105,7 +121,7 @@ export const RemoteSessionView: React.FC = () => {
       await window.api.federationCall(hostId, 'studio_send', { projectPath, sessionId, prompt: text });
       setPrompt('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(ipcErrorText(err));
     } finally {
       setSending(false);
     }
@@ -117,7 +133,7 @@ export const RemoteSessionView: React.FC = () => {
       if (kind === 'studio') await window.api.federationCall(hostId, 'studio_abort', { projectPath, sessionId });
       else await window.api.federationCall(hostId, 'stop_swarm', { swarmId: sessionId });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(ipcErrorText(err));
     }
   };
 

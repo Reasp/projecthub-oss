@@ -27,6 +27,7 @@ import { useRemoteControlStore } from './store/useRemoteControlStore';
 import { useDocBranchesStore } from './store/useDocBranchesStore';
 import { RemoteHostsModal } from './components/federation/RemoteHostsModal';
 import { RemoteSessionView } from './components/fleet/RemoteSessionView';
+import { RemoteProjectView } from './components/fleet/RemoteProjectView';
 import { useProjectStore } from './store/useProjectStore';
 import { useAIStudioStore } from './store/useAIStudioStore';
 import { handleStudioRemoteRequest } from './store/studioRemoteHandler';
@@ -371,7 +372,8 @@ export const App: React.FC = () => {
           <Header />
           <div className="flex-1 flex flex-col overflow-hidden relative">
             <ProjectWorkspace />
-            {/* Удалённая сессия из дерева «Компьютеры» поверх рабочей области (TASK-174) */}
+            {/* Проект удалённого ПК (TASK-229) и удалённая сессия поверх него (TASK-174) — из дерева «Компьютеры» */}
+            <RemoteProjectView />
             <RemoteSessionView />
           </div>
           <TerminalPanel />

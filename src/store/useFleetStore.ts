@@ -34,6 +34,17 @@ export interface OpenRemoteSession {
   session: OverviewSession;
 }
 
+export type RemoteProjectTab = 'tasks' | 'agents' | 'docs';
+
+/** Проект удалённого ПК в основной области (TASK-229): задачи, сессии агентов и документация через RPC его хоста. */
+export interface OpenRemoteProject {
+  hostId: string;
+  machineName: string;
+  projectPath: string;
+  projectName: string;
+  tab: RemoteProjectTab;
+}
+
 interface FleetUi {
   collapsed: boolean;
   /** Свёрнутые компьютеры и раскрытые «ещё N» по hostId. */
@@ -48,6 +59,7 @@ interface FleetState extends FleetUi {
   remote: Record<string, RemoteHostOverviewState>;
   lastSeen: Record<string, number>;
   remoteSession: OpenRemoteSession | null;
+  remoteProject: OpenRemoteProject | null;
 
   init: () => void;
   refreshLocal: () => Promise<void>;
@@ -58,6 +70,10 @@ interface FleetState extends FleetUi {
   toggleProject: (hostId: string, projectPath: string) => void;
   openRemoteSession: (s: OpenRemoteSession) => void;
   closeRemoteSession: () => void;
+  /** Открыть проект удалённого ПК; без `tab` — та же вкладка, если проект уже открыт, иначе задачи. */
+  openRemoteProject: (p: Omit<OpenRemoteProject, 'tab'> & { tab?: RemoteProjectTab }) => void;
+  setRemoteProjectTab: (tab: RemoteProjectTab) => void;
+  closeRemoteProject: () => void;
   /** Решение HITL из строки: свой ПК — как в окне, удалённый — RPC на его хост. */
   decide: (hostId: string | null, requestId: string, approved: boolean) => Promise<{ ok: boolean; error?: string }>;
 }
@@ -118,6 +134,7 @@ export const useFleetStore = create<FleetState>((set, get) => {
     remote: {},
     lastSeen: readJson<Record<string, number>>(LAST_SEEN_KEY, {}),
     remoteSession: null,
+    remoteProject: null,
 
     init: () => {
       if (!window.api?.getLocalOverview) return;
@@ -132,10 +149,13 @@ export const useFleetStore = create<FleetState>((set, get) => {
           if (isOverviewEvent(payload.event)) debounced(payload.hostId, () => void get().refreshRemote(payload.hostId));
         })
       );
-      // Человек ушёл в свой проект или вкладку — удалённая сессия перестаёт закрывать рабочую область.
+      // Человек ушёл в свой проект или вкладку — удалённая сессия и проект перестают закрывать рабочую область.
       cleanups.push(
         useProjectStore.subscribe((s, prev) => {
-          if (s.selectedProject?.path !== prev.selectedProject?.path || s.activeTab !== prev.activeTab) get().closeRemoteSession();
+          if (s.selectedProject?.path !== prev.selectedProject?.path || s.activeTab !== prev.activeTab) {
+            get().closeRemoteSession();
+            get().closeRemoteProject();
+          }
         })
       );
       // Хост стал доступен — его снимок читается сразу.
@@ -205,8 +225,22 @@ export const useFleetStore = create<FleetState>((set, get) => {
       saveUi();
     },
 
-    openRemoteSession: (remoteSession) => set({ remoteSession }),
+    // Сессия другого проекта закрывает открытый удалённый проект: «Закрыть» сессии не должно вести в чужой проект.
+    openRemoteSession: (remoteSession) =>
+      set((s) => ({
+        remoteSession,
+        remoteProject:
+          s.remoteProject?.hostId === remoteSession.hostId && s.remoteProject.projectPath === remoteSession.projectPath ? s.remoteProject : null
+      })),
     closeRemoteSession: () => set({ remoteSession: null }),
+
+    openRemoteProject: ({ tab, ...p }) =>
+      set((s) => {
+        const same = s.remoteProject?.hostId === p.hostId && s.remoteProject.projectPath === p.projectPath;
+        return { remoteSession: null, remoteProject: { ...p, tab: tab ?? (same ? s.remoteProject!.tab : 'tasks') } };
+      }),
+    setRemoteProjectTab: (tab) => set((s) => (s.remoteProject ? { remoteProject: { ...s.remoteProject, tab } } : {})),
+    closeRemoteProject: () => set({ remoteProject: null }),
 
     decide: async (hostId, requestId, approved) => {
       try {

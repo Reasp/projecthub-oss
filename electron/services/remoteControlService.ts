@@ -74,7 +74,7 @@ import { createBacklogTaskFile } from './backlogTaskCreate.js';
 import { hitlService } from './hitlService.js';
 import { confirmProofPayload, parseConfirmKey, verifyConfirmProof } from './hitlConfirmProof.js';
 import { fitsPhoneReview, hitlDetailForPhone } from './remoteHitlDetail.js';
-import { listRemoteDocs, readRemoteDoc } from './remoteDocs.js';
+import { listRemoteDocs, readRemoteDoc, REMOTE_DOC_MAX_BYTES } from './remoteDocs.js';
 import { diffDocBranch, sanitizeResolutions } from './docBranches.js';
 import { closeDocBranchAsHuman, docBranchesOverview, mergeDocBranchAsHuman, remoteDocBranchDiff } from './docBranchActions.js';
 import { parsePushAction, parsePushRegistration, verifyPushAction, type PushHostEndpoint, type PushRegistration } from './remotePush.js';
@@ -3424,6 +3424,7 @@ class RemoteControlService {
         return parseProcessId(str(params.processId))?.projectPath || str(params.projectPath) || this.deviceProject(device.id) || null;
       case 'update_task_status':
       case 'toggle_task_criterion':
+      case 'get_task':
         return str(params.filePath) || null;
       case 'hitl_decision':
       case 'get_hitl_detail':
@@ -3724,6 +3725,15 @@ class RemoteControlService {
         await this.toggleCriterionInFile(await this.assertTaskFile(params.filePath), params.index, params.completed);
         this.broadcastEvent('backlog:changed', { projectPath: activePath });
         return { ok: true };
+      }
+
+      // Карточка задачи на ПК-клиенте (TASK-229): файл целиком, только из backlog/tasks проекта реестра.
+      case 'get_task': {
+        const filePath = await this.assertTaskFile(params.filePath);
+        const stat = await fs.stat(filePath).catch(() => null);
+        if (!stat?.isFile()) throw new AppError('remote.docNotFound', { path: path.basename(filePath) });
+        if (stat.size > REMOTE_DOC_MAX_BYTES) throw new AppError('remote.docTooLarge', { mb: REMOTE_DOC_MAX_BYTES / 1024 / 1024 });
+        return { filePath, content: await fs.readFile(filePath, 'utf8') };
       }
 
       case 'get_git_status': {

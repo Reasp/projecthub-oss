@@ -3547,6 +3547,52 @@ export const en: TranslationDictionary = {
       live: 'agent is writing…',
       olderOmitted: '{n} earlier messages not shown',
       readOnly: 'This PC has read-only access on that host'
+    },
+    project: {
+      open: 'Open the project: tasks, agents and documentation on {host}',
+      tabs: { tasks: 'Tasks', agents: 'Agents', docs: 'Documentation' },
+      refresh: 'Refresh',
+      close: 'Close',
+      offline: '{host} is offline. The project will load when it reconnects.',
+      readOnly: 'View only: this PC cannot change the project on {host}',
+      loadError: 'Could not load: {error}',
+      tasks: {
+        empty: 'No tasks',
+        newTask: 'New task',
+        titlePlaceholder: 'Task title',
+        descriptionPlaceholder: 'Description (Markdown)',
+        create: 'Create',
+        cancel: 'Cancel',
+        status: 'Status',
+        priority: 'Priority',
+        assignee: 'Assignee',
+        criteria: 'Acceptance criteria',
+        noCriteria: 'No acceptance criteria',
+        noDescription: 'No description',
+        bodyUnsupported: 'Update ProjectHub on {host} to read the task text here',
+        actionError: 'Not applied: {error}',
+        filter: 'Filter by title or id'
+      },
+      agents: {
+        newSession: 'New session',
+        newPlaceholder: 'Prompt for a new Agents Studio session on {host}…',
+        start: 'Start',
+        model: 'Model: {model}',
+        studio: 'Agents Studio',
+        history: 'History',
+        others: 'Agents and terminals',
+        empty: 'No Agents Studio sessions in this project yet',
+        messages: '{n} messages',
+        answering: 'answering',
+        fromDevice: 'started from {device}'
+      },
+      docs: {
+        search: 'Search by title or id',
+        empty: 'No documents',
+        noSection: 'No section',
+        decision: 'decision',
+        pick: 'Pick a document on the left'
+      }
     }
   },
   federation: {

@@ -3549,6 +3549,52 @@ export const ru: TranslationDictionary = {
       live: 'агент пишет…',
       olderOmitted: 'ранние сообщения не показаны: {n}',
       readOnly: 'Устройство этого ПК на том хосте только для чтения'
+    },
+    project: {
+      open: 'Открыть проект: задачи, агенты и документация на {host}',
+      tabs: { tasks: 'Задачи', agents: 'Агенты', docs: 'Документация' },
+      refresh: 'Обновить',
+      close: 'Закрыть',
+      offline: 'Нет связи с {host}. Проект загрузится, когда компьютер снова будет в сети.',
+      readOnly: 'Только просмотр: этот ПК не может менять проект на {host}',
+      loadError: 'Не удалось загрузить: {error}',
+      tasks: {
+        empty: 'Задач нет',
+        newTask: 'Новая задача',
+        titlePlaceholder: 'Название задачи',
+        descriptionPlaceholder: 'Описание (Markdown)',
+        create: 'Создать',
+        cancel: 'Отмена',
+        status: 'Статус',
+        priority: 'Приоритет',
+        assignee: 'Исполнитель',
+        criteria: 'Критерии приёмки',
+        noCriteria: 'Критериев приёмки нет',
+        noDescription: 'Описания нет',
+        bodyUnsupported: 'Обновите ProjectHub на {host}, чтобы читать здесь текст задачи',
+        actionError: 'Не применено: {error}',
+        filter: 'Фильтр по названию или id'
+      },
+      agents: {
+        newSession: 'Новая сессия',
+        newPlaceholder: 'Промпт для новой сессии Agents Studio на {host}…',
+        start: 'Запустить',
+        model: 'Модель: {model}',
+        studio: 'Agents Studio',
+        history: 'История',
+        others: 'Агенты и терминалы',
+        empty: 'В этом проекте ещё нет сессий Agents Studio',
+        messages: 'сообщений: {n}',
+        answering: 'отвечает',
+        fromDevice: 'запущена с {device}'
+      },
+      docs: {
+        search: 'Поиск по названию или id',
+        empty: 'Документов нет',
+        noSection: 'Без раздела',
+        decision: 'решение',
+        pick: 'Выберите документ слева'
+      }
     }
   },
   federation: {

@@ -3249,6 +3249,53 @@ export interface TranslationDictionary {
       olderOmitted: string;
       readOnly: string;
     };
+    /** Проект удалённого ПК в основной области (TASK-229). */
+    project: {
+      open: string;
+      tabs: { tasks: string; agents: string; docs: string };
+      refresh: string;
+      close: string;
+      offline: string;
+      readOnly: string;
+      loadError: string;
+      tasks: {
+        empty: string;
+        newTask: string;
+        titlePlaceholder: string;
+        descriptionPlaceholder: string;
+        create: string;
+        cancel: string;
+        status: string;
+        priority: string;
+        assignee: string;
+        criteria: string;
+        noCriteria: string;
+        noDescription: string;
+        bodyUnsupported: string;
+        actionError: string;
+        filter: string;
+      };
+      agents: {
+        newSession: string;
+        newPlaceholder: string;
+        start: string;
+        model: string;
+        studio: string;
+        history: string;
+        others: string;
+        empty: string;
+        messages: string;
+        answering: string;
+        fromDevice: string;
+      };
+      docs: {
+        search: string;
+        empty: string;
+        noSection: string;
+        decision: string;
+        pick: string;
+      };
+    };
   };
   /** Федерация компьютеров и hub-режим (TASK-66, decision-11). */
   federation: {

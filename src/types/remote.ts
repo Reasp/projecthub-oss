@@ -274,6 +274,8 @@ export type RemoteRpcMethod =
   | 'update_task_status'
   | 'toggle_task_criterion'
   | 'create_task'
+  // Текст одной задачи для карточки на ПК-клиенте (TASK-229)
+  | 'get_task'
   | 'get_git_status'
   | 'git_commit'
   | 'git_pull'
