@@ -14,7 +14,7 @@ import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_MCP_TOOL_TIMEOUT_MS 
 import { studioLiveRuns } from './studioLiveRuns.js';
 import { hitlService } from './hitlService.js';
 import { keyedHitlText } from './hitlText.js';
-import { applyRolePermissions } from './hitlPolicy.js';
+import { applyProjectPolicy, applyRolePermissions } from './hitlPolicy.js';
 import { appEventBus } from './eventBus.js';
 import type { HitlOrigin } from './hitlTypes.js';
 import { getUserDataDir, getHandoffReportsDir } from './appPaths.js';
@@ -2576,7 +2576,7 @@ export class AgentFleetService extends EventEmitter {
 
     const hitl = await claudeBridgeService.prepareCliPermissions(sessionId, targetPath, globalConfig, onChunk, meta);
     if (hitl) {
-      const effective = applyRolePermissions(globalConfig, permissions);
+      const effective = applyProjectPolicy(applyRolePermissions(globalConfig, permissions), targetPath);
       this.log(
         session,
         agentState,
@@ -2585,7 +2585,8 @@ export class AgentFleetService extends EventEmitter {
       return hitl;
     }
 
-    const effective = applyRolePermissions(globalConfig, permissions);
+    // Запасной путь без MCP решается по правам с политикой проекта (TASK-148.1): `autoApprove: false` в политике его закрывает.
+    const effective = applyProjectPolicy(applyRolePermissions(globalConfig, permissions), targetPath);
     if (this.isAutonomous(session)) {
       // Автономному запуску обход HITL недоступен даже при включённом авто-одобрении (decision-52 п. 6).
       return { error: new AppError('swarm.hitlUnavailableAutonomous') };
@@ -3187,15 +3188,18 @@ export class AgentFleetService extends EventEmitter {
     return this.runApiAgent(session, agentState, targetPath, prompt, role, false, globalConfig);
   }
 
-  /** Эффективные (суженные ролью) права для движков без собственного HITL-контура (codex/gemini). */
-  private async resolveEffectivePermissions(agentState: AgentSlotState): Promise<AIProviderConfig> {
+  /**
+   * Эффективные права для движков без собственного HITL-контура (codex/gemini): настройки, суженные ролью и политикой
+   * проекта (`.projecthub/policy.json`, TASK-148.1) по рабочему дереву агента.
+   */
+  private async resolveEffectivePermissions(agentState: AgentSlotState, targetPath: string): Promise<AIProviderConfig> {
     let globalConfig: AIProviderConfig;
     try {
       globalConfig = await aiAgentService.getConfig();
     } catch {
       globalConfig = { provider: 'anthropic', model: 'default' };
     }
-    return applyRolePermissions(globalConfig, agentState.config.permissions);
+    return applyProjectPolicy(applyRolePermissions(globalConfig, agentState.config.permissions), targetPath);
   }
 
   /** Best-effort извлечение текста из строки JSONL codex/gemini — схема событий не документирована. */
@@ -3258,7 +3262,7 @@ export class AgentFleetService extends EventEmitter {
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'codex.cmd' : 'codex';
     const accountEnv = await this.engineAccountEnv(session, agentState, 'codex-cli');
-    const effective = await this.resolveEffectivePermissions(agentState);
+    const effective = await this.resolveEffectivePermissions(agentState, targetPath);
     const invocation = buildEngineInvocation({
       engine: 'codex-cli',
       role,
@@ -3400,7 +3404,7 @@ export class AgentFleetService extends EventEmitter {
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'gemini.cmd' : 'gemini';
     const accountEnv = await this.engineAccountEnv(session, agentState, 'gemini-cli');
-    const effective = await this.resolveEffectivePermissions(agentState);
+    const effective = await this.resolveEffectivePermissions(agentState, targetPath);
     const invocation = buildEngineInvocation({
       engine: 'gemini-cli',
       role,

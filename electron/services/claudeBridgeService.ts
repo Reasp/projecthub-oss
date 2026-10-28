@@ -1518,7 +1518,8 @@ class ClaudeBridgeService extends EventEmitter {
     let hitlWarning = '';
     if (hitl) {
       cliArgs.push(...hitl.args);
-    } else if (req.config.autoApprove) {
+    } else if (applyProjectPolicy(req.config, workDir).autoApprove) {
+      // Запасной путь без MCP — только если и политика проекта (TASK-148.1) разрешает авто-одобрение.
       cliArgs.push('--dangerously-skip-permissions');
       hitlWarning = `> ⚠️ ${hostText(getHostLanguage()).studio.mcpUnavailableWarning}\n\n`;
       hitlService.recordFallback({

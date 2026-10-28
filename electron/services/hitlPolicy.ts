@@ -158,6 +158,12 @@ export function applyProjectPolicy(config: AIProviderConfig, projectOrWorkDir: s
   return policy ? applyRolePermissions(config, policy.permissions) : config;
 }
 
+/** Файл политики проекта или роли проекта: `.projecthub/policy.json`, `.projecthub/roles/**` (любой регистр, любые разделители). */
+export function isPolicyPath(filePath: string): boolean {
+  const p = filePath.replace(/\\/g, '/').toLowerCase();
+  return /(^|\/)\.projecthub\/(policy\.json$|roles\/)/.test(p);
+}
+
 /** Путь к файлу из входа инструмента Claude Code / API-движка. */
 export function filePathFromInput(input: Record<string, unknown>): string {
   return String(input.file_path || input.notebook_path || input.filePath || input.path || '');
@@ -221,6 +227,9 @@ export function evaluateToolRequest(
           + 'Only paths inside the project are allowed — give a path relative to its root without going up through "..".'
       };
     }
+    // Политика проекта и роли проекта не меняются агентом без человека (ревью TASK-148.1): иначе агент снимает
+    // ограничения правкой файла, который их задаёт.
+    if (isPolicyPath(filePath)) return { verdict: 'ask', rule: 'policy-file' };
     if (isPathExcluded(filePath, rules?.writeExcludePatterns)) return { verdict: 'ask', rule: 'write-excluded' };
     if (rules?.allowFileWrite === false) return { verdict: 'ask', rule: 'write-manual' };
     if (!auto) return { verdict: 'ask', rule: 'manual' };
