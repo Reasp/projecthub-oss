@@ -3038,7 +3038,9 @@ class RemoteControlService {
 
     for (const [hostId, host] of this.knownFederationHosts.entries()) {
       if (host.source === 'relay' && !seen.has(hostId)) {
-        this.knownFederationHosts.set(hostId, { ...host, isOnline: false });
+        // Хост организации пропал из каталога — отозван или вышел (TASK-226): его адреса и проекты не держим.
+        if (host.team) this.knownFederationHosts.delete(hostId);
+        else this.knownFederationHosts.set(hostId, { ...host, isOnline: false });
       }
     }
 
