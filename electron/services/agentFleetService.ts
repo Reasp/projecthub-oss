@@ -8,7 +8,8 @@ import simpleGit from 'simple-git';
 import { worktreeService } from './worktreeService.js';
 import { agentResultRef, resultToKeep, RESULT_REFLOG_MESSAGE } from './agentResultRefs.js';
 import { aiAgentService, type AIProviderConfig, type AIMessage, type StreamToolBoundary } from './aiAgentService.js';
-import { claudeUsageService } from './claudeUsageService.js';
+import { claudeUsageService, type ClaudeRateLimitEventInfo } from './claudeUsageService.js';
+import { errorMessage } from './errorMessage.js';
 import { claudeAccountService } from './claudeAccountService.js';
 import { CLAUDE_ACCOUNT_SOURCE_LABEL, cliAccountEnv, type OtherCliAccountEngine } from './claudeAccounts.js';
 import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_HITL_QUERY_PARAM, CLI_MCP_TOOL_TIMEOUT_MS, type CliPermissionMeta } from './claudeBridgeService.js';
@@ -386,6 +387,17 @@ export interface AgentTimelineView {
   /** Продолжение: режим по сессии (decision-48 п. 1), для handoff — этап, с которого пойдёт перезапуск. */
   continueAgent: AgentActionAvailability & { mode: ContinueMode; fromStage?: number };
   pendingRewindNote?: string;
+}
+
+/**
+ * Событие `stream-json` Claude CLI: поля, которые читает рой. Остальное — как пришло; разбор стоимости и ошибок —
+ * в `agentCost` и `providerErrors` (они принимают `unknown`).
+ */
+interface ClaudeStreamEvent {
+  type?: unknown;
+  session_id?: unknown;
+  rate_limit_info?: ClaudeRateLimitEventInfo;
+  message?: { id?: unknown; content?: Array<{ type?: unknown; text?: unknown; name?: unknown; input?: unknown }> };
 }
 
 export class AgentFleetService extends EventEmitter {
@@ -1879,9 +1891,9 @@ export class AgentFleetService extends EventEmitter {
           agentState.worktreePath = wt.path;
           agentState.worktreeBranch = wt.branch || branchName;
           this.log(session, agentState, `[Swarm] Isolated working tree ready: ${wt.path}`);
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error(`[AgentFleetService] Failed to create worktree for ${agentState.id}:`, err);
-          this.log(session, agentState, `[Swarm Error] Could not create the worktree: ${err.message}. Running in the main directory.`);
+          this.log(session, agentState, `[Swarm Error] Could not create the worktree: ${errorMessage(err)}. Running in the main directory.`);
         }
       }
     }
@@ -2288,7 +2300,7 @@ export class AgentFleetService extends EventEmitter {
       const role = roles.find((r) => r.slug === slug);
       if (!role) this.log(session, agentState, `[Swarm] Role "${slug}" not found in the registry — running without a role.`);
       return role;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn(`[AgentFleetService] Failed to load role "${slug}":`, err);
       return undefined;
     }
@@ -2436,7 +2448,7 @@ export class AgentFleetService extends EventEmitter {
 
       // Собираем дифф с базовой веткой (AC #2)
       await this.refreshAgentDiff(session, agentState);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`[AgentFleetService] Agent ${agentState.id} execution failed:`, err);
       agentState.metrics.endTime = Date.now();
       agentState.metrics.durationMs = agentState.metrics.endTime - startTime;
@@ -2450,11 +2462,11 @@ export class AgentFleetService extends EventEmitter {
       this.log(
         session,
         agentState,
-        `[Swarm Error] ${providerError ? `Provider error, ${describeProviderErrorBrief(providerError)}` : 'Error'}: ${err.message || String(err)}`
+        `[Swarm Error] ${providerError ? `Provider error, ${describeProviderErrorBrief(providerError)}` : 'Error'}: ${errorMessage(err)}`
       );
       this.trace(session, agentState, {
         type: 'error',
-        message: String(err?.message || err).slice(0, 2000),
+        message: errorMessage(err).slice(0, 2000),
         ...(providerError ? { kind: providerError.kind } : {})
       });
       await this.captureCheckpoint(session, agentState, 'end').catch(() => undefined);
@@ -3054,11 +3066,11 @@ export class AgentFleetService extends EventEmitter {
             }
           });
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         releaseAgentResources();
         // Изолированный участник не переходит на API-движок хоста: он работал бы вне контейнера.
-        if (sandbox) return reject(e instanceof AppError ? e : new AppError('swarm.sandboxPlanInvalid', { reason: e?.message ?? String(e) }));
-        this.log(session, agentState, `[Swarm] ⚠️ Claude CLI is not available directly (${e.message}), running through the API fallback.`);
+        if (sandbox) return reject(e instanceof AppError ? e : new AppError('swarm.sandboxPlanInvalid', { reason: errorMessage(e) }));
+        this.log(session, agentState, `[Swarm] ⚠️ Claude CLI is not available directly (${errorMessage(e)}), running through the API fallback.`);
         return this.runApiAgent(session, agentState, targetPath, prompt, role).then(resolve).catch(reject);
       }
 
@@ -3090,7 +3102,7 @@ export class AgentFleetService extends EventEmitter {
         fn();
       };
 
-      const handleEvent = (event: any) => {
+      const handleEvent = (event: ClaudeStreamEvent) => {
         if (typeof event.session_id === 'string' && event.session_id) {
           agentState.cliSessionId = event.session_id;
         }
@@ -3116,7 +3128,8 @@ export class AgentFleetService extends EventEmitter {
         }
         if (event.type === 'rate_limit_event' || event.rate_limit_info) {
           try {
-            claudeUsageService.noteRateLimitEvent(event.rate_limit_info || event, account.id);
+            // Старые версии CLI кладут поля лимита прямо в событие, без `rate_limit_info`.
+            claudeUsageService.noteRateLimitEvent((event.rate_limit_info || event) as ClaudeRateLimitEventInfo, account.id);
           } catch { /* ignore */ }
           return;
         }
@@ -3272,8 +3285,8 @@ export class AgentFleetService extends EventEmitter {
       try {
         child.stdin?.write(prompt, 'utf-8');
         child.stdin?.end();
-      } catch (err: any) {
-        this.log(session, agentState, `[Swarm] Could not pass the prompt to Claude CLI: ${err?.message || String(err)}`);
+      } catch (err: unknown) {
+        this.log(session, agentState, `[Swarm] Could not pass the prompt to Claude CLI: ${errorMessage(err)}`);
         stopAgentChild(child);
       }
     });
@@ -3317,8 +3330,9 @@ export class AgentFleetService extends EventEmitter {
   }
 
   /** Best-effort извлечение текста из строки JSONL codex/gemini — схема событий не документирована. */
-  private extractCliJsonText(event: any): string | null {
-    if (!event || typeof event !== 'object') return null;
+  private extractCliJsonText(raw: unknown): string | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const event = raw as Record<string, unknown> & { item?: { text?: unknown }; response?: unknown };
     const candidates = [
       event.text,
       event.message,
@@ -3326,7 +3340,7 @@ export class AgentFleetService extends EventEmitter {
       event.delta,
       event.content,
       event.item?.text,
-      event.response?.text,
+      (event.response as { text?: unknown } | undefined)?.text,
       typeof event.response === 'string' ? event.response : undefined
     ];
     for (const c of candidates) {
@@ -3495,8 +3509,8 @@ export class AgentFleetService extends EventEmitter {
       try {
         child.stdin?.write(fullPrompt, 'utf-8');
         child.stdin?.end();
-      } catch (err: any) {
-        this.log(session, agentState, `[Swarm] Could not pass the prompt to Codex CLI: ${err?.message || String(err)}`);
+      } catch (err: unknown) {
+        this.log(session, agentState, `[Swarm] Could not pass the prompt to Codex CLI: ${errorMessage(err)}`);
         stopAgentChild(child);
       }
     });
@@ -3625,8 +3639,8 @@ export class AgentFleetService extends EventEmitter {
       try {
         child.stdin?.write(fullPrompt, 'utf-8');
         child.stdin?.end();
-      } catch (err: any) {
-        this.log(session, agentState, `[Swarm] Could not pass the prompt to Gemini CLI: ${err?.message || String(err)}`);
+      } catch (err: unknown) {
+        this.log(session, agentState, `[Swarm] Could not pass the prompt to Gemini CLI: ${errorMessage(err)}`);
         stopAgentChild(child);
       }
     });
@@ -4261,8 +4275,8 @@ export class AgentFleetService extends EventEmitter {
         }
         mergedBranch = winnerAgent.worktreeBranch;
         this.log(session, winnerAgent, `[Swarm] Branch ${mergedBranch} was merged into ${session.baseBranch}!`);
-      } catch (err: any) {
-        return { success: false, error: `Merge error: ${err.message || err}` };
+      } catch (err: unknown) {
+        return { success: false, error: `Merge error: ${errorMessage(err)}` };
       }
     }
 
@@ -4463,9 +4477,9 @@ export class AgentFleetService extends EventEmitter {
           pushAgentLog(agentState, `[Swarm Git] Created a git stash snapshot: ${stashHash.slice(0, 7)}`);
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn(`[AgentFleetService] materializeAgentResult error for ${agentState.id}:`, err);
-      pushAgentLog(agentState, `[Swarm Git Warning] Could not commit the changes: ${err.message || String(err)}`);
+      pushAgentLog(agentState, `[Swarm Git Warning] Could not commit the changes: ${errorMessage(err)}`);
     }
   }
 
