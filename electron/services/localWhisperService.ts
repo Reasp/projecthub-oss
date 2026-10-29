@@ -1,3 +1,4 @@
+import type { AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
 import { existsSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { ensureModelsCacheDir, getModelsCacheDir, getWorkerScriptCandidates } from './appPaths';
@@ -31,7 +32,7 @@ interface PendingJob {
   id: string;
   language: WhisperRequestLanguage;
   resolve: (res: LocalWhisperResult) => void;
-  reject: (err: any) => void;
+  reject: (err: unknown) => void;
   startTime: number;
   timer: NodeJS.Timeout;
 }
@@ -54,7 +55,7 @@ class LocalWhisperService {
   private loadTimeMs?: number;
   private requestIdCounter = 0;
   private pendingJobs = new Map<string, PendingJob>();
-  private fallbackPipeline: any = null;
+  private fallbackPipeline: AutomaticSpeechRecognitionPipeline | null = null;
   private respawnAttempts = 0;
   private respawnTimer: NodeJS.Timeout | null = null;
   private disposing = false;
@@ -166,11 +167,11 @@ class LocalWhisperService {
         }
       });
 
-      worker.on('error', (err: any) => {
+      worker.on('error', (err: Error) => {
         if (this.worker !== worker) return;
         console.error('[LocalWhisper] Worker thread runtime error:', err);
         this.status = 'error';
-        this.errorMessage = err?.message || String(err);
+        this.errorMessage = err.message || String(err);
         this.flushPendingWithError(err);
         this.rejectReadyWaiters(err instanceof Error ? err : new Error(String(err)));
       });
@@ -183,7 +184,7 @@ class LocalWhisperService {
 
       // Send initial trigger
       worker.postMessage({ type: 'init' });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[LocalWhisper] Failed to spawn worker thread:', err);
       this.initInProcessFallback();
     }
@@ -237,7 +238,7 @@ class LocalWhisperService {
     return job;
   }
 
-  private flushPendingWithError(err: any) {
+  private flushPendingWithError(err: unknown) {
     for (const [id, job] of this.pendingJobs.entries()) {
       clearTimeout(job.timer);
       this.pendingJobs.delete(id);
@@ -288,16 +289,20 @@ class LocalWhisperService {
       this.cacheDir = await ensureModelsCacheDir();
       const transformers = await import('@huggingface/transformers');
       configureTransformersEnv(transformers.env, { cacheDir: this.cacheDir, offline: getNetworkPolicy().airGapped });
-      this.fallbackPipeline = await transformers.pipeline('automatic-speech-recognition', this.modelName, {
-        dtype: 'fp32'
-      });
+      // Перегрузки `pipeline` по всем задачам дают слишком сложный union для TypeScript — задача здесь одна.
+      const createPipeline = transformers.pipeline as unknown as (
+        task: 'automatic-speech-recognition',
+        model: string,
+        options: { dtype: 'fp32' }
+      ) => Promise<AutomaticSpeechRecognitionPipeline>;
+      this.fallbackPipeline = await createPipeline('automatic-speech-recognition', this.modelName, { dtype: 'fp32' });
       this.status = 'ready';
       this.loadTimeMs = Date.now() - this.loadStartTime;
       console.log(`[LocalWhisper] In-process fallback pipeline is READY (${this.loadTimeMs}ms)`);
       this.resolveReadyWaiters();
-    } catch (e: any) {
+    } catch (e: unknown) {
       this.status = 'error';
-      this.errorMessage = e.message;
+      this.errorMessage = e instanceof Error ? e.message : String(e);
       this.rejectReadyWaiters(e instanceof Error ? e : new Error(String(e)));
     }
   }
@@ -395,7 +400,9 @@ class LocalWhisperService {
         chunk_length_s: 30,
         stride_length_s: 5
       });
-      return { text: (output?.text || '').trim(), timeMs: Date.now() - startTime, language: spoken };
+      // На один вход конвейер отдаёт один результат; массив — только при пакетном входе.
+      const single = Array.isArray(output) ? output[0] : output;
+      return { text: (single?.text || '').trim(), timeMs: Date.now() - startTime, language: spoken };
     }
 
     // 3. Not ready yet

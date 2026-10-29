@@ -1,3 +1,4 @@
+import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -14,9 +15,12 @@ import { ragWorkerClient, type VectorSearchRow } from './ragWorkerClient';
 // Эмбеддинг запроса и поиск по LanceDB выполняются в изолированном воркере
 // (`electron/workers/ragWorker.mjs`), чтобы не блокировать event loop main-процесса (TASK-50).
 // Код ниже — fallback на случай, если воркер недоступен: тогда тяжёлые модули грузятся в main.
-const embedders = new Map<string, Promise<any>>();
-let lancedbModule: any = null;
-let transformersModule: any = null;
+type LanceDbModule = typeof import('@lancedb/lancedb');
+type TransformersModule = typeof import('@huggingface/transformers');
+
+const embedders = new Map<string, Promise<FeatureExtractionPipeline>>();
+let lancedbModule: LanceDbModule | null = null;
+let transformersModule: TransformersModule | null = null;
 
 async function readIndexModel(indexDir: string): Promise<EmbeddingModel> {
   try {
@@ -59,7 +63,9 @@ async function getEmbedder(model: EmbeddingModel) {
   if (!tf) return null;
   const cached = embedders.get(model.id);
   if (cached) return cached;
-  const promise: Promise<any> = tf.pipeline('feature-extraction', model.id, { dtype: model.dtype });
+  // Перегрузки `pipeline` по всем задачам дают слишком сложный union для TypeScript — задача здесь одна.
+  const createPipeline = tf.pipeline as unknown as (task: 'feature-extraction', model: string, options: { dtype: EmbeddingModel['dtype'] }) => Promise<FeatureExtractionPipeline>;
+  const promise = createPipeline('feature-extraction', model.id, { dtype: model.dtype });
   embedders.set(model.id, promise);
   promise.catch(() => embedders.delete(model.id));
   return promise;
