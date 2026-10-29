@@ -1810,6 +1810,10 @@ export interface IElectronAPI {
   getUpdaterStatus: () => Promise<UpdaterStatus>;
   checkForUpdates: () => Promise<UpdaterStatus>;
   installUpdateNow: () => Promise<boolean>;
+  /** Обновление файлом (TASK-147.4): системный диалог main, проверка подписи и установщика. Отказ — исключение с кодом `update.*`. */
+  pickUpdateFile: () => Promise<{ canceled: true } | { canceled: false; version: string; currentVersion: string; file: string; size: number }>;
+  /** Установка выбранного в `pickUpdateFile` обновления; на Windows приложение затем выходит. */
+  installUpdateFile: () => Promise<{ launched: boolean; quitting: boolean }>;
   onUpdaterStatusChanged: (callback: (status: UpdaterStatus) => void) => () => void;
 
   // Редакция сборки и платные модули (TASK-151, decision-123 п. 4)

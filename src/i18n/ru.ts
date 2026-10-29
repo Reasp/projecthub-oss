@@ -3318,7 +3318,13 @@ export const ru: TranslationDictionary = {
     collectingArchive: 'Сбор архива…',
     archiveSaved: 'Архив сохранён: {path}',
     archiveError: 'Не удалось собрать архив: {error}',
-    autoInstallUnsupportedMac: 'На macOS без подписи автоустановка недоступна — только ссылка на релиз'
+    autoInstallUnsupportedMac: 'На macOS без подписи автоустановка недоступна — только ссылка на релиз',
+    updateFromFile: 'Установить обновление из файла…',
+    updateFromFileHint: 'Для сети без доступа в интернет: выберите файл .update.json, который администратор положил рядом с установщиком. Подпись издателя проверяется до запуска.',
+    updateFileConfirm: 'Подпись проверена: версия {version} (установлена {current}), установщик {file}. Установить сейчас? ProjectHub закроется.',
+    updateFileInstall: 'Установить',
+    updateFileLaunched: 'Установщик открыт: завершите установку в его окне',
+    updateFileError: 'Обновление из файла: {error}'
   },
   hitl: {
     statusMessages: {

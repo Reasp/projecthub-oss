@@ -3317,7 +3317,13 @@ export const en: TranslationDictionary = {
     collectingArchive: 'Collecting archive…',
     archiveSaved: 'Archive saved: {path}',
     archiveError: 'Failed to collect archive: {error}',
-    autoInstallUnsupportedMac: 'Auto-install is unavailable on unsigned macOS builds — release link only'
+    autoInstallUnsupportedMac: 'Auto-install is unavailable on unsigned macOS builds — release link only',
+    updateFromFile: 'Install update from file…',
+    updateFromFileHint: 'For networks without internet access: choose the .update.json file your administrator put next to the installer. The publisher signature is checked before anything runs.',
+    updateFileConfirm: 'Signature checked: version {version} (installed {current}), installer {file}. Install now? ProjectHub will close.',
+    updateFileInstall: 'Install',
+    updateFileLaunched: 'The installer is open: finish the installation in its window',
+    updateFileError: 'Update from file: {error}'
   },
   hitl: {
     statusMessages: {

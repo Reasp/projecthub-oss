@@ -5,6 +5,8 @@ import { Activity, X, RefreshCw, Download, FileArchive, ExternalLink, KeyRound }
 import type { DiagnosticsInfo, UpdaterStatus } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { appFailureText } from '../../lib/appErrorText';
+import { ipcErrorText } from '../../i18n/useTranslation';
+import { useDialog } from '../../hooks/useDialog';
 import { useSecretRestoreStore } from '../../store/useSecretRestoreStore';
 import { EditionDiagnosticsItems } from '../../extensions/editionUi';
 
@@ -19,6 +21,8 @@ export const DiagnosticsBadge: React.FC = () => {
   // а не только когда есть что вернуть — иначе ненужные записи нечем удалить.
   const [backupEntries, setBackupEntries] = useState(0);
   const openSecretRestore = useSecretRestoreStore((s) => s.open);
+  const dialog = useDialog();
+  const [fileUpdateMessage, setFileUpdateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     window.api?.getUpdaterStatus?.().then(setUpdater).catch(() => {});
@@ -42,6 +46,28 @@ export const DiagnosticsBadge: React.FC = () => {
 
   const handleInstallNow = async () => {
     await window.api?.installUpdateNow?.();
+  };
+
+  /** Обновление файлом (TASK-147.4, decision-189): main выбирает файл и проверяет подпись, окно только подтверждает. */
+  const handleUpdateFromFile = async () => {
+    setFileUpdateMessage(null);
+    try {
+      const picked = await window.api.pickUpdateFile();
+      if (picked.canceled) return;
+      const ok = await dialog.confirm({
+        title: t.diagnostics.updateFromFile,
+        message: t.diagnostics.updateFileConfirm
+          .replace('{version}', picked.version)
+          .replace('{current}', picked.currentVersion)
+          .replace('{file}', picked.file),
+        confirmText: t.diagnostics.updateFileInstall
+      });
+      if (!ok) return;
+      const res = await window.api.installUpdateFile();
+      if (!res.quitting) setFileUpdateMessage(t.diagnostics.updateFileLaunched);
+    } catch (err) {
+      setFileUpdateMessage(t.diagnostics.updateFileError.replace('{error}', ipcErrorText(err)));
+    }
   };
 
   const handleOpenRelease = async () => {
@@ -216,6 +242,14 @@ export const DiagnosticsBadge: React.FC = () => {
                     <p className="text-[11px] text-slate-500 text-center">{t.diagnostics.autoInstallUnsupportedMac}</p>
                   </div>
                 )}
+              </div>
+
+              <div className="space-y-1.5 text-xs">
+                <button type="button" onClick={handleUpdateFromFile} className="ph-btn ph-btn-secondary w-full" data-testid="diagnostics-update-file" title={t.diagnostics.updateFromFileHint}>
+                  <Download className="w-3.5 h-3.5" />
+                  {t.diagnostics.updateFromFile}
+                </button>
+                {fileUpdateMessage && <p className="text-[11px] text-slate-400 text-center">{fileUpdateMessage}</p>}
               </div>
 
               <div className="space-y-1.5 text-xs">

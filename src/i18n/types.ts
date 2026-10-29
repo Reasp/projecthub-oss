@@ -3053,6 +3053,13 @@ export interface TranslationDictionary {
     archiveSaved: string;
     archiveError: string;
     autoInstallUnsupportedMac: string;
+    /** Обновление файлом (TASK-147.4). */
+    updateFromFile: string;
+    updateFromFileHint: string;
+    updateFileConfirm: string;
+    updateFileInstall: string;
+    updateFileLaunched: string;
+    updateFileError: string;
   };
   hitl: {
     /** Статус агента кодом из main (TASK-204): шаблоны с {detail}. */

@@ -1017,6 +1017,8 @@ const api: IElectronAPI = {
   getUpdaterStatus: () => ipcRenderer.invoke('updater:getStatus'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   installUpdateNow: () => ipcRenderer.invoke('updater:installNow'),
+  pickUpdateFile: () => ipcRenderer.invoke('updater:pickFile'),
+  installUpdateFile: () => ipcRenderer.invoke('updater:installFile'),
   onUpdaterStatusChanged: (callback: (status: any) => void) => {
     const handler = (_event: any, status: any) => callback(status);
     ipcRenderer.on('updater:statusChanged', handler);
