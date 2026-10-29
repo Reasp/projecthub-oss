@@ -115,6 +115,7 @@ import { loadRoles } from './roleService.js';
 import { secretStorageService } from './secretStorageService.js';
 import { appEventBus } from './eventBus.js';
 import { logger } from './logger.js';
+import { errorMessage } from './errorMessage.js';
 import { getUserDataDir, getDevRepoRoot, getAppRootDir, getStatePath } from './appPaths.js';
 import { classifyLanAddresses, rankLanAddresses } from './lanAddresses.js';
 import { resolveTunnelCommand } from './tunnelCommand.js';
@@ -656,8 +657,8 @@ class RemoteControlService {
       this.legacySecretsToMigrate = {};
       // Legacy-поля больше не пишутся saveConfig() — следующий вызов очистит их из JSON на диске.
       this.saveConfig();
-    } catch (err: any) {
-      logger.warn(`[RemoteControl] Failed to load persisted secrets: ${err?.message || err}`);
+    } catch (err) {
+      logger.warn(`[RemoteControl] Failed to load persisted secrets: ${errorMessage(err)}`);
     }
   }
 
@@ -666,8 +667,8 @@ class RemoteControlService {
       const obj: Record<string, DeviceTokenRecord> = {};
       for (const [deviceId, rec] of this.deviceTokens.entries()) obj[deviceId] = rec;
       await secretStorageService.setSecret('remoteControl.deviceTokens', JSON.stringify(obj));
-    } catch (err: any) {
-      logger.warn(`[RemoteControl] Failed to persist device tokens: ${err?.message || err}`);
+    } catch (err) {
+      logger.warn(`[RemoteControl] Failed to persist device tokens: ${errorMessage(err)}`);
     }
   }
 
@@ -1055,8 +1056,8 @@ class RemoteControlService {
         if (typeof data.sessionV2Only === 'boolean') this.sessionV2Only = data.sessionV2Only;
         if (typeof data.keepAwake === 'boolean') this.keepAwake = data.keepAwake;
       }
-    } catch (err: any) {
-      logger.warn(`[RemoteControl] Failed to load config: ${err?.message || err}`);
+    } catch (err) {
+      logger.warn(`[RemoteControl] Failed to load config: ${errorMessage(err)}`);
     }
   }
 
@@ -1084,8 +1085,8 @@ class RemoteControlService {
         keepAwake: this.keepAwake
       };
       writeFileSync(cfgPath, JSON.stringify(data, null, 2), 'utf8');
-    } catch (err: any) {
-      logger.warn(`[RemoteControl] Failed to save config: ${err?.message || err}`);
+    } catch (err) {
+      logger.warn(`[RemoteControl] Failed to save config: ${errorMessage(err)}`);
     }
   }
 
@@ -1218,8 +1219,8 @@ class RemoteControlService {
       try {
         await this.start();
         logger.info('[RemoteControl] Service auto-started successfully on application launch');
-      } catch (err: any) {
-        logger.warn(`[RemoteControl] Failed to auto-start service: ${err?.message || err}`);
+      } catch (err) {
+        logger.warn(`[RemoteControl] Failed to auto-start service: ${errorMessage(err)}`);
       }
     }
   }
@@ -1665,10 +1666,10 @@ class RemoteControlService {
           parse_mode: 'Markdown'
         })
       });
-      const data = await res.json() as any;
+      const data = (await res.json()) as { ok?: unknown } | null;
       return Boolean(data?.ok);
-    } catch (err: any) {
-      logger.warn(`[RemoteControl] Failed to send Telegram notification: ${err?.message || err}`);
+    } catch (err) {
+      logger.warn(`[RemoteControl] Failed to send Telegram notification: ${errorMessage(err)}`);
       return false;
     }
   }
@@ -1965,7 +1966,7 @@ class RemoteControlService {
           }
         })
       });
-      const data = (await res.json()) as any;
+      const data = (await res.json()) as { ok?: unknown; description?: string } | null;
       if (data?.ok) {
         logger.info(`[RemoteControl] Telegram Menu Button registered successfully with URL: ${webAppUrl}`);
         return true;
@@ -1973,8 +1974,8 @@ class RemoteControlService {
         logger.warn(`[RemoteControl] Telegram setChatMenuButton error: ${data?.description || 'unknown'}`);
         return false;
       }
-    } catch (err: any) {
-      logger.warn(`[RemoteControl] Failed to set Telegram Menu Button: ${err?.message || err}`);
+    } catch (err) {
+      logger.warn(`[RemoteControl] Failed to set Telegram Menu Button: ${errorMessage(err)}`);
       return false;
     }
   }
@@ -2081,9 +2082,9 @@ class RemoteControlService {
             resolve(this.tunnelUrl);
           }
         }, 30000);
-      } catch (err: any) {
+      } catch (err) {
         this.tunnelStatus = 'error';
-        this.tunnelError = err?.message || String(err);
+        this.tunnelError = errorMessage(err);
         logger.warn(`[RemoteControl] Failed to start Cloudflare tunnel: ${this.tunnelError}`);
         this.notifyStatusChanged();
         if (!resolved) {
@@ -2136,14 +2137,14 @@ class RemoteControlService {
       // Если задан Telegram Bot Token или включен autoStart, автоматически поднимаем HTTPS-туннель
       if (this.telegramBotToken || this.autoStart) {
         this.startTunnel().catch((err) => {
-          logger.warn(`[RemoteControl] Tunnel background startup failed: ${err?.message || err}`);
+          logger.warn(`[RemoteControl] Tunnel background startup failed: ${errorMessage(err)}`);
         });
       }
 
       this.refreshKeepAwake();
       logger.info(`[RemoteControl] Service started on port ${this.port} (mode: ${this.mode})`);
-    } catch (err: any) {
-      this.lastError = err?.message || String(err);
+    } catch (err) {
+      this.lastError = errorMessage(err);
       logger.error(`[RemoteControl] Failed to start: ${this.lastError}`);
       await this.stop();
       throw err;
@@ -2198,7 +2199,7 @@ class RemoteControlService {
         this.handleHttpRequest(req, res);
       });
 
-      server.on('error', (err: any) => {
+      server.on('error', (err: Error) => {
         reject(err);
       });
 
@@ -2807,7 +2808,7 @@ class RemoteControlService {
         logger.info(`[RemoteControl] Relay TCP connected, awaiting auth challenge: ${this.relayServerUrl}`);
       });
 
-      ws.on('message', async (raw: any) => {
+      ws.on('message', async (raw: WebSocket.RawData) => {
         try {
           const msg = JSON.parse(raw.toString());
 
@@ -2932,8 +2933,8 @@ class RemoteControlService {
         this.relayConnected = false;
         this.notifyStatusChanged();
       });
-    } catch (err: any) {
-      logger.error(`[RemoteControl] Failed to connect to relay: ${err?.message}`);
+    } catch (err) {
+      logger.error(`[RemoteControl] Failed to connect to relay: ${errorMessage(err)}`);
       this.scheduleRelayReconnect();
     }
   }
@@ -3320,16 +3321,16 @@ class RemoteControlService {
           result
         };
         reply(seal(resPayload));
-      } catch (err: any) {
+      } catch (err) {
         // Код ошибки — телефону, он соберёт текст на своём языке; `error` — английский запасной (decision-165).
         const errorKey = appErrorKeyOf(err);
         if (idemKey) {
-          this.recentRpcResponses.set(idemKey, { error: err?.message || String(err), errorKey, expiresAt: Date.now() + RPC_IDEMPOTENCY_TTL_MS });
+          this.recentRpcResponses.set(idemKey, { error: errorMessage(err), errorKey, expiresAt: Date.now() + RPC_IDEMPOTENCY_TTL_MS });
         }
         const errPayload: any = {
           type: isReqType ? 'response' : 'rpc_res',
           id: req.id,
-          error: err?.message || String(err),
+          error: errorMessage(err),
           ...(errorKey ? { errorKey } : {})
         };
         reply(seal(errPayload));
@@ -4029,9 +4030,9 @@ class RemoteControlService {
                 ...(res.error ? { modelsError: res.error } : {}),
                 ...(res.errorKey ? { modelsErrorKey: res.errorKey } : {})
               };
-            } catch (err: any) {
+            } catch (err) {
               const modelsErrorKey = appErrorKeyOf(err);
-              return { id: p.id, name: p.name, local: p.local, models: [], modelsError: err?.message || String(err), ...(modelsErrorKey ? { modelsErrorKey } : {}) };
+              return { id: p.id, name: p.name, local: p.local, models: [], modelsError: errorMessage(err), ...(modelsErrorKey ? { modelsErrorKey } : {}) };
             }
           })
         );
@@ -4205,7 +4206,7 @@ class RemoteControlService {
           projectPath: activePath,
           taskId,
           taskTitle: typeof params.taskTitle === 'string' ? params.taskTitle : undefined,
-          prompt: typeof params.prompt === 'string' && params.prompt.trim() ? params.prompt : `Выполни задачу ${taskId}.`,
+          prompt: typeof params.prompt === 'string' && params.prompt.trim() ? params.prompt : `Do task ${taskId}.`,
           roleSlug,
           useWorktrees: params.useWorktrees !== false,
           // Агент участника — в его worktree, с HITL ему и стоимостью на него (TASK-142.3).
