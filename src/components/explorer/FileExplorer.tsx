@@ -25,7 +25,7 @@ import {
   X
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { openInVsCode } from '../../lib/openInVsCode';
 import { useTimeoutState } from '../../hooks/useTimeoutState';
@@ -121,7 +121,8 @@ export const FileExplorer: React.FC = () => {
       const norm = f.path.replace(/\\/g, '/');
       const st = f.staged ? (f.index in statusBadgeStyles ? f.index : 'A') : (f.working_dir in statusBadgeStyles ? f.working_dir : '?');
       map.set(norm, {
-        status: st as any,
+        // `st` — буква из `statusBadgeStyles` или 'A'/'?': ключи этой таблицы и есть статусы.
+        status: st as GitStatusInfo['status'],
         staged: Boolean(f.staged)
       });
     }
@@ -148,7 +149,7 @@ export const FileExplorer: React.FC = () => {
     try {
       const nodes = await window.api.readDirectoryTree(rootPath, '', 6);
       setTree(nodes);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to load file tree:', e);
       setErrorMsg(t.explorer.loadTreeError);
     } finally {
@@ -161,6 +162,9 @@ export const FileExplorer: React.FC = () => {
     setSelectedFile(null);
     setFileContent('');
     setFileDiff('');
+    // Дерево и выбор сбрасываются только при смене корня: проект меняет корень вместе с собой, а смена языка
+    // интерфейса не должна закрывать открытый файл.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootPath]);
 
   const toggleExpand = (relPath: string) => {
@@ -191,7 +195,7 @@ export const FileExplorer: React.FC = () => {
         setFileDiff('');
         setActivePaneTab('editor');
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to read file:', e);
       setErrorMsg(t.explorer.readFileError.replace('{file}', node.name));
     }
@@ -209,9 +213,9 @@ export const FileExplorer: React.FC = () => {
       if (loadGitRepoDetails) await loadGitRepoDetails(selectedProject);
       const diff = await window.api.getFileDiff(rootPath, selectedFile.relativePath, false);
       setFileDiff(diff);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to save file:', e);
-      setErrorMsg(t.explorer.saveError.replace('{error}', e?.message || String(e)));
+      setErrorMsg(t.explorer.saveError.replace('{error}', ipcErrorText(e)));
     } finally {
       setIsSaving(false);
     }
@@ -247,8 +251,8 @@ export const FileExplorer: React.FC = () => {
         }
         await loadTree();
         if (loadGitRepoDetails) await loadGitRepoDetails(selectedProject);
-      } catch (e: any) {
-        setErrorMsg(t.explorer.deleteError.replace('{error}', e?.message || String(e)));
+      } catch (e: unknown) {
+        setErrorMsg(t.explorer.deleteError.replace('{error}', ipcErrorText(e)));
       }
     }
   };
@@ -264,8 +268,8 @@ export const FileExplorer: React.FC = () => {
       setShowNewModal(null);
       setNewItemName('');
       await loadTree();
-    } catch (e: any) {
-      setErrorMsg(t.explorer.createError.replace('{error}', e?.message || String(e)));
+    } catch (e: unknown) {
+      setErrorMsg(t.explorer.createError.replace('{error}', ipcErrorText(e)));
     }
   };
 

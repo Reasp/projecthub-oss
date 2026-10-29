@@ -288,7 +288,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
     }
     try {
       return localized(await window.api.pickSwarmWinner(swarmId, winnerAgentId, mergeIntoBase));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[SwarmStore] Failed to pick winner:', err);
       return { success: false, error: ipcErrorText(err) };
     }
@@ -298,7 +298,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
     if (!window.api?.resumeSwarm) return { success: false, error: 'API not available' };
     try {
       return localized(await window.api.resumeSwarm(swarmId));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[SwarmStore] Failed to resume swarm:', err);
       return { success: false, error: ipcErrorText(err) };
     }
@@ -310,7 +310,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
       const res = await window.api.discardSwarm(swarmId, true);
       if (res.success) set((state) => removeSwarm(state, projectPath, swarmId));
       return localized(res);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[SwarmStore] Failed to discard swarm:', err);
       return { success: false, error: ipcErrorText(err) };
     }
@@ -380,7 +380,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
     if (!window.api?.exportSwarmToFile) return { success: false, error: 'API not available' };
     try {
       return localized(await window.api.exportSwarmToFile(swarmId, format));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[SwarmStore] Failed to export swarm:', err);
       return { success: false, error: ipcErrorText(err) };
     }
