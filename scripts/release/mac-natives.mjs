@@ -57,6 +57,17 @@ export function archName(arch) {
   return null;
 }
 
+/**
+ * Архитектура, под которую обрезать нативы в этом afterPack, или `null` — не обрезать (TASK-231.2). Универсальная
+ * сборка сначала пакует оба приложения во временные каталоги `mac-universal-x64-temp` и `mac-universal-arm64-temp`,
+ * а `@electron/universal` склеивает их, требуя одинаковый набор файлов: обрезка там дала бы разное число mach-o.
+ * Итоговое универсальное приложение (`Arch.universal`) несёт обе архитектуры и тоже не обрезается.
+ */
+export function pruneArchFor(appOutDir, arch) {
+  if (/-(x64|arm64)-temp$/i.test(path.basename(String(appOutDir || '')))) return null;
+  return archName(arch);
+}
+
 /** Удаляет из собранного .app нативные файлы чужой архитектуры; возвращает удалённые относительные пути. */
 export function pruneForeignArch(resourcesDir, arch) {
   const removed = [];

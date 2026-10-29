@@ -1,6 +1,6 @@
 {
   "name": "project-hub",
-  "version": "0.1.94",
+  "version": "0.1.95",
   "private": true,
   "description": "ProjectHub — Единая десктопная панель управления проектами с обвязкой ProjectTemplate (Backlog.md, Git, RAG, MCP, Dev-окружение)",
   "main": "dist-electron/main.js",
@@ -181,6 +181,7 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png",
+      "x64ArchFiles": "Contents/Resources/app.asar.unpacked/node_modules/{sherpa-onnx-darwin-*,@img/sharp-darwin-*,@img/sharp-libvips-darwin-*,@lancedb/lancedb-darwin-*,node-pty/prebuilds/darwin-*,uiohook-napi/prebuilds/darwin-*,onnxruntime-node/bin/napi-v3/darwin/*}/**",
       "files": [
         "dist/**/*",
         "dist-electron/**/*",

@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readMachOUuids, setMachOUuids, stableAppUuid } from './macho-uuid.mjs';
-import { archName, pruneForeignArch } from '../release/mac-natives.mjs';
+import { pruneArchFor, pruneForeignArch } from '../release/mac-natives.mjs';
 
 export default async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin' && context.electronPlatformName !== 'mas') return;
@@ -19,7 +19,8 @@ export default async function afterPack(context) {
   const after = readMachOUuids(buf);
   console.log(`  • LC_UUID ${path.basename(exe)}: ${before.map((u) => u.uuid).join(', ')} → ${after.map((u) => u.uuid).join(', ')}`);
 
-  const arch = archName(context.arch);
+  // Временные приложения универсальной сборки не обрезаются: `@electron/universal` склеивает одинаковые наборы файлов.
+  const arch = pruneArchFor(context.appOutDir, context.arch);
   if (arch) {
     const removed = pruneForeignArch(path.join(context.appOutDir, `${productFilename}.app`, 'Contents', 'Resources'), arch);
     console.log(`  • ${arch}: убраны нативные файлы другой архитектуры (${removed.length})`);
