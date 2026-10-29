@@ -198,6 +198,41 @@ const DEFAULT_CONFIG: VoiceConfig = {
 
 const STORAGE_KEY = 'projecthub_voice_config';
 
+/**
+ * Web Speech API в объёме, который нужен сервису (TASK-245): в DOM-типах TypeScript `SpeechRecognition` нет, а в
+ * Chromium он доступен как `webkitSpeechRecognition`.
+ */
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>;
+}
+
+type SpeechWindow = Window & {
+  SpeechRecognition?: new () => SpeechRecognitionLike;
+  webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  webkitAudioContext?: typeof AudioContext;
+};
+
+/** `setSinkId` у AudioContext есть в Chromium, в DOM-типах — не во всех версиях. */
+type SinkAudioContext = AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
+
+function audioContextClass(): typeof AudioContext {
+  return window.AudioContext || (window as SpeechWindow).webkitAudioContext!;
+}
+
 class VoiceService {
   private config: VoiceConfig = DEFAULT_CONFIG;
   private state: VoiceState = 'idle';
@@ -264,7 +299,7 @@ class VoiceService {
   private noiseFloor = 0.005;
 
   // Web Speech API (engine: 'webspeech')
-  private recognition: any = null;
+  private recognition: SpeechRecognitionLike | null = null;
   private isWebSpeechSupported = false;
   private webSpeechActive = false;
   private webSpeechRestartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -571,9 +606,10 @@ class VoiceService {
 
   async selectAudioOutputDevice(deviceId: string): Promise<boolean> {
     this.saveConfig({ audioOutputDeviceId: deviceId });
-    if (this.audioContext && (this.audioContext as any).setSinkId) {
+    const current = this.audioContext as SinkAudioContext | null;
+    if (current?.setSinkId) {
       try {
-        await (this.audioContext as any).setSinkId(deviceId || '');
+        await current.setSinkId(deviceId || '');
       } catch (e) {
         console.warn('[VoiceService] Failed to set sinkId on current context:', e);
       }
@@ -584,12 +620,11 @@ class VoiceService {
   async playTestTone(outputDeviceId?: string): Promise<boolean> {
     if (typeof window === 'undefined') return false;
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
+      const ctx = new (audioContextClass())() as SinkAudioContext;
       const targetSink = outputDeviceId !== undefined ? outputDeviceId : this.config.audioOutputDeviceId;
-      if (targetSink && (ctx as any).setSinkId) {
+      if (targetSink && ctx.setSinkId) {
         try {
-          await (ctx as any).setSinkId(targetSink);
+          await ctx.setSinkId(targetSink);
         } catch (sinkErr) {
           console.warn('[VoiceService] playTestTone sinkId error:', sinkErr);
         }
@@ -737,21 +772,22 @@ class VoiceService {
   // ─────────────────────────────────────────────────────────────────
   private initWebSpeech() {
     if (typeof window !== 'undefined') {
-      const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const speechWindow = window as SpeechWindow;
+      const SpeechRecognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
 
       if (SpeechRecognition) {
         this.isWebSpeechSupported = true;
-        this.recognition = new SpeechRecognition();
-        this.recognition.continuous = true;
-        this.recognition.interimResults = true;
-        this.recognition.lang = this.webSpeechLang();
+        const recognition = new SpeechRecognition();
+        this.recognition = recognition;
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = this.webSpeechLang();
 
-        this.recognition.onstart = () => {
+        recognition.onstart = () => {
           this.setState('listening_handsfree');
         };
 
-        this.recognition.onresult = (event: any) => {
+        recognition.onresult = (event) => {
           // Пока говорит само приложение (или распознавание на паузе), результат — это его
           // собственная озвучка: гейт ttsMuted стоял только в Whisper-конвейере (TASK-87, дефект 5)
           if (this.isPaused || this.ttsMuted) return;
@@ -773,7 +809,7 @@ class VoiceService {
             const meta: VoiceResultMeta = {
               pushToTalk: this.consumeWebSpeechPushToTalk(),
               language: resolvePhraseLanguage({
-                requested: this.recognition.lang === 'en-US' ? 'en' : 'ru',
+                requested: recognition.lang === 'en-US' ? 'en' : 'ru',
                 text: cleanFinal,
                 uiLanguage: this.config.language
               })
@@ -789,7 +825,7 @@ class VoiceService {
           }
         };
 
-        this.recognition.onerror = (event: any) => {
+        recognition.onerror = (event) => {
           const code = event?.error || 'unknown';
           console.warn('[VoiceService] WebSpeech error:', code);
           // 'no-speech' и 'aborted' — штатные события непрерывного режима, не ошибки
@@ -804,7 +840,7 @@ class VoiceService {
           }
         };
 
-        this.recognition.onend = () => {
+        recognition.onend = () => {
           // Continuous-режим Chrome всё равно завершает сессию — перезапускаем, пока слушаем
           if (this.webSpeechActive && this.isListening) {
             if (this.webSpeechRestartTimer) clearTimeout(this.webSpeechRestartTimer);
@@ -812,7 +848,7 @@ class VoiceService {
               this.webSpeechRestartTimer = null;
               if (!this.webSpeechActive) return;
               try {
-                this.recognition.start();
+                this.recognition?.start();
               } catch (e) {
                 console.warn('[VoiceService] WebSpeech restart failed:', e);
               }
@@ -844,11 +880,11 @@ class VoiceService {
       this.setState('listening_handsfree');
       console.log('[VoiceService] Web Speech API continuous recognition started');
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[VoiceService] Failed to start Web Speech API:', err);
       this.webSpeechActive = false;
       this.captureBackend = null;
-      this.notifyError(err?.message || 'Web Speech API start failed');
+      this.notifyError(err instanceof Error && err.message ? err.message : rendererServiceText().voice.webSpeechStartFailed);
       this.setState('error');
       return false;
     }
@@ -942,11 +978,10 @@ class VoiceService {
         };
       }
 
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
-      if (this.config.audioOutputDeviceId && (ctx as any).setSinkId) {
+      const ctx = new (audioContextClass())() as SinkAudioContext;
+      if (this.config.audioOutputDeviceId && ctx.setSinkId) {
         try {
-          await (ctx as any).setSinkId(this.config.audioOutputDeviceId);
+          await ctx.setSinkId(this.config.audioOutputDeviceId);
         } catch (sinkErr) {
           console.warn('[VoiceService] Failed to set sinkId on AudioContext:', sinkErr);
         }
@@ -991,12 +1026,12 @@ class VoiceService {
       this.setState('listening_handsfree');
       console.log(`[VoiceService] Continuous Hands-Free listening active (Talon Voice style, backend: ${this.captureBackend})`);
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[VoiceService] Failed to start hands-free listening:', err);
       // Язык сообщений — язык окна, а не язык распознавания речи (`config.language`).
       const vt = rendererServiceText().voice;
-      let errorMsg = err?.message || vt.micStartFailed;
-      const errName = err?.name || '';
+      let errorMsg = (err instanceof Error && err.message) || vt.micStartFailed;
+      const errName = err instanceof Error ? err.name : '';
 
       if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError' || errorMsg.includes('device not found')) {
         errorMsg = vt.micNotFound;
