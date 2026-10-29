@@ -27,7 +27,7 @@ export const VoiceBadge: React.FC<VoiceBadgeProps> = ({
   alwaysShow = false
 }) => {
   const { isListening } = useVoiceState();
-  const { t, language } = useI18n();
+  const { t } = useI18n();
 
   if (!isListening && !alwaysShow) {
     return null;

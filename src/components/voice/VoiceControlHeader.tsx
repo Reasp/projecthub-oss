@@ -16,8 +16,8 @@ export const VoiceControlHeader: React.FC = () => {
   const [voiceState, setVoiceState] = useState<VoiceState>(voiceService.currentState);
   const [isListening, setIsListening] = useState<boolean>(voiceService.isListening);
   const [isStarting, setIsStarting] = useState<boolean>(false);
-  const [isSpeakingDetected, setIsSpeakingDetected] = useState(false);
-  const [audioLevel, setAudioLevel] = useState(0);
+  const [, setIsSpeakingDetected] = useState(false);
+  const [, setAudioLevel] = useState(0);
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>(voiceService.getConfig());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -39,8 +39,6 @@ export const VoiceControlHeader: React.FC = () => {
   }, []);
 
   const isHandsFreeActive = isListening;
-  const isSpeech = voiceState === 'speech_detected' || isSpeakingDetected;
-  const isTranscribing = voiceState === 'transcribing';
 
   const toggleHandsFree = async () => {
     if (isStarting) return;

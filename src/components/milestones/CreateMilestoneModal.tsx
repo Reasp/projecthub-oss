@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Target, Calendar, AlignLeft, CheckCircle } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
-import type { Milestone, CreateMilestoneParams } from '../../types/electron';
+import type { Milestone } from '../../types/electron';
 
 interface Props {
   isOpen: boolean;

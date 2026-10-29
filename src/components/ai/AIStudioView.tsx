@@ -53,7 +53,7 @@ import { SessionHistoryModal } from './SessionHistoryModal';
 import { CliCommandModal } from './CliCommandModal';
 
 export const AIStudioView: React.FC = () => {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const dialog = useDialog();
   const { selectedProject, tasks, gitRepoDetails, workspaceRoot } = useProjectStore();
   const {

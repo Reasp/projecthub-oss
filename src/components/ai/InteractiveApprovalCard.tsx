@@ -33,7 +33,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
   onApprove,
   onReject
 }) => {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const [comment, setComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 

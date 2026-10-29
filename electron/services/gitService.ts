@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
-import { simpleGit, type SimpleGit } from 'simple-git';
+import { simpleGit } from 'simple-git';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { BrowserWindow } from 'electron';
 import type { BacklogRenumbering, BacklogRenumberSummary, GitCommit, GitFileStatus, GitRepoDetails, MergeOptions } from '../../src/types/electron';

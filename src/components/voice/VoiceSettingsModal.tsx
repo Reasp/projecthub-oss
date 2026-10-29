@@ -170,7 +170,6 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
       unsub?.();
       unsubError?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, activeTab]);
 
   const handleSelectTtsVoice = (voiceId: string) => {

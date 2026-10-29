@@ -157,7 +157,7 @@ export const SplitDiffViewer: React.FC<SplitDiffViewerProps> = ({
   // Индикатор «скопировано» гаснет сам; таймер снимается при размонтировании (TASK-50)
   const [copied, showCopied] = useTimeoutState(false, 2000);
 
-  const { fileHeader, hunks } = useMemo(() => parseUnifiedDiff(diff || ''), [diff]);
+  const { hunks } = useMemo(() => parseUnifiedDiff(diff || ''), [diff]);
 
   const handleCopy = () => {
     if (!diff) return;

@@ -113,7 +113,6 @@ export const RolesSettingsModal: React.FC<RolesSettingsModalProps> = ({ isOpen, 
   if (!isOpen) return null;
 
   const isNew = !selectedSlug;
-  const scope: 'global' | 'project' = draft.source === 'project' && selectedProject ? 'project' : 'global';
   const warnings = unsupportedRoleFeatures((draft.engine as RoleEngine) || 'claude-cli', draft);
 
   const handleNew = () => {

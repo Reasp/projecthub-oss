@@ -21,7 +21,6 @@ interface ScanSettingsModalProps {
 export const ScanSettingsModal: React.FC<ScanSettingsModalProps> = ({ isOpen, onClose }) => {
   const { t } = useTranslation();
   const {
-    scanRoots,
     fetchScanRoots,
     saveScanRoots,
     scanProjectsWithProgress,

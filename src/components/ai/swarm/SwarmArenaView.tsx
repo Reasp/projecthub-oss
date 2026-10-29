@@ -86,8 +86,7 @@ export const SwarmArenaView: React.FC = () => {
     exportSwarmAction,
     runJudgeAction,
     cancelJudgeAction,
-    initSwarmEventListener,
-    isLoading
+    initSwarmEventListener
   } = useSwarmStore();
 
   const { selectedProject } = useProjectStore();

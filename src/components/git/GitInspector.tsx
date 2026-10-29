@@ -46,10 +46,6 @@ const statusColors: Record<string, string> = {
   '?': 'text-slate-400 bg-slate-800/60 border-slate-700/50'
 };
 
-const statusLabels: Record<string, string> = {
-  M: 'M', A: 'A', D: 'D', R: 'R', '?': '?'
-};
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 type GitTab = 'history' | 'branches' | 'working' | 'compare' | 'worktrees';

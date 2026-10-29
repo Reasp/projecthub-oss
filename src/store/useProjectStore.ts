@@ -6,7 +6,6 @@ import type {
   GitCommitResult,
   GitRepoDetails,
   ScanOptions,
-  TaskCriterion,
   ManagedProcess,
   PullRequest,
   PRCreateOptions,
@@ -18,7 +17,6 @@ import type {
   CreateMilestoneParams,
   PtySession,
   GitWorktreeInfo,
-  AddWorktreeOptions,
   MergeOptions,
   MergeWorktreeResult,
   OrphanedWorktreeScan,
@@ -555,15 +553,6 @@ const loadInitialPRFilter = (): 'all' | 'open' | 'closed' | 'merged' => {
     if (raw === 'all' || raw === 'open' || raw === 'closed' || raw === 'merged') return raw;
   } catch {}
   return 'open';
-};
-
-const loadInitialTerminalMode = (): 'pty' | 'process_logs' => {
-  if (typeof window === 'undefined') return 'pty';
-  try {
-    const raw = localStorage.getItem(TERMINAL_MODE_KEY);
-    if (raw === 'pty' || raw === 'process_logs') return raw;
-  } catch {}
-  return 'pty';
 };
 
 const loadInitialSidebarState = (): boolean => {
@@ -1483,7 +1472,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  loadProjectData: async (project: ProjectInfo, options?: { silent?: boolean }) => {
+  loadProjectData: async (project: ProjectInfo, _options?: { silent?: boolean }) => {
     try {
       if (window.api) {
         void get().loadActionConfig(project.path);

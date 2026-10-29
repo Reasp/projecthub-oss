@@ -28,26 +28,27 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   footerStart,
   footerEnd
 }) => {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const [input, setInput] = useState('');
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    const unsub = voiceService.onStateChange((st: VoiceState) => {
+    const offState = voiceService.onStateChange((st: VoiceState) => {
       setVoiceState(st);
     });
 
-    const origResult = voiceService.onResult;
-    voiceService.onResult((text: string, isFinal: boolean) => {
+    const offResult = voiceService.onResult((text: string, isFinal: boolean) => {
       if (isFinal && text.trim()) {
         // If recording was initiated, append to input
         setInput((prev) => (prev ? `${prev} ${text.trim()}` : text.trim()));
       }
     });
 
+    // Без отписки каждое перемонтирование поля добавляло ещё один слушатель: фраза вставлялась несколько раз.
     return () => {
-      // Cleanup
+      offState();
+      offResult();
     };
   }, []);
 

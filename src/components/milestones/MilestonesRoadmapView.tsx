@@ -27,7 +27,6 @@ export const MilestonesRoadmapView: React.FC = () => {
     selectedProject,
     milestones,
     tasks,
-    isLoadingMilestones,
     setSelectedMilestoneFilter,
     setActiveTab,
     deleteMilestoneAction

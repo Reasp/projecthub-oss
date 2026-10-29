@@ -10,9 +10,7 @@ import {
   applyDescription,
   applyCriteria,
   toggleCriterionInContent,
-  sanitizeTaskFileTitle,
   taskNumberFromName,
-  nowBacklogTimestamp,
   normalizeFrontmatter,
   withUpdatedDate
 } from '../services/backlogTaskFormat';
