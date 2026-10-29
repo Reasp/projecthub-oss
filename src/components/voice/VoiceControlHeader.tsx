@@ -16,26 +16,15 @@ export const VoiceControlHeader: React.FC = () => {
   const [voiceState, setVoiceState] = useState<VoiceState>(voiceService.currentState);
   const [isListening, setIsListening] = useState<boolean>(voiceService.isListening);
   const [isStarting, setIsStarting] = useState<boolean>(false);
-  const [, setIsSpeakingDetected] = useState(false);
-  const [, setAudioLevel] = useState(0);
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>(voiceService.getConfig());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
-    const unsubState = voiceService.onStateChange((state) => {
+    // Уровень звука шапка не показывает: подписка на него перерисовывала её на каждом кадре (ревью TASK-242).
+    return voiceService.onStateChange((state) => {
       setVoiceState(state);
       setIsListening(voiceService.isListening);
     });
-
-    const unsubLevel = voiceService.onAudioLevel((level, speaking) => {
-      setAudioLevel(level);
-      setIsSpeakingDetected(speaking);
-    });
-
-    return () => {
-      unsubState();
-      unsubLevel();
-    };
   }, []);
 
   const isHandsFreeActive = isListening;

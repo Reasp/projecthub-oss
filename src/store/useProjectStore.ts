@@ -555,6 +555,18 @@ const loadInitialPRFilter = (): 'all' | 'open' | 'closed' | 'merged' => {
   return 'open';
 };
 
+/** Режим терминала (PTY или журналы процессов) восстанавливается после перезапуска, как вкладки и фильтры. */
+const loadInitialTerminalMode = (): 'pty' | 'process_logs' => {
+  if (typeof window === 'undefined') return 'pty';
+  try {
+    const raw = localStorage.getItem(TERMINAL_MODE_KEY);
+    if (raw === 'pty' || raw === 'process_logs') return raw;
+  } catch {
+    // приватный режим — режим по умолчанию
+  }
+  return 'pty';
+};
+
 const loadInitialSidebarState = (): boolean => {
   if (typeof window === 'undefined') return true;
   try {
@@ -1036,7 +1048,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   ptySessions: [],
   activePtySessionId: null,
-  terminalMode: 'pty',
+  terminalMode: loadInitialTerminalMode(),
 
   setActivePtySessionId: (activePtySessionId) => set({ activePtySessionId }),
   setTerminalMode: (terminalMode) => {
@@ -1070,7 +1082,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   ) => {
     if (!window.api?.createPtySession) return null;
     try {
-      set({ isTerminalOpen: true, terminalMode: 'pty' });
+      // Через сеттер: режим запоминается и после перезапуска откроется PTY, а не прежние журналы процессов.
+      get().setTerminalMode('pty');
+      set({ isTerminalOpen: true });
       // Без явного cwd терминал открывается в активном рабочем дереве проекта (TASK-62).
       const activeRoot = samePath(projectPath, get().selectedProject?.path) ? get().workspaceRoot : null;
       const session = await window.api.createPtySession({
