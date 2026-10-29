@@ -1,6 +1,8 @@
 import { PrHostingError, describeHttpError, type PrHttp } from './prHosting.js';
 import { MATTERMOST_ALLOW_EMOJI, MATTERMOST_DENY_EMOJI, mattermostHitlMessage, slackHitlBlocks, slackResolvedBlocks } from './chatButtons.js';
 import type { Language } from '../../src/i18n/types.js';
+import { hostText } from '../i18n/hostText.js';
+import { getHostLanguage } from './hostLanguage.js';
 import { AppError } from '../../src/lib/appError.js';
 
 /**
@@ -133,7 +135,7 @@ export const slackChatAdapter: ChatAdapter = {
     return arr(json.channels)
       .map(obj)
       .filter((c) => text(c.id))
-      .map((c) => ({ id: text(c.id), name: `#${text(c.name) || text(c.id)}${c.is_member === false ? ' (бот не в канале)' : ''}` }));
+      .map((c) => ({ id: text(c.id), name: `#${text(c.name) || text(c.id)}${c.is_member === false ? hostText(getHostLanguage()).chat.botNotInChannel : ''}` }));
   }
 };
 
@@ -224,7 +226,7 @@ export const teamsChatAdapter: ChatAdapter = {
     // нечего править: у сообщения Workflows нет id
   },
   async listTargets() {
-    return [{ id: 'workflow', name: 'Канал из Workflow' }];
+    return [{ id: 'workflow', name: hostText(getHostLanguage()).chat.workflowChannel }];
   }
 };
 

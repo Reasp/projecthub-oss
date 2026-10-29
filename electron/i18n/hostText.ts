@@ -139,7 +139,7 @@ export interface HostText {
     cloneProjectInto: string;
   };
   /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
-  chat: { testTitle: string; testBody: string; usageLabel: string };
+  chat: { testTitle: string; testBody: string; usageLabel: string; botNotInChannel: string; workflowChannel: string };
   /** Имя устройства, которое привёл соседний ПК федерации (decision-111): сохраняется в записи токена. */
   remote: { phoneName: string; viaPeer: (device: string, peer: string) => string; studioProfile: string };
   /** Заметка хода роя в Implementation Notes задачи (TASK-76, TASK-202.7). */
@@ -330,7 +330,7 @@ const en: HostText = {
     profileFileFilter: 'ProjectHub profile',
     cloneProjectInto: 'Folder to clone the project into'
   },
-  chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat' },
+  chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat', botNotInChannel: ' (the bot is not in the channel)', workflowChannel: 'Workflow channel' },
   remote: { phoneName: 'Phone', viaPeer: (device, peer) => `${device} · via ${peer}`, studioProfile: 'Profile' },
   sessionNote: {
     modes: { fan_out: 'arena (fan-out)', handoff: 'pipeline (handoff)', done_loop: '“until done” loop' },
@@ -529,7 +529,7 @@ const ru: HostText = {
     profileFileFilter: 'Профиль ProjectHub',
     cloneProjectInto: 'Папка, куда клонировать проект'
   },
-  chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат' },
+  chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат', botNotInChannel: ' (бота нет в канале)', workflowChannel: 'Канал из Workflow' },
   remote: { phoneName: 'Телефон', viaPeer: (device, peer) => `${device} · через ${peer}`, studioProfile: 'Профиль' },
   sessionNote: {
     modes: { fan_out: 'арена (fan-out)', handoff: 'конвейер (handoff)', done_loop: 'цикл «до готовности»' },

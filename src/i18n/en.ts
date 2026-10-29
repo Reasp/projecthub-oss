@@ -4254,6 +4254,7 @@ export const en: TranslationDictionary = {
   },
   connections: {
     title: 'Connections',
+    serviceLabels: { 'slack-app': 'Slack: buttons (Socket Mode)' },
     open: 'Connections to external services',
     close: 'Close',
     intro:

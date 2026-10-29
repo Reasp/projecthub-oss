@@ -3863,6 +3863,8 @@ export interface TranslationDictionary {
   /** Окно «Подключения» (TASK-138.1, decision-102). */
   connections: {
     title: string;
+    /** Подписи служб каталога, которым нужен перевод (остальные — имена продуктов, как в каталоге). */
+    serviceLabels: Partial<Record<string, string>>;
     open: string;
     close: string;
     intro: string;

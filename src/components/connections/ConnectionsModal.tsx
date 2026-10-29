@@ -192,7 +192,7 @@ export const ConnectionsModal: React.FC = () => {
                           <span className="px-1.5 py-0.5 rounded border border-slate-700 text-[10px] text-slate-400">{tc.methods[c.method]}</span>
                         </div>
                         <div className="text-slate-400 truncate">
-                          {c.serviceLabel} · {hostOf(c.baseUrl)}
+                          {tc.serviceLabels[c.serviceId] ?? c.serviceLabel} · {hostOf(c.baseUrl)}
                           {c.account?.login || c.account?.name ? ` · ${c.account.login ?? c.account.name}` : ''}
                         </div>
                         {c.scopes.length > 0 && <div className="text-slate-500">{fill(tc.scopesGranted, { list: c.scopes.join(', ') })}</div>}
@@ -378,7 +378,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ services, reconnect, on
                   s.id === serviceId ? 'border-indigo-400 bg-indigo-500/10 text-white' : 'border-ph-line text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {s.label}
+                {tc.serviceLabels[s.id] ?? s.label}
               </button>
             ))}
           </div>

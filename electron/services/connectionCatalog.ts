@@ -278,7 +278,7 @@ export const CONNECTION_SERVICES: readonly ConnectionServiceDef[] = [
   // `connections:write` открывает исходящий WebSocket Socket Mode.
   {
     id: 'slack-app',
-    label: 'Slack: кнопки (Socket Mode)',
+    label: 'Slack: buttons (Socket Mode)',
     categories: ['chat'],
     methods: ['token'],
     defaultBaseUrl: 'https://slack.com',

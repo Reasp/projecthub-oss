@@ -4255,6 +4255,7 @@ export const ru: TranslationDictionary = {
   },
   connections: {
     title: 'Подключения',
+    serviceLabels: { 'slack-app': 'Slack: кнопки (Socket Mode)' },
     open: 'Подключения к внешним сервисам',
     close: 'Закрыть',
     intro:

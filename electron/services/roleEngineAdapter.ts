@@ -112,7 +112,7 @@ export function extractAppendSystemPrompt(args: string[]): { args: string[]; sys
 
 /** Codex/Gemini CLI: флаг усилия не проверялся — не передаём и пишем, почему (decision-41 п. 5). */
 function cliEffortIgnored(engine: RoleEngine, effort: ReasoningEffort | undefined): { effortNote?: string } {
-  return effort ? { effortNote: `усилие рассуждений «${effort}» движку ${engine} не передаётся` } : {};
+  return effort ? { effortNote: `reasoning effort "${effort}" is not passed to the ${engine} engine` } : {};
 }
 
 export function buildEngineInvocation(input: EngineInvocationInput): EngineInvocation {
