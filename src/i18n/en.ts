@@ -4365,5 +4365,31 @@ export const en: TranslationDictionary = {
     reminderText: 'ProjectHub is free and open source. If it saves you time, consider supporting its development.',
     reminderSupport: 'Support ♥',
     reminderLater: 'Remind me later'
+  },
+  agentResults: {
+    open: 'Saved results',
+    title: 'Saved agent results',
+    hint: 'Before an agent worktree is removed, its result is kept in git (refs/projecthub/results). Restore it into a branch to continue or merge it.',
+    empty: 'No saved results in this project.',
+    loading: 'Loading…',
+    session: 'Session',
+    agent: 'Agent',
+    date: 'Date',
+    liveBadge: 'session open',
+    restore: 'Restore to branch',
+    restored: 'Restored into branch {branch}',
+    restoreError: 'Could not restore the result: {error}',
+    delete: 'Delete',
+    deleteConfirm: 'Delete the saved result of agent {agent}? The commit stays in git only until garbage collection.',
+    deleteError: 'Could not delete the result: {error}',
+    retentionTitle: 'Keep results',
+    maxAgeDays: 'Days',
+    maxCount: 'At most',
+    noLimitHint: '0 — no limit. Cleanup runs when a session is deleted; results of open sessions are kept.',
+    saveRetention: 'Save',
+    pruneNow: 'Clean up now',
+    pruned: 'Removed: {count}',
+    pruneError: 'Cleanup failed: {error}',
+    loadError: 'Could not read saved results: {error}'
   }
 };

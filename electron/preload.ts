@@ -523,6 +523,10 @@ const api: IElectronAPI = {
   resumeSwarm: (swarmId: string) => ipcRenderer.invoke('swarm:resume', swarmId),
   discardSwarm: (swarmId: string, cleanupWorktrees?: boolean) =>
     ipcRenderer.invoke('swarm:discard', swarmId, cleanupWorktrees),
+  listAgentResults: (projectPath: string) => ipcRenderer.invoke('swarm:listResults', projectPath),
+  restoreAgentResult: (projectPath: string, ref: string) => ipcRenderer.invoke('swarm:restoreResult', projectPath, ref),
+  deleteAgentResult: (projectPath: string, ref: string) => ipcRenderer.invoke('swarm:deleteResult', projectPath, ref),
+  pruneAgentResults: (projectPath: string) => ipcRenderer.invoke('swarm:pruneResults', projectPath),
   getSwarmTranscript: (swarmId: string, agentId: string) =>
     ipcRenderer.invoke('swarm:readTranscript', swarmId, agentId),
   exportSwarm: (swarmId: string, format: 'markdown' | 'json') => ipcRenderer.invoke('swarm:export', swarmId, format),

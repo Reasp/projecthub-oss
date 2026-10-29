@@ -25,6 +25,8 @@ import { planService, type ConflictResolution, type GeneratePlanOptions } from '
 import { assertRegisteredProject } from '../services/projectPathGuard';
 import type { RunJudgeOptions } from '../services/arenaJudgeService';
 import { loadArenaConfig, saveArenaConfig } from '../services/arenaConfig';
+import { deleteAgentResult, listAgentResults, pruneAgentResults, restoreAgentResult } from '../services/agentResultStore';
+import { resultRefSessionPart } from '../services/agentResultRefs';
 import { visualArtifactService } from '../services/visualArtifactService';
 import type { ArenaSettings } from '../services/actionConfigService';
 import type { CheckDefinition, ComposeSelection } from '../services/arenaTypes';
@@ -623,7 +625,52 @@ export function registerAiIpc(ctx: IpcContext) {
 
   ipcMain.handle('swarm:discard', async (_event, swarmId: string, cleanupWorktrees = true) => {
     if (typeof swarmId !== 'string') return { success: false, error: 'Invalid swarm id' };
-    return await agentFleetService.discardSwarm(swarmId, cleanupWorktrees !== false);
+    const projectPath = agentFleetService.getSwarm(swarmId)?.projectPath;
+    const result = await agentFleetService.discardSwarm(swarmId, cleanupWorktrees !== false);
+    // Удаление сессии добавляет ref результатов — тогда же и очистка по сроку и лимиту проекта (TASK-238).
+    if (result.success && projectPath) void pruneProjectResults(projectPath).catch((err) => console.warn('[aiIpc] Result cleanup failed:', err));
+    return result;
+  });
+
+  /**
+   * Ref результатов общие на весь git-репозиторий: в нём может лежать несколько проектов (монорепо, инфраструктура
+   * подпапкой). Поэтому живые — сессии всех проектов, а не только этого: чужую открытую сессию очистка не тронет.
+   */
+  const liveResultSessions = () => new Set(agentFleetService.listSwarms().map((s) => resultRefSessionPart(s.id)));
+
+  /** Очистка ref результатов по настройке проекта; ref живых сессий не трогаются. */
+  const pruneProjectResults = async (projectPath: string) => {
+    const { resultRetention } = await loadArenaConfig(projectPath);
+    return await pruneAgentResults(projectPath, resultRetention, liveResultSessions());
+  };
+
+  // Сохранённые результаты агентов (TASK-238): список, восстановление в ветку, удаление, очистка по сроку.
+  ipcMain.handle('swarm:listResults', async (_event, projectPath: string) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    await agentFleetService.ready;
+    const live = liveResultSessions();
+    const results = (await listAgentResults(safeProject)).map((r) => ({ ...r, live: live.has(r.sessionId) }));
+    return { results, retention: (await loadArenaConfig(safeProject)).resultRetention };
+  });
+
+  ipcMain.handle('swarm:restoreResult', async (_event, projectPath: string, ref: string) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    if (typeof ref !== 'string') throw new AppError('swarm.resultNotFound', { ref: String(ref) });
+    return await restoreAgentResult(safeProject, ref);
+  });
+
+  ipcMain.handle('swarm:deleteResult', async (_event, projectPath: string, ref: string) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    if (typeof ref !== 'string') throw new AppError('swarm.resultNotFound', { ref: String(ref) });
+    await deleteAgentResult(safeProject, ref);
+    return { success: true };
+  });
+
+  ipcMain.handle('swarm:pruneResults', async (_event, projectPath: string) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    await agentFleetService.ready;
+    const removed = await pruneProjectResults(safeProject);
+    return { removed: removed.length };
   });
 
   ipcMain.handle('swarm:readTranscript', async (_event, swarmId: string, agentId: string) => {

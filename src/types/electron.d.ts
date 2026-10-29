@@ -1533,6 +1533,11 @@ export interface IElectronAPI {
   // Персистентность, транскрипты и экспорт swarm-сессий (TASK-56)
   resumeSwarm: (swarmId: string) => Promise<{ success: boolean; error?: string }>;
   discardSwarm: (swarmId: string, cleanupWorktrees?: boolean) => Promise<{ success: boolean; error?: string }>;
+  /** Сохранённые результаты агентов проекта (TASK-238). */
+  listAgentResults: (projectPath: string) => Promise<{ results: AgentResultEntry[]; retention: ArenaConfig['resultRetention'] }>;
+  restoreAgentResult: (projectPath: string, ref: string) => Promise<{ branch: string; sha: string }>;
+  deleteAgentResult: (projectPath: string, ref: string) => Promise<{ success: boolean }>;
+  pruneAgentResults: (projectPath: string) => Promise<{ removed: number }>;
   getSwarmTranscript: (swarmId: string, agentId: string) => Promise<SwarmTranscript | null>;
   exportSwarm: (swarmId: string, format: SwarmExportFormat) => Promise<string | null>;
   exportSwarmToFile: (swarmId: string, format: SwarmExportFormat) => Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }>;
@@ -3678,6 +3683,22 @@ export interface ArenaSettings {
   autoMerge?: { enabled?: boolean; minScore?: number };
   reviewer?: { enabled?: boolean; roleSlug?: string; provider?: string; profile?: string; model?: string };
   maxConcurrentChecks?: number;
+  resultRetention?: { maxAgeDays?: number; maxCount?: number };
+}
+
+/** Результат агента в `refs/projecthub/results/<сессия>/<агент>` (TASK-238). */
+export interface AgentResultEntry {
+  ref: string;
+  sessionId: string;
+  agentId: string;
+  sha: string;
+  /** Дата коммита или снимка, мс. */
+  date: number;
+  /** Когда результат сохранён, мс (reflog ref): по нему считаются срок и лимит. */
+  savedAt: number;
+  subject: string;
+  /** Сессия ещё в списке: результат виден и в её карточке, очистка его не трогает. */
+  live: boolean;
 }
 
 export interface ArenaConfig {
@@ -3686,6 +3707,8 @@ export interface ArenaConfig {
   autoMerge: { enabled: boolean; minScore: number };
   reviewer: { enabled: boolean; roleSlug: string; provider?: string; profile?: string; model?: string };
   maxConcurrentChecks: number;
+  /** Срок и лимит сохранённых результатов агентов (TASK-238); `0` — без ограничения. */
+  resultRetention: { maxAgeDays: number; maxCount: number };
 }
 
 export interface ComposeSelection {

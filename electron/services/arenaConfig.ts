@@ -17,6 +17,7 @@ import {
   type DefaultChecksInput
 } from './arenaChecks.js';
 import { DEFAULT_SCORE_WEIGHTS, normalizeWeights } from './arenaScoring.js';
+import { normalizeResultRetention } from './agentResultRefs.js';
 import type { ArenaConfig, CheckDefinition } from './arenaTypes.js';
 
 /** Порог балла для авто-мерджа по умолчанию (высокий: авто-слияние должно быть редким). */
@@ -69,7 +70,8 @@ export function resolveArenaConfig(input: ResolveArenaConfigInput): ArenaConfig 
     maxConcurrentChecks:
       typeof maxConcurrentRaw === 'number' && Number.isFinite(maxConcurrentRaw) && maxConcurrentRaw >= 1
         ? Math.min(8, Math.trunc(maxConcurrentRaw))
-        : DEFAULT_MAX_CONCURRENT_CHECKS
+        : DEFAULT_MAX_CONCURRENT_CHECKS,
+    resultRetention: normalizeResultRetention(arena.resultRetention)
   };
 }
 

@@ -37,6 +37,8 @@ export interface ArenaSettings {
   autoMerge?: { enabled?: boolean; minScore?: number };
   reviewer?: { enabled?: boolean; roleSlug?: string; provider?: string; profile?: string; model?: string };
   maxConcurrentChecks?: number;
+  /** Сколько хранить сохранённые результаты агентов (TASK-238): дни и число на проект, `0` — без ограничения. */
+  resultRetention?: { maxAgeDays?: number; maxCount?: number };
 }
 
 export interface ProjectActionConfig {

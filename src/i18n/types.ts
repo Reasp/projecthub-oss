@@ -3946,4 +3946,31 @@ export interface TranslationDictionary {
     reminderSupport: string;
     reminderLater: string;
   };
+  /** Сохранённые результаты агентов, `refs/projecthub/results` (TASK-238). */
+  agentResults: {
+    open: string;
+    title: string;
+    hint: string;
+    empty: string;
+    loading: string;
+    session: string;
+    agent: string;
+    date: string;
+    liveBadge: string;
+    restore: string;
+    restored: string;
+    restoreError: string;
+    delete: string;
+    deleteConfirm: string;
+    deleteError: string;
+    retentionTitle: string;
+    maxAgeDays: string;
+    maxCount: string;
+    noLimitHint: string;
+    saveRetention: string;
+    pruneNow: string;
+    pruned: string;
+    pruneError: string;
+    loadError: string;
+  };
 }

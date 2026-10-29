@@ -209,6 +209,8 @@ export interface ArenaConfig {
   reviewer: ArenaReviewerConfig;
   /** Сколько проверок выполняется одновременно по всем кандидатам. */
   maxConcurrentChecks: number;
+  /** Срок и лимит сохранённых результатов агентов (TASK-238). */
+  resultRetention: { maxAgeDays: number; maxCount: number };
 }
 
 export type JudgeStatus = 'idle' | 'running' | 'done' | 'failed' | 'cancelled';

@@ -6,7 +6,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import treeKill from 'tree-kill';
 import simpleGit from 'simple-git';
 import { worktreeService } from './worktreeService.js';
-import { agentResultRef, resultToKeep } from './agentResultRefs.js';
+import { agentResultRef, resultToKeep, RESULT_REFLOG_MESSAGE } from './agentResultRefs.js';
 import { aiAgentService, type AIProviderConfig, type AIMessage, type StreamToolBoundary } from './aiAgentService.js';
 import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService } from './claudeAccountService.js';
@@ -1404,7 +1404,7 @@ export class AgentFleetService extends EventEmitter {
         const repo = simpleGit(session.projectPath);
         const tip = (await repo.raw(['rev-parse', '--verify', '--quiet', `refs/heads/${agent.worktreeBranch}`]).catch(() => '')).trim();
         if (!tip) return true;
-        await repo.raw(['update-ref', ref, tip]);
+        await repo.raw(['update-ref', '--create-reflog', '-m', RESULT_REFLOG_MESSAGE, ref, tip]);
         agent.resultRef = ref;
         this.log(session, agent, `[Swarm] Result preserved in ${ref} (${tip.slice(0, 7)}) from branch ${agent.worktreeBranch}.`);
         return true;
@@ -1422,7 +1422,8 @@ export class AgentFleetService extends EventEmitter {
         this.log(session, agent, `[Swarm] Worktree ${agent.worktreePath} kept: uncommitted changes and no snapshot to preserve them.`);
         return false;
       }
-      await git.raw(['update-ref', ref, keep]);
+      // Reflog хранит время сохранения: по нему считается срок хранения (TASK-238, decision-188 п. 3).
+      await git.raw(['update-ref', '--create-reflog', '-m', RESULT_REFLOG_MESSAGE, ref, keep]);
       agent.resultRef = ref;
       this.log(session, agent, `[Swarm] Result preserved in ${ref} (${keep.slice(0, 7)}).`);
       return true;

@@ -43,6 +43,7 @@ import { ArenaJudgePanel } from './ArenaJudgePanel';
 import { DoneLoopPanel } from './DoneLoopPanel';
 import { ArenaSettingsModal } from './ArenaSettingsModal';
 import { ComposeResultModal } from './ComposeResultModal';
+import { AgentResultsModal } from './AgentResultsModal';
 import type { AgentSlotState, SwarmSession, SwarmTranscript } from '../../../types/electron';
 import { agentInputTokens, formatDuration, formatTokens, formatUsd, summarizeSwarm } from '../../../utils/swarmFormat';
 import {
@@ -99,6 +100,7 @@ export const SwarmArenaView: React.FC = () => {
   const [activeTabByAgent, setActiveTabByAgent] = useState<Record<string, AgentTab>>({});
   const [isJudgeSettingsOpen, setJudgeSettingsOpen] = useState(false);
   const [isComposeOpen, setComposeOpen] = useState(false);
+  const [isResultsOpen, setResultsOpen] = useState(false);
   const [isMergingWinner, setIsMergingWinner] = useState<string | null>(null);
   // Временные уведомления с автоскрытием и очисткой таймеров (TASK-50)
   const [appliedFileMsg, showAppliedFileMsg] = useToast<string>(4000);
@@ -399,6 +401,15 @@ export const SwarmArenaView: React.FC = () => {
               {t.swarm.stopAll}
             </button>
           )}
+
+          <button
+            onClick={() => setResultsOpen(true)}
+            title={t.agentResults.open}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary border border-border/70 transition-colors"
+            data-testid="agent-results-open"
+          >
+            <History className="w-3.5 h-3.5" /> {t.agentResults.open}
+          </button>
 
           <button
             onClick={() => openNewSwarmModal()}
@@ -1460,6 +1471,7 @@ ${t.swarm.estimatedUsageTooltip}` : '')}
       {isJudgeSettingsOpen && projectPath && (
         <ArenaSettingsModal projectPath={projectPath} onClose={() => setJudgeSettingsOpen(false)} />
       )}
+      {isResultsOpen && <AgentResultsModal projectPath={projectPath} onClose={() => setResultsOpen(false)} />}
       {isComposeOpen && currentSwarm && (
         <ComposeResultModal
           session={currentSwarm}
