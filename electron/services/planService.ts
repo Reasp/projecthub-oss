@@ -358,11 +358,13 @@ export class PlanService extends EventEmitter {
       const parsed = parseAgentPlan(answer.text);
       if (parsed.ok) {
         plan.architect.errors = undefined;
+        plan.architect.issues = undefined;
         plan.architect.rawResponse = undefined;
         return { plan: parsed.plan, ...(costUsd !== undefined ? { costUsd } : {}) };
       }
 
       plan.architect.errors = parsed.errors;
+      plan.architect.issues = parsed.issues;
       plan.architect.rawResponse = answer.text;
       this.emitPlan(plan);
       if (attempt === MAX_PLAN_ATTEMPTS) break;
@@ -376,7 +378,9 @@ export class PlanService extends EventEmitter {
       } as AIMessage);
     }
 
-    throw new AppError('plans.invalidPlan', { attempts: MAX_PLAN_ATTEMPTS, errors: (plan.architect.errors ?? []).join('; ') });
+    // Замечания человек видит под ошибкой на языке окна (`architect.issues`); в журнал — английским текстом.
+    console.warn(`[PlanService] plan ${plan.id}: no valid plan in ${MAX_PLAN_ATTEMPTS} attempts: ${(plan.architect.errors ?? []).join('; ')}`);
+    throw new AppError('plans.invalidPlan', { attempts: MAX_PLAN_ATTEMPTS });
   }
 
   /** Создаёт подзадачи Backlog.md по плану и записывает читаемый план в родительскую задачу. */

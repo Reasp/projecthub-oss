@@ -12,6 +12,7 @@ import type { AgentSlotConfig } from './swarmTypes.js';
 import type { ModelTier } from './modelTiers.js';
 import type { ModelRouteView } from './modelRouter.js';
 import type { AppErrorKey } from '../../src/lib/appError.js';
+import type { PlanIssue } from '../../src/i18n/planIssueText.js';
 
 /** Подзадача в ответе роли `architect` до создания в Backlog.md. */
 export interface PlanSubtaskDraft {
@@ -128,6 +129,8 @@ export interface PlanArchitectState {
   costUsd?: number;
   /** Ошибки валидации последней попытки — их же получает модель в повторном запросе. */
   errors?: string[];
+  /** Те же ошибки кодами: окно показывает их на своём языке (TASK-231.1). */
+  issues?: PlanIssue[];
   /** Сырой ответ последней неудачной попытки — чтобы человек увидел, что пришло. */
   rawResponse?: string;
   /** Чем строился план: решение резолвера для назначения «архитектор» (decision-75). */

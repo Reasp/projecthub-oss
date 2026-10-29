@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, GitMerge, Loader2, Network, Play, RefreshCw, Settings2, SkipForward, Square, Trash2 } from '../common/icons';
 import type { ModelRouteView, PlanEventPayload, PlanModelsPreview, PlanNode, PlanState } from '../../types/electron';
 import { ipcErrorText, ipcFailureText, useTranslation } from '../../i18n/useTranslation';
+import { planIssueText } from '../../i18n/planIssueText';
 import { useDialog } from '../../hooks/useDialog';
 import { formatPlanCost, nodeTone, planActions, planCounts, planLevels, type PlanNodeTone } from '../../lib/planGraphView';
 import { describeModelRoute, requestOpenAiSettings } from '../../lib/modelRouteText';
@@ -41,7 +42,7 @@ function reasonText(x: { reason?: string; reasonKey?: unknown }): string {
 }
 
 export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskTitle, onOpenSession }) => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const dialog = useDialog();
   const [plan, setPlan] = useState<PlanState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -308,7 +309,13 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ projectPath, taskId, taskT
       )}
       {plan?.architect.errors && plan.architect.errors.length > 0 && (
         <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-200">
-          {t.plan.architectErrors.replace('{errors}', plan.architect.errors.join('; '))}
+          {t.plan.architectErrors.replace(
+            '{errors}',
+            // Коды — на языке окна; план из старой версии без кодов — английским текстом, как был.
+            Array.isArray(plan.architect.issues) && plan.architect.issues.length > 0 && plan.architect.issues.every((issue) => typeof issue?.code === 'string')
+              ? plan.architect.issues.map((issue) => planIssueText(issue, language)).join('; ')
+              : plan.architect.errors.join('; ')
+          )}
           {' · '}
           {t.plan.attempts.replace('{n}', String(plan.architect.attempts))}
         </div>

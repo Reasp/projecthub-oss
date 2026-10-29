@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import { extractJsonObject } from './reviewerPrompt.js';
 import type { AgentPlan, PlanSubtaskDraft } from './planTypes.js';
+import { planIssueText, type PlanIssue } from '../../src/i18n/planIssueText.js';
 
 /** Язык ограды, в которой роль `architect` возвращает план. */
 export const PLAN_FENCE = 'projecthub-plan';
@@ -133,7 +134,19 @@ function jsonObjectsIn(text: string): string[] {
   return out;
 }
 
-export type ParsedPlan = { ok: true; plan: AgentPlan; warnings: string[] } | { ok: false; errors: string[] };
+/** Отказ: `issues` — коды для окна, `errors` — те же замечания по-английски для модели и журнала. */
+export type ParsedPlan = { ok: true; plan: AgentPlan; warnings: string[] } | { ok: false; errors: string[]; issues: PlanIssue[] };
+
+function rejected(...issues: PlanIssue[]): ParsedPlan {
+  return { ok: false, issues, errors: issues.map((issue) => planIssueText(issue, 'en')) };
+}
+
+/** Свои сообщения схемы — кодами; прочие сообщения zod остаются текстом (технические, по-английски). */
+const SCHEMA_MESSAGE_CODES: Record<string, PlanIssue['code']> = {
+  'empty node key': 'schemaEmptyKey',
+  'title is too short': 'schemaTitleShort',
+  'the plan has no subtasks': 'schemaNoSubtasks'
+};
 
 /**
  * Нормализация плана: ключи приводятся к слагам и дедуплицируются, заголовок обрезается по
@@ -270,35 +283,37 @@ export function parseAgentPlan(text: string): ParsedPlan {
   let candidate: string | null;
   if (fenced.length > 0) {
     candidate = extractJsonObject(fenced[fenced.length - 1][1]);
-    if (!candidate) return { ok: false, errors: [`The ${PLAN_FENCE} block contains no JSON object`] };
+    if (!candidate) return rejected({ code: 'fenceNoJson', params: { fence: PLAN_FENCE } });
   } else {
     const objects = jsonObjectsIn(source).filter((o) => /"subtasks"\s*:/.test(o));
     candidate = objects.length > 0 ? objects[objects.length - 1] : null;
   }
-  if (!candidate) return { ok: false, errors: [`The answer has no plan (a \`\`\`${PLAN_FENCE}\`\`\` block with the subtasks field)`] };
+  if (!candidate) return rejected({ code: 'noPlan', params: { fence: PLAN_FENCE } });
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(candidate);
   } catch (err) {
-    return { ok: false, errors: [`The plan JSON could not be parsed: ${err instanceof Error ? err.message : String(err)}`] };
+    return rejected({ code: 'badJson', params: { reason: err instanceof Error ? err.message : String(err) } });
   }
 
   const result = PlanSchema.safeParse(parsed);
   if (!result.success) {
-    const errors = result.error.issues.slice(0, 5).map((issue) => {
-      const where = issue.path.length > 0 ? issue.path.join('.') : 'plan';
-      return `${where} — ${issue.message}`;
-    });
-    return { ok: false, errors };
+    return rejected(
+      ...result.error.issues.slice(0, 5).map((issue): PlanIssue => {
+        const where = issue.path.length > 0 ? issue.path.join('.') : 'plan';
+        const code = Object.hasOwn(SCHEMA_MESSAGE_CODES, issue.message) ? SCHEMA_MESSAGE_CODES[issue.message] : undefined;
+        return code ? { code, params: { where } } : { code: 'schema', params: { where, message: issue.message } };
+      })
+    );
   }
 
   const { plan, warnings } = normalizePlan(result.data);
-  if (plan.subtasks.length === 0) return { ok: false, errors: ['No subtasks left in the plan after normalization'] };
+  if (plan.subtasks.length === 0) return rejected({ code: 'emptyAfterNormalize' });
 
   const cycle = findCycle(plan.subtasks);
   if (cycle.length > 0) {
-    return { ok: false, errors: [`The dependencies form a cycle: ${cycle.join(' → ')}. Dependencies must only point forward.`] };
+    return rejected({ code: 'cycle', params: { cycle: cycle.join(' → ') } });
   }
 
   return { ok: true, plan, warnings };

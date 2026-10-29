@@ -4383,7 +4383,7 @@ export interface PlanState {
   integrationWorktree?: string;
   approvedGraphHash?: string;
   approvedAt?: number;
-  architect: { attempts: number; costUsd?: number; errors?: string[]; rawResponse?: string; model?: ModelRouteView };
+  architect: { attempts: number; costUsd?: number; errors?: string[]; issues?: import('../i18n/planIssueText').PlanIssue[]; rawResponse?: string; model?: ModelRouteView };
   totalCostUsd?: number;
   stopped?: boolean;
 }

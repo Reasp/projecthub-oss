@@ -312,7 +312,7 @@ const EN = {
   // Планировщик задач: план, узлы, слияние (TASK-101, decision-49, decision-75).
   'plans.taskNotFound': 'Task {id} was not found in backlog/tasks',
   'plans.alreadyActive': 'Task {id} already has an active plan',
-  'plans.invalidPlan': 'The architect role did not return a valid plan in {attempts} attempts: {errors}',
+  'plans.invalidPlan': 'The architect role did not return a valid plan in {attempts} attempts — the remarks are below',
   'plans.subtaskCreateFailed': 'Could not create subtask “{title}” in backlog/tasks',
   'plans.notFound': 'Plan {id} not found',
   'plans.stillGenerating': 'The plan is still being generated',
@@ -1253,7 +1253,7 @@ export const appErrorTextRu: AppErrorLabels = {
   'checks.loopStopped': 'Цикл остановлен',
   'plans.taskNotFound': 'Задача {id} не найдена в backlog/tasks',
   'plans.alreadyActive': 'Для {id} уже есть активный план',
-  'plans.invalidPlan': 'Роль architect не вернула валидный план за {attempts} попытки: {errors}',
+  'plans.invalidPlan': 'Роль architect не вернула валидный план за {attempts} попытки — замечания ниже',
   'plans.subtaskCreateFailed': 'Не удалось создать подзадачу «{title}» в backlog/tasks',
   'plans.notFound': 'План {id} не найден',
   'plans.stillGenerating': 'План ещё генерируется',
