@@ -130,8 +130,16 @@ export function registerMcpIpc() {
     return mcpServerService.regenerateToken();
   });
 
-  ipcMain.handle('mcp:setAppState', async (_event, state: { activeProject?: any; activeTab?: string }) => {
-    mcpServerService.setAppState(state);
+  ipcMain.handle('mcp:setAppState', async (_event, state: unknown) => {
+    // Форма проверяется на входе IPC: внешние MCP-клиенты читают это состояние через get_app_state.
+    const raw = state && typeof state === 'object' ? (state as { activeProject?: unknown; activeTab?: unknown }) : {};
+    const project = raw.activeProject as { name?: unknown; path?: unknown } | null | undefined;
+    const activeProject =
+      project === null ? null : project && typeof project.name === 'string' && typeof project.path === 'string' ? { name: project.name, path: project.path } : undefined;
+    mcpServerService.setAppState({
+      ...(activeProject !== undefined ? { activeProject } : {}),
+      ...(typeof raw.activeTab === 'string' ? { activeTab: raw.activeTab } : {})
+    });
     return true;
   });
 

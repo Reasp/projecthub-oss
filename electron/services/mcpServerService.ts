@@ -42,6 +42,7 @@ import { CI_TOOL_DEFINITIONS, callCiTool } from './ciTools.js';
 import { ciToolDeps } from './ciServiceInstance.js';
 import { deriveAgentToken, isAgentTokenShape, projectForAgentToken } from './agentToken.js';
 import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
+import { errorMessage } from './errorMessage.js';
 
 /** Маршрут хуков терминальных сессий (TASK-77, decision-54 п. 3–4). */
 export const TERMINAL_HOOK_ROUTE = '/api/hooks/event';
@@ -88,7 +89,8 @@ export interface RemoteActionPayload {
     | 'approve_action'
     | 'open_terminal'
     | 'refresh_tasks';
-  payload: any;
+  /** Поля по типу действия (`McpRemoteAction` в окне); от внешнего клиента — проверенный объект. */
+  payload: Record<string, unknown>;
 }
 
 interface SseSession {
@@ -129,7 +131,7 @@ class McpServerService {
   private lastError: string | null = null;
   private lastErrorKey: AppErrorKey | null = null;
   private currentAppState = {
-    activeProject: null as any,
+    activeProject: null as { name: string; path: string } | null,
     activeTab: 'kanban'
   };
 
@@ -195,7 +197,7 @@ class McpServerService {
     };
   }
 
-  public setAppState(state: { activeProject?: any; activeTab?: string }) {
+  public setAppState(state: { activeProject?: { name: string; path: string } | null; activeTab?: string }) {
     if (state.activeProject !== undefined) this.currentAppState.activeProject = state.activeProject;
     if (state.activeTab !== undefined) this.currentAppState.activeTab = state.activeTab;
   }
@@ -298,7 +300,7 @@ class McpServerService {
         resolve(true);
       });
 
-      server.on('error', (err: any) => {
+      server.on('error', (err: NodeJS.ErrnoException) => {
         if (settled) {
           // Ошибка уже работающего сервера — не трогаем результат start(), только логируем.
           console.error('[MCPServer] HTTP server error:', err);
@@ -400,9 +402,9 @@ class McpServerService {
               input: input ?? {},
               tool_use_id
             });
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.error('[MCPServer] permission_prompt failed:', err);
-            decision = { behavior: 'deny', message: `ProjectHub: failed to process the permission request: ${err?.message || String(err)}` };
+            decision = { behavior: 'deny', message: `ProjectHub: failed to process the permission request: ${errorMessage(err)}` };
           }
         }
         return { content: [{ type: 'text', text: JSON.stringify(decision) }] };
@@ -714,7 +716,7 @@ class McpServerService {
       },
       async ({ projectPath, status }) => {
         const tasksDir = path.join(projectPath, 'backlog', 'tasks');
-        const list: any[] = [];
+        const list: Array<Record<string, unknown>> = [];
         if (existsSync(tasksDir)) {
           const files = await fs.readdir(tasksDir);
           for (const f of files) {
@@ -1312,10 +1314,12 @@ class McpServerService {
             this.sendJson(res, 400, { error: `Unknown action type; allowed: ${[...REMOTE_ACTION_TYPES].join(', ')}` });
             return;
           }
-          this.dispatchToRenderer({ type: json.type, payload: json.payload ?? {} });
+          // Полезная нагрузка от внешнего клиента: только объект, иначе пустая (окно читает её поля).
+          const payload = json.payload && typeof json.payload === 'object' && !Array.isArray(json.payload) ? (json.payload as Record<string, unknown>) : {};
+          this.dispatchToRenderer({ type: json.type, payload });
           this.sendJson(res, 200, { ok: true });
-        } catch (e: any) {
-          this.sendJson(res, 400, { error: e.message });
+        } catch (e: unknown) {
+          this.sendJson(res, 400, { error: errorMessage(e) });
         }
       });
       return;
@@ -1375,7 +1379,7 @@ class McpServerService {
         return;
       }
 
-      (session.transport as SSEServerTransport).handlePostMessage(req as any, res).catch((err) => {
+      (session.transport as SSEServerTransport).handlePostMessage(req, res).catch((err) => {
         console.error('[MCPServer] Error handling POST message:', err);
         if (!res.headersSent) {
           res.writeHead(500).end(err.message);
