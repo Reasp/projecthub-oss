@@ -2,7 +2,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
-import { configureTransformersEnv } from './transformersEnv.mjs';
+import { configureTransformersEnv } from './modelHubEnv.mjs';
 
 /**
  * Изолированный воркер векторного поиска по документации (TASK-50).

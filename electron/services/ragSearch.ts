@@ -7,7 +7,7 @@ import { MEMORY_DIR, MEMORY_DIR_SEGMENTS, MEMORY_INDEX_FILE } from './memoryForm
 import { projectRegistry } from './projectRegistry';
 import { ensureModelsCacheDir } from './appPaths';
 import { getNetworkPolicy } from './networkGuard';
-import { configureTransformersEnv } from '../workers/transformersEnv.mjs';
+import { configureTransformersEnv } from '../workers/modelHubEnv.mjs';
 import { resolveEmbeddingModel, type EmbeddingModel } from './ragEmbeddingModel';
 import { ragWorkerClient, type VectorSearchRow } from './ragWorkerClient';
 

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { ensureModelsCacheDir, getModelsCacheDir, getWorkerScriptCandidates } from './appPaths';
 import { getNetworkPolicy } from './networkGuard';
-import { configureTransformersEnv } from '../workers/transformersEnv.mjs';
+import { configureTransformersEnv } from '../workers/modelHubEnv.mjs';
 
 export type LocalWhisperStatus = 'unloaded' | 'loading' | 'ready' | 'error';
 

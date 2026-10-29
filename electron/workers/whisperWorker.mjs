@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import { pickWhisperLanguage, WHISPER_AUTO_LANGUAGES, whisperLanguageName } from './whisperLanguage.mjs';
-import { configureTransformersEnv } from './transformersEnv.mjs';
+import { configureTransformersEnv } from './modelHubEnv.mjs';
 
 if (!parentPort) {
   throw new Error('whisperWorker.mjs must be run in a Worker thread');

@@ -1,4 +1,4 @@
-/** Типы для `transformersEnv.mjs` (TASK-147.2). */
+/** Типы для `modelHubEnv.mjs` (TASK-147.2). */
 export interface TransformersEnvLike {
   cacheDir?: string | null;
   allowLocalModels?: boolean;
