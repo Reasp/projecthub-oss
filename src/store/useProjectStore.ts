@@ -1129,9 +1129,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return session;
       }
       return null;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to create PTY session:', err);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.sessionError, { message: err.message }));
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.sessionError, { message: appErrorText(err, getDictionary(get().language).appErrors) }));
       return null;
     }
   },
@@ -1189,7 +1189,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.processStarted, { name, command }));
       return proc;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`Failed to start process ${name}:`, e);
       get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.processError, { name, message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return null;
@@ -1291,7 +1291,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.processRestarted, { name: proc.name, command: proc.command }));
       return proc;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to restart process:', e);
       get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.processRestartError, { processId, message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return null;
@@ -1770,7 +1770,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.gitBranchMergeError, { branch: branchName, error: res.error || '' }));
       }
       return res;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to merge branch:', e);
       return { success: false, error: appErrorText(e, getDictionary(get().language).appErrors) };
     }
@@ -1806,9 +1806,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.gitPullError, { error: res.error || '' }));
       }
       return res;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to pull:', e);
-      return { success: false, error: e?.message || String(e) };
+      return { success: false, error: appErrorText(e, getDictionary(get().language).appErrors) };
     }
   },
 
@@ -1825,9 +1825,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.gitPushError, { error: res.error || '' }));
       }
       return res;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to push:', e);
-      return { success: false, error: e?.message || String(e) };
+      return { success: false, error: appErrorText(e, getDictionary(get().language).appErrors) };
     }
   },
 
@@ -1924,7 +1924,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return result;
     } catch (e) {
       console.error('Failed to commit:', e);
-      return { ok: false, reason: 'error', error: e instanceof Error ? e.message : String(e) } as GitCommitResult;
+      return { ok: false, reason: 'error', error: appErrorText(e, getDictionary(get().language).appErrors) } as GitCommitResult;
     }
   },
 
@@ -2055,9 +2055,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().loadGitRepoDetails(project);
       }
       return wt;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to create worktree:', e);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeCreateError, { message: e.message || String(e) }));
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeCreateError, { message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return null;
     }
   },
@@ -2073,9 +2073,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().loadGitRepoDetails(project);
       }
       return ok;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to remove worktree:', e);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeRemoveError, { message: e.message || String(e) }));
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeRemoveError, { message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return false;
     }
   },
@@ -2090,7 +2090,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().loadWorktreesAction(project.path);
       }
       return ok;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to prune worktrees:', e);
       return false;
     }
@@ -2101,7 +2101,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!window.api?.getWorktreeDiff || !project) return '';
     try {
       return await window.api.getWorktreeDiff(project.path, worktreeBranch, baseBranch, worktreePath);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to get worktree diff:', e);
       return '';
     }
@@ -2125,7 +2125,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeMergeError, { error: res.error || '' }));
       }
       return res;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to merge worktree:', e);
       return { success: false, error: appErrorText(e, getDictionary(get().language).appErrors) };
     }
@@ -2140,9 +2140,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().loadGitRepoDetails(project);
       }
       return res;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to checkout files from worktree branch:', e);
-      return { success: false, error: e.message || String(e) };
+      return { success: false, error: appErrorText(e, getDictionary(get().language).appErrors) };
     }
   },
 
@@ -2153,7 +2153,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     try {
       return await window.api.findOrphanedWorktrees(project.path, activeTaskIds, activeSwarmIds);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to find orphaned worktrees:', e);
       return { orphanedWorktrees: [], orphanedPaths: [], orphanedBranches: [] };
     }
@@ -2169,9 +2169,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await get().loadWorktreesAction(project.path);
       await get().loadGitRepoDetails(project);
       return res;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to clean orphaned worktrees:', e);
-      return { removedWorktrees: [], removedBranches: [], errors: [e.message || String(e)] };
+      return { removedWorktrees: [], removedBranches: [], errors: [appErrorText(e, getDictionary(get().language).appErrors)] };
     }
   },
 
@@ -2259,7 +2259,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().loadProjectData(project);
       }
       return created;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to create PR:', err);
       get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.prError, { message: appErrorText(err, getDictionary(get().language).appErrors) }));
       throw err;
@@ -2405,7 +2405,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().selectDoc(created);
       }
       return created;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to create doc:', e);
       get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.docCreateError, { message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return null;
@@ -2440,9 +2440,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().fetchMilestones(project.path);
       }
       return created;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to create milestone:', e);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.milestoneCreateError, { message: e.message }));
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.milestoneCreateError, { message: appErrorText(e, getDictionary(get().language).appErrors) }));
       return null;
     }
   },
@@ -2457,7 +2457,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().fetchMilestones(project.path);
       }
       return ok;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to save milestone:', e);
       return false;
     }
@@ -2473,7 +2473,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await get().fetchMilestones(project.path);
       }
       return ok;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to delete milestone:', e);
       return false;
     }
