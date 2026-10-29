@@ -35,6 +35,7 @@ import { getHostLanguage } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
 import { editionRegistry, launcherGitEnv } from '../extensions/editionRegistry.js';
 import { sandboxMcpConfig } from './memberSandboxLauncher.js';
+import { errorMessage } from './errorMessage.js';
 import {
   applyProjectPolicy,
   applyRolePermissions,
@@ -239,14 +240,22 @@ export interface SubprocessResult {
 /** Запрос разрешения от Claude CLI: имя встроенного инструмента и его вход. */
 export interface CliPermissionRequest {
   tool_name: string;
-  input: Record<string, any>;
+  input: Record<string, unknown>;
   tool_use_id?: string;
 }
 
 /** Ответ инструмента разрешений в формате, который ожидает Claude Code. */
 export type CliPermissionDecision =
-  | { behavior: 'allow'; updatedInput: Record<string, any> }
+  | { behavior: 'allow'; updatedInput: Record<string, unknown> }
   | { behavior: 'deny'; message: string };
+
+/** Вопрос AskUserQuestion из ввода Claude CLI: поля приходят как есть, без схемы. */
+interface CliQuestionInput {
+  question?: unknown;
+  header?: unknown;
+  options?: unknown;
+  multiSelect?: unknown;
+}
 
 /** Адрес встроенного MCP-сервера ProjectHub, через который CLI запрашивает разрешения. */
 export interface CliPermissionEndpoint {
@@ -531,15 +540,18 @@ class ClaudeBridgeService extends EventEmitter {
   }
 
   /** Разбирает событие stream-json Claude CLI типа `user` и передаёт tool_result в аудит. */
-  public noteCliUserEvent(event: any): void {
-    const content = event?.message?.content;
+  public noteCliUserEvent(event: unknown): void {
+    const content = (event as { message?: { content?: unknown } } | null)?.message?.content;
     if (!Array.isArray(content)) return;
-    for (const item of content) {
+    for (const raw of content as unknown[]) {
+      const item = raw as { type?: unknown; content?: unknown; tool_use_id?: unknown; is_error?: unknown } | null;
       if (item?.type !== 'tool_result') continue;
       const text = typeof item.content === 'string'
         ? item.content
-        : Array.isArray(item.content) ? item.content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join(' ') : '';
-      this.noteCliToolResult(item.tool_use_id, Boolean(item.is_error), text ? text.slice(0, 200) : undefined);
+        : Array.isArray(item.content)
+          ? (item.content as unknown[]).map((c) => { const t = (c as { text?: unknown } | null)?.text; return typeof t === 'string' ? t : ''; }).join(' ')
+          : '';
+      this.noteCliToolResult(String(item.tool_use_id ?? ''), Boolean(item.is_error), text ? text.slice(0, 200) : undefined);
     }
   }
 
@@ -559,7 +571,7 @@ class ClaudeBridgeService extends EventEmitter {
     const workDir = ctx.workspaceRoot?.trim() || projectPath;
     const rules = config.autoApproveRules;
     const toolName = String(request.tool_name || '');
-    const input: Record<string, any> = request.input && typeof request.input === 'object' ? request.input : {};
+    const input: Record<string, unknown> = request.input && typeof request.input === 'object' ? request.input : {};
     const meta = {
       origin: ctx.origin ?? 'studio',
       engine: ctx.engine ?? 'claude-cli',
@@ -574,7 +586,7 @@ class ClaudeBridgeService extends EventEmitter {
     const autonomous = ctx.origin === 'automation' || ctx.origin === 'assigned';
     const verdict = evaluateToolRequest(config, projectPath, toolName, input, { autonomous, workDir });
 
-    const allow = (updatedInput: Record<string, any> = input): CliPermissionDecision => ({ behavior: 'allow', updatedInput });
+    const allow = (updatedInput: Record<string, unknown> = input): CliPermissionDecision => ({ behavior: 'allow', updatedInput });
     const deny = (message: string): CliPermissionDecision => ({ behavior: 'deny', message });
     const newId = () => hitlService.newRequestId();
     const filePathOf = () => String(input.file_path || input.notebook_path || input.path || '');
@@ -641,7 +653,7 @@ class ClaudeBridgeService extends EventEmitter {
     }
 
     if (toolName === 'AskUserQuestion') {
-      const questions: any[] = Array.isArray(input.questions) ? input.questions : [];
+      const questions = (Array.isArray(input.questions) ? input.questions : []) as Array<CliQuestionInput | null>;
       const answers: Record<string, string> = {};
       if (questions.length === 0) {
         const qData = this.parseQuestionData(input);
@@ -657,11 +669,14 @@ class ClaudeBridgeService extends EventEmitter {
       for (const q of questions) {
         const questionText = String(q?.question || q?.header || 'Question');
         const header = q?.header ? String(q.header) : '';
-        const options: QuestionOption[] = (Array.isArray(q?.options) ? q.options : []).map((opt: any, idx: number) => ({
-          id: `opt-${idx}`,
-          label: String(opt?.label ?? opt),
-          description: opt?.description ? String(opt.description) : undefined
-        }));
+        const options: QuestionOption[] = ((Array.isArray(q?.options) ? q.options : []) as unknown[]).map((raw, idx) => {
+          const opt = raw as { label?: unknown; description?: unknown } | null;
+          return {
+            id: `opt-${idx}`,
+            label: String(opt?.label ?? raw),
+            description: opt?.description ? String(opt.description) : undefined
+          };
+        });
         const res = await ask({
           id: newId(), sessionId, projectPath, type: 'question',
           title: header || QUESTION_FALLBACK_TITLE,
@@ -797,7 +812,7 @@ class ClaudeBridgeService extends EventEmitter {
     workDir: string,
     toolName: string,
     filePath: string,
-    input: Record<string, any>
+    input: Record<string, unknown>
   ): Promise<ApprovalRequest['diff'] | undefined> {
     return buildCliWriteDiff(workDir, toolName, filePath, input);
   }
@@ -1045,8 +1060,8 @@ class ClaudeBridgeService extends EventEmitter {
           stdio: ['ignore', 'pipe', 'pipe'],
           env: { ...process.env, FORCE_COLOR: '0', CLAUDE_CONFIG_DIR: defaultClaudeAccountDir() }
         });
-      } catch (err: any) {
-        finish(this.cliMissing(err?.message || String(err)));
+      } catch (err: unknown) {
+        finish(this.cliMissing(errorMessage(err)));
         return;
       }
 
@@ -1250,16 +1265,16 @@ class ClaudeBridgeService extends EventEmitter {
     return count;
   }
 
-  public parseQuestionData(args: Record<string, any>): QuestionData {
+  public parseQuestionData(args: Record<string, unknown>): QuestionData {
     // Без заголовка — пусто: карточка возьмёт заголовок по коду на языке интерфейса (TASK-202.8).
     const title = typeof args.title === 'string' ? args.title : '';
-    let subtitle = args.question || args.prompt || args.subtitle || args.description || '';
+    let subtitle = String(args.question || args.prompt || args.subtitle || args.description || '');
     let isMultiSelect = Boolean(args.is_multi_select || args.isMultiSelect || args.multiple);
-    let rawOptions: any[] = [];
+    let rawOptions: unknown[] = [];
 
     if (Array.isArray(args.questions) && args.questions.length > 0) {
-      const q0 = args.questions[0];
-      if (q0.question) subtitle = q0.question;
+      const q0 = args.questions[0] as { question?: unknown; is_multi_select?: unknown; options?: unknown };
+      if (q0.question) subtitle = String(q0.question);
       if (q0.is_multi_select !== undefined) isMultiSelect = Boolean(q0.is_multi_select);
       if (Array.isArray(q0.options)) rawOptions = q0.options;
     } else if (Array.isArray(args.options)) {
@@ -1284,10 +1299,12 @@ class ClaudeBridgeService extends EventEmitter {
           description: undefined
         };
       } else if (typeof opt === 'object' && opt !== null) {
+        const o = opt as Record<string, unknown>;
+        const description = o.description || o.desc || o.detail;
         return {
-          id: opt.id || `opt-${idx}`,
-          label: opt.label || opt.text || opt.title || opt.name || `Option ${idx + 1}`,
-          description: opt.description || opt.desc || opt.detail
+          id: String(o.id || `opt-${idx}`),
+          label: String(o.label || o.text || o.title || o.name || `Option ${idx + 1}`),
+          description: description ? String(description) : undefined
         };
       }
       return {
@@ -1301,7 +1318,7 @@ class ClaudeBridgeService extends EventEmitter {
       subtitle,
       options,
       isMultiSelect,
-      allowOther: args.allowOther ?? true
+      allowOther: args.allowOther === undefined || args.allowOther === null ? true : Boolean(args.allowOther)
     };
   }
 
@@ -1389,7 +1406,7 @@ class ClaudeBridgeService extends EventEmitter {
       if (this.activeSessions.has(sessionId)) {
         this.finishSession(sessionId, projectPath, 'aborted', 'Session aborted by the user');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.failStudioSession(sessionId, projectPath, err, onError);
     }
   }
@@ -1592,9 +1609,9 @@ class ClaudeBridgeService extends EventEmitter {
           }
         }
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       cleanupHitl();
-      this.failStudioSession(sessionId, projectPath, new AppError('studio.cliStartFailed', { detail: err?.message || String(err) }), onError);
+      this.failStudioSession(sessionId, projectPath, new AppError('studio.cliStartFailed', { detail: errorMessage(err) }), onError);
       return;
     }
 
@@ -1800,8 +1817,8 @@ class ClaudeBridgeService extends EventEmitter {
     try {
       child.stdin.write(lastUserMessage, 'utf-8');
       child.stdin.end();
-    } catch (err: any) {
-      failSession(new AppError('studio.cliStdinFailed', { detail: err?.message || String(err) }));
+    } catch (err: unknown) {
+      failSession(new AppError('studio.cliStdinFailed', { detail: errorMessage(err) }));
       killProcessTree(child);
     }
   }
