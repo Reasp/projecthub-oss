@@ -1,3 +1,5 @@
+import { pluralRu } from '../plural';
+
 /** Раздел словаря «fleet»: «Обзор» — компьютеры, проекты и сессии всех ПК телефона (TASK-174, TASK-181). */
 export const en = {
   title: 'Computers',
@@ -49,7 +51,10 @@ export const en = {
   introduceAction: 'Introduce computers',
   introduceSheetHint: 'Each computer gets full access to the ones listed next to it, as this phone has. You can revoke it in Remote Control → Devices on that computer.',
   introducePair: (to: string, peer: string) => `${to} will see ${peer}`,
-  introduceConfirm: 'Introduce',
+  introduceConfirmCount: (n: number) => (n === 1 ? 'Introduce 1 pair' : `Introduce ${n} pairs`),
+  introduceSkipAll: 'Do not suggest these',
+  introduceUncheckHint: 'Unchecked pairs are not suggested again until the set of computers changes.',
+  introduceVia: (name: string, via: string) => `${name} is reached through ${via}`,
   introduceRunning: (done: number, total: number) => `Introducing… ${done} of ${total}`,
   introduceDone: (added: number) => `Done: ${added} added`,
   introduceFailed: (pair: string, error: string) => `${pair}: ${error}`,
@@ -103,7 +108,10 @@ export const ru: typeof en = {
   introduceAction: 'Познакомить компьютеры',
   introduceSheetHint: 'Каждый компьютер получит полный доступ к указанному рядом, как у этого телефона. Отозвать доступ можно в Remote Control → Устройства на том компьютере.',
   introducePair: (to, peer) => `${to} увидит ${peer}`,
-  introduceConfirm: 'Познакомить',
+  introduceConfirmCount: (n) => `Познакомить ${n} ${pluralRu(n, 'пару', 'пары', 'пар')}`,
+  introduceSkipAll: 'Больше не предлагать',
+  introduceUncheckHint: 'Снятые пары не предлагаются снова, пока не изменится набор компьютеров.',
+  introduceVia: (name, via) => `${name} доступен через ${via}`,
   introduceRunning: (done, total) => `Знакомлю… ${done} из ${total}`,
   introduceDone: (added) => `Готово: добавлено ${added}`,
   introduceFailed: (pair, error) => `${pair}: ${error}`,

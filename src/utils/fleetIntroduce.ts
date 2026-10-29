@@ -14,6 +14,8 @@ export interface IntroduceHost {
   id: string;
   hostId: string;
   name: string;
+  /** Имя ПК, через который телефон видит этот (federation), — пометка в строке пары (TASK-232). */
+  via?: string;
 }
 
 /** `to` получает `peer` пиром hub-режима. */
@@ -57,6 +59,69 @@ export function planIntroductions(hosts: IntroduceHost[], paired: Record<string,
     }
   }
   return pairs;
+}
+
+/** Ключ пары по `hostId`: профили телефона меняются при повторном сопряжении, ПК — нет. */
+export function introducePairKey(pair: IntroducePair): string {
+  return `${pair.to.hostId}>${pair.peer.hostId}`;
+}
+
+/** Ключ набора ПК для перепроверки пар: меняется, когда ПК появляется или пропадает. */
+export function introduceHostSetKey(hosts: readonly Pick<IntroduceHost, 'hostId'>[]): string {
+  return [...new Set(hosts.map((h) => h.hostId))].sort().join('|');
+}
+
+/**
+ * Пары, которые человек снял в листе знакомства (TASK-232), и ПК, которые он при этом видел. Хранится на телефоне.
+ * Снятие действует, пока на связи нет ПК, которого не было в `hosts`: ПК, ушедший в сон, решения не отменяет, новый — отменяет.
+ */
+export interface DismissedIntroductions {
+  hosts: string[];
+  pairs: string[];
+}
+
+function strings(value: unknown): string[] | null {
+  return Array.isArray(value) ? value.filter((p): p is string => typeof p === 'string') : null;
+}
+
+/** Запись из хранилища; повреждённая — `null`. */
+export function parseDismissedIntroductions(value: unknown): DismissedIntroductions | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  const hosts = strings(v.hosts);
+  const pairs = strings(v.pairs);
+  return hosts && pairs ? { hosts, pairs } : null;
+}
+
+function stillApplies(dismissed: DismissedIntroductions | null, hostIds: readonly string[]): dismissed is DismissedIntroductions {
+  if (!dismissed) return false;
+  const seen = new Set(dismissed.hosts);
+  return hostIds.every((id) => seen.has(id));
+}
+
+/** Пары к показу: снятые не предлагаются снова, пока не появится новый ПК. `hostIds` — ПК, которые видны сейчас. */
+export function offeredIntroductions(pairs: IntroducePair[], hostIds: readonly string[], dismissed: DismissedIntroductions | null): IntroducePair[] {
+  if (!stillApplies(dismissed, hostIds)) return pairs;
+  const skip = new Set(dismissed.pairs);
+  return pairs.filter((p) => !skip.has(introducePairKey(p)));
+}
+
+/**
+ * Что запомнить, когда человек закрыл лист или нажал «Познакомить»: снятые сейчас пары плюс снятые раньше, если прежнее
+ * решение ещё действует. После появления нового ПК прежние снятия забываются — он мог поменять решение человека.
+ */
+export function rememberDismissed(
+  offered: IntroducePair[],
+  unchecked: ReadonlySet<string>,
+  hostIds: readonly string[],
+  previous: DismissedIntroductions | null
+): DismissedIntroductions {
+  const keep = stillApplies(previous, hostIds);
+  const now = offered.map(introducePairKey).filter((k) => unchecked.has(k));
+  return {
+    hosts: [...new Set([...(keep ? previous.hosts : []), ...hostIds])].sort(),
+    pairs: [...new Set([...(keep ? previous.pairs : []), ...now])]
+  };
 }
 
 /**
