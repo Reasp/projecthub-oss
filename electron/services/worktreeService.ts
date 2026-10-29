@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { AppError, appErrorFields } from '../../src/lib/appError.js';
 import { simpleGit } from 'simple-git';
+import { errorMessage } from './errorMessage.js';
 import matter from 'gray-matter';
 import type {
   GitWorktreeInfo,
@@ -416,7 +417,7 @@ export class WorktreeService {
           return { success: true, renumbered };
         }
         return { success: true };
-      } catch (mergeErr: any) {
+      } catch (mergeErr: unknown) {
         const conflictStatus = await git.status();
         const conflictedFiles = conflictStatus.conflicted || [];
 
@@ -446,7 +447,7 @@ export class WorktreeService {
           ...failure
         };
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`[WorktreeService] Failed to merge ${worktreeBranch} into ${targetBranch}:`, err);
       if (switchedBranch && originalBranch) {
         try {
@@ -473,9 +474,9 @@ export class WorktreeService {
       const git = this.getGit(projectPath);
       await git.raw(['checkout', branch, '--', ...filePaths]);
       return { success: true, files: filePaths };
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`[WorktreeService] Failed to checkout files from ${branch}:`, err);
-      return { success: false, error: err?.message || String(err) };
+      return { success: false, error: errorMessage(err) };
     }
   }
 
@@ -619,8 +620,8 @@ export class WorktreeService {
         } else {
           errors.push(`Failed to remove worktree ${wtPath}`);
         }
-      } catch (err: any) {
-        errors.push(`Error removing worktree ${wtPath}: ${err?.message || err}`);
+      } catch (err: unknown) {
+        errors.push(`Error removing worktree ${wtPath}: ${errorMessage(err)}`);
       }
     }
 
@@ -628,8 +629,8 @@ export class WorktreeService {
       try {
         await git.deleteLocalBranch(b, true);
         removedBranches.push(b);
-      } catch (err: any) {
-        errors.push(`Failed to delete branch ${b}: ${err?.message || err}`);
+      } catch (err: unknown) {
+        errors.push(`Failed to delete branch ${b}: ${errorMessage(err)}`);
       }
     }
 

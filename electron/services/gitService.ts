@@ -2,7 +2,8 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
-import { simpleGit } from 'simple-git';
+import { simpleGit, type StatusResult } from 'simple-git';
+import { errorMessage } from './errorMessage.js';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { BrowserWindow } from 'electron';
 import type { BacklogRenumbering, BacklogRenumberSummary, GitCommit, GitFileStatus, GitRepoDetails, MergeOptions } from '../../src/types/electron';
@@ -522,7 +523,7 @@ class GitService {
       await git.merge([branchName]);
       this.broadcastGitChanged(projectPath);
       return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`Failed to merge ${branchName}:`, e);
       // При конфликте слияние остаётся незавершённым, как и без перенумерации: MERGE_HEAD держит коммит, таблица
       // замен — в MERGE_MSG. Временную ветку можно убрать.
@@ -596,9 +597,9 @@ class GitService {
       await git.pull();
       this.broadcastGitChanged(projectPath);
       return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`Failed to pull for ${projectPath}:`, e);
-      return { success: false, error: e?.message || String(e) };
+      return { success: false, error: errorMessage(e) };
     }
   }
 
@@ -608,9 +609,9 @@ class GitService {
       await git.push();
       this.broadcastGitChanged(projectPath);
       return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`Failed to push for ${projectPath}:`, e);
-      return { success: false, error: e?.message || String(e) };
+      return { success: false, error: errorMessage(e) };
     }
   }
 
@@ -689,7 +690,7 @@ class GitService {
     }
   }
 
-  async getStatus(projectPath: string): Promise<any> {
+  async getStatus(projectPath: string): Promise<StatusResult | null> {
     try {
       if (!existsSync(path.join(projectPath, '.git'))) return null;
       const git = simpleGit(projectPath);
