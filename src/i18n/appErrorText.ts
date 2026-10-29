@@ -30,6 +30,7 @@ const EN = {
   // Подключения к сервисам (decision-102).
   'connections.notFound': 'Connection {id} not found',
   'connections.unknownService': 'Unknown service: {service}',
+  'connections.serviceSlackApp': 'Slack: buttons (Socket Mode)',
   'connections.methodUnsupported': '{service} does not support this sign-in method',
   'connections.invalidMethod': 'Invalid sign-in method',
   'connections.urlRequired': 'Enter the service address',
@@ -1014,6 +1015,7 @@ export const appErrorTextRu: AppErrorLabels = {
   'accounts.processEnvMissing': 'ProjectHub запущен без переменной CLAUDE_CONFIG_DIR.',
   'connections.notFound': 'Подключение {id} не найдено',
   'connections.unknownService': 'Неизвестный сервис: {service}',
+  'connections.serviceSlackApp': 'Slack: кнопки (Socket Mode)',
   'connections.methodUnsupported': '{service} не поддерживает этот способ входа',
   'connections.invalidMethod': 'Неверный способ входа',
   'connections.urlRequired': 'Укажите адрес сервиса',

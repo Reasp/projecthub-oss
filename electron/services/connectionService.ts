@@ -7,6 +7,7 @@ import {
   findConnectionService,
   normalizeBaseUrl,
   resolveScopes,
+  serviceLabelParam,
   webhookTarget,
   type ConnectionServiceDef,
   type OAuthSpec
@@ -421,7 +422,7 @@ export class ConnectionService {
   private prepareInput(input: ConnectionInput): { service: ConnectionServiceDef; baseUrl: string } {
     const service = findConnectionService(String(input?.serviceId ?? ''));
     if (!service) throw new AppError('connections.unknownService', { service: String(input?.serviceId ?? '') });
-    if (!service.methods.includes(input.method)) throw new AppError('connections.methodUnsupported', { service: service.label });
+    if (!service.methods.includes(input.method)) throw new AppError('connections.methodUnsupported', { service: serviceLabelParam(service) });
     const base = normalizeBaseUrl(input.baseUrl, service.defaultBaseUrl);
     if (!base.ok) {
       throw new AppError(
@@ -429,7 +430,7 @@ export class ConnectionService {
       );
     }
     if (!service.selfHosted && service.defaultBaseUrl && base.baseUrl !== service.defaultBaseUrl) {
-      throw new AppError('connections.cloudOnly', { service: service.label });
+      throw new AppError('connections.cloudOnly', { service: serviceLabelParam(service) });
     }
     return { service, baseUrl: base.baseUrl };
   }
@@ -484,7 +485,7 @@ export class ConnectionService {
     try {
       // Вебхук (Teams Workflows) проверяется по форме адреса: пробный запрос опубликовал бы сообщение в канал.
       const hook = service.webhookHosts ? webhookTarget(service, token) : undefined;
-      if (hook === null) throw new AppError('connections.webhookRequired', { service: service.label });
+      if (hook === null) throw new AppError('connections.webhookRequired', { service: serviceLabelParam(service) });
       const verified = hook
         ? { rejected: false, account: { login: hook.hostname.split('.')[0] } }
         : await this.fetchAccount(service, baseUrl, authorizationHeader(service, input.method, secret, username));
@@ -521,13 +522,13 @@ export class ConnectionService {
     if (input.method !== 'oauth-browser' && input.method !== 'oauth-device') throw new AppError('connections.invalidMethod');
     const { service, baseUrl } = this.prepareInput(input);
     const spec = service.oauth;
-    if (!spec) throw new AppError('connections.oauthUnsupported', { service: service.label });
+    if (!spec) throw new AppError('connections.oauthUnsupported', { service: serviceLabelParam(service) });
     const existing = reconnectId ? await this.getRecord(reconnectId) : undefined;
     const existingSecret = reconnectId ? await this.readSecret(reconnectId) : null;
     const clientId = String(input.clientId ?? '').trim() || existing?.oauthClientId || service.builtinClientId || '';
     if (!clientId) throw new AppError('connections.clientIdRequired');
     const clientSecret = String(input.clientSecret ?? '').trim() || existingSecret?.clientSecret || undefined;
-    if (service.clientSecretRequired[input.method] && !clientSecret) throw new AppError('connections.clientSecretRequired', { service: service.label });
+    if (service.clientSecretRequired[input.method] && !clientSecret) throw new AppError('connections.clientSecretRequired', { service: serviceLabelParam(service) });
     if (clientSecret) registerSensitiveValue(clientSecret);
     let released = false;
     const releaseClientSecret = () => {
@@ -875,7 +876,7 @@ export class ConnectionService {
     if (target && target !== '/') throw new AppError('connections.webhookPathNotAllowed');
     const secret = await this.freshSecret(record);
     const url = webhookTarget(service, secret.token);
-    if (!url) throw new AppError('connections.webhookInvalid', { service: service.label });
+    if (!url) throw new AppError('connections.webhookInvalid', { service: serviceLabelParam(service) });
     try {
       return await this.deps.fetch(url.toString(), { ...init, redirect: 'manual' });
     } catch (err) {

@@ -2,7 +2,6 @@ import { PrHostingError, describeHttpError, type PrHttp } from './prHosting.js';
 import { MATTERMOST_ALLOW_EMOJI, MATTERMOST_DENY_EMOJI, mattermostHitlMessage, slackHitlBlocks, slackResolvedBlocks } from './chatButtons.js';
 import type { Language } from '../../src/i18n/types.js';
 import { hostText } from '../i18n/hostText.js';
-import { getHostLanguage } from './hostLanguage.js';
 import { AppError } from '../../src/lib/appError.js';
 
 /**
@@ -56,7 +55,8 @@ export interface ChatAdapter {
   append(http: PrHttp, ref: ChatMessageRef, message: ChatMessage, line: string): Promise<void>;
   /** Сообщение только этому человеку: почему его нажатие не применено. */
   notifyUser?(http: PrHttp, channel: string, userId: string, text: string): Promise<void>;
-  listTargets(http: PrHttp): Promise<ChatTarget[]>;
+  /** Подписи каналов — на языке интерфейса хоста, его передаёт сервис (`lang`); без него — английский. */
+  listTargets(http: PrHttp, lang?: Language): Promise<ChatTarget[]>;
 }
 
 function obj(v: unknown): Record<string, unknown> {
@@ -130,12 +130,12 @@ export const slackChatAdapter: ChatAdapter = {
   async notifyUser(http, channel, userId, note) {
     await slackCall(http, 'chat.postEphemeral', { channel, user: userId, text: slackEscape(note) });
   },
-  async listTargets(http) {
+  async listTargets(http, lang) {
     const json = await slackCall(http, 'conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200');
     return arr(json.channels)
       .map(obj)
       .filter((c) => text(c.id))
-      .map((c) => ({ id: text(c.id), name: `#${text(c.name) || text(c.id)}${c.is_member === false ? hostText(getHostLanguage()).chat.botNotInChannel : ''}` }));
+      .map((c) => ({ id: text(c.id), name: `#${text(c.name) || text(c.id)}${c.is_member === false ? hostText(lang ?? 'en').chat.botNotInChannel : ''}` }));
   }
 };
 
@@ -225,8 +225,8 @@ export const teamsChatAdapter: ChatAdapter = {
   async append() {
     // нечего править: у сообщения Workflows нет id
   },
-  async listTargets() {
-    return [{ id: 'workflow', name: hostText(getHostLanguage()).chat.workflowChannel }];
+  async listTargets(_http, lang) {
+    return [{ id: 'workflow', name: hostText(lang ?? 'en').chat.workflowChannel }];
   }
 };
 

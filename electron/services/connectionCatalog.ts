@@ -4,6 +4,7 @@ import type {
   ConnectionServiceInfo,
   ConnectionSecret
 } from './connectionTypes.js';
+import type { AppErrorParam } from '../../src/lib/appError.js';
 
 /**
  * Каталог сервисов слоя подключений (decision-102 п. 3): способы входа, адреса OAuth, как передавать
@@ -346,6 +347,14 @@ export function webhookTarget(service: ConnectionServiceDef, token: string): URL
   } catch {
     return null;
   }
+}
+
+/**
+ * Подпись сервиса в тексте ошибки: имя продукта (GitHub, Slack) не переводится, а описательная подпись — кодом из
+ * словаря ошибок, чтобы окно и телефон показали её на своём языке (ревью TASK-240).
+ */
+export function serviceLabelParam(service: Pick<ConnectionServiceDef, 'id' | 'label'>): AppErrorParam {
+  return service.id === 'slack-app' ? { code: 'connections.serviceSlackApp' } : service.label;
 }
 
 export function findConnectionService(id: string): ConnectionServiceDef | undefined {

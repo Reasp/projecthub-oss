@@ -353,7 +353,7 @@ export class ChatService {
   async listTargets(kind: ChatKind, connectionId: string): Promise<ChatTarget[]> {
     const adapter = findChatAdapter(kind);
     if (!adapter) throw new AppError('chat.telegramNoList');
-    return adapter.listTargets((target, init) => this.deps.connections.authorizedFetch(connectionId, target, init));
+    return adapter.listTargets((target, init) => this.deps.connections.authorizedFetch(connectionId, target, init), this.lang());
   }
 
   /** Использования подключений — для окна «Подключения» (decision-102 п. 7). */
