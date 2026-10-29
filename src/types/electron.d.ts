@@ -3743,6 +3743,7 @@ export interface AgentSlotState {
   stashHash?: string;
   commitStatus?: 'committed' | 'stashed' | 'no_changes' | 'pending';
   lastCommitHash?: string;
+  resultRef?: string;
   resumeCount?: number;
   /** `session_id` Claude CLI для `--resume` в цикле «до готовности» (TASK-75). */
   cliSessionId?: string;

@@ -121,6 +121,8 @@ export interface AgentSlotState {
   commitHash?: string;
   stashHash?: string;
   lastCommitHash?: string;
+  /** Ref с результатом агента, записанный перед удалением worktree (decision-8 п. 5, TASK-237). */
+  resultRef?: string;
   commitStatus?: 'committed' | 'stashed' | 'no_changes' | 'pending';
   /** Хвост логов (кольцевой буфер); полный транскрипт — в файле. */
   logs: string[];

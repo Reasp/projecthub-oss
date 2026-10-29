@@ -6,6 +6,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import treeKill from 'tree-kill';
 import simpleGit from 'simple-git';
 import { worktreeService } from './worktreeService.js';
+import { agentResultRef, resultToKeep } from './agentResultRefs.js';
 import { aiAgentService, type AIProviderConfig, type AIMessage, type StreamToolBoundary } from './aiAgentService.js';
 import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService } from './claudeAccountService.js';
@@ -1391,6 +1392,47 @@ export class AgentFleetService extends EventEmitter {
   }
 
   /**
+   * Результат агента в ref `refs/projecthub/results/<сессия>/<агент>` перед удалением worktree и ветки (decision-8 п. 5,
+   * TASK-237). Каталога нет — сохраняется вершина ветки агента. Изменения не зафиксированы и снимка нет (коммит отклонил
+   * хук, авто-коммит выключен) — делается запасной снимок. `false` — сохранить не удалось: worktree и ветку не удалять.
+   */
+  private async preserveAgentResult(session: SwarmSession, agent: AgentSlotState): Promise<boolean> {
+    const ref = agentResultRef(session.id, agent.id);
+    try {
+      if (!agent.worktreePath || !this.pathExists(agent.worktreePath)) {
+        if (!agent.worktreeBranch) return true;
+        const repo = simpleGit(session.projectPath);
+        const tip = (await repo.raw(['rev-parse', '--verify', '--quiet', `refs/heads/${agent.worktreeBranch}`]).catch(() => '')).trim();
+        if (!tip) return true;
+        await repo.raw(['update-ref', ref, tip]);
+        agent.resultRef = ref;
+        this.log(session, agent, `[Swarm] Result preserved in ${ref} (${tip.slice(0, 7)}) from branch ${agent.worktreeBranch}.`);
+        return true;
+      }
+      const git = this.getWorktreeGit(agent.worktreePath);
+      const head = (await git.raw(['rev-parse', 'HEAD']).catch(() => '')).trim();
+      const dirty = (await git.raw(['status', '--porcelain'])).trim().length > 0;
+      let stashHash = agent.stashHash;
+      if (dirty && !stashHash) {
+        await git.raw(['add', '-A']).catch(() => '');
+        stashHash = (await git.raw(['stash', 'create', `ProjectHub: result of ${agent.id} before cleanup`]).catch(() => '')).trim() || undefined;
+      }
+      const keep = resultToKeep({ head, dirty, ...(stashHash ? { stashHash } : {}) });
+      if (!keep) {
+        this.log(session, agent, `[Swarm] Worktree ${agent.worktreePath} kept: uncommitted changes and no snapshot to preserve them.`);
+        return false;
+      }
+      await git.raw(['update-ref', ref, keep]);
+      agent.resultRef = ref;
+      this.log(session, agent, `[Swarm] Result preserved in ${ref} (${keep.slice(0, 7)}).`);
+      return true;
+    } catch (err) {
+      console.warn(`[AgentFleetService] Failed to preserve the result of ${agent.id}:`, err);
+      return false;
+    }
+  }
+
+  /**
    * Закрытие сессии с очисткой: остановка процессов, удаление worktree и временных веток,
    * удаление файлов состояния и транскриптов.
    */
@@ -1422,10 +1464,10 @@ export class AgentFleetService extends EventEmitter {
           continue;
         }
         try {
-          if (this.pathExists(agent.worktreePath)) {
-            await this.materializeAgentResult(session, agent);
-            await worktreeService.removeWorktree(session.projectPath, agent.worktreePath, true);
-          }
+          if (this.pathExists(agent.worktreePath)) await this.materializeAgentResult(session, agent);
+          // Результат — в ref до удаления каталога и ветки; не удалось — оба остаются (decision-8 п. 5).
+          if (!(await this.preserveAgentResult(session, agent))) continue;
+          if (this.pathExists(agent.worktreePath)) await worktreeService.removeWorktree(session.projectPath, agent.worktreePath, true);
           const branch = agent.worktreeBranch;
           if (branch && (branch.startsWith('swarm/') || branch.startsWith('handoff/'))) {
             try {
@@ -4166,6 +4208,8 @@ export class AgentFleetService extends EventEmitter {
     if (session.useWorktrees) {
       for (const agent of session.agents) {
         if (agent.id !== winnerAgentId && agent.worktreePath) {
+          // Личный worktree участника общий для его агентов и живёт дольше сессии — его не удаляем (как в discardSwarm).
+          if (session.memberWorktree && normalizeFsPath(agent.worktreePath) === normalizeFsPath(session.memberWorktree.path)) continue;
           try {
             if (this.pathExists(agent.worktreePath)) {
               await this.materializeAgentResult(session, agent);
@@ -4178,6 +4222,8 @@ export class AgentFleetService extends EventEmitter {
               } catch { /* ignore */ }
             }
 
+            // Нечего сохранить в ref — каталог и ветка проигравшего остаются (decision-8 п. 5).
+            if (!(await this.preserveAgentResult(session, agent))) continue;
             await worktreeService.removeWorktree(session.projectPath, agent.worktreePath, true);
             this.log(session, agent, `[Swarm] Temporary working tree ${agent.worktreePath} cleaned up.`);
 
@@ -4293,6 +4339,8 @@ export class AgentFleetService extends EventEmitter {
   ): Promise<void> {
     const targetPath = agentState.worktreePath;
     if (!targetPath || !this.pathExists(targetPath)) return;
+    // Прежний снимок описывает старое состояние: если новый не получится, сохранить надо не его (TASK-237).
+    agentState.stashHash = undefined;
 
     try {
       const git = this.getWorktreeGit(targetPath);
