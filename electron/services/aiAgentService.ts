@@ -1,5 +1,6 @@
 import { hostText } from '../i18n/hostText.js';
 import { getHostLanguage } from './hostLanguage.js';
+import { errorMessage } from './errorMessage.js';
 import fs from 'node:fs/promises';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -117,9 +118,9 @@ export interface AIProviderConfig {
 export interface AIToolCall {
   id: string;
   name: string;
-  args: Record<string, any>;
+  args: Record<string, unknown>;
   status?: 'pending' | 'accepted' | 'rejected' | 'running' | 'done' | 'error';
-  result?: any;
+  result?: unknown;
   diff?: {
     filePath: string;
     oldContent: string;
@@ -182,7 +183,7 @@ export interface AIStreamRequest {
 export interface StreamChatComputerTool {
   name: string;
   description: string;
-  inputSchema: Record<string, any>;
+  inputSchema: Record<string, unknown>;
 }
 
 /**
@@ -832,8 +833,8 @@ class AIAgentService {
         timestamp: new Date().toISOString(),
         ...(loop.usage ? { usage: loop.usage } : {})
       });
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
+    } catch (err: unknown) {
+      if ((err as { name?: unknown } | null)?.name === 'AbortError') {
         const cancelled = hostText(getHostLanguage()).studio.cancelledByUser;
         onChunk({ text: `\n\n${cancelled}` });
         // Вызовы инструментов не передаются: окно оставляет те, что уже пришли чанками.
@@ -847,7 +848,7 @@ class AIAgentService {
         });
       } else {
         const info = toProviderErrorInfo(err, { provider: req.config.provider, ...(req.config.model ? { model: req.config.model } : {}) });
-        const message = info?.message || err?.message || String(err);
+        const message = info?.message || errorMessage(err);
         // Ключ в сообщение не попадает: адрес очищен, заголовки авторизации вырезаны (providerErrors.ts).
         logger.warn(`[aiAgentService] Сессия ${req.sessionId}: ${info ? describeProviderErrorBrief(info) : 'ошибка'} — ${message}`);
         onError(message, info);
@@ -1161,7 +1162,7 @@ class AIAgentService {
             }
           } else if (parsed.type === 'content_block_stop') {
             if (currentTool) {
-              let args: Record<string, any> = {};
+              let args: Record<string, unknown> = {};
               try {
                 args = JSON.parse(currentTool.argsStr || '{}');
               } catch (e) {
@@ -1176,21 +1177,24 @@ class AIAgentService {
               };
 
               // Prepare diff if write_file
-              if (currentTool.name === 'write_file' && args.filePath && args.content) {
+              // Аргументы — ответ модели: строки проверяются, а не предполагаются.
+              const writePath = typeof args.filePath === 'string' ? args.filePath : '';
+              const writeContent = typeof args.content === 'string' ? args.content : '';
+              if (currentTool.name === 'write_file' && writePath && writeContent) {
                 // Старое содержимое читаем только внутри проекта; путь вне корня отклонит applyDiff.
                 const workDir = req.workspaceRoot?.trim() || req.projectPath;
-                const targetPath = isInsideProject(workDir, args.filePath)
-                  ? path.resolve(workDir, args.filePath)
+                const targetPath = isInsideProject(workDir, writePath)
+                  ? path.resolve(workDir, writePath)
                   : null;
                 let oldContent = '';
                 if (targetPath && existsSync(targetPath)) {
                   oldContent = await fs.readFile(targetPath, 'utf-8').catch(() => '');
                 }
                 toolCall.diff = {
-                  filePath: args.filePath,
+                  filePath: writePath,
                   oldContent,
-                  newContent: args.content,
-                  patch: this.generateDiff(oldContent, args.content, args.filePath)
+                  newContent: writeContent,
+                  patch: this.generateDiff(oldContent, writeContent, writePath)
                 };
               }
 
