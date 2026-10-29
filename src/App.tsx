@@ -228,7 +228,7 @@ export const App: React.FC = () => {
           setActiveTab('ai');
           showRemoteToast(t.app.remoteStudioPrompt);
           if (sendImmediately) {
-            useAIStudioStore.getState().sendMessage(selectedProject.path, prompt);
+            useAIStudioStore.getState().sendMessage(selectedProject.path, prompt, { fromRemote: true });
           }
         }
       } else if (action.type === 'approve_action') {

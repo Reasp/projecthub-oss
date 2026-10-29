@@ -39,10 +39,15 @@ export function firstUserPrompt(head: string): string {
     }
     if (entry.type !== 'user' || entry.isMeta === true) continue;
     const content = entry.message?.content;
+    // Служебные части (`<ide_opened_file>`, напоминания CLI) идут отдельными элементами массива — их пропускаем,
+    // а не всю реплику: заголовок — текст человека после них.
     const text = typeof content === 'string'
       ? content
       : Array.isArray(content)
-        ? content.map((part: { type?: unknown; text?: unknown }) => (part?.type === 'text' && typeof part.text === 'string' ? part.text : '')).join(' ')
+        ? content
+            .map((part: { type?: unknown; text?: unknown }) => (part?.type === 'text' && typeof part.text === 'string' ? part.text.trim() : ''))
+            .filter((part) => part && !part.startsWith('<'))
+            .join(' ')
         : '';
     const clean = text.replace(/\s+/g, ' ').trim();
     if (!clean || clean.startsWith('<')) continue;
@@ -51,33 +56,39 @@ export function firstUserPrompt(head: string): string {
   return '';
 }
 
-/** Папка сессий рабочего каталога; регистр буквы диска и путей на Windows не важен. */
-async function sessionsDir(configDir: string, cwd: string): Promise<string | null> {
-  const root = path.join(configDir, 'projects');
-  const want = encodeProjectDir(cwd);
-  let names: string[];
-  try {
-    names = await fs.readdir(root);
-  } catch {
-    return null;
+/** Длиннее — Claude Code обрезает имя до 200 символов и дописывает `-<хэш пути>`. */
+const MAX_DIR_NAME = 200;
+
+/**
+ * Имена папок сессий рабочего каталога среди `names`; регистр буквы диска и путей на Windows не важен. Для длинного
+ * пути хэш Claude Code не повторяем: подходят все папки с тем же обрезанным началом и `-` после него.
+ */
+export function matchSessionDirs(names: readonly string[], cwd: string): string[] {
+  const want = encodeProjectDir(cwd).toLowerCase();
+  if (want.length <= MAX_DIR_NAME) {
+    const exact = names.find((n) => n.toLowerCase() === want);
+    return exact ? [exact] : [];
   }
-  const exact = names.find((n) => n === want) ?? names.find((n) => n.toLowerCase() === want.toLowerCase());
-  return exact ? path.join(root, exact) : null;
+  const prefix = `${want.slice(0, MAX_DIR_NAME)}-`;
+  return names.filter((n) => n.toLowerCase().startsWith(prefix) && /^[a-z0-9]+$/i.test(n.slice(prefix.length)));
 }
 
 export async function listCliSessions(configDir: string, cwd: string): Promise<CliSessionSummary[]> {
-  const dir = await sessionsDir(configDir, cwd);
-  if (!dir) return [];
-  const files = (await fs.readdir(dir).catch(() => [] as string[])).filter((n) => SESSION_FILE_RE.test(n));
+  const root = path.join(configDir, 'projects');
+  const names = await fs.readdir(root).catch(() => [] as string[]);
+  const dirs = matchSessionDirs(names, cwd).map((n) => path.join(root, n));
+  const files = (
+    await Promise.all(dirs.map(async (dir) => (await fs.readdir(dir).catch(() => [] as string[])).filter((n) => SESSION_FILE_RE.test(n)).map((name) => ({ dir, name }))))
+  ).flat();
   const stats = await Promise.all(
-    files.map(async (name) => {
+    files.map(async ({ dir, name }) => {
       const stat = await fs.stat(path.join(dir, name)).catch(() => null);
-      return stat?.isFile() ? { name, mtime: stat.mtimeMs } : null;
+      return stat?.isFile() ? { dir, name, mtime: stat.mtimeMs } : null;
     })
   );
-  const recent = stats.filter((s): s is { name: string; mtime: number } => s !== null).sort((a, b) => b.mtime - a.mtime).slice(0, MAX_SESSIONS);
+  const recent = stats.filter((s): s is { dir: string; name: string; mtime: number } => s !== null).sort((a, b) => b.mtime - a.mtime).slice(0, MAX_SESSIONS);
   return Promise.all(
-    recent.map(async ({ name, mtime }) => {
+    recent.map(async ({ dir, name, mtime }) => {
       let head = '';
       const handle = await fs.open(path.join(dir, name), 'r').catch(() => null);
       if (handle) {

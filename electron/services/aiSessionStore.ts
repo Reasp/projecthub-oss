@@ -123,6 +123,7 @@ export function compactSessionForStorage(session: AISession): AISession {
     createdAt: typeof session.createdAt === 'number' ? session.createdAt : Date.now(),
     messages: Array.isArray(session.messages) ? session.messages.map(compactMessage) : [],
     ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),
+    ...(session.claudeCliSessionId && typeof session.claudeCliCwd === 'string' && session.claudeCliCwd ? { claudeCliCwd: session.claudeCliCwd.slice(0, 1000) } : {}),
     // История, источник и модель (TASK-140.10, decision-83): закрытая вкладка остаётся на диске в истории.
     ...(typeof session.archivedAt === 'number' ? { archivedAt: session.archivedAt } : {}),
     ...(session.origin === 'phone' || session.origin === 'desktop' ? { origin: session.origin } : {}),

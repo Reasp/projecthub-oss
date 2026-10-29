@@ -23,7 +23,8 @@ import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { upsertToolCall } from '../lib/aiToolCalls';
 import { effectiveSessionAgent, keepsClaudeCliSession, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
-import { studioCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
+import { goesToClaudeCli, studioCliCommand, unavailableCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
+import { studioCliText } from '../i18n/studioCliText';
 import { canWriteStudioSession } from '../utils/studioRemote';
 import { getDictionary } from '../i18n';
 import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib/studioSessionTitle';
@@ -102,7 +103,7 @@ interface AIStudioState {
   cliCommand: PendingCliCommand | null;
   clearCliCommand: () => void;
   /** Привязать вкладку к сессии Claude Code: следующее сообщение продолжит её через `--resume`. */
-  attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string) => void;
+  attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string, cwd: string) => void;
   /**
    * Повтор ответа, упавшего с ошибкой (TASK-70.6): сообщение пользователя и ответ с ошибкой убираются
    * из диалога, и сообщение отправляется заново — с текущими настройками провайдера и модели.
@@ -162,6 +163,8 @@ export type PendingCliCommand = StudioCliCommand & {
 export interface SendMessageOptions {
   /** Сессия, в которую идёт сообщение; по умолчанию — активная вкладка. */
   sessionId?: string;
+  /** Промпт пришёл с телефона в активную вкладку: диалогов слеш-команд на ПК нет, ответ — текстом в ленте. */
+  fromRemote?: boolean;
   /** Конфиг этого запроса (модель с телефона); глобальный выбор Agents Studio не меняется. */
   config?: AIProviderConfig;
   mode?: 'chat' | 'agent' | 'architect';
@@ -546,12 +549,14 @@ export const useAIStudioStore = create<AIStudioState>()(
 
       cliCommand: null,
       clearCliCommand: () => set({ cliCommand: null }),
-      attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string) => {
+      attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string, cwd: string) => {
         set((state) => ({
           cliCommand: null,
           sessions: {
             ...state.sessions,
-            [projectPath]: (state.sessions[projectPath] || []).map((s) => (s.id === sessionId ? { ...s, claudeCliSessionId: cliSessionId } : s))
+            [projectPath]: (state.sessions[projectPath] || []).map((s) =>
+              s.id === sessionId ? { ...s, claudeCliSessionId: cliSessionId, claudeCliCwd: cwd } : s
+            )
           }
         }));
       },
@@ -711,7 +716,14 @@ export const useAIStudioStore = create<AIStudioState>()(
         const claudeAccountId = requestConfig.provider === 'anthropic' ? sessionClaudeAccountId(currentSession.agent) : undefined;
         // Интерактивные команды Claude Code в `claude -p` не работают — Studio выполняет их сама (TASK-230). С телефона
         // (`opts.sessionId`) диалога нет: команда уходит в CLI как раньше.
-        const cli = opts.sessionId ? null : studioCliCommand(text, requestConfig);
+        // Папка — та, где идёт разговор CLI вкладки: после смены активного дерева сессия остаётся в своём каталоге.
+        const workspaceRoot = useProjectStore.getState().workspaceRoot || undefined;
+        const cliCwd = (currentSession.claudeCliSessionId && currentSession.claudeCliCwd) || workspaceRoot || projectPath;
+        const cli = opts.sessionId || opts.fromRemote ? null : studioCliCommand(text, requestConfig);
+        if (cli?.kind === 'resume' && cli.cliSessionId) {
+          get().attachCliSession(projectPath, activeSessionId, cli.cliSessionId, cliCwd);
+          return;
+        }
         if (cli) {
           set({
             cliCommand: {
@@ -720,7 +732,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               sessionId: activeSessionId,
               ...(claudeAccountId ? { claudeAccountId } : {}),
               ...(currentSession.claudeCliSessionId ? { cliSessionId: currentSession.claudeCliSessionId } : {}),
-              workspaceRoot: useProjectStore.getState().workspaceRoot || projectPath
+              workspaceRoot: cliCwd
             }
           });
           return;
@@ -788,6 +800,7 @@ export const useAIStudioStore = create<AIStudioState>()(
             const targetSession = { ...pSessions[sIdx] };
             if (chunk.claudeCliSessionId) {
               targetSession.claudeCliSessionId = chunk.claudeCliSessionId;
+              targetSession.claudeCliCwd = workspaceRoot || projectPath;
             }
 
             const msgs = [...targetSession.messages];
@@ -883,8 +896,11 @@ export const useAIStudioStore = create<AIStudioState>()(
               status: tc.status === 'running' || !tc.status ? (tc.diff ? 'pending' : 'done') : tc.status
             }));
 
+            // Встроенная команда, которую CLI без терминала отклонил, — свой текст на языке окна вместо английского ответа.
+            const rejected = goesToClaudeCli(requestConfig) ? unavailableCliCommand(completedMsg.content) : null;
             msgs[mIdx] = {
               ...completedMsg,
+              ...(rejected ? { content: studioCliText(useProjectStore.getState().language).terminalHint(rejected) } : {}),
               id: assistantMsgId,
               toolCalls: finalTools.length > 0 ? finalTools : undefined
             };
@@ -893,12 +909,27 @@ export const useAIStudioStore = create<AIStudioState>()(
 
             const newSessions = [...pSessions];
             newSessions[sIdx] = targetSession;
+            // В окне — сразу диалог с кнопкой терминала, как для команд из списка; с телефона — только текст.
+            const offerTerminal = rejected && !opts.sessionId && !opts.fromRemote;
 
             return {
               sessions: {
                 ...state.sessions,
                 [projectPath]: newSessions
               },
+              ...(offerTerminal
+                ? {
+                    cliCommand: {
+                      kind: 'terminal' as const,
+                      command: rejected,
+                      projectPath,
+                      sessionId: activeSessionId,
+                      ...(claudeAccountId ? { claudeAccountId } : {}),
+                      ...(targetSession.claudeCliSessionId ? { cliSessionId: targetSession.claudeCliSessionId } : {}),
+                      workspaceRoot: targetSession.claudeCliCwd || cliCwd
+                    }
+                  }
+                : {}),
               ...streamEnded(state)
             };
           });
@@ -973,7 +1004,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           taskId: currentSession.activeTaskId,
           contextParts: currentSession.contextParts,
           // Агент работает в активном рабочем дереве проекта (TASK-62, decision-15).
-          workspaceRoot: useProjectStore.getState().workspaceRoot || undefined,
+          workspaceRoot,
           ...(claudeAccountId ? { claudeAccountId } : {}),
           // Сессия участника: хост сам выберет его worktree и права (TASK-142.3).
           ...(currentSession.memberId ? { memberId: currentSession.memberId } : {})

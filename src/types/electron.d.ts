@@ -3178,6 +3178,8 @@ export interface AISession {
   createdAt: number;
   messages: AIMessage[];
   claudeCliSessionId?: string;
+  /** Папка, где начат разговор CLI (TASK-230): там его ищут `/resume` и терминал после смены активного дерева. */
+  claudeCliCwd?: string;
   /** Задача, привязанная к сессии (TASK-64) — по ней contextBuilder собирает контекст на каждое сообщение. */
   activeTaskId?: string;
   /** Какие части контекста включены; по умолчанию (без поля) — все. */
@@ -3345,6 +3347,8 @@ export interface CreatePtyOptions {
   claudeAccountId?: string;
   /** `claude --resume <id>` вместо новой сессии (TASK-230: продолжить разговор Studio в терминале). */
   resumeSessionId?: string;
+  /** Встроенная команда, которую CLI выполнит при старте (`claude … /remote-control`); только из списка команд терминала. */
+  startCommand?: string;
 }
 
 /** Сессия Claude Code рабочей папки (TASK-230, `/resume` в Studio). */

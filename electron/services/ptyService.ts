@@ -15,6 +15,7 @@ import {
 import type { PtySession, CreatePtyOptions } from '../../src/types/electron';
 import { getHostLanguage } from './hostLanguage.js';
 import { isCliSessionId } from './claudeCliSessions.js';
+import { isTerminalOnlyCommand } from '../../src/lib/studioCliCommands.js';
 import { hostText } from '../i18n/hostText.js';
 
 /** Команда входа в профиль аккаунта во встроенном терминале по движку профиля. */
@@ -129,8 +130,13 @@ class PtyService {
         args = ['-l', '-c', command];
       }
     } else if (options.type === 'claude') {
-      // Продолжение сессии Studio (TASK-230): id проверен форматом, в командную строку идёт только UUID.
-      const command = isCliSessionId(options.resumeSessionId) ? `claude --resume ${options.resumeSessionId}` : 'claude';
+      // Продолжение сессии Studio (TASK-230): id проверен форматом, команда — по списку; в командную строку идут
+      // только UUID и известное имя команды.
+      const command = [
+        'claude',
+        ...(isCliSessionId(options.resumeSessionId) ? ['--resume', options.resumeSessionId] : []),
+        ...(isTerminalOnlyCommand(options.startCommand) ? [`/${options.startCommand}`] : [])
+      ].join(' ');
       if (isWin) {
         // Use cmd.exe /c claude or powershell for maximum Windows compatibility
         shell = process.env.COMSPEC || 'cmd.exe';

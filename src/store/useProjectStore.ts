@@ -407,7 +407,7 @@ interface ProjectState {
     cwd?: string,
     worktreeBranch?: string,
     /** Продолжить сессию Claude Code вкладки Studio под её аккаунтом (TASK-230). */
-    claude?: { resumeSessionId?: string; claudeAccountId?: string }
+    claude?: { resumeSessionId?: string; claudeAccountId?: string; startCommand?: string }
   ) => Promise<PtySession | null>;
   closePtySessionAction: (sessionId: string) => Promise<boolean>;
   setActivePtySessionId: (id: string | null) => void;
@@ -1077,7 +1077,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     title?: string,
     cwd?: string,
     worktreeBranch?: string,
-    claude?: { resumeSessionId?: string; claudeAccountId?: string }
+    claude?: { resumeSessionId?: string; claudeAccountId?: string; startCommand?: string }
   ) => {
     if (!window.api?.createPtySession) return null;
     try {
@@ -1091,6 +1091,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         cwd: cwd || activeRoot || undefined,
         worktreeBranch,
         ...(claude?.resumeSessionId ? { resumeSessionId: claude.resumeSessionId } : {}),
+        ...(claude?.startCommand ? { startCommand: claude.startCommand } : {}),
         ...(claude?.claudeAccountId ? { claudeAccountId: claude.claudeAccountId } : {})
       });
       if (session) {

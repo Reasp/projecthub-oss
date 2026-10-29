@@ -20,6 +20,7 @@ export function CliCommandModal() {
   const clear = useAIStudioStore((s) => s.clearCliCommand);
   const attach = useAIStudioStore((s) => s.attachCliSession);
   const createPty = useProjectStore((s) => s.createPtySessionAction);
+  const selectedPath = useProjectStore((s) => s.selectedProject?.path);
   const [sessions, setSessions] = useState<CliSessionSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,19 +39,21 @@ export function CliCommandModal() {
   }, [command, t.appErrors]);
 
   useEffect(() => {
-    if (!command) return;
+    if (!command || command.projectPath !== selectedPath) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') clear();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [command, clear]);
+  }, [command, clear, selectedPath]);
 
-  if (!command) return null;
+  // Диалог принадлежит вкладке своего проекта: в Studio другого проекта он не висит поверх.
+  if (!command || command.projectPath !== selectedPath) return null;
 
   const openTerminal = async () => {
     await createPty(command.projectPath, 'claude', undefined, command.workspaceRoot, undefined, {
       ...(command.cliSessionId ? { resumeSessionId: command.cliSessionId } : {}),
+      ...(command.kind === 'terminal' ? { startCommand: command.command } : {}),
       ...(command.claudeAccountId ? { claudeAccountId: command.claudeAccountId } : {})
     });
     clear();
@@ -78,7 +81,7 @@ export function CliCommandModal() {
                   <li key={s.id}>
                     <button
                       type="button"
-                      onClick={() => attach(command.projectPath, command.sessionId, s.id)}
+                      onClick={() => attach(command.projectPath, command.sessionId, s.id, command.workspaceRoot)}
                       className="w-full text-left px-2 py-2 rounded hover:bg-secondary/50"
                       data-testid={`studio-cli-session-${s.id}`}
                     >

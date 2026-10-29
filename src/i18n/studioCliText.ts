@@ -13,7 +13,7 @@ const en = {
   attached: 'The next message continues this session.',
   terminalTitle: (command: string) => `/${command} needs a terminal`,
   terminalHint: (command: string) =>
-    `Agents Studio runs Claude Code without a terminal, and Claude Code does not offer /${command} there. Continue this conversation in a ProjectHub terminal and run /${command} in it.`,
+    `Agents Studio runs Claude Code without a terminal, and Claude Code does not offer /${command} there. “Continue in terminal” opens this conversation in a ProjectHub terminal and runs /${command} in it.`,
   remoteHint: 'To follow Agents Studio sessions from a phone, use ProjectHub Remote Control: the phone sees them without a terminal.',
   noSession: 'This tab has no Claude Code session yet — the terminal starts a new one.',
   openTerminal: 'Continue in terminal',
@@ -32,7 +32,7 @@ const ru: StudioCliText = {
   attached: 'Следующее сообщение продолжит эту сессию.',
   terminalTitle: (command) => `/${command} работает только в терминале`,
   terminalHint: (command) =>
-    `Agents Studio запускает Claude Code без терминала, и там Claude Code не выполняет /${command}. Продолжите этот разговор в терминале ProjectHub и выполните /${command} в нём.`,
+    `Agents Studio запускает Claude Code без терминала, и там Claude Code не выполняет /${command}. «Продолжить в терминале» откроет этот разговор в терминале ProjectHub и выполнит в нём /${command}.`,
   remoteHint: 'Следить за сессиями Agents Studio с телефона можно через Remote Control ProjectHub: телефон видит их без терминала.',
   noSession: 'У вкладки ещё нет сессии Claude Code — терминал начнёт новую.',
   openTerminal: 'Продолжить в терминале',
