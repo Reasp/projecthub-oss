@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TASK-243, decision-190: доверие системным и пользовательским центрам сертификации — релей закрытого контура работает
+  с сертификатом компании, который MDM ставит в пользовательские CA. Подлинность хоста держит сквозное шифрование
+  Remote Control v2 с закреплённым ключом хоста, TLS до релея — дополнительный слой.
+  cleartextTrafficPermitted: LAN-адреса хостов — ws://; с этим конфигом атрибут usesCleartextTraffic манифеста не действует.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
