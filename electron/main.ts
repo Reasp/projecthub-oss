@@ -2,6 +2,9 @@ import { app, BrowserWindow, dialog, globalShortcut, shell, session, crashReport
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import { guardSession, installEgressGuard, loadNetworkPolicy } from './services/networkGuard';
 import { claudeBridgeService } from './services/claudeBridgeService';
 import { localWhisperService } from './services/localWhisperService';
 import { ragWorkerClient } from './services/ragWorkerClient';
@@ -56,6 +59,16 @@ logger.init({
   minLevel: parseLogLevel(process.env.PROJECTHUB_LOG_LEVEL, app.isPackaged ? 'info' : 'debug')
 });
 logger.captureConsole();
+
+// Закрытый контур (TASK-147.1, decision-186): политика администратора читается до старта сервисов, запросы main и
+// сессий Electron за пределы контура отклоняются. Без политики ничего не ставится.
+const networkPolicy = loadNetworkPolicy(getUserDataDir());
+if (networkPolicy.airGapped) {
+  const onBlocked = (host: string, via: string) => console.warn(`[NetworkGuard] blocked outgoing request to ${host} (${via})`);
+  installEgressGuard(networkPolicy, { global: globalThis, http, https, onBlocked });
+  app.on('session-created', (created) => guardSession(created, networkPolicy, onBlocked));
+  console.log(`[NetworkGuard] air-gapped mode: allowed hosts ${networkPolicy.allowedHosts.join(', ') || '(private networks only)'}`);
+}
 
 // Automatically approve media capture requests in Chromium without blocking UI dialogs
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream');

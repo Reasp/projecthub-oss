@@ -6,6 +6,7 @@ import https from 'node:https';
 // берём default-экспорт и деструктурируем вручную (обнаружено запуском `npm run dev` вживую).
 import electronUpdaterPkg from 'electron-updater';
 import { logger } from './logger.js';
+import { getNetworkPolicy } from './networkGuard.js';
 import { AppError, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appError.js';
 import { isNewerVersion } from './versionCompare.js';
 import { resolveUpdateFeed, updateSource, versionFromLatestYml, type GenericFeed } from './updateFeed.js';
@@ -112,6 +113,13 @@ class UpdaterService {
     if (!app.isPackaged) {
       logger.info('[Updater] Пропущено: dev-сборка не упакована');
       this.setStatus({ state: 'not-available' });
+      return;
+    }
+
+    // Закрытый контур (decision-186 п. 3, 6): релизы в интернете недоступны, обновление приходит файлом от администратора.
+    if (getNetworkPolicy().airGapped) {
+      logger.info('[Updater] Skipped: air-gapped mode, updates are delivered as a file');
+      this.setError(new AppError('updater.airGapped'));
       return;
     }
 

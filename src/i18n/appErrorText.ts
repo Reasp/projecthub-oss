@@ -523,6 +523,8 @@ const EN = {
   'updater.feedStatus': 'The update server returned status {status}',
   'updater.feedTimeout': 'The update server did not answer in time',
   'updater.teamManual': 'The Team build is not updated from public releases (they are the free edition): get the new build from your customer link',
+  'updater.airGapped': 'Air-gapped mode: updates are not checked online, your administrator delivers them as a file',
+  'network.airGappedBlocked': 'Air-gapped mode: the request to {host} is blocked — it is outside the closed network. Ask your administrator to add the host to the allowed list',
   // Управление компьютером (TASK-82, decision-27).
   'computer.runtimeNotRunning': 'The computer control runtime is not running',
   // Цикл «до готовности»: запись итога в задачу (TASK-61).
@@ -1445,6 +1447,8 @@ export const appErrorTextRu: AppErrorLabels = {
   'updater.feedStatus': 'Сервер обновлений вернул статус {status}',
   'updater.feedTimeout': 'Сервер обновлений не ответил вовремя',
   'updater.teamManual': 'Сборка Team не обновляется из публичных релизов (там бесплатная редакция): новую сборку берите по ссылке заказчика',
+  'updater.airGapped': 'Закрытый контур: обновления не проверяются через интернет, их доставляет администратор файлом',
+  'network.airGappedBlocked': 'Закрытый контур: запрос к {host} заблокирован — адрес вне закрытой сети. Попросите администратора добавить хост в список разрешённых',
   'computer.runtimeNotRunning': 'Рантайм управления компьютером не запущен',
   'swarm.doneLoopTaskFileMissing': 'файл задачи не найден',
   'automations.ruleIssue': '{path}: {reason}',
