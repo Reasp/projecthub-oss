@@ -244,7 +244,8 @@ export interface EncryptedPacket {
 
 export interface PlainPacket {
   e2ee?: false;
-  type: 'rpc_req' | 'rpc_res' | 'event' | 'handshake' | 'handshake_ack' | 'ping' | 'pong';
+  /** `request`/`response` — те же RPC в именах Telegram Mini App. */
+  type: 'rpc_req' | 'rpc_res' | 'request' | 'response' | 'event' | 'handshake' | 'handshake_ack' | 'ping' | 'pong';
   id?: string;
   method?: string;
   params?: any;

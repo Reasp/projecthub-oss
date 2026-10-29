@@ -378,6 +378,12 @@ function projectRightsSummary(rights: DeviceProjectRights | undefined): Record<s
   return { ...(list ? { projects: list.slice(0, 300) } : {}), ...(rights.defaultAccess ? { defaultAccess: rights.defaultAccess } : {}) };
 }
 
+/** Задача Backlog для телефона и «Входящих» (`loadBacklogTasks`): поля frontmatter и критерии из тела. */
+interface RemoteBacklogTask extends InboxTask {
+  filePath: string;
+  assignee?: string[];
+}
+
 class RemoteControlService {
   private server: http.Server | null = null;
   private wss: WebSocketServer | null = null;
@@ -441,7 +447,7 @@ class RemoteControlService {
     statePath: () => getStatePath('remote-inbox.json'),
     projects: async () => (await projectRegistry.getProjects()).map((p) => p.path),
     assertProject: (projectPath) => assertRegisteredProject(projectPath),
-    tasks: (projectPath) => this.loadBacklogTasks(projectPath) as Promise<InboxTask[]>,
+    tasks: (projectPath) => this.loadBacklogTasks(projectPath),
     pendingApprovals: () => this.pendingApprovals(),
     agentTasks: async () =>
       (await agentTaskApproval.listPending()).map(({ projectPath, id, title, reporter, created }) => ({
@@ -559,13 +565,13 @@ class RemoteControlService {
   /** Rate-limit подбора PIN/ключа по IP (decision-5 п.5). */
   private pinAttempts = new Map<string, { count: number; lockedUntil: number }>();
   /** Кольцевой буфер последних событий для догона по `lastEventId` (decision-11 п.6). */
-  private eventLog: Array<{ id: number; event: string; data: any; audience?: (device: RemoteDevice) => boolean }> = [];
+  private eventLog: Array<{ id: number; event: string; data: unknown; audience?: (device: RemoteDevice) => boolean }> = [];
   /** Таймеры эскалации HITL участника на старшие роли (TASK-142.3): по `requestId`. */
   private hitlEscalations = new Map<string, ReturnType<typeof setTimeout>>();
   private eventLogNextId = 1;
   /** Идемпотентность RPC по `requestId` (decision-11 п.6): повтор в течение TTL возвращает
    *  закэшированный ответ вместо повторного выполнения. */
-  private recentRpcResponses = new Map<string, { result?: any; error?: string; errorKey?: AppErrorKey; expiresAt: number }>();
+  private recentRpcResponses = new Map<string, { result?: unknown; error?: string; errorKey?: AppErrorKey; expiresAt: number }>();
   /** Значения `secretKey`/`pairingPin`/`telegramBotToken`, найденные в legacy-plaintext конфиге при
    *  первом запуске после TASK-65 — переносятся в secretStorageService и никогда больше не
    *  пишутся в `remote-control.json` (decision-5 п.4). */
@@ -2694,7 +2700,7 @@ class RemoteControlService {
       this.notifyRenderer('remote:deviceConnected', device);
       this.announceDevice(device);
 
-      ws.on('message', async (raw: any) => {
+      ws.on('message', async (raw: WebSocket.RawData) => {
         device.lastSeenAt = Date.now();
         await this.handleIncomingClientMessage(
           deviceId,
@@ -3102,7 +3108,7 @@ class RemoteControlService {
    * `client_hello` протокола v2 (decision-111): эфемерный X25519 хоста, подпись транскрипта ключом identity и новая
    * сессия соединения. Новое рукопожатие начинает сессию заново — устройство снова проходит `handshake`.
    */
-  private async acceptClientHello(deviceId: string, hello: unknown, reply: (resp: any) => void, transport: ClientTransport): Promise<void> {
+  private async acceptClientHello(deviceId: string, hello: unknown, reply: (resp: unknown) => void, transport: ClientTransport): Promise<void> {
     const device = this.connectedDevices.get(deviceId);
     if (!device) {
       reply({ type: 'error', error: 'Device not approved by host' });
@@ -3132,8 +3138,8 @@ class RemoteControlService {
    */
   private async handleIncomingClientMessage(
     deviceId: string,
-    raw: any,
-    reply: (resp: any) => void,
+    raw: unknown,
+    reply: (resp: unknown) => void,
     /** Ключ лимита подбора PIN: адрес клиента для прямых подключений; через релей адреса нет. */
     pinRateKey = `relay:${deviceId}`,
     transport: ClientTransport = 'relay'
@@ -3143,7 +3149,8 @@ class RemoteControlService {
     let session: NodeSessionV2 | undefined;
 
     try {
-      const parsed = JSON.parse(raw.toString());
+      // Сокет (и кадр релея) отдаёт Buffer: текст пакета — toString в utf8, как раньше.
+      const parsed = JSON.parse(String(raw));
       if (parsed?.type === 'client_hello') {
         await this.acceptClientHello(deviceId, parsed, reply, transport);
         return;
@@ -3300,14 +3307,14 @@ class RemoteControlService {
     }
 
     // RPC Request (поддержка rpc_req и request из Telegram Mini App)
-    if (packet.type === 'rpc_req' || (packet as any).type === 'request') {
+    if (packet.type === 'rpc_req' || packet.type === 'request') {
       const req = packet as PlainPacket;
-      const isReqType = (packet as any).type === 'request';
+      const isReqType = packet.type === 'request';
       const idemKey = req.id ? `${deviceId}:${req.id}` : null;
       const cached = idemKey ? this.recentRpcResponses.get(idemKey) : undefined;
 
       if (cached && cached.expiresAt > Date.now()) {
-        const resPayload: any = { type: isReqType ? 'response' : 'rpc_res', id: req.id, result: cached.result, error: cached.error, errorKey: cached.errorKey };
+        const resPayload: PlainPacket = { type: isReqType ? 'response' : 'rpc_res', id: req.id, result: cached.result, error: cached.error, errorKey: cached.errorKey };
         reply(seal(resPayload));
         return;
       }
@@ -3315,7 +3322,7 @@ class RemoteControlService {
       try {
         const result = await this.dispatchRpc(req.method || '', req.params, device);
         if (idemKey) this.recentRpcResponses.set(idemKey, { result, expiresAt: Date.now() + RPC_IDEMPOTENCY_TTL_MS });
-        const resPayload: any = {
+        const resPayload: PlainPacket = {
           type: isReqType ? 'response' : 'rpc_res',
           id: req.id,
           result
@@ -3327,7 +3334,7 @@ class RemoteControlService {
         if (idemKey) {
           this.recentRpcResponses.set(idemKey, { error: errorMessage(err), errorKey, expiresAt: Date.now() + RPC_IDEMPOTENCY_TTL_MS });
         }
-        const errPayload: any = {
+        const errPayload: PlainPacket = {
           type: isReqType ? 'response' : 'rpc_res',
           id: req.id,
           error: errorMessage(err),
@@ -3757,7 +3764,7 @@ class RemoteControlService {
         const selected = await assertRegisteredProject(String(params.projectPath || ''));
         this.deviceProjects.set(device.id, selected);
         const projects = await projectRegistry.getProjects();
-        const project = projects.find((p: any) => path.resolve(p.path) === selected);
+        const project = projects.find((p) => path.resolve(p.path) === selected);
         return { activeProject: project || null };
       }
 
@@ -4390,12 +4397,12 @@ class RemoteControlService {
   /**
    * Загрузка списка задач Backlog.md из файловой системы.
    */
-  private async loadBacklogTasks(projectPath: string): Promise<any[]> {
+  private async loadBacklogTasks(projectPath: string): Promise<RemoteBacklogTask[]> {
     const tasksDir = path.join(projectPath, 'backlog', 'tasks');
     if (!existsSync(tasksDir)) return [];
 
     const files = await fs.readdir(tasksDir);
-    const tasks: any[] = [];
+    const tasks: RemoteBacklogTask[] = [];
 
     for (const file of files) {
       if (!file.endsWith('.md')) continue;
@@ -4429,11 +4436,12 @@ class RemoteControlService {
 
         const rawAssignee: unknown[] = Array.isArray(data.assignee) ? data.assignee : data.assignee ? [data.assignee] : [];
         const assignee = rawAssignee.map((a) => String(a ?? '').trim()).filter(Boolean);
+        // Поля frontmatter — строками (правило 16): число или дата в `status` уронили бы «Входящие» на `trim()`.
         tasks.push({
-          id: data.id || file.replace(/\.md$/, ''),
-          title: data.title || file,
-          status: data.status || 'To Do',
-          priority: data.priority || 'medium',
+          id: String(data.id || file.replace(/\.md$/, '')),
+          title: String(data.title || file),
+          status: String(data.status || 'To Do'),
+          priority: String(data.priority || 'medium'),
           filePath,
           criteria,
           ...(data.updated_date ? { updated: String(data.updated_date) } : {}),
@@ -4530,7 +4538,7 @@ class RemoteControlService {
   /**
    * Отправка push-события всем подключенным клиентам.
    */
-  public broadcastEvent(event: string, data: any, opts: { transient?: boolean; audience?: (device: RemoteDevice) => boolean } = {}) {
+  public broadcastEvent(event: string, data: unknown, opts: { transient?: boolean; audience?: (device: RemoteDevice) => boolean } = {}) {
     // Событие проекта — только устройствам с доступом к нему (TASK-180), поверх адресатов вызывающего.
     if (event === 'projects:changed' || Date.now() - this.projectRootsAt > 30_000) void this.refreshProjectRoots();
     const project = this.eventProject(data);
@@ -4640,7 +4648,7 @@ class RemoteControlService {
     this.broadcastEvent('host:endpoints', announcement);
   }
 
-  private notifyRenderer(channel: string, data: any) {
+  private notifyRenderer(channel: string, data: unknown) {
     const wins = BrowserWindow.getAllWindows();
     for (const w of wins) {
       if (!w.isDestroyed()) {
