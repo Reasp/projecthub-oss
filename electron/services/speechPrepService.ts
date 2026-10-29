@@ -47,7 +47,12 @@ export interface SpeechPrepState {
 }
 
 /** Фраза до минуты (предел push-to-talk): шумодав и VAD укладываются в доли секунды, запас — на холодный старт. */
-const PREPARE_TIMEOUT_MS = 15_000;
+export const PREPARE_TIMEOUT_MS = 15_000;
+/**
+ * Распознавание: холодная загрузка GigaAM с медленного диска и фраза с телефона до 90 с (`VOICE_MAX_SECONDS`).
+ * Тайм-аут убивает процесс вместе с загруженной моделью, поэтому он с большим запасом (TASK-231.3).
+ */
+export const RECOGNIZE_TIMEOUT_MS = 180_000;
 const MAX_RESPAWN_ATTEMPTS = 2;
 
 const MODEL_FILES = {
@@ -61,7 +66,7 @@ interface Pending {
   timer: NodeJS.Timeout;
 }
 
-class SpeechPrepService {
+export class SpeechPrepService {
   private worker: UtilityProcess | null = null;
   private pending = new Map<string, Pending>();
   private counter = 0;
@@ -143,8 +148,15 @@ class SpeechPrepService {
 
   private handleExit(worker: UtilityProcess, code: number) {
     if (this.worker !== worker) return;
+    this.dropWorker(`Speech prep process exited with code ${code}`);
+  }
+
+  /**
+   * Процесс больше не годится (вышел или завис): ожидающие запросы получают отказ, сбой считается к пределу
+   * перезапусков, следующая фраза поднимет новый процесс.
+   */
+  private dropWorker(error: string) {
     this.worker = null;
-    const error = `Speech prep process exited with code ${code}`;
     this.lastError = error;
     for (const [id, pending] of this.pending.entries()) {
       clearTimeout(pending.timer);
@@ -161,16 +173,29 @@ class SpeechPrepService {
     }
   }
 
-  private send(payload: Record<string, unknown>): Promise<WorkerReply> {
+  private send(payload: Record<string, unknown>, timeoutMs = PREPARE_TIMEOUT_MS): Promise<WorkerReply> {
     const worker = this.ensureWorker();
     if (!worker) return Promise.resolve({ ok: false, error: this.unavailableReason || 'speech prep is unavailable' });
 
     const id = `prep-${++this.counter}`;
     return new Promise<WorkerReply>((resolve) => {
       const timer = setTimeout(() => {
+        // Процесс обрабатывает запросы по очереди: завис он только если не ответил на самый старый из ожидающих.
+        // Более поздний запрос, простоявший в очереди за долгим распознаванием, просто получает отказ.
+        const hung = this.pending.keys().next().value === id;
         this.pending.delete(id);
-        resolve({ ok: false, error: `speech prep timed out after ${PREPARE_TIMEOUT_MS / 1000}s` });
-      }, PREPARE_TIMEOUT_MS);
+        const error = `speech prep timed out after ${timeoutMs / 1000}s`;
+        resolve({ ok: false, error });
+        // Зависший процесс не отвечает и следующим фразам (TASK-231.3): убиваем его, следующая фраза поднимет новый.
+        if (hung && this.worker === worker) {
+          this.dropWorker(error);
+          try {
+            worker.kill();
+          } catch {
+            // уже завершился
+          }
+        }
+      }, timeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, timer });
       try {
@@ -209,7 +234,7 @@ class SpeechPrepService {
       denoise: req.denoise,
       models: this.modelPaths(),
       asr: { model: req.asr.modelPath, tokens: req.asr.tokensPath }
-    });
+    }, RECOGNIZE_TIMEOUT_MS);
     if (!reply.ok) return reply;
     const { msg } = reply;
     const vadMs = Number(msg.vadMs) || 0;

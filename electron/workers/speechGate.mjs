@@ -11,9 +11,16 @@ export const PAD_AFTER_SEC = 0.2;
 
 /**
  * Отрезки речи короче этого считаются щелчками и стуками, а не словами. Silero сам отбрасывает
- * отрезки короче `minSpeechDuration`, здесь — общая сумма: одна короткая вспышка ещё не фраза.
+ * отрезки короче `minSpeechDuration` (`VAD_MIN_SPEECH_SEC`), здесь — общая сумма: одна короткая вспышка ещё не фраза.
  */
 export const MIN_TOTAL_SPEECH_SEC = 0.2;
+
+/**
+ * `minSpeechDuration` Silero VAD: короче — не отрезок речи. Порог ниже суммы намеренно (TASK-231.3): при 0,25 с VAD не
+ * размечал вовсе «да» и «стоп» голосом Piper dmitri (файлы 0,13 и 0,24 с), при 0,1 с даёт им отрезки по 0,25–0,28 с
+ * с запасом самого VAD — и сумма проходит `MIN_TOTAL_SPEECH_SEC`.
+ */
+export const VAD_MIN_SPEECH_SEC = 0.1;
 
 /** Фразы не длиннее этого распознаются целиком; длиннее — кусками по паузам (GigaAM, TASK-164.4). */
 export const MAX_SINGLE_PASS_SEC = 25;

@@ -6,7 +6,7 @@
  *
  * Вызовы — с `enableExternalBuffer: false`: в Electron V8 external buffers запрещены.
  */
-import { planChunks, speechWindow } from './speechGate.mjs';
+import { planChunks, speechWindow, VAD_MIN_SPEECH_SEC } from './speechGate.mjs';
 
 export const SAMPLE_RATE = 16000;
 /** Окно Silero VAD для 16 кГц. */
@@ -41,7 +41,7 @@ export function createSpeechPreparer(loadSherpa) {
           model,
           threshold: 0.5,
           minSilenceDuration: 0.3,
-          minSpeechDuration: 0.25,
+          minSpeechDuration: VAD_MIN_SPEECH_SEC,
           windowSize: VAD_WINDOW,
           maxSpeechDuration: 30
         },

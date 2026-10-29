@@ -1,7 +1,7 @@
 {
   "id": "projecthub-links",
   "name": "ProjectHub: ссылки Backlog.md",
-  "version": "0.1.95",
+  "version": "0.1.96",
   "minAppVersion": "1.4.0",
   "description": "Разрешает ссылки [[decision-N]], [[doc-N]], [[TASK-N]], [[mem-N]] на файлы Backlog.md вида «decision-N - Заголовок.md». Ставится и обновляется ProjectHub.",
   "author": "ProjectHub",
