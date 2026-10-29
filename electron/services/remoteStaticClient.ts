@@ -137,9 +137,34 @@ export function assetHeaders(file: string): Record<string, string> {
   };
 }
 
-/** Страница, если клиент не собран (dev-режим без `npm run build:mobile`). */
-export const MOBILE_CLIENT_MISSING_HTML = `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ProjectHub Remote</title></head>
+const MOBILE_CLIENT_MISSING_TEXT = {
+  en: {
+    title: 'The mobile client is not built',
+    body: 'Build it on the computer with ProjectHub: <code>npm run build:mobile</code>, then reload the page.'
+  },
+  ru: {
+    title: 'Мобильный клиент не собран',
+    body: 'Соберите его на компьютере с ProjectHub: <code>npm run build:mobile</code>, затем обновите страницу.'
+  }
+} as const;
+
+/** Язык страницы для браузера телефона: первый поддерживаемый из `Accept-Language`, иначе английский. */
+export function pageLanguage(acceptLanguage: string | undefined): 'en' | 'ru' {
+  for (const part of (acceptLanguage || '').split(',')) {
+    const tag = part.split(';')[0].trim().toLowerCase();
+    if (tag.startsWith('ru')) return 'ru';
+    if (tag.startsWith('en')) return 'en';
+  }
+  return 'en';
+}
+
+/** Страница, если клиент не собран (dev-режим без `npm run build:mobile`) — на языке браузера телефона. */
+export function mobileClientMissingHtml(acceptLanguage?: string): string {
+  const lang = pageLanguage(acceptLanguage);
+  const tx = MOBILE_CLIENT_MISSING_TEXT[lang];
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ProjectHub Remote</title></head>
 <body style="background:#18181b;color:#e4e4e7;font-family:system-ui,sans-serif;padding:24px;line-height:1.5">
-<h1 style="font-size:20px">Мобильный клиент не собран</h1>
-<p>Соберите его на компьютере с ProjectHub: <code>npm run build:mobile</code>, затем обновите страницу.</p>
+<h1 style="font-size:20px">${tx.title}</h1>
+<p>${tx.body}</p>
 </body></html>`;
+}

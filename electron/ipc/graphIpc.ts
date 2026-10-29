@@ -22,7 +22,7 @@ async function wrap<T>(fn: () => Promise<T>): Promise<IpcResult<T>> {
   }
 }
 
-const localeOf = (value: unknown) => (value === 'en' ? 'en' : 'ru');
+const localeOf = (value: unknown) => (value === 'ru' ? 'ru' : 'en');
 
 export function registerGraphIpc() {
   ipcMain.handle('graph:getCode', async (_event, projectPath: unknown, force: unknown) => {

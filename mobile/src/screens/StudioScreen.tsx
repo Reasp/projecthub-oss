@@ -25,7 +25,8 @@ import clsx from 'clsx';
 import type { RemoteStudioSessionSummary, StudioMode } from '../../../src/types/remote';
 import { useAppState, useServices } from '../app/context';
 import { failureText } from '../app/errorText';
-import { useT } from '../i18n/react';
+import { useLanguage, useT } from '../i18n/react';
+import { localizeQuickPrompt } from '../../../src/utils/studioQuickPrompts';
 import {
   accountLabel,
   claudeAccountName,
@@ -552,6 +553,7 @@ function CommandsSheet({
   onPrompt: (prompt: string) => void;
 }) {
   const tr = useT();
+  const language = useLanguage();
   const studio = useAppState((s) => s.studio);
   const commands = STUDIO_COMMANDS.filter((c) => (c.id === 'stop' ? studio.busy : true));
   return (
@@ -571,7 +573,7 @@ function CommandsSheet({
         <>
           <SectionTitle>{tr.studio.quickPrompts}</SectionTitle>
           <div className="space-y-0.5">
-            {studio.options.quickPrompts.map((p) => (
+            {studio.options.quickPrompts.map((sent) => localizeQuickPrompt(sent, language)).map((p) => (
               <button key={p.id} type="button" onClick={() => onPrompt(p.prompt)} className="flex w-full flex-col rounded-xl px-3 py-2 text-left active:bg-ph-hover">
                 <span className="text-[14px]">{p.label}</span>
                 <span className="line-clamp-2 text-[12px] text-slate-400">{p.prompt}</span>

@@ -21,6 +21,7 @@ import { keyedText } from '../../src/lib/appError.js';
 import { prReviewService, prWatcher } from './prReviewApp.js';
 import type { SwarmEventPayload, SwarmSession } from './swarmTypes.js';
 import { getHostLanguage } from './hostLanguage.js';
+import { projectContentText } from '../i18n/projectContentText.js';
 
 /**
  * Automations в приложении (TASK-74, decision-52): движок `AutomationEngine` со всеми настоящими
@@ -91,7 +92,7 @@ const actions: ActionDeps = {
     const stale = res.report.ecosystems.filter((e) => e.stale);
     const parts = [
       summarizeCounts(res.report.counts, getHostLanguage()),
-      `new findings: ${res.newFindings.length}`,
+      projectContentText(getHostLanguage()).audit.newFindings(res.newFindings.length),
       ...res.report.ecosystems.filter((e) => e.status !== 'done').map((e) => `${e.ecosystem}: ${e.message ?? e.status}`)
     ];
     return { ok: failed.length === 0 && stale.length === 0, detail: parts.join('; ') };

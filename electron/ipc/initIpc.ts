@@ -44,7 +44,7 @@ function asRequest(raw: unknown): InitRequest {
   return {
     targetDir: String(r.targetDir ?? ''),
     projectName: typeof r.projectName === 'string' ? r.projectName : undefined,
-    locale: r.locale === 'en' ? 'en' : 'ru',
+    locale: r.locale === 'ru' ? 'ru' : 'en',
     rulesMode: r.rulesMode === 'replace' ? 'replace' : 'append',
     rulesTargets: Array.isArray(r.rulesTargets) ? r.rulesTargets.map(String) : undefined,
     templateId: typeof r.templateId === 'string' && r.templateId ? r.templateId : null,
@@ -92,11 +92,11 @@ export function registerInitIpc(ctx: IpcContext) {
 
   // Обновление из новой версии шаблона (TASK-156): что применено и есть ли новая версия.
   ipcMain.handle('init:templateStatus', (_event, projectPath: unknown, locale: unknown) =>
-    wrap(async () => templateUpdateStatus(await assertRegisteredProject(String(projectPath ?? '')), locale === 'en' ? 'en' : 'ru'))
+    wrap(async () => templateUpdateStatus(await assertRegisteredProject(String(projectPath ?? '')), locale === 'ru' ? 'ru' : 'en'))
   );
 
   // Каталог шаблонов (TASK-136.5)
-  ipcMain.handle('templates:list', (_event, locale: unknown) => wrap(() => listTemplates(locale === 'en' ? 'en' : 'ru')));
+  ipcMain.handle('templates:list', (_event, locale: unknown) => wrap(() => listTemplates(locale === 'ru' ? 'ru' : 'en')));
 
   ipcMain.handle('templates:addFolder', () =>
     wrap(async () => {

@@ -128,7 +128,7 @@ import { profileService } from './profileService.js';
 import matter from 'gray-matter';
 import {
   MOBILE_CLIENT_DIST,
-  MOBILE_CLIENT_MISSING_HTML,
+  mobileClientMissingHtml,
   MOBILE_PAGE_FILES,
   assetHeaders,
   injectHostDefaults,
@@ -2541,7 +2541,7 @@ class RemoteControlService {
     const root = this.mobileClientRoot();
     if (!root) {
       res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end(MOBILE_CLIENT_MISSING_HTML);
+      res.end(mobileClientMissingHtml(req.headers['accept-language']));
       return;
     }
 
@@ -2552,7 +2552,7 @@ class RemoteControlService {
         res.end(req.method === 'HEAD' ? undefined : injectHostDefaults(html, { hostId: this.hostId, relayUrl: this.relayServerUrl, mode: this.mode }));
       } catch {
         res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(MOBILE_CLIENT_MISSING_HTML);
+        res.end(mobileClientMissingHtml(req.headers['accept-language']));
       }
       return;
     }

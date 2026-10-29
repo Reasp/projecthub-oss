@@ -55,3 +55,13 @@ export function studioQuickPromptList(language: Language = 'en'): Array<{ id: St
   const prompts = STUDIO_QUICK_PROMPTS[language] ?? STUDIO_QUICK_PROMPTS.en;
   return (Object.keys(prompts) as StudioQuickPromptId[]).map((id) => ({ id, ...prompts[id] }));
 }
+
+/**
+ * Промпт хоста на языке устройства: телефон собирает текст на своём языке (decision-161), поэтому известный `id`
+ * берётся из своего словаря, а незнакомый (хост новее телефона) показывается как прислан.
+ */
+export function localizeQuickPrompt<T extends { id: string; label: string; prompt: string }>(prompt: T, language: string): T {
+  const own = (STUDIO_QUICK_PROMPTS[language as Language] ?? STUDIO_QUICK_PROMPTS.en) as Record<string, QuickPrompt>;
+  const known = Object.prototype.hasOwnProperty.call(own, prompt.id) ? own[prompt.id] : undefined;
+  return known ? { ...prompt, label: known.label, prompt: known.prompt } : prompt;
+}

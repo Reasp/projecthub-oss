@@ -543,7 +543,7 @@ const CUSTOM_TITLE: Localized = { ru: 'Свои шаблоны', en: 'Custom pat
 const HEADERS_NOTE: Localized = { ru: 'только заголовки', en: 'headers only' };
 
 /** Строки блока без маркеров начала и конца. */
-export function renderIndexBlockBody(settings: CodeIndexSettings, context: IndexContext, locale: IndexLocale = 'ru'): string[] {
+export function renderIndexBlockBody(settings: CodeIndexSettings, context: IndexContext, locale: IndexLocale = 'en'): string[] {
   const lines = [`${SETTINGS_PREFIX}${JSON.stringify({ v: 1, ...settings })}`];
   const profileLabel = (id: IndexGroup['profile']) =>
     id === 'common' ? 'GitNexus' : (INDEX_PROFILES.find((profile) => profile.id === id)?.label[locale] ?? id);
@@ -560,7 +560,7 @@ export function renderIndexBlockBody(settings: CodeIndexSettings, context: Index
 }
 
 /** Блок целиком, без завершающего перевода строки. */
-export function renderIndexBlock(settings: CodeIndexSettings, context: IndexContext, locale: IndexLocale = 'ru'): string {
+export function renderIndexBlock(settings: CodeIndexSettings, context: IndexContext, locale: IndexLocale = 'en'): string {
   return [`${BLOCK_START} — ${BLOCK_NOTE[locale]}`, ...renderIndexBlockBody(settings, context, locale), BLOCK_END].join('\n');
 }
 

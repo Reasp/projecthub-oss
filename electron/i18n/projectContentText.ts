@@ -43,6 +43,8 @@ export interface ProjectContentText {
     fix: (target: string, major: boolean) => string;
     fixAvailable: string;
     noFix: string;
+    /** Итог прогона автоматизации: сколько находок новые. */
+    newFindings: (n: number) => string;
   };
 }
 
@@ -100,7 +102,8 @@ const en: ProjectContentText = {
     comesVia: (list) => `- Comes via: ${list}`,
     fix: (target, major) => `- Fix: ${target}${major ? ' (major update)' : ''}`,
     fixAvailable: 'available',
-    noFix: '- No fix yet'
+    noFix: '- No fix yet',
+    newFindings: (n) => `new findings: ${n}`
   }
 };
 
@@ -158,7 +161,8 @@ const ru: ProjectContentText = {
     comesVia: (list) => `- Приходит через: ${list}`,
     fix: (target, major) => `- Исправление: ${target}${major ? ' (мажорное обновление)' : ''}`,
     fixAvailable: 'доступно',
-    noFix: '- Исправления пока нет'
+    noFix: '- Исправления пока нет',
+    newFindings: (n) => `новых находок: ${n}`
   }
 };
 
