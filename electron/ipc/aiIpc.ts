@@ -74,7 +74,10 @@ function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
  */
 async function applyStudioMember(req: AIStreamRequest): Promise<AIStreamRequest> {
   if (!req.memberId) return req;
-  const trusted = editionRegistry.launcherProfile(req.memberId)?.trusted === true;
+  const profile = editionRegistry.launcherProfile(req.memberId);
+  // Изолированный участник (TASK-150.2): Studio идёт в процессе хоста, контейнера у неё нет — отказ, а не запуск вне его.
+  if (profile?.sandbox) throw new AppError('swarm.sandboxEngineUnsupported', { engine: 'Agents Studio' });
+  const trusted = profile?.trusted === true;
   const workspace = await editionRegistry.memberWorkspace({ projectPath: req.projectPath, memberId: req.memberId, ...(req.taskId ? { taskId: req.taskId } : {}) });
   return {
     ...req,

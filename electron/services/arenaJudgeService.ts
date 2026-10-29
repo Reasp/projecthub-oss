@@ -12,7 +12,8 @@
  */
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { checkDetailOf, executeCheck } from './checkRunner.js';
+import { checkDetailOf, executeCheck, pendingCheckResult } from './checkRunner.js';
+import { editionRegistry } from '../extensions/editionRegistry.js';
 import { AppError, appErrorFields } from '../../src/lib/appError.js';
 import { visualArtifactService } from './visualArtifactService.js';
 import type { AIMessage } from './aiAgentService.js';
@@ -231,6 +232,14 @@ export class ArenaJudgeService {
     rerun: boolean
   ): Promise<void> {
     const enabled = config.checks.filter((c) => c.enabled !== false);
+    // Изолированный участник (TASK-150.2): скрипты проверок пишет его агент, а выполнял бы их хост — вне контейнера.
+    if (editionRegistry.launcherProfile(session.memberId)?.sandbox) {
+      for (const agent of candidates) {
+        agent.checks = enabled.map((c) => ({ ...pendingCheckResult(c), status: 'skipped' as const, ...checkDetailOf(new AppError('checks.sandboxed')) }));
+      }
+      hooks.onUpdate();
+      return;
+    }
     if (enabled.length === 0) {
       for (const agent of candidates) {
         if (!agent.checks || rerun) agent.checks = [];

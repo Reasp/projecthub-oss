@@ -34,6 +34,7 @@ import { usesClaudeCli } from './modelTarget.js';
 import { getHostLanguage } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
 import { editionRegistry, launcherGitEnv } from '../extensions/editionRegistry.js';
+import { sandboxMcpConfig } from './memberSandboxLauncher.js';
 import {
   applyProjectPolicy,
   applyRolePermissions,
@@ -287,6 +288,11 @@ export interface CliPermissionMeta {
   taskAllowsComputerUse?: boolean;
   /** Задача сессии — источник фактов памяти проекта (TASK-76). */
   taskId?: string;
+  /**
+   * Агент в контейнере участника (TASK-150.2): конфиги MCP и прав передаются строками JSON, а не файлами хоста, MCP —
+   * через шлюз с токеном участника; адрес MCP-сервера хоста уходит шлюзу в `onEndpoint`.
+   */
+  sandbox?: { gatewayToken: string; onEndpoint: (endpoint: { url: string; token: string }) => void };
   /** Участник общего хоста, чей агент (decision-135): git-автор слияния основной ветки (decision-141). */
   memberId?: string;
 }
@@ -1171,6 +1177,26 @@ class ClaudeBridgeService extends EventEmitter {
       const dir = path.join(defaultClaudeAccountDir(), 'hitl');
       await fs.mkdir(dir, { recursive: true });
       const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      if (meta.sandbox) {
+        meta.sandbox.onEndpoint({ url: endpoint.url, token: endpoint.token });
+        const effective = applyProjectPolicy(applyRolePermissions(config, meta.permissions), projectPath);
+        const settings = buildCliPermissionSettings(effective);
+        const mcpConfig = sandboxMcpConfig({
+          serverName: CLI_HITL_MCP_SERVER_NAME,
+          mcpPath: new URL(endpoint.url).pathname,
+          sessionParam: CLI_HITL_QUERY_PARAM,
+          sessionId,
+          token: meta.sandbox.gatewayToken
+        });
+        this.registerCliPermissionContext(sessionId, projectPath, effective, onChunk, meta);
+        return {
+          // Без оболочки (spawn docker/podman с массивом аргументов) JSON идёт как есть, кавычки не нужны.
+          args: ['--mcp-config', mcpConfig, '--permission-prompt-tool', `mcp__${CLI_HITL_MCP_SERVER_NAME}__${CLI_HITL_PERMISSION_TOOL}`, ...(settings ? ['--settings', JSON.stringify(settings)] : [])],
+          env: { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) },
+          cleanup: () => this.cliPermissionContexts.delete(sessionId)
+        };
+      }
 
       const sseUrl = new URL(endpoint.url);
       sseUrl.searchParams.set(CLI_HITL_QUERY_PARAM, sessionId);

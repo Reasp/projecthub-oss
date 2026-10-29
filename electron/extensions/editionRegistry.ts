@@ -195,6 +195,17 @@ export interface LauncherProfile {
   email: string;
   /** Может работать без HITL и с терминалом хоста (maintainer и выше). */
   trusted: boolean;
+  /**
+   * Агенты участника — в его контейнере (TASK-150.2, decision-187). Нет поля — как раньше, от пользователя хоста. Есть —
+   * запуск на хосте без контейнера запрещён: движок, который контейнер не поддерживает, отказывает.
+   */
+  sandbox?: {
+    runtime: 'docker' | 'podman';
+    image: string;
+    limits?: { cpus?: number; memoryMb?: number; pids?: number };
+    /** Профиль LLM хоста для шлюза модели. */
+    modelProfileId?: string;
+  };
 }
 
 /** Личное рабочее дерево участника, в котором идут его агенты и сессии. */

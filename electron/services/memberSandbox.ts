@@ -37,15 +37,33 @@ export interface SandboxRequest {
   network?: string;
   /** Адрес прокси модели в сети контейнера и короткий токен участника. */
   proxy?: { url: string; token: string };
+  /**
+   * Переменные для процесса в контейнере (TASK-150.2): адрес шлюза для CLI движка, его токен. В аргументы уходит только
+   * имя, значение `docker`/`podman` берёт из своего окружения — секрет не виден в списке процессов.
+   */
+  passEnv?: Record<string, string>;
+  /**
+   * Именованный том для HOME участника (TASK-150.2): сессии CLI переживают `--rm` контейнера, и `--resume` цикла
+   * «до готовности» находит разговор. Свой том на участника — чужие сессии не видны. Нет — HOME во временном /tmp.
+   */
+  homeVolume?: string;
+  /**
+   * Пути внутри worktree, которые контейнер видит только на чтение (TASK-150.2): файл `.git` (иначе агент перенаправит
+   * `gitdir:` на свой каталог с `core.fsmonitor`, и git хоста выполнит его код) и каталог хуков при относительном
+   * `core.hooksPath` (иначе подложенный хук выполнит коммит хоста). Пути относительные, через `/`, без `..`.
+   */
+  readOnlyPaths?: string[];
   command: string[];
 }
 
 export type SandboxPlan =
-  | { ok: true; runtime: SandboxRuntime; args: string[]; env: Record<string, string> }
-  | { ok: false; reason: 'imageInvalid' | 'pathInvalid' | 'worktreeOutsideProject' | 'memberInvalid' | 'emptyCommand' | 'networkInvalid' | 'networkRequired' };
+  | { ok: true; runtime: SandboxRuntime; args: string[]; env: Record<string, string>; name: string }
+  | { ok: false; reason: 'imageInvalid' | 'pathInvalid' | 'worktreeOutsideProject' | 'memberInvalid' | 'emptyCommand' | 'networkInvalid' | 'networkRequired' | 'envInvalid' | 'volumeInvalid' };
 
 /** Путь внутри контейнера, куда монтируется worktree. */
 export const SANDBOX_WORKDIR = '/workspace';
+/** HOME участника в томе (образ создаёт каталог пользователю node — новый том наследует владельца). */
+export const SANDBOX_HOME = '/home/member';
 export const PROXY_TOKEN_ENV = 'PROJECTHUB_MODEL_PROXY_TOKEN';
 
 const sameFs = (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
@@ -76,14 +94,26 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
   if (req.network !== undefined && !/^[a-z0-9][a-z0-9_.-]{0,63}$/i.test(req.network)) return { ok: false, reason: 'networkInvalid' };
   // С прокси нужна сеть до него; `bridge`/`host` по умолчанию выпустили бы контейнер наружу.
   if (req.proxy && (!req.network || /^(none|bridge|host|default)$/i.test(req.network))) return { ok: false, reason: 'networkRequired' };
+  const passEnv = Object.entries(req.passEnv ?? {});
+  // Имена как в окружении POSIX; служебные переменные контейнера не перекрываются.
+  if (passEnv.some(([name]) => !/^[A-Z_][A-Z0-9_]{0,127}$/.test(name) || ['HOME', 'PATH', 'PROJECTHUB_MEMBER_ID'].includes(name))) {
+    return { ok: false, reason: 'envInvalid' };
+  }
 
+  if (req.homeVolume !== undefined && !/^[a-z0-9][a-z0-9_.-]{0,127}$/i.test(req.homeVolume)) return { ok: false, reason: 'volumeInvalid' };
+  const readOnly = req.readOnlyPaths ?? [];
+  if (readOnly.some((p) => !p || /[,=\n\\]/.test(p) || p.startsWith('/') || p.split('/').some((s) => s === '' || s === '.' || s === '..'))) {
+    return { ok: false, reason: 'pathInvalid' };
+  }
   const limits = clampLimits(req.limits);
+  const name = `ph-member-${req.memberId}-${Date.now().toString(36)}`;
+  const home = req.homeVolume ? SANDBOX_HOME : '/tmp';
   const user = req.user && Number.isInteger(req.user.uid) && Number.isInteger(req.user.gid) ? req.user : { uid: 1000, gid: 1000 };
   const args = [
     'run',
     '--rm',
     '--interactive',
-    `--name=ph-member-${req.memberId}-${Date.now().toString(36)}`,
+    `--name=${name}`,
     `--label=projecthub.member=${req.memberId}`,
     `--network=${req.network ?? 'none'}`,
     '--cap-drop=ALL',
@@ -98,13 +128,23 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
     `--memory-swap=${limits.memoryMb}m`,
     `--pids-limit=${limits.pids}`,
     `--mount=type=bind,source=${path.resolve(req.worktree)},target=${SANDBOX_WORKDIR}`,
+    // Поверх worktree и после него: более поздний mount перекрывает путь.
+    ...readOnly.map((p) => `--mount=type=bind,source=${path.join(path.resolve(req.worktree), ...p.split('/'))},target=${SANDBOX_WORKDIR}/${p},readonly`),
+    ...(req.homeVolume ? [`--mount=type=volume,source=${req.homeVolume},target=${SANDBOX_HOME}`] : []),
     `--workdir=${SANDBOX_WORKDIR}`,
-    '--env=HOME=/tmp',
+    `--env=HOME=${home}`,
     `--env=PROJECTHUB_MEMBER_ID=${req.memberId}`,
     // Только имя: значение `docker`/`podman` берёт из своего окружения.
     ...(req.proxy ? [`--env=PROJECTHUB_MODEL_PROXY=${req.proxy.url}`, `--env=${PROXY_TOKEN_ENV}`] : []),
+    ...passEnv.map(([name]) => `--env=${name}`),
     req.image,
     ...req.command
   ];
-  return { ok: true, runtime: req.runtime, args, env: req.proxy ? { [PROXY_TOKEN_ENV]: req.proxy.token } : {} };
+  return {
+    ok: true,
+    runtime: req.runtime,
+    name,
+    args,
+    env: { ...(req.proxy ? { [PROXY_TOKEN_ENV]: req.proxy.token } : {}), ...Object.fromEntries(passEnv) }
+  };
 }

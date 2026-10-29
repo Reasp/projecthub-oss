@@ -11,7 +11,9 @@ import { aiAgentService, type AIProviderConfig, type AIMessage, type StreamToolB
 import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService } from './claudeAccountService.js';
 import { CLAUDE_ACCOUNT_SOURCE_LABEL, cliAccountEnv, type OtherCliAccountEngine } from './claudeAccounts.js';
-import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_MCP_TOOL_TIMEOUT_MS } from './claudeBridgeService.js';
+import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_HITL_QUERY_PARAM, CLI_MCP_TOOL_TIMEOUT_MS, type CliPermissionMeta } from './claudeBridgeService.js';
+import { hardenMemberWorktreeGit, memberSandboxService, sandboxReadOnlyPaths } from './memberSandboxService.js';
+import { sandboxedClaudeRun } from './memberSandboxLauncher.js';
 import { studioLiveRuns } from './studioLiveRuns.js';
 import { hitlService } from './hitlService.js';
 import { keyedHitlText } from './hitlText.js';
@@ -1918,6 +1920,8 @@ export class AgentFleetService extends EventEmitter {
     const { projectPath, prompt, taskId } = options;
     if (!taskId) throw new AppError('swarm.doneLoopNeedsTaskCriteria');
     if (!options.agent) throw new AppError('swarm.noExecutor');
+    // Проверки цикла (сборка, тесты) выполняются на хосте в worktree участника: его код ушёл бы из контейнера (TASK-150.2).
+    if (editionRegistry.launcherProfile(options.memberId)?.sandbox) throw new AppError('swarm.sandboxChecksUnsupported');
     const task = await findTaskFile(projectPath, taskId);
     if (!task) throw new AppError('swarm.taskNotFound', { id: taskId });
     const launch = await this.checkLaunch(projectPath, taskId, options.origin, [options.agent], options.memberId);
@@ -2576,10 +2580,50 @@ export class AgentFleetService extends EventEmitter {
    * при включённом (и не суженном ролью) auto-approve — залогированный fallback
    * `--dangerously-skip-permissions`, иначе агент не запускается.
    */
+  /**
+   * Движок, который ещё не запускается в контейнере участника (TASK-150.2), для изолированного участника отказывает:
+   * иначе его агент работал бы от пользователя хоста с доступом к соседним worktree и секретам.
+   */
+  private refuseSandboxedEngine(session: SwarmSession, engine: string): void {
+    if (editionRegistry.launcherProfile(session.memberId)?.sandbox) throw new AppError('swarm.sandboxEngineUnsupported', { engine });
+  }
+
+  /**
+   * Песочница участника для этого запуска (TASK-150.2): `null` — участник не изолирован, работа как раньше. Иначе
+   * среда контейнеров и шлюз готовы, выдан токен; `run` собирает аргументы `docker`/`podman run`.
+   */
+  private async prepareMemberSandbox(session: SwarmSession, hitlSessionId: string) {
+    const profile = editionRegistry.launcherProfile(session.memberId);
+    if (!profile?.sandbox) return null;
+    if (!session.memberWorktree) throw new AppError('swarm.sandboxNoWorktree');
+    const settings = { runtime: profile.sandbox.runtime, image: profile.sandbox.image, ...(profile.sandbox.limits ? { limits: profile.sandbox.limits } : {}) };
+    await memberSandboxService.prepare(settings, profile.sandbox.modelProfileId, profile.memberId);
+    const token = memberSandboxService.grant(profile.memberId, hitlSessionId);
+    // Пути — после realpath: junction или симлинк не уведут монтирование в чужой каталог (decision-187 п. 2).
+    const projectRoot = await fs.realpath(session.projectPath);
+    const worktree = await fs.realpath(session.memberWorktree.path);
+    const user = typeof process.getuid === 'function' && typeof process.getgid === 'function' ? { uid: process.getuid(), gid: process.getgid() } : undefined;
+    const readOnlyPaths = await sandboxReadOnlyPaths(worktree);
+    await hardenMemberWorktreeGit(projectRoot, worktree, path.join(getUserDataDir(), 'member-sandbox', 'empty-hooks'));
+    return {
+      runtime: settings.runtime,
+      image: settings.image,
+      hitl: {
+        gatewayToken: token,
+        onEndpoint: (e: { url: string; token: string }) =>
+          memberSandboxService.setMcpUpstream({ baseUrl: new URL(e.url).origin, token: e.token, sessionParam: CLI_HITL_QUERY_PARAM, ssePath: new URL(e.url).pathname, messagePath: '/message' })
+      },
+      run: (cliArgs: string[], extraEnv: Record<string, string>) =>
+        sandboxedClaudeRun({ settings, memberId: profile.memberId, projectRoot, worktree, ...(user ? { user } : {}), token, cliArgs, extraEnv, readOnlyPaths }),
+      release: () => memberSandboxService.revoke(token)
+    };
+  }
+
   private async prepareAgentHitl(
     session: SwarmSession,
     agentState: AgentSlotState,
-    targetPath: string
+    targetPath: string,
+    sandbox?: CliPermissionMeta['sandbox']
   ): Promise<{ args: string[]; env: Record<string, string>; cleanup: () => void } | { error: AppError }> {
     let globalConfig: AIProviderConfig;
     try {
@@ -2603,6 +2647,7 @@ export class AgentFleetService extends EventEmitter {
       workspaceRoot: targetPath,
       ...(session.taskId ? { taskId: session.taskId } : {}),
       ...(session.memberId ? { memberId: session.memberId } : {}),
+      ...(sandbox ? { sandbox } : {}),
       // Управление компьютером в цикле «до готовности» — только по явному разрешению задачи (TASK-82).
       doneLoop: session.mode === 'done_loop',
       taskAllowsComputerUse:
@@ -2681,6 +2726,7 @@ export class AgentFleetService extends EventEmitter {
     continueSession = false,
     providerOverride?: AIProviderConfig
   ): Promise<void> {
+    this.refuseSandboxedEngine(session, 'API');
     // Без настроек слота — настройки Agents Studio пользователя, а не модель вендора (decision-26 п. 0).
     // Профиль слота разрешается по id или имени, ключ прежнего провайдера — только из Agents Studio (decision-40).
     const globalConfig = providerOverride ?? (await aiAgentService.getConfig());
@@ -2916,15 +2962,26 @@ export class AgentFleetService extends EventEmitter {
       this.log(session, agentState, `[Swarm] ⚠️ Account profile “${miss.id}” (${CLAUDE_ACCOUNT_SOURCE_LABEL[miss.source]}) was removed — using “${account.name}”.`);
     }
 
+    const hitlSessionId = this.hitlSessionId(agentState);
+    // Изоляция участника (TASK-150.2, decision-187): агент — в его контейнере, модель и HITL — через шлюз хоста с
+    // коротким токеном. Не удалось подготовить контейнер — отказ, а не запуск от пользователя хоста.
+    const sandbox = await this.prepareMemberSandbox(session, hitlSessionId);
+
     // Human-in-the-loop через единый контур (TASK-57): без --dangerously-skip-permissions,
     // кроме залогированного fallback при недоступном MCP-сервере и включённом auto-approve.
-    const hitl = await this.prepareAgentHitl(session, agentState, targetPath);
+    const hitl = await this.prepareAgentHitl(session, agentState, targetPath, sandbox?.hitl);
     if ('error' in hitl) {
+      sandbox?.release();
       throw hitl.error;
     }
-    const hitlSessionId = this.hitlSessionId(agentState);
+    if (sandbox && hitl.args.length === 0) {
+      // Без HITL MCP агент в контейнере работал бы без одобрений человека.
+      sandbox.release();
+      throw new AppError('swarm.sandboxHitlUnavailable');
+    }
     const releaseHitl = () => {
       hitl.cleanup();
+      sandbox?.release();
       hitlService.cancelSession(hitlSessionId, 'The agent Claude CLI process exited');
     };
 
@@ -2944,7 +3001,8 @@ export class AgentFleetService extends EventEmitter {
 
     // Системный промпт роли и инструкция цикла многострочные: через оболочку (shell: true) cmd.exe
     // обрезал бы их на первом переводе строки вместе с последующими флагами — передаём файлом (TASK-82).
-    const extracted = extractAppendSystemPrompt(invocation.args);
+    // В контейнере оболочки нет (аргументы — массивом в docker/podman), а файлы хоста не видны: промпт идёт аргументом.
+    const extracted = sandbox ? { args: invocation.args, systemPrompt: null } : extractAppendSystemPrompt(invocation.args);
     let systemPromptFile: string | null = null;
     if (extracted.systemPrompt) {
       try {
@@ -2974,20 +3032,32 @@ export class AgentFleetService extends EventEmitter {
       let child: ChildProcess;
       const startedAt = Date.now();
       try {
-        child = spawn('claude', args, {
-          cwd: targetPath,
-          shell: true,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            FORCE_COLOR: '0',
-            CLAUDE_CONFIG_DIR: account.configDir,
-            ...this.memberGitEnv(session),
-            ...hitl.env
-          }
-        });
+        if (sandbox) {
+          const plan = sandbox.run(args, { FORCE_COLOR: '0', ...this.memberGitEnv(session), ...hitl.env });
+          if (!plan.ok) throw new AppError('swarm.sandboxPlanInvalid', { reason: plan.reason });
+          this.log(session, agentState, `[Swarm] Member container: ${sandbox.runtime} (${sandbox.image})`);
+          // Подписка и ключи хоста (CLAUDE_CONFIG_DIR) в контейнер не передаются: модель — через шлюз.
+          child = spawn(sandbox.runtime, plan.args, { cwd: targetPath, shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...plan.env } });
+          // Остановка убивает клиент docker/podman; контейнер (на Windows — без сигнала) снимается по имени.
+          child.once('exit', () => void memberSandboxService.removeContainer(sandbox.runtime, plan.name));
+        } else {
+          child = spawn('claude', args, {
+            cwd: targetPath,
+            shell: true,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: {
+              ...process.env,
+              FORCE_COLOR: '0',
+              CLAUDE_CONFIG_DIR: account.configDir,
+              ...this.memberGitEnv(session),
+              ...hitl.env
+            }
+          });
+        }
       } catch (e: any) {
         releaseAgentResources();
+        // Изолированный участник не переходит на API-движок хоста: он работал бы вне контейнера.
+        if (sandbox) return reject(e instanceof AppError ? e : new AppError('swarm.sandboxPlanInvalid', { reason: e?.message ?? String(e) }));
         this.log(session, agentState, `[Swarm] ⚠️ Claude CLI is not available directly (${e.message}), running through the API fallback.`);
         return this.runApiAgent(session, agentState, targetPath, prompt, role).then(resolve).catch(reject);
       }
@@ -3222,6 +3292,7 @@ export class AgentFleetService extends EventEmitter {
     role: RoleDefinition | undefined,
     reason: AppError
   ): Promise<void> {
+    this.refuseSandboxedEngine(session, 'API');
     const globalConfig = await aiAgentService.getConfig();
     const problem = apiConfigProblem(globalConfig);
     if (problem) {
@@ -3302,6 +3373,7 @@ export class AgentFleetService extends EventEmitter {
     prompt: string,
     role?: RoleDefinition
   ): Promise<void> {
+    this.refuseSandboxedEngine(session, 'Codex CLI');
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'codex.cmd' : 'codex';
     const accountEnv = await this.engineAccountEnv(session, agentState, 'codex-cli');
@@ -3444,6 +3516,7 @@ export class AgentFleetService extends EventEmitter {
     prompt: string,
     role?: RoleDefinition
   ): Promise<void> {
+    this.refuseSandboxedEngine(session, 'Gemini CLI');
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'gemini.cmd' : 'gemini';
     const accountEnv = await this.engineAccountEnv(session, agentState, 'gemini-cli');
