@@ -3,6 +3,7 @@ import { getHostLanguage } from './hostLanguage.js';
 import fs from 'node:fs/promises';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import { getStatePath } from './appPaths.js';
 import { upgradeState, withVersion } from './stateFiles.js';
@@ -27,6 +28,8 @@ import {
   isUnsetModelId,
   parseAnthropicModelCapabilities,
   resolveAnthropicModelId,
+  cliModelAliasFamily,
+  pickModelForAlias,
   type AnthropicModelCapabilities
 } from './anthropicRequest.js';
 import { buildOpenAICompatibleChatBody } from './openAICompatibleRequest.js';
@@ -378,6 +381,8 @@ class AIAgentService {
   private configVersion = AI_CONFIG_VERSION;
   /** Возможности моделей из Models API: успешный ответ — на время жизни процесса, ошибка — на минуту. */
   private modelCapabilities = new Map<string, { caps: AnthropicModelCapabilities; expiresAt: number }>();
+  /** Список моделей ключа для алиасов CLI; ключ кэша — хэш API-ключа, не сам ключ. */
+  private anthropicModelIds = new Map<string, { ids: string[]; expiresAt: number }>();
 
   constructor() {
     this.ensureConfigDir();
@@ -571,6 +576,8 @@ class AIAgentService {
     if (!apiKey) {
       throw providerConfigError(new AppError('studio.anthropicKeyMissingService'), 'no_key');
     }
+    // Служебный запрос с моделью вкладки на API-ключе: алиас CLI — в ID модели API (TASK-231.4).
+    model = (await this.apiModelForAlias(model, apiKey, signal)) ?? model;
 
     const body: Record<string, unknown> = {
       model,
@@ -921,7 +928,6 @@ class AIAgentService {
     executeTool?: StreamChatOptions['executeTool'],
     onToolBoundary?: StreamChatOptions['onToolBoundary']
   ): Promise<void> {
-    const model = resolveAnthropicModelId(req.config.model);
     const apiKey = req.config.apiKey?.trim();
     if (!apiKey) {
       throw providerConfigError(new AppError('studio.anthropicKeyMissing'), 'no_key', {
@@ -929,6 +935,10 @@ class AIAgentService {
         model: req.config.model
       });
     }
+    // Алиас Claude Code CLI во вкладке на API-ключе (TASK-231.4) — в ID модели API этого ключа.
+    const apiModel = await this.apiModelForAlias(req.config.model, apiKey, signal);
+    if (apiModel && apiModel !== req.config.model) req = { ...req, config: { ...req.config, model: apiModel } };
+    const model = resolveAnthropicModelId(req.config.model);
     const capabilities = await this.getAnthropicModelCapabilities(model, apiKey, signal);
     const messages: unknown[] = req.messages
       .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -945,6 +955,39 @@ class AIAgentService {
       messages.push(...buildAnthropicToolTurn(turn.blocks, results));
       this.separateSteps(loop, turn, onChunk);
     }
+  }
+
+  /**
+   * Модель для Messages API: алиас Claude Code CLI (TASK-231.4) — первая модель семейства из списка ключа, иначе как есть.
+   * Ошибка списка (ключ, лимит, сеть) — `ProviderError` с настоящей причиной; нет модели семейства — `anthropicAliasUnresolved`.
+   */
+  private async apiModelForAlias(model: string | undefined, apiKey: string, signal: AbortSignal): Promise<string | undefined> {
+    const family = cliModelAliasFamily(model);
+    if (!family) return model;
+    const resolved = pickModelForAlias(family, await this.listAnthropicModelIds(model, apiKey, signal));
+    if (!resolved) {
+      throw providerConfigError(new AppError('studio.anthropicAliasUnresolved', { alias: String(model) }), 'no_model', {
+        provider: 'Anthropic',
+        ...(model ? { model } : {})
+      });
+    }
+    return resolved;
+  }
+
+  /** ID моделей ключа из Models API, новые первыми; кэш на 10 минут по хэшу ключа. */
+  private async listAnthropicModelIds(model: string | undefined, apiKey: string, signal: AbortSignal): Promise<string[]> {
+    const cacheKey = createHash('sha256').update(apiKey).digest('hex');
+    const cached = this.anthropicModelIds.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.ids;
+    const response = await fetchProvider(
+      'https://api.anthropic.com/v1/models?limit=100',
+      { headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, signal },
+      anthropicErrorContext(model, apiKey)
+    );
+    const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
+    const ids = (payload.data ?? []).map((m) => (typeof m.id === 'string' ? m.id : '')).filter(Boolean);
+    this.anthropicModelIds.set(cacheKey, { ids, expiresAt: Date.now() + 10 * 60_000 });
+    return ids;
   }
 
   /**

@@ -221,6 +221,7 @@ const EN = {
   // Agents Studio и модели (TASK-35, TASK-70, decision-26).
   'studio.modelNotSelected': 'No model is selected in the Agents Studio settings.',
   'studio.anthropicModelNotSelected': 'No model is selected: enter an Anthropic model id in the Agents Studio settings or in the agent slot (only Claude CLI understands “default”).',
+  'studio.anthropicAliasUnresolved': '“{alias}” is a Claude Code model name, and this API key has no matching model: choose an Anthropic model for the tab.',
   'studio.anthropicKeyMissing': 'The Anthropic API key is not set. Open the Agents Studio settings and enter the key.',
   'studio.anthropicKeyMissingService': 'The Anthropic API key is not set: service requests to the model go through the API, not through Claude CLI.',
   'studio.cliStartFailed': 'Could not start Claude CLI: {detail}',
@@ -1166,6 +1167,7 @@ export const appErrorTextRu: AppErrorLabels = {
   'voice.tooManyUploads': 'Слишком много незаконченных записей',
   'studio.modelNotSelected': 'Модель не выбрана в настройках Agents Studio.',
   'studio.anthropicModelNotSelected': 'Модель не выбрана: укажите идентификатор модели Anthropic в настройках Agents Studio или в слоте агента (значение «default» понимает только Claude CLI).',
+  'studio.anthropicAliasUnresolved': '«{alias}» — имя модели Claude Code, а у этого API-ключа подходящей модели нет: выберите для вкладки модель Anthropic.',
   'studio.anthropicKeyMissing': 'API-ключ Anthropic не указан. Откройте настройки Agents Studio и укажите ключ.',
   'studio.anthropicKeyMissingService': 'API-ключ Anthropic не указан: служебные запросы к модели идут по API, а не через Claude CLI.',
   'studio.cliStartFailed': 'Не удалось запустить Claude CLI: {detail}',

@@ -64,6 +64,30 @@ export function resolveAnthropicModelId(model: string | undefined | null): strin
   return (model as string).trim();
 }
 
+/**
+ * Алиас модели Claude Code CLI (каталог `CLAUDE_MODELS_CATALOG`): вкладка, переключённая с подписки на API-ключ, хранит
+ * выбор CLI, а Messages API таких имён не знает (TASK-231.4). Возвращает семейство модели или `null`, если это не алиас.
+ * `[1m]` — окно в миллион токенов у CLI, для API отбрасывается. `opusplan` (Opus планирует, Sonnet выполняет) — Opus.
+ * `best` — автовыбор CLI по сложности задачи: у API такого нет, семейство `auto` не находит модели и даёт понятную ошибку.
+ * `default` алиасом не считается: «модель не выбрана» ([[decision-26]]), как и раньше.
+ */
+export function cliModelAliasFamily(model: string | undefined | null): string | null {
+  const match = /^(opus|sonnet|haiku|fable|best|opusplan)(\[1m\])?$/i.exec((model ?? '').trim());
+  if (!match) return null;
+  const family = match[1].toLowerCase();
+  if (family === 'best') return 'auto';
+  return family === 'opusplan' ? 'opus' : family;
+}
+
+/**
+ * ID модели API для алиаса CLI: первая модель семейства в списке Models API (`GET /v1/models` отдаёт новые первыми).
+ * `null` — у ключа нет модели этого семейства.
+ */
+export function pickModelForAlias(family: string, availableIds: readonly string[]): string | null {
+  const prefix = `claude-${family}-`;
+  return availableIds.find((id) => id.toLowerCase().startsWith(prefix)) ?? null;
+}
+
 function supportedLeaf(node: unknown): boolean {
   return typeof node === 'object' && node !== null && (node as { supported?: unknown }).supported === true;
 }
