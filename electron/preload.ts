@@ -45,8 +45,23 @@ import type {
   SecuritySettings,
   AutomationsSettings,
   PrReviewStartOptions,
-  SecretIssuesState
+  SecretIssuesState,
+  SwarmEventPayload,
+  ProjectAgentStatus,
+  SubagentInfo,
+  AIMessage,
+  AppBusEvent,
+  UpdaterStatus,
+  McpRemoteAction
 } from '../src/types/electron';
+
+/**
+ * Событие main → окно: тип данных задаёт объявление `IElectronAPI`, IPC его не проверяет — данные приходят от main
+ * ProjectHub, а не от страницы (TASK-250).
+ */
+function relay<T>(callback: (data: T) => void): (event: IpcRendererEvent, data: unknown) => void {
+  return (_event, data) => callback(data as T);
+}
 
 const api: IElectronAPI = {
   // Projects & Registry
@@ -121,14 +136,14 @@ const api: IElectronAPI = {
   tailProcessLog: (projectPath: string, processName: string, lines?: number) =>
     ipcRenderer.invoke('process:tailLog', projectPath, processName, lines),
   onProcessLogChunk: (callback: (data: { processId: string; text: string }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+    const handler = relay(callback);
     ipcRenderer.on('process:logChunk', handler);
     return () => {
       ipcRenderer.removeListener('process:logChunk', handler);
     };
   },
   onProcessStatusChanged: (callback: (process: ManagedProcess) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+    const handler = relay(callback);
     ipcRenderer.on('process:statusChanged', handler);
     return () => {
       ipcRenderer.removeListener('process:statusChanged', handler);
@@ -181,7 +196,7 @@ const api: IElectronAPI = {
   deleteTask: (filePath: string) => ipcRenderer.invoke('backlog:deleteTask', filePath),
   watchProjectTasks: (projectPath: string) => ipcRenderer.invoke('backlog:watchProject', projectPath),
   onTasksChanged: (callback: (data: { projectPath: string; event: string; filePath: string }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+    const handler = relay(callback);
     ipcRenderer.on('backlog:tasksChanged', handler);
     return () => {
       ipcRenderer.removeListener('backlog:tasksChanged', handler);
@@ -262,7 +277,7 @@ const api: IElectronAPI = {
   getFileDiff: (projectPath: string, filePath: string, staged?: boolean) =>
     ipcRenderer.invoke('git:getFileDiff', projectPath, filePath, staged),
   onGitChanged: (callback: (data: { projectPath: string }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+    const handler = relay(callback);
     ipcRenderer.on('git:changed', handler);
     return () => {
       ipcRenderer.removeListener('git:changed', handler);
@@ -325,14 +340,14 @@ const api: IElectronAPI = {
   killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', sessionId),
   listPtySessions: () => ipcRenderer.invoke('pty:list'),
   onPtyData: (callback: (data: { sessionId: string; data: string }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+    const handler = relay(callback);
     ipcRenderer.on('pty:data', handler);
     return () => {
       ipcRenderer.removeListener('pty:data', handler);
     };
   },
   onPtyExit: (callback: (data: { sessionId: string; exitCode: number }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+    const handler = relay(callback);
     ipcRenderer.on('pty:exit', handler);
     return () => {
       ipcRenderer.removeListener('pty:exit', handler);
@@ -539,40 +554,40 @@ const api: IElectronAPI = {
   continueAgent: (swarmId: string, agentId: string, instruction?: string) =>
     ipcRenderer.invoke('swarm:continueAgent', swarmId, agentId, instruction),
   exportAgentTrace: (swarmId: string, agentId?: string) => ipcRenderer.invoke('swarm:exportTrace', swarmId, agentId),
-  onSwarmEvent: (callback: (event: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+  onSwarmEvent: (callback: (event: SwarmEventPayload) => void) => {
+    const handler = relay(callback);
     ipcRenderer.on('swarm:event', handler);
     return () => {
       ipcRenderer.removeListener('swarm:event', handler);
     };
   },
 
-  onProjectAgentStatusChanged: (callback: (status: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+  onProjectAgentStatusChanged: (callback: (status: ProjectAgentStatus) => void) => {
+    const handler = relay(callback);
     ipcRenderer.on('claudeBridge:statusChanged', handler);
     return () => {
       ipcRenderer.removeListener('claudeBridge:statusChanged', handler);
     };
   },
-  onSubagentUpdated: (callback: (subagent: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+  onSubagentUpdated: (callback: (subagent: SubagentInfo) => void) => {
+    const handler = relay(callback);
     ipcRenderer.on('claudeBridge:subagentUpdated', handler);
     return () => {
       ipcRenderer.removeListener('claudeBridge:subagentUpdated', handler);
     };
   },
 
-  onAIChunk: (sessionId: string, callback: (chunk: any) => void) => {
+  onAIChunk: (sessionId: string, callback: Parameters<IElectronAPI['onAIChunk']>[1]) => {
     const channel = `ai:chunk:${sessionId}`;
-    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    const handler = relay(callback);
     ipcRenderer.on(channel, handler);
     return () => {
       ipcRenderer.removeListener(channel, handler);
     };
   },
-  onAIComplete: (sessionId: string, callback: (message: any) => void) => {
+  onAIComplete: (sessionId: string, callback: (message: AIMessage) => void) => {
     const channel = `ai:complete:${sessionId}`;
-    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    const handler = relay(callback);
     ipcRenderer.on(channel, handler);
     return () => {
       ipcRenderer.removeListener(channel, handler);
@@ -581,7 +596,7 @@ const api: IElectronAPI = {
   onAIError: (sessionId: string, callback: (error: string, info?: ProviderErrorInfo) => void) => {
     const channel = `ai:error:${sessionId}`;
     // Второй аргумент — снимок ошибки провайдера (decision-43), может отсутствовать.
-    const handler = (_event: any, data: any, info?: ProviderErrorInfo) => callback(data, info);
+    const handler = (_event: IpcRendererEvent, data: unknown, info?: ProviderErrorInfo) => callback(String(data), info);
     ipcRenderer.on(channel, handler);
     return () => {
       ipcRenderer.removeListener(channel, handler);
@@ -800,7 +815,7 @@ const api: IElectronAPI = {
   getMcpStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   toggleMcpServer: (enable: boolean) => ipcRenderer.invoke('mcp:toggleServer', enable),
   regenerateMcpToken: () => ipcRenderer.invoke('mcp:regenerateToken'),
-  setMcpAppState: (state: { activeProject?: unknown; activeTab?: string }) => ipcRenderer.invoke('mcp:setAppState', state),
+  setMcpAppState: (state: { activeProject?: { name: string; path: string } | null; activeTab?: string }) => ipcRenderer.invoke('mcp:setAppState', state),
   onMcpStatusChanged: (callback: (status: McpServerStatus) => void) => {
     const handler = (_event: IpcRendererEvent, status: McpServerStatus) => callback(status);
     ipcRenderer.on('mcp:statusChanged', handler);
@@ -808,8 +823,8 @@ const api: IElectronAPI = {
       ipcRenderer.removeListener('mcp:statusChanged', handler);
     };
   },
-  onRemoteAction: (callback: (action: { type: string; payload: unknown }) => void) => {
-    const handler = (_event: any, action: any) => callback(action);
+  onRemoteAction: (callback: (action: McpRemoteAction) => void) => {
+    const handler = relay(callback);
     ipcRenderer.on('mcp:remoteAction', handler);
     return () => {
       ipcRenderer.removeListener('mcp:remoteAction', handler);
@@ -842,8 +857,8 @@ const api: IElectronAPI = {
 
   // System Voice Overlay
   syncVoiceOverlay: (state: VoiceOverlayPayload) => ipcRenderer.send('voice:overlay-sync', state),
-  onVoiceOverlayUpdate: (callback: (state: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+  onVoiceOverlayUpdate: (callback: (state: VoiceOverlayPayload) => void) => {
+    const handler = relay(callback);
     ipcRenderer.on('voice:overlay-update', handler);
     return () => {
       ipcRenderer.removeListener('voice:overlay-update', handler);
@@ -860,7 +875,7 @@ const api: IElectronAPI = {
     };
   },
   onVoiceExternalControl: (callback: (action: 'toggle-pause' | 'stop') => void) => {
-    const handler = (_event: any, action: any) => callback(action);
+    const handler = relay(callback);
     ipcRenderer.on('voice:external-control', handler);
     return () => {
       ipcRenderer.removeListener('voice:external-control', handler);
@@ -888,8 +903,8 @@ const api: IElectronAPI = {
       ipcRenderer.removeListener('remote:statusChanged', handler);
     };
   },
-  onRemoteHitlDecisionMade: (callback: (data: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+  onRemoteHitlDecisionMade: (callback: (data: { requestId: string; sessionId: string; approved: boolean; byDevice: string }) => void) => {
+    const handler = relay(callback);
     ipcRenderer.on('remote:hitlDecisionMade', handler);
     return () => {
       ipcRenderer.removeListener('remote:hitlDecisionMade', handler);
@@ -971,8 +986,8 @@ const api: IElectronAPI = {
   // База знаний компании (TASK-223)
   knowledgeBaseIndex: (projectPath: string) => ipcRenderer.invoke('kb:index', projectPath),
   knowledgeBaseRead: (projectPath: string, id: string) => ipcRenderer.invoke('kb:read', projectPath, id),
-  onBusEvent: (callback: (event: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
+  onBusEvent: (callback: (event: AppBusEvent) => void) => {
+    const handler = relay(callback);
     ipcRenderer.on('bus:event', handler);
     return () => {
       ipcRenderer.removeListener('bus:event', handler);
@@ -1019,8 +1034,8 @@ const api: IElectronAPI = {
   installUpdateNow: () => ipcRenderer.invoke('updater:installNow'),
   pickUpdateFile: () => ipcRenderer.invoke('updater:pickFile'),
   installUpdateFile: () => ipcRenderer.invoke('updater:installFile'),
-  onUpdaterStatusChanged: (callback: (status: any) => void) => {
-    const handler = (_event: any, status: any) => callback(status);
+  onUpdaterStatusChanged: (callback: (status: UpdaterStatus) => void) => {
+    const handler = relay(callback);
     ipcRenderer.on('updater:statusChanged', handler);
     return () => {
       ipcRenderer.removeListener('updater:statusChanged', handler);

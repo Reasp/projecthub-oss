@@ -290,6 +290,24 @@ export interface DiagnosticsInfo {
 
 export type UpdaterState = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
 
+/**
+ * Действие внешнего MCP-клиента для окна (`mcp:remoteAction`): переключить проект или вкладку, промпт в Studio, итог
+ * решения HITL. Поля полезной нагрузки — по типу действия.
+ */
+export interface McpRemoteAction {
+  type: string;
+  payload?: {
+    query?: string;
+    tab?: string;
+    prompt?: string;
+    sendImmediately?: boolean;
+    requestId?: string;
+    approved?: boolean;
+    applied?: boolean;
+    reason?: string;
+  };
+}
+
 /** Статус проверки обновлений (TASK-58, decision-14 п.2): push из main через onUpdaterStatusChanged. */
 export interface UpdaterStatus {
   state: UpdaterState;
@@ -1690,7 +1708,7 @@ export interface IElectronAPI {
   getMcpStatus: () => Promise<McpServerStatus>;
   toggleMcpServer: (enable: boolean) => Promise<McpServerStatus>;
   regenerateMcpToken: () => Promise<string>;
-  setMcpAppState: (state: { activeProject?: any; activeTab?: string }) => Promise<boolean>;
+  setMcpAppState: (state: { activeProject?: { name: string; path: string } | null; activeTab?: string }) => Promise<boolean>;
   /** Push-статус MCP-сервера из main (старт/стоп, токен, SSE-сессии) — вместо опроса по таймеру. */
   onMcpStatusChanged: (callback: (status: McpServerStatus) => void) => () => void;
   // Управление компьютером через MCP-прокси (TASK-82)
@@ -1711,7 +1729,7 @@ export interface IElectronAPI {
   }>;
   onComputerUseStatusChanged: (callback: (status: ComputerUseStatus) => void) => () => void;
   onComputerOverlayState: (callback: (state: ComputerOverlayState) => void) => () => void;
-  onRemoteAction: (callback: (action: { type: string; payload: any }) => void) => () => void;
+  onRemoteAction: (callback: (action: McpRemoteAction) => void) => () => void;
 
   // System Voice Overlay
   syncVoiceOverlay: (state: VoiceOverlayPayload) => void;

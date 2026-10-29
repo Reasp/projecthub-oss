@@ -497,9 +497,9 @@ class McpServerService {
       'projecthub_switch_tab',
       {
         title: 'Switch tab in ProjectHub',
-        description: 'Switches the visible tab in the application (ai, kanban, git, docs, terminal).',
+        description: 'Switches the visible tab in the application (ai, kanban, git, docs, processes, analytics).',
         inputSchema: {
-          tab: z.enum(['ai', 'kanban', 'git', 'docs', 'terminal', 'analytics']).describe('Tab name')
+          tab: z.enum(['ai', 'kanban', 'git', 'docs', 'processes', 'analytics']).describe('Tab name')
         }
       },
       async ({ tab }) => {

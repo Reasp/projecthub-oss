@@ -28,7 +28,7 @@ import { useDocBranchesStore } from './store/useDocBranchesStore';
 import { RemoteHostsModal } from './components/federation/RemoteHostsModal';
 import { RemoteSessionView } from './components/fleet/RemoteSessionView';
 import { RemoteProjectView } from './components/fleet/RemoteProjectView';
-import { useProjectStore } from './store/useProjectStore';
+import { isActiveTab, useProjectStore } from './store/useProjectStore';
 import { useAIStudioStore } from './store/useAIStudioStore';
 import { handleStudioRemoteRequest } from './store/studioRemoteHandler';
 import { useHitlStore } from './store/useHitlStore';
@@ -204,7 +204,9 @@ export const App: React.FC = () => {
       console.log('[App] Remote MCP Action received:', action);
 
       if (action.type === 'switch_project') {
-        const query = (action.payload?.query || '').toLowerCase().trim();
+        // Полезная нагрузка приходит от внешнего клиента (`POST /api/action`): строку проверяем, а не предполагаем.
+        const rawQuery = action.payload?.query;
+        const query = (typeof rawQuery === 'string' ? rawQuery : '').toLowerCase().trim();
         if (query && projects.length > 0) {
           const matched = projects.find((p) => {
             const pName = p.name.toLowerCase();
@@ -218,7 +220,8 @@ export const App: React.FC = () => {
         }
       } else if (action.type === 'switch_tab') {
         const tab = action.payload?.tab;
-        if (tab) {
+        // Имя вкладки приходит от внешнего MCP-клиента: неизвестную не открываем.
+        if (isActiveTab(tab)) {
           setActiveTab(tab);
           showRemoteToast(t.app.remoteSwitchedTab.replace('{tab}', tab));
         }

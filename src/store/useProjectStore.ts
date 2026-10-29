@@ -494,6 +494,11 @@ const VALID_TABS: Set<string> = new Set([
   'security'
 ]);
 
+/** Известная вкладка окна: имя от внешнего источника (MCP-клиент, localStorage) проверяется перед переключением. */
+export function isActiveTab(value: unknown): value is ProjectState['activeTab'] {
+  return typeof value === 'string' && VALID_TABS.has(value);
+}
+
 const loadInitialActiveTab = (): ProjectState['activeTab'] => {
   if (typeof window === 'undefined') return 'kanban';
   try {
