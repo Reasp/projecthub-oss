@@ -290,7 +290,9 @@ ProjectHub/
 
 ## Documentation
 
-Project documentation is currently written in Russian.
+**User documentation** — install, quick start, concepts, Remote Control, MCP, editions, FAQ — in English and Russian: [Docs](https://github.com/Reasp/projecthub-site/tree/main/src/content/docs/docs) (pages in the site repository until the site is published).
+
+Developer documentation of ProjectHub is currently written in Russian.
 
 - [Concept and architecture](backlog/docs/doc-2%20-%20Architecture-Concept.md)
 - [Project context and system state](backlog/docs/doc-9%20-%20Контекст-проекта-и-состояние-системы-Context-Dump.md)

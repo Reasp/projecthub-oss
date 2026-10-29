@@ -290,6 +290,10 @@ ProjectHub/
 
 ## Документация
 
+**Пользовательская документация** — установка, первые шаги, понятия, Remote Control, MCP, редакции, FAQ — на английском и русском: [Docs на сайте](https://github.com/Reasp/projecthub-site/tree/main/src/content/docs/ru/docs) (страницы в репозитории сайта до его публикации).
+
+Документация для разработчиков ProjectHub:
+
 - [Концепция и архитектура](backlog/docs/doc-2%20-%20Architecture-Concept.md)
 - [Контекст проекта и состояние системы](backlog/docs/doc-9%20-%20Контекст-проекта-и-состояние-системы-Context-Dump.md)
 - [Human-in-the-loop для Claude Code CLI](backlog/docs/doc-8%20-%20Human-in-the-loop-для-режима-Claude-CLI-в-AI-Studio.md)
