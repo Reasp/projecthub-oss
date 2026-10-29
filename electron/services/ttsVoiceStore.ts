@@ -158,8 +158,24 @@ export async function getInstalledVoice(voiceId: string): Promise<InstalledVoice
   const paths = getVoicePaths(models, voiceId);
   const manifest = await readManifest(paths.manifestPath);
   if (!manifest) return null;
-  if (!existsSync(manifest.modelPath) || !existsSync(manifest.tokensPath)) return null;
-  return manifest;
+  const voice = relocateVoice(manifest, path.dirname(paths.manifestPath), getSharedEspeakDataDir(models));
+  if (!existsSync(voice.modelPath) || !existsSync(voice.tokensPath)) return null;
+  return voice;
+}
+
+/**
+ * `voice.json` хранит абсолютные пути машины, где голос скачан. Голос из офлайн-пакета закрытого контура (TASK-147.2)
+ * лежит на другой машине, у другого пользователя или ОС: недоступный путь ищется по имени файла в каталоге голоса,
+ * espeak-ng-data — в общем каталоге этого кэша.
+ */
+export function relocateVoice(voice: InstalledVoice, voiceDir: string, espeakDir: string): InstalledVoice {
+  const local = (stored: string) => (existsSync(stored) ? stored : path.join(voiceDir, stored.split(/[\\/]/).pop() ?? stored));
+  return {
+    ...voice,
+    modelPath: local(voice.modelPath),
+    tokensPath: local(voice.tokensPath),
+    ...(voice.dataDir && !existsSync(voice.dataDir) ? { dataDir: espeakDir } : {})
+  };
 }
 
 /** Встроенные и импортированные голоса с признаком «установлен». */

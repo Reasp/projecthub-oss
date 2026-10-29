@@ -486,6 +486,7 @@ export const en: TranslationDictionary = {
         qwen_pip_failed: 'Could not install Python packages — check the network connection',
         qwen_download_failed: 'Could not download model weights — check the network or set a Hugging Face mirror',
         qwen_checksum_mismatch: 'Weights checksum mismatch — the source serves a different file',
+        qwen_air_gapped: 'Air-gapped mode: Qwen3-TTS setup downloads Python packages and weights from the internet, so it is off. Use the voices from the offline models package',
         system_tts_failed: 'The system voice did not play: Windows has no voices, no audio output device, or speech synthesis is unavailable (RDP)'
       },
       apiKeyLabel: 'API Key',

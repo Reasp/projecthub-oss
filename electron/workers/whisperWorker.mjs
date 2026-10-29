@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import { pickWhisperLanguage, WHISPER_AUTO_LANGUAGES, whisperLanguageName } from './whisperLanguage.mjs';
+import { configureTransformersEnv } from './transformersEnv.mjs';
 
 if (!parentPort) {
   throw new Error('whisperWorker.mjs must be run in a Worker thread');
@@ -53,10 +54,7 @@ async function initPipeline() {
 
     const transformers = await import('@huggingface/transformers');
     transformersModule = transformers;
-    if (transformers.env) {
-      transformers.env.cacheDir = CACHE_DIR;
-      transformers.env.allowLocalModels = true;
-    }
+    configureTransformersEnv(transformers.env, { cacheDir: CACHE_DIR, offline: workerData?.offline === true });
 
     console.log(`[WhisperWorker] Loading model ${MODEL_NAME} in separate OS thread...`);
     asrPipeline = await transformers.pipeline('automatic-speech-recognition', MODEL_NAME, {

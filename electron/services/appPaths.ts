@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { app } from 'electron';
 import { migrateLegacyStatePath } from './stateFiles.js';
+import { findOfflinePackage, offlinePackageCandidates, OFFLINE_MODELS_ENV, seedModelsFromPackage } from './offlineModels.js';
 
 /**
  * Единая точка вычисления путей приложения (TASK-43).
@@ -168,7 +169,8 @@ let modelsDirReady: Promise<string> | null = null;
 
 /**
  * Создаёт каталог кэша моделей и один раз (best-effort) переносит в него содержимое старых кэшей.
- * Ошибки переноса не критичны — модель просто будет скачана заново.
+ * Ошибки переноса не критичны — модель просто будет скачана заново. Затем досевает недостающие файлы из офлайн-пакета
+ * закрытого контура, если он есть (TASK-147.2, decision-186 п. 4).
  */
 export function ensureModelsCacheDir(): Promise<string> {
   if (!modelsDirReady) {
@@ -192,6 +194,18 @@ export function ensureModelsCacheDir(): Promise<string> {
           console.log(`[AppPaths] Model cache migrated: ${legacy} -> ${target}`);
         } catch (err) {
           console.warn(`[AppPaths] Model cache migration from ${legacy} skipped:`, err);
+        }
+      }
+      const offline = findOfflinePackage(
+        offlinePackageCandidates({ env: process.env[OFFLINE_MODELS_ENV], resourcesPath: process.resourcesPath, userDataDir: getUserDataDir() })
+      );
+      if (offline) {
+        try {
+          const res = await seedModelsFromPackage(offline, target);
+          if (res.copied > 0) console.log(`[AppPaths] Offline models package ${offline}: ${res.copied} file(s) copied to ${target}`);
+          for (const f of res.failed) console.warn(`[AppPaths] Offline model file ${f.path} skipped: ${f.reason}`);
+        } catch (err) {
+          console.warn(`[AppPaths] Offline models package ${offline} is unreadable:`, err);
         }
       }
       return target;

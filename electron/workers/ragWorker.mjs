@@ -2,6 +2,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
+import { configureTransformersEnv } from './transformersEnv.mjs';
 
 /**
  * Изолированный воркер векторного поиска по документации (TASK-50).
@@ -32,10 +33,8 @@ async function getTransformers() {
   if (!transformersModule) {
     await fs.mkdir(CACHE_DIR, { recursive: true }).catch(() => {});
     transformersModule = await import('@huggingface/transformers');
-    if (transformersModule.env) {
-      transformersModule.env.cacheDir = CACHE_DIR;
-      transformersModule.env.allowLocalModels = true;
-    }
+    // Закрытый контур (decision-186 п. 4): хаб выключен, модели — из кэша, куда их положил офлайн-пакет.
+    configureTransformersEnv(transformersModule.env, { cacheDir: CACHE_DIR, offline: workerData?.offline === true });
   }
   return transformersModule;
 }

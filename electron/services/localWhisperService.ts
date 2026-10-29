@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { ensureModelsCacheDir, getModelsCacheDir, getWorkerScriptCandidates } from './appPaths';
+import { getNetworkPolicy } from './networkGuard';
+import { configureTransformersEnv } from '../workers/transformersEnv.mjs';
 
 export type LocalWhisperStatus = 'unloaded' | 'loading' | 'ready' | 'error';
 
@@ -131,7 +133,7 @@ class LocalWhisperService {
     try {
       console.log(`[LocalWhisper] Spawning Worker thread at ${workerPath}`);
       const worker = new Worker(workerPath, {
-        workerData: { cacheDir: this.cacheDir, modelName: this.modelName }
+        workerData: { cacheDir: this.cacheDir, modelName: this.modelName, offline: getNetworkPolicy().airGapped }
       });
       this.worker = worker;
 
@@ -285,10 +287,7 @@ class LocalWhisperService {
       console.log('[LocalWhisper] Initializing in-process Transformers fallback...');
       this.cacheDir = await ensureModelsCacheDir();
       const transformers = await import('@huggingface/transformers');
-      if (transformers.env) {
-        transformers.env.cacheDir = this.cacheDir;
-        transformers.env.allowLocalModels = true;
-      }
+      configureTransformersEnv(transformers.env, { cacheDir: this.cacheDir, offline: getNetworkPolicy().airGapped });
       this.fallbackPipeline = await transformers.pipeline('automatic-speech-recognition', this.modelName, {
         dtype: 'fp32'
       });

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { ensureModelsCacheDir, getWorkerScriptCandidates } from './appPaths';
+import { getNetworkPolicy } from './networkGuard';
 import type { EmbeddingModel } from './ragEmbeddingModel';
 
 /**
@@ -76,7 +77,7 @@ class RagWorkerClient {
 
       try {
         const cacheDir = await ensureModelsCacheDir();
-        const worker = new Worker(workerPath, { workerData: { cacheDir } });
+        const worker = new Worker(workerPath, { workerData: { cacheDir, offline: getNetworkPolicy().airGapped } });
         worker.on('message', (msg) => this.handleMessage(worker, msg));
         worker.on('error', (err) => this.handleFailure(worker, err instanceof Error ? err : new Error(String(err))));
         worker.on('exit', (code) => {

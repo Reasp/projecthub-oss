@@ -105,7 +105,8 @@ export const QWEN_INSTALL_ERROR_CODES = [
   'qwen_venv_failed',
   'qwen_pip_failed',
   'qwen_download_failed',
-  'qwen_checksum_mismatch'
+  'qwen_checksum_mismatch',
+  'qwen_air_gapped'
 ] as const;
 
 export type QwenTtsErrorCode =

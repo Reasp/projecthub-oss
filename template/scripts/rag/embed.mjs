@@ -8,6 +8,13 @@ import { INFRA_ROOT } from '../config.mjs';
 // проекте (при подключении инфры как подпапки).
 env.cacheDir = path.join(INFRA_ROOT, '.rag-cache');
 
+// Закрытый контур ProjectHub (decision-186): хаб выключен, модель берётся из кэша или из офлайн-пакета моделей
+// (раскладка `<id модели>/<файл>`). ProjectHub передаёт обе переменные агентам и их MCP-серверам.
+if (/^(1|true|yes|on)$/i.test(process.env.PROJECTHUB_AIR_GAPPED ?? '')) {
+  env.allowRemoteModels = false;
+  if (process.env.PROJECTHUB_OFFLINE_MODELS) env.localModelPath = `${path.resolve(process.env.PROJECTHUB_OFFLINE_MODELS)}/`;
+}
+
 // Реестр поддерживаемых моделей. Документация проекта — на русском, поэтому по умолчанию
 // многоязычная модель (TASK-47): англоязычная all-MiniLM-L6-v2 на русских запросах
 // возвращала нерелевантные чанки. Для семейства E5 обязательны префиксы `query:` /

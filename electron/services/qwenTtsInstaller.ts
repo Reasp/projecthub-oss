@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { utilityProcess, type UtilityProcess } from 'electron';
 import { getUserDataDir, getWorkerScriptCandidates } from './appPaths';
+import { getNetworkPolicy } from './networkGuard';
 import { createLineSplitter } from './qwenSidecarProtocol';
 import {
   finalizeInstall,
@@ -52,6 +53,10 @@ class QwenTtsInstaller {
       // Идущую установку не трогаем: отказ получает только второй вызов
       return Promise.resolve({ ...IDLE_INSTALL_PROGRESS, state: 'error', errorCode: 'qwen_install_in_progress' });
     }
+
+    // Закрытый контур (decision-186 п. 7): установка идёт в отдельном процессе мимо обёртки сети main и качает pip-пакеты
+    // и веса из интернета — не запускаем её вовсе.
+    if (getNetworkPolicy().airGapped) return failed('qwen_air_gapped', 'Qwen3-TTS setup is disabled in air-gapped mode');
 
     const script = getWorkerScriptCandidates(path.join('qwen', 'setup.mjs')).find((p) => existsSync(p));
     if (!script) return failed('qwen_setup_missing', 'setup.mjs not found next to the app bundle');

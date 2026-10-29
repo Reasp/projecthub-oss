@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { guardSession, installEgressGuard, loadNetworkPolicy } from './services/networkGuard';
+import { findOfflinePackage, offlinePackageCandidates, OFFLINE_MODELS_ENV } from './services/offlineModels';
 import { claudeBridgeService } from './services/claudeBridgeService';
 import { localWhisperService } from './services/localWhisperService';
 import { ragWorkerClient } from './services/ragWorkerClient';
@@ -26,7 +27,7 @@ import { initPrMergeWatch } from './services/prReviewApp';
 import { chatService } from './services/chatServiceInstance';
 import { invalidateInspectCache } from './services/projectScanner';
 import { logger, parseLogLevel } from './services/logger';
-import { getUserDataDir } from './services/appPaths';
+import { ensureModelsCacheDir, getUserDataDir } from './services/appPaths';
 import { hitlService } from './services/hitlService';
 import { updaterService } from './services/updaterService';
 import { notificationService } from './services/notificationService';
@@ -68,6 +69,17 @@ if (networkPolicy.airGapped) {
   installEgressGuard(networkPolicy, { global: globalThis, http, https, onBlocked });
   app.on('session-created', (created) => guardSession(created, networkPolicy, onBlocked));
   console.log(`[NetworkGuard] air-gapped mode: allowed hosts ${networkPolicy.allowedHosts.join(', ') || '(private networks only)'}`);
+  // Режим и офлайн-пакет моделей — дочерним процессам (агенты, их MCP-серверы, docs-rag): обёртка main их не покрывает
+  // (decision-186 п. 7), а без хаба модель они берут из пакета (TASK-147.2).
+  process.env.PROJECTHUB_AIR_GAPPED = '1';
+  const offlineModels = findOfflinePackage(
+    offlinePackageCandidates({ env: process.env[OFFLINE_MODELS_ENV], resourcesPath: process.resourcesPath, userDataDir: getUserDataDir() })
+  );
+  if (offlineModels) {
+    process.env[OFFLINE_MODELS_ENV] = offlineModels;
+    // Досев гигабайтов — сразу при старте, а не при первом поиске или голосовой команде (первый вызов ждал бы его).
+    void ensureModelsCacheDir();
+  }
 }
 
 // Automatically approve media capture requests in Chromium without blocking UI dialogs

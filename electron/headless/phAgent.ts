@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -75,6 +77,13 @@ async function loadServices() {
   // Ключ — до сервисов: Remote Control читает и создаёт секреты уже при загрузке, неверный ключ должен остановить
   // команду раньше (decision-119 п. 9).
   secretKeySource();
+  // Закрытый контур (decision-186, TASK-147.2): та же политика, что у десктопа, из каталога данных ph-agent или окружения,
+  // и та же обёртка запросов — до загрузки сервисов, которые сразу открывают соединения. Без политики ничего не ставится.
+  const { installEgressGuard, loadNetworkPolicy } = await import('../services/networkGuard.js');
+  const policy = loadNetworkPolicy(agentDataDir());
+  if (policy.airGapped) {
+    installEgressGuard(policy, { global: globalThis, http, https, onBlocked: (host, via) => console.warn(`[NetworkGuard] blocked outgoing request to ${host} (${via})`) });
+  }
   const [{ logger, parseLogLevel }, { remoteControlService }, { projectRegistry }] = await Promise.all([
     import('../services/logger.js'),
     import('../services/remoteControlService.js'),

@@ -6,6 +6,8 @@ import type { RagSearchOptions, RagSearchResult } from '../../src/types/electron
 import { MEMORY_DIR, MEMORY_DIR_SEGMENTS, MEMORY_INDEX_FILE } from './memoryFormat';
 import { projectRegistry } from './projectRegistry';
 import { ensureModelsCacheDir } from './appPaths';
+import { getNetworkPolicy } from './networkGuard';
+import { configureTransformersEnv } from '../workers/transformersEnv.mjs';
 import { resolveEmbeddingModel, type EmbeddingModel } from './ragEmbeddingModel';
 import { ragWorkerClient, type VectorSearchRow } from './ragWorkerClient';
 
@@ -42,11 +44,8 @@ async function getTransformers() {
   if (!transformersModule) {
     try {
       transformersModule = await import('@huggingface/transformers');
-      if (transformersModule.env) {
-        // Единый кэш моделей приложения (userData/models), а не cwd/.rag-cache (TASK-43)
-        transformersModule.env.cacheDir = await ensureModelsCacheDir();
-        transformersModule.env.allowLocalModels = true;
-      }
+      // Единый кэш моделей приложения (userData/models), а не cwd/.rag-cache (TASK-43); в закрытом контуре — без хаба.
+      configureTransformersEnv(transformersModule.env, { cacheDir: await ensureModelsCacheDir(), offline: getNetworkPolicy().airGapped });
     } catch (err) {
       console.warn('[RAG] Transformers not available:', err);
       return null;
