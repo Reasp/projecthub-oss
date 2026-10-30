@@ -3523,7 +3523,7 @@ class RemoteControlService {
    * получает у него отдельный токен для телефона. Ключ соседа приходит по уже проверенной сессии с этим ПК.
    */
   private async enrollDeviceOnPeer(hostId: string, phone: RemoteDevice): Promise<RemoteEnrollment> {
-    if (!hostId) throw new Error('hostId is required');
+    if (!hostId) throw new AppError('remote.paramsRequired', { names: 'hostId' });
     if (hostId === this.hostId) throw new AppError('remote.sameComputer');
     const peers = await federationClientService.listPeers();
     const peer = peers.find((p) => p.hostId === hostId && p.paired);
@@ -3649,7 +3649,7 @@ class RemoteControlService {
     const hitlRightsMethods = new Set(['hitl_decision', 'approve_agent_tasks', 'inbox_dismiss', 'review_task', 'merge_doc_branch', 'close_doc_branch']);
 
     if (this.readOnly && writeMethods.has(method)) {
-      throw new Error(`Method ${method} is forbidden in Read-Only mode`);
+      throw new AppError('remote.readOnlyMode', { method });
     }
 
     if (params && typeof params === 'object' && FORBIDDEN_REMOTE_PARAMS.some((k) => k in params)) {
@@ -3661,19 +3661,19 @@ class RemoteControlService {
     // сужает их на каждом вызове (decision-126): владелец мог сменить роль, пока устройство подключено.
     const rights = this.effectiveDeviceRights(device);
     const extraMethod = editionRegistry.remoteMethod(method);
-    if (extraMethod?.write && this.readOnly) throw new Error(`Method ${method} is forbidden in Read-Only mode`);
+    if (extraMethod?.write && this.readOnly) throw new AppError('remote.readOnlyMode', { method });
     if (writeMethods.has(method) || extraMethod?.write) {
       if (rights === 'readOnly') {
-        throw new Error(`Method ${method} is forbidden for this device (readOnly rights)`);
+        throw new AppError('remote.deviceReadOnly', { method });
       }
       // Подтверждение задачи агента — такое же решение человека, как HITL (decision-89 п. 11).
       if (rights === 'hitl' && !hitlRightsMethods.has(method)) {
-        throw new Error(`Method ${method} is forbidden for this device (hitl-only rights)`);
+        throw new AppError('remote.deviceHitlOnly', { method });
       }
     }
     // Дифф запроса — код проекта: его видит только тот, кто может решать (decision-114 п. 3).
     if (method === 'get_hitl_detail' && rights === 'readOnly') {
-      throw new Error(`Method ${method} is forbidden for this device (readOnly rights)`);
+      throw new AppError('remote.deviceReadOnly', { method });
     }
     const deviceRef = { id: device.id, ...(device.name ? { name: device.name } : {}), ...(device.memberId ? { memberId: device.memberId } : {}), rights };
     const denied = editionRegistry.checkRpc(method, deviceRef);
@@ -3807,7 +3807,7 @@ class RemoteControlService {
       }
 
       case 'start_process': {
-        if (!activePath) throw new Error('No active project specified');
+        if (!activePath) throw new AppError('remote.noProjectSelected');
         // Рабочее дерево из удалённого запроса проверяем гардом: клиент не должен
         // запускать процессы в произвольном каталоге (TASK-62).
         const options: Record<string, unknown> = { ...rpcObject(params.options) };
@@ -3845,7 +3845,7 @@ class RemoteControlService {
       }
 
       case 'get_doc': {
-        if (!activePath) throw new Error('No active project specified');
+        if (!activePath) throw new AppError('remote.noProjectSelected');
         return await readRemoteDoc(await assertRegisteredProject(String(activePath)), params.path, params.knownHash);
       }
 
@@ -3856,7 +3856,7 @@ class RemoteControlService {
       }
 
       case 'get_doc_branch_diff': {
-        if (!activePath) throw new Error('No active project specified');
+        if (!activePath) throw new AppError('remote.noProjectSelected');
         return remoteDocBranchDiff(await diffDocBranch(await assertRegisteredProject(String(activePath)), String(params.branchId || '')));
       }
 
@@ -3884,17 +3884,17 @@ class RemoteControlService {
       }
 
       case 'update_task_status': {
-        if (!params.filePath || !params.newStatus) throw new Error('filePath and newStatus are required');
+        if (!params.filePath || !params.newStatus) throw new AppError('remote.paramsRequired', { names: 'filePath, newStatus' });
         await this.updateTaskStatusInFile(await this.assertTaskFile(params.filePath), String(params.newStatus));
         this.broadcastEvent('backlog:changed', { projectPath: activePath });
         return { ok: true };
       }
 
       case 'toggle_task_criterion': {
-        if (!params.filePath || params.index === undefined) throw new Error('filePath and index are required');
+        if (!params.filePath || params.index === undefined) throw new AppError('remote.paramsRequired', { names: 'filePath, index' });
         // `null`, `''`, `false` не становятся нулём — первым критерием (ревью TASK-263).
         const criterionIndex = typeof params.index === 'number' || typeof params.index === 'string' ? Number(params.index) : NaN;
-        if (!Number.isInteger(criterionIndex) || criterionIndex < 0) throw new Error('filePath and index are required');
+        if (!Number.isInteger(criterionIndex) || criterionIndex < 0) throw new AppError('remote.paramsRequired', { names: 'filePath, index' });
         await this.toggleCriterionInFile(await this.assertTaskFile(params.filePath), criterionIndex, params.completed === true);
         this.broadcastEvent('backlog:changed', { projectPath: activePath });
         return { ok: true };
@@ -3915,7 +3915,7 @@ class RemoteControlService {
       }
 
       case 'git_commit': {
-        if (!activePath || !params.message) throw new Error('message and projectPath are required');
+        if (!activePath || !params.message) throw new AppError('remote.paramsRequired', { names: 'message, projectPath' });
         // Сканер секретов (decision-56 п. 4): с телефона дифф не виден, поэтому «закоммитить всё равно» только из окна.
         const res = await guardedCommit(activePath, String(params.message), {
           stageAll: Boolean(params.stageAll),
@@ -3926,14 +3926,14 @@ class RemoteControlService {
         if (res.reason === 'secrets') {
           throw new AppError('remote.commitSecrets', { findings: summarizeSecretFindings(res.findings) });
         }
-        throw new Error(res.error);
+        throw new AppError('remote.commitFailed', { detail: String(res.error) });
       }
 
       case 'hitl_decision': {
         // Решение Human-in-the-Loop с удалённого устройства: строго по requestId через единый
         // hitlService.decide (TASK-57). Одобрение «верхнего в очереди» не поддерживается.
         const requestId = typeof params.requestId === 'string' ? params.requestId : '';
-        if (!requestId) throw new Error('requestId is required');
+        if (!requestId) throw new AppError('remote.paramsRequired', { names: 'requestId' });
         const approved = params.decision === 'allow' || params.decision === 'approve' || params.approved === true;
         // Способ подтверждения сообщает клиент, но `biometric` засчитывается только с подписью ключом подтверждения,
         // зарегистрированным при сопряжении (decision-112 п. 4). Класс риска хост берёт у себя, не из запроса.
@@ -3984,7 +3984,7 @@ class RemoteControlService {
         const projectPath = await assertRegisteredProject(String(params.projectPath || ''));
         const ids = Array.isArray(params.taskIds) ? params.taskIds.filter((id: unknown): id is string => typeof id === 'string').slice(0, 200) : undefined;
         const reporter = typeof params.reporter === 'string' && params.reporter ? params.reporter : undefined;
-        if (!ids && !reporter) throw new Error('taskIds or reporter is required');
+        if (!ids && !reporter) throw new AppError('remote.paramsRequired', { names: 'taskIds | reporter' });
         const result = await agentTaskApproval.approveInProject(
           projectPath,
           { ...(ids ? { ids } : {}), ...(reporter ? { reporter } : {}) },
@@ -3996,8 +3996,8 @@ class RemoteControlService {
       }
 
       case 'create_task': {
-        if (!activePath) throw new Error('No active project specified');
-        if (!params.title) throw new Error('title is required');
+        if (!activePath) throw new AppError('remote.noProjectSelected');
+        if (!params.title) throw new AppError('remote.paramsRequired', { names: 'title' });
         const created = await createBacklogTaskFile(activePath, {
           title: String(params.title),
           description: typeof params.description === 'string' ? params.description : '',
@@ -4006,23 +4006,23 @@ class RemoteControlService {
           priority: params.priority ? String(params.priority) : undefined,
           milestone: params.milestone ? String(params.milestone) : undefined
         });
-        if (!created) throw new Error('Failed to create task');
+        if (!created) throw new AppError('remote.taskCreateFailed');
         this.broadcastEvent('backlog:changed', { projectPath: activePath });
         return created;
       }
 
       case 'git_pull': {
-        if (!activePath) throw new Error('No active project specified');
+        if (!activePath) throw new AppError('remote.noProjectSelected');
         return await gitService.pullRemote(activePath);
       }
 
       case 'git_push': {
-        if (!activePath) throw new Error('No active project specified');
+        if (!activePath) throw new AppError('remote.noProjectSelected');
         return await gitService.pushRemote(activePath);
       }
 
       case 'run_action': {
-        if (!activePath) throw new Error('No active project specified');
+        if (!activePath) throw new AppError('remote.noProjectSelected');
         const actionId: string = typeof params.action === 'string' ? params.action : 'run';
         const config = await actionConfigService.getConfig(activePath);
         const builtin: Record<'run' | 'deploy' | 'test', ActionDefinition> = {
@@ -4032,7 +4032,7 @@ class RemoteControlService {
         };
         const def: ActionDefinition | undefined =
           actionId in builtin ? builtin[actionId as 'run' | 'deploy' | 'test'] : config.customActions?.find((a) => a.id === actionId);
-        if (!def) throw new Error(`Unknown action: ${actionId}`);
+        if (!def) throw new AppError('remote.unknownAction', { id: String(actionId) });
         return await processManager.startProcess(activePath, def.command, def.name, {
           cwd: def.cwd,
           env: def.env,
@@ -4129,7 +4129,7 @@ class RemoteControlService {
         // Вложения — файлы, уже сохранённые в проект через `studio_attach`: агент получает их пути.
         const attachments = await resolvePromptAttachments(projectPath, params.attachments);
         const text = promptWithAttachments(typeof params.prompt === 'string' ? params.prompt : '', attachments);
-        if (!text) throw new Error('prompt is required');
+        if (!text) throw new AppError('remote.paramsRequired', { names: 'prompt' });
         if (text.length > 100_000) throw new AppError('remote.promptTooLong');
         const sessionId = typeof params.sessionId === 'string' && params.sessionId ? params.sessionId : undefined;
         if (sessionId) await this.assertStudioWriter(projectPath, sessionId, device);
@@ -4228,10 +4228,10 @@ class RemoteControlService {
       }
 
       case 'start_assigned_agent': {
-        if (!activePath) throw new Error('No active project specified');
+        if (!activePath) throw new AppError('remote.noProjectSelected');
         const taskId = typeof params.taskId === 'string' ? params.taskId.trim() : '';
         const roleSlug = typeof params.roleSlug === 'string' ? params.roleSlug.trim() : '';
-        if (!taskId || !roleSlug) throw new Error('taskId and roleSlug are required');
+        if (!taskId || !roleSlug) throw new AppError('remote.paramsRequired', { names: 'taskId, roleSlug' });
 
         // Хост запускает агента только у себя: чужой hostId в запросе — ошибка маршрутизации,
         // а не повод исполнять чужую работу (decision-11 п.5).
@@ -4257,7 +4257,7 @@ class RemoteControlService {
 
       case 'stop_swarm': {
         const swarmId = typeof params.swarmId === 'string' ? params.swarmId : '';
-        if (!swarmId) throw new Error('swarmId is required');
+        if (!swarmId) throw new AppError('remote.paramsRequired', { names: 'swarmId' });
         // Чужой рой участника останавливает только он сам или старшая роль (TASK-142.3).
         const swarm = agentFleetService.getSwarm(swarmId);
         const denied = swarm ? editionRegistry.checkOwnership(swarm.memberId, device.memberId, 'session') : null;
@@ -4270,7 +4270,7 @@ class RemoteControlService {
         // и не логи слота — с телефона читают «что агент сейчас пишет», а не всю историю.
         const swarmId = typeof params.swarmId === 'string' ? params.swarmId : '';
         const agentId = typeof params.agentId === 'string' ? params.agentId : '';
-        if (!swarmId || !agentId) throw new Error('swarmId and agentId are required');
+        if (!swarmId || !agentId) throw new AppError('remote.paramsRequired', { names: 'swarmId, agentId' });
         const agent = agentFleetService.getSwarm(swarmId)?.agents.find((a) => a.id === agentId);
         if (!agent) throw new AppError('remote.agentNotFound');
         const full = agent.finalOutput || agent.liveOutput || '';
@@ -4327,7 +4327,7 @@ class RemoteControlService {
       // Полный запрос перед одобрением с телефона (TASK-140.6): команда целиком и дифф, только пока запрос ждёт.
       case 'get_hitl_detail': {
         const requestId = typeof params.requestId === 'string' ? params.requestId : '';
-        if (!requestId) throw new Error('requestId is required');
+        if (!requestId) throw new AppError('remote.paramsRequired', { names: 'requestId' });
         const pendingRequest = hitlService.getPending(requestId);
         if (!pendingRequest || !this.hitlVisibleTo(pendingRequest, device)) throw new AppError('remote.hitlRequestNotFound');
         return hitlDetailForPhone(pendingRequest);
@@ -4395,7 +4395,7 @@ class RemoteControlService {
           import('node:os')
         ]);
         const name = typeof params.name === 'string' ? params.name.trim().slice(0, 120) : '';
-        if (!name) throw new Error('name is required');
+        if (!name) throw new AppError('remote.paramsRequired', { names: 'name' });
         const root = projectsRoot((await projectRegistry.getProjects()).map((p) => p.path), os.homedir());
         const target = path.join(root, projectFolderName(name));
         if (existsSync(target)) throw new AppError('remote.projectFolderExists', { path: target });
@@ -4420,6 +4420,7 @@ class RemoteControlService {
             broadcast: (event, payload) => this.broadcastEvent(event, payload)
           });
         }
+        // Протокольный сигнал без кода: телефон и окно распознают по нему старый хост и просят его обновить.
         throw new Error(`Unknown RPC method: ${method}`);
       }
     }

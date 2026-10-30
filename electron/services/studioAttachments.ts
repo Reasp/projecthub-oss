@@ -95,14 +95,14 @@ export interface AttachmentDeps {
 /** Разбор части: ошибка — текст для телефона. */
 export function parseAttachmentChunk(params: Record<string, unknown>): AttachmentChunk {
   const uploadId = typeof params.uploadId === 'string' ? params.uploadId : '';
-  if (!/^[A-Za-z0-9_-]{6,64}$/.test(uploadId)) throw new Error('uploadId is required');
+  if (!/^[A-Za-z0-9_-]{6,64}$/.test(uploadId)) throw new AppError('attachments.invalidUpload', { detail: 'uploadId' });
   const size = Number(params.size);
-  if (!Number.isInteger(size) || size <= 0) throw new Error('size is required');
+  if (!Number.isInteger(size) || size <= 0) throw new AppError('attachments.invalidUpload', { detail: 'size' });
   if (size > ATTACHMENT_MAX_BYTES) throw new AppError('attachments.tooLarge', { mb: ATTACHMENT_MAX_BYTES / 1024 / 1024 });
   const offset = Number(params.offset);
-  if (!Number.isInteger(offset) || offset < 0) throw new Error('offset is required');
+  if (!Number.isInteger(offset) || offset < 0) throw new AppError('attachments.invalidUpload', { detail: 'offset' });
   const data = typeof params.data === 'string' ? params.data : '';
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new Error('data must be base64');
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new AppError('attachments.invalidUpload', { detail: 'data' });
   return { uploadId, name: sanitizeAttachmentName(params.name), size, offset, data };
 }
 
@@ -131,13 +131,13 @@ export class AttachmentUploads {
       upload = { projectPath, name: chunk.name, size: chunk.size, parts: [], received: 0, touchedAt: this.deps.now() };
       this.uploads.set(key, upload);
     }
-    if (upload.projectPath !== projectPath || upload.size !== chunk.size) throw new Error('The upload belongs to another file');
-    if (chunk.offset !== upload.received) throw new Error(`Expected a chunk at offset ${upload.received}`);
+    if (upload.projectPath !== projectPath || upload.size !== chunk.size) throw new AppError('attachments.otherFile');
+    if (chunk.offset !== upload.received) throw new AppError('attachments.unexpectedOffset', { offset: upload.received });
     const bytes = Buffer.from(chunk.data, 'base64');
-    if (bytes.length === 0 || bytes.length > ATTACHMENT_CHUNK_MAX) throw new Error('Invalid chunk size');
+    if (bytes.length === 0 || bytes.length > ATTACHMENT_CHUNK_MAX) throw new AppError('attachments.invalidUpload', { detail: 'chunk' });
     if (upload.received + bytes.length > upload.size) {
       this.uploads.delete(key);
-      throw new Error('The file is larger than its declared size');
+      throw new AppError('attachments.sizeMismatch');
     }
     upload.parts.push(bytes);
     upload.received += bytes.length;
@@ -168,7 +168,7 @@ export async function writeAttachmentFile(projectPath: string, relPath: string, 
   for (let i = 0; i < 100; i++) {
     const candidate = i === 0 ? relPath : `${parsed.dir}/${parsed.name}-${i}${parsed.ext}`;
     const abs = path.resolve(root, ...candidate.split('/'));
-    if (!abs.startsWith(dirRoot + path.sep)) throw new Error('The attachment path is outside the attachments folder');
+    if (!abs.startsWith(dirRoot + path.sep)) throw new AppError('attachments.outsideFolder');
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     try {
       await fsp.writeFile(abs, data, { flag: 'wx' });
@@ -177,17 +177,17 @@ export async function writeAttachmentFile(projectPath: string, relPath: string, 
       if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
     }
   }
-  throw new Error('Could not pick a free attachment file name');
+  throw new AppError('attachments.noFreeName');
 }
 
 /** Пути вложений из `studio_send`: только существующие файлы каталога вложений этого проекта. */
 export async function resolvePromptAttachments(projectPath: string, value: unknown): Promise<string[]> {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) throw new Error('attachments must be an array');
+  if (!Array.isArray(value)) throw new AppError('attachments.invalidUpload', { detail: 'attachments' });
   if (value.length > ATTACHMENT_MAX_PER_PROMPT) throw new AppError('attachments.tooMany', { count: ATTACHMENT_MAX_PER_PROMPT });
   const out: string[] = [];
   for (const rel of value) {
-    if (!isAttachmentRelPath(rel)) throw new Error('The attachment is outside the attachments folder');
+    if (!isAttachmentRelPath(rel)) throw new AppError('attachments.outsideFolder');
     const stat = await fsp.stat(path.resolve(projectPath, ...rel.split('/'))).catch(() => null);
     if (!stat?.isFile()) throw new AppError('attachments.notFound', { path: rel });
     if (!out.includes(rel)) out.push(rel);

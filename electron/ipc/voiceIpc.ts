@@ -32,7 +32,7 @@ import {
   type VoiceResultCard
 } from '../../src/utils/voiceResultCard.js';
 import type { IpcContext } from './types';
-import { appErrorFields } from '../../src/lib/appError';
+import { AppError, appErrorFields } from '../../src/lib/appError';
 
 /**
  * Кэш частых фраз классификатора (TASK-83 п. 2): живёт на процесс, а не на окно — одни и те же
@@ -277,7 +277,7 @@ export function registerVoiceIpc(ctx: IpcContext) {
       modelId?: unknown;
     };
     if (!(samples instanceof Float32Array)) return { ok: false, error: 'samples must be a Float32Array' };
-    if (!isAsrModelId(modelId)) return { ok: false, error: 'unknown model' };
+    if (!isAsrModelId(modelId)) return { ok: false, ...appErrorFields(new AppError('models.downloadUnknown', { id: String(modelId) })) };
     const asr = await getInstalledAsrModel(modelId);
     if (!asr) return { ok: false, error: 'model_not_installed' };
     return speechPrepService.recognize({
@@ -291,7 +291,7 @@ export function registerVoiceIpc(ctx: IpcContext) {
   ipcMain.handle('asr:listModels', async () => listAsrModels());
 
   ipcMain.handle('asr:downloadModel', async (_event, modelId: unknown) => {
-    if (!isAsrModelId(modelId)) return { ok: false, error: 'unknown model' };
+    if (!isAsrModelId(modelId)) return { ok: false, ...appErrorFields(new AppError('models.downloadUnknown', { id: String(modelId) })) };
     const send = (progress: AsrDownloadProgress) => {
       const win = ctx.getMainWindow();
       if (win && !win.isDestroyed()) win.webContents.send('asr:downloadProgress', progress);
@@ -302,7 +302,8 @@ export function registerVoiceIpc(ctx: IpcContext) {
     } catch (err) {
       console.warn(`[ASR] Download of ${modelId} failed:`, err);
       send({ modelId, phase: 'done', receivedBytes: 0, totalBytes: 0 });
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      // Код ошибки (models.*) — окну: текст на его языке (TASK-262).
+      return { ok: false, ...appErrorFields(err) };
     }
   });
 

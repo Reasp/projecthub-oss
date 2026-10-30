@@ -32,7 +32,7 @@ import {
   type RepoRef
 } from './prHosting.js';
 import { stateFields, withVersion } from './stateFiles.js';
-import { AppError, appErrorFields } from '../../src/lib/appError.js';
+import { AppError, appErrorFields, appErrorKeyOf } from '../../src/lib/appError.js';
 import { githubActionsAdapter, gitlabCiAdapter } from './ciProviders.js';
 import type { CiAccess } from './ciService.js';
 
@@ -150,7 +150,7 @@ export class PRService {
       });
       return stdout.trim();
     } catch (err: any) {
-      throw new Error(err.stderr || err.message || 'GitHub CLI failed', { cause: err });
+      throw Object.assign(new AppError('pr.ghFailed', { detail: String(err.stderr || err.message || 'GitHub CLI failed').trim().slice(0, 500) }), { cause: err });
     }
   }
 
@@ -405,7 +405,8 @@ export class PRService {
         token = stdout.trim();
       }
     } catch (err) {
-      throw Object.assign(new AppError('pr.cliTokenFailed', { detail: errorText(err) }), { cause: err });
+      // Вложенная ошибка с кодом (pr.ghFailed) собирается на языке окна, а не английским текстом.
+      throw Object.assign(new AppError('pr.cliTokenFailed', { detail: appErrorKeyOf(err) ?? errorText(err) }), { cause: err });
     }
     if (!token || /\s/.test(token)) {
       throw new AppError(serviceId === 'gitlab' ? 'pr.glabTokenInKeyring' : 'pr.ghNoToken');
@@ -747,7 +748,7 @@ export class PRService {
     const backend = await this.strictBackend(projectPath);
     if (backend.kind === 'connection') {
       const pr = await backend.adapter.get(backend.http, backend.repo, prNumber);
-      if (!pr.headSha) throw new Error(`${backend.adapter.label} returned no head for PR #${prNumber}`);
+      if (!pr.headSha) throw new AppError('pr.noHead', { service: backend.adapter.label, pr: prNumber });
       return {
         number: prNumber,
         title: pr.title,
@@ -766,7 +767,7 @@ export class PRService {
     );
     const r = JSON.parse(raw) as Record<string, unknown>;
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
-    if (!str(r.headRefOid)) throw new Error(`gh returned no head for PR #${prNumber}`);
+    if (!str(r.headRefOid)) throw new AppError('pr.noHead', { service: 'GitHub CLI', pr: prNumber });
     return {
       number: prNumber,
       title: str(r.title) || `#${prNumber}`,

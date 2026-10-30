@@ -10,6 +10,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { ensureModelsCacheDir } from './appPaths';
+import { AppError } from '../../src/lib/appError';
 import { extractTarBz2 } from './archiveExtract';
 import { sha256File } from './fileHash';
 import { parseContentLength, resolveTotalBytes } from './ttsDownloadProgress';
@@ -115,7 +116,7 @@ export async function downloadAsrModel(
   onProgress?: (progress: AsrDownloadProgress) => void
 ): Promise<InstalledAsrModel> {
   const def = ASR_MODELS[id];
-  if (activeDownloads.has(id)) throw new Error(`download of ${id} is already in progress`);
+  if (activeDownloads.has(id)) throw new AppError('models.downloadInProgress', { id });
 
   const root = await asrRoot();
   const targetDir = path.join(root, id);
@@ -126,7 +127,7 @@ export async function downloadAsrModel(
 
   try {
     const response = await fetch(def.url, { signal: controller.signal });
-    if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok || !response.body) throw new AppError('models.downloadHttp', { status: response.status });
     const contentLength = parseContentLength(response.headers.get('content-length'));
     let received = 0;
     const report = (phase: AsrDownloadProgress['phase']) =>
@@ -141,14 +142,14 @@ export async function downloadAsrModel(
 
     report('verify');
     const actual = await sha256File(tmpArchive);
-    if (actual !== def.sha256) throw new Error(`checksum mismatch: expected ${def.sha256}, got ${actual}`);
+    if (actual !== def.sha256) throw new AppError('models.checksumMismatch', { id });
 
     report('extract');
     await fs.rm(stagingDir, { recursive: true, force: true });
     await extractTarBz2(tmpArchive, stagingDir);
     const unpacked = path.join(stagingDir, def.archiveRoot);
     for (const file of Object.values(def.files)) {
-      if (!existsSync(path.join(unpacked, file))) throw new Error(`archive has no ${file}`);
+      if (!existsSync(path.join(unpacked, file))) throw new AppError('models.archiveIncomplete', { file });
     }
 
     await fs.rm(targetDir, { recursive: true, force: true });

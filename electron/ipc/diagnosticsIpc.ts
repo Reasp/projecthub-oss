@@ -93,13 +93,13 @@ export function registerDiagnosticsIpc() {
       if (process.platform === 'darwin') {
         // Образ диска открывается системой, перенос в «Программы» делает человек.
         const err = await shell.openPath(staged);
-        if (err) throw new Error(err);
+        if (err) throw new AppError('update.openFailed', { detail: err });
         return { launched: true, quitting: false };
       }
       if (process.platform === 'linux') {
         // AppImage — это и есть установленное приложение: заменяем файл, из которого запущены, и перезапускаемся.
         const current = process.env.APPIMAGE;
-        if (!current) throw new Error('ProjectHub is not running from an AppImage: replace the installed copy by hand');
+        if (!current) throw new AppError('update.notAppImage');
         const next = `${current}.update`;
         await fs.copyFile(staged, next);
         await fs.chmod(next, 0o755);
@@ -118,6 +118,8 @@ export function registerDiagnosticsIpc() {
         });
       });
     } catch (err) {
+      // Своя ошибка с кодом (не AppImage, не открылся образ) — как есть, без обёртки «не удалось запустить».
+      if (err instanceof AppError) throw err;
       throw new AppError('update.launchFailed', { detail: err instanceof Error ? err.message : String(err) });
     }
     // Установщик заменяет файлы приложения — оно должно выйти.

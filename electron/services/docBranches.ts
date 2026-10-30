@@ -426,7 +426,7 @@ export interface OpenDocBranchParams {
 export async function openDocBranch(projectRoot: string, params: OpenDocBranchParams, env: DocBranchEnv = {}): Promise<DocBranchMeta> {
   const repo = await openRepo(projectRoot, env);
   const title = params.title.trim();
-  if (!title) throw new Error('The branch title is not set: describe what changes in the documentation.');
+  if (!title) throw new AppError('docs.branchTitleEmpty');
   return withLock(lockKey(repo), async () => {
     const store = await readStore(repo);
     const id = `db-${store.next}`;
@@ -507,7 +507,7 @@ export async function updateDocInBranch(
     const repoPath = await findDocPath(repo, tip, doc);
     const raw = repoPath ? await readBlob(repo, tip, repoPath) : null;
     if (repoPath === null || raw === null) {
-      throw new Error(`Document ${doc} is not in branch ${meta.id}. If it was created in the main branch later, pull it in: doc_branch_resolve.`);
+      throw new AppError('docs.branchDocMissing', { doc, id: meta.id });
     }
     // Изменение предложенной ветки возвращает её в работу: предложение устарело.
     const next = transform(raw);
@@ -705,7 +705,7 @@ export async function proposeDocBranch(projectRoot: string, id: string, message:
     const meta = findMeta(await readStore(repo), repo, id);
     const tip = await activeTip(repo, meta);
     const diff = await computeDiff(repo, meta, tip);
-    if (diff.files.length === 0) throw new Error(`Branch ${meta.id} has no changes: nothing to propose.`);
+    if (diff.files.length === 0) throw new AppError('docs.branchNoChanges', { id: meta.id });
     const stamp = repo.now().toISOString();
     const updated = await touch(repo, meta.id, { status: 'proposed', proposal: message.trim() || meta.title, proposedAt: stamp });
     return { ...diff, branch: updated };

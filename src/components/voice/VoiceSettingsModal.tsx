@@ -48,7 +48,7 @@ import type {
 import { CONFIGURABLE_COMMANDS, type CommandPhraseDefinition } from '../../services/voiceCommandPhrases';
 import { describeTtsStatus } from '../../services/ttsStatusView';
 import { autoDetectUnavailable, normalizeRecognitionLanguage } from '../../services/voiceLanguage';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcFailureText, useTranslation } from '../../i18n/useTranslation';
 import { useDialog } from '../../hooks/useDialog';
 import { useTimeoutState, useToast, useTimers } from '../../hooks/useTimeoutState';
 
@@ -292,7 +292,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ isOpen, 
     setAsrProgress(null);
     setAsrModels(await window.api.listAsrModels());
     if (!res.ok) {
-      setAsrError(`${t.voice.settingsModal.russianModelDownloadFailed} ${res.error ?? ''}`.trim());
+      setAsrError(`${t.voice.settingsModal.russianModelDownloadFailed} ${ipcFailureText(res)}`.trim());
       return;
     }
     // Скачали ради того, чтобы пользоваться: сразу выбираем

@@ -1592,7 +1592,7 @@ export interface IElectronAPI {
     options: { gate: boolean; denoise: NoiseReduction; modelId: AsrModelId }
   ) => Promise<SpeechRecognizeResult>;
   listAsrModels: () => Promise<AsrModelStatus[]>;
-  downloadAsrModel: (modelId: AsrModelId) => Promise<{ ok: boolean; error?: string }>;
+  downloadAsrModel: (modelId: AsrModelId) => Promise<{ ok: boolean; error?: string; errorKey?: import('../lib/appError').AppErrorKey }>;
   cancelAsrDownload: (modelId: AsrModelId) => Promise<boolean>;
   deleteAsrModel: (modelId: AsrModelId) => Promise<boolean>;
   onAsrDownloadProgress: (callback: (progress: AsrDownloadProgress) => void) => () => void;

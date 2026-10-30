@@ -37,7 +37,7 @@ async function wrap<T>(fn: () => Promise<T>): Promise<IpcResult<T>> {
 }
 
 function asRequest(raw: unknown): InitRequest {
-  if (!raw || typeof raw !== 'object') throw new Error('Invalid initialization request');
+  if (!raw || typeof raw !== 'object') throw new AppError('init.invalidRequest');
   const r = raw as Record<string, unknown>;
   const bools = (v: unknown) =>
     v && typeof v === 'object' ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, b]) => typeof b === 'boolean')) as Record<string, boolean> : undefined;
@@ -132,7 +132,7 @@ export function registerInitIpc(ctx: IpcContext) {
       const entry = (await listTemplates()).find((t) => t.id === String(id ?? ''));
       if (!entry) throw new AppError('templates.notFound', { id: String(id ?? '') });
       const error = await shell.openPath(entry.dir);
-      if (error) throw new Error(error);
+      if (error) throw new AppError('templates.openFailed', { detail: error });
       return true;
     })
   );
