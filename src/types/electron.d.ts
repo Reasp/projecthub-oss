@@ -1798,6 +1798,8 @@ export interface IElectronAPI {
   openProjectWindow: (projectPath: string, at?: { x: number; y: number } | null) => Promise<boolean>;
   reattachProjectWindow: () => Promise<string | null>;
   getWindowDropContext: () => Promise<import('../lib/projectWindow').TabDragEndContext | null>;
+  /** Закрыть окно проекта из главного окна: его вкладку бросили на полосу вкладок (TASK-296). */
+  closeProjectWindow: (projectPath: string) => Promise<boolean>;
   /** Человек закрыл окно проекта — главное окно возвращает проект вкладкой. */
   onProjectWindowClosed: (callback: (info: { projectPath: string }) => void) => () => void;
   /** Сводка флота этого ПК (TASK-174, decision-129) и событие её изменения с дебаунсом. */

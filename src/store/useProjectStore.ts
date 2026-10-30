@@ -299,6 +299,11 @@ interface ProjectState {
   detachProjectToWindow: (projectPath: string, at?: { x: number; y: number } | null) => Promise<boolean>;
   /** Окно проекта закрыто — проект снова вкладка главного окна и выбран. */
   reattachProject: (projectPath: string) => void;
+  /**
+   * Вкладку окна проекта бросили на полосу вкладок главного окна (TASK-296): проект встаёт вкладкой перед `before`
+   * (без него — в конец), окно проекта закрывается.
+   */
+  returnProjectFromWindow: (projectPath: string, before?: string) => void;
   /** При запуске главного окна открыть окна проектов, вынесенных в прошлый раз. */
   restoreDetachedWindows: () => void;
   /** Проект другого ПК вкладкой, как локальный (TASK-280): `projectPath` — путь на хосте. */
@@ -922,6 +927,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ detachedProjectPaths: detached });
     const project = get().projects.find((p) => samePath(p.path, projectPath));
     if (project) get().activateProject(project);
+  },
+
+  returnProjectFromWindow: (projectPath, before) => {
+    if (isProjectWindow) return;
+    get().reattachProject(projectPath);
+    // Вернувшаяся вкладка стоит последней — перенос влево ставит её перед вкладкой, на которую её бросили
+    if (before && !samePath(before, projectPath)) get().reorderProjectTab(projectPath, before);
+    void window.api?.closeProjectWindow?.(projectPath);
   },
 
   restoreDetachedWindows: () => {

@@ -493,6 +493,16 @@ function registerProjectWindowIpc(): void {
     return true;
   });
 
+  // Вкладку окна проекта бросили на полосу вкладок главного окна (TASK-296): главное окно уже вернуло проект
+  // вкладкой на место броска, окно проекта закрывается.
+  ipcMain.handle('projectWindow:close', (_event, projectPath: unknown) => {
+    if (typeof projectPath !== 'string') return false;
+    const projectWin = projectWindows.get(projectWindowKey(projectPath));
+    if (!projectWin || projectWin.isDestroyed()) return false;
+    projectWin.close();
+    return true;
+  });
+
   // «Вернуть в главное окно»: окно проекта закрывается, главное окно получает проект вкладкой и выбирает его.
   ipcMain.handle('projectWindow:reattach', (event) => {
     const sender = BrowserWindow.fromWebContents(event.sender);
@@ -518,7 +528,9 @@ function registerProjectWindowIpc(): void {
       bounds: owner.getBounds(),
       content: owner.getContentBounds(),
       zoom: event.sender.getZoomFactor(),
-      cursor: screen.getCursorScreenPoint()
+      cursor: screen.getCursorScreenPoint(),
+      // Окну проекта — границы главного окна: бросок туда возвращает проект вкладкой (TASK-296)
+      mainBounds: win && !win.isDestroyed() && win !== owner && win.isVisible() && !win.isMinimized() ? win.getBounds() : null
     };
     console.log(`[ProjectWindow] tab drag end: cursor ${context.cursor.x},${context.cursor.y} window ${JSON.stringify(context.bounds)} zoom ${context.zoom}`);
     return context;

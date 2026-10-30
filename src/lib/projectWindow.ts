@@ -65,6 +65,8 @@ export interface TabDragEndContext {
   content: ScreenRect;
   /** Масштаб страницы: CSS-пиксель = zoom DIP. */
   zoom: number;
+  /** Границы главного окна — только для окна проекта: туда возвращают его вкладку (TASK-296). */
+  mainBounds?: ScreenRect | null;
 }
 
 /**
@@ -84,6 +86,15 @@ export function shouldDetachTab(
   const zoom = context.zoom > 0 ? context.zoom : 1;
   const clientY = (context.cursor.y - context.content.y) / zoom;
   return clientY > strip.bottom + tearOff || clientY < strip.top - tearOff;
+}
+
+/**
+ * Вернуть ли проект из его окна вкладкой в главное окно (TASK-296). Бросок на полосу вкладок главного окна принимает
+ * само главное окно (`accepted`); здесь — бросок в остальную часть главного окна: курсор над ним и не над своим окном.
+ */
+export function shouldReturnToMainWindow(context: TabDragEndContext, accepted: boolean): boolean {
+  if (accepted || !context.mainBounds) return false;
+  return !isOutsideRect(context.cursor, context.mainBounds) && isOutsideRect(context.cursor, context.bounds);
 }
 
 /** Размер нового окна проекта по умолчанию. */

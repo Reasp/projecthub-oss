@@ -7,7 +7,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useVoiceState } from '../../hooks/useVoiceState';
 import { useDialog } from '../../hooks/useDialog';
 import { VoiceBadge } from '../voice/VoiceBadge';
-import { orderProjectsByPaths, shouldDetachTab } from '../../lib/projectWindow';
+import { orderProjectsByPaths, shouldDetachTab, shouldReturnToMainWindow } from '../../lib/projectWindow';
 import { isProjectWindow } from '../../lib/windowContext';
 
 /** Тип данных перетаскивания вкладки проекта: путь проекта. */
@@ -37,7 +37,8 @@ export const ProjectTabs: React.FC = () => {
     projectAgentStatuses,
     workspaceRoot,
     reorderProjectTab,
-    detachProjectToWindow
+    detachProjectToWindow,
+    returnProjectFromWindow
   } = useProjectStore();
   const dialog = useDialog();
 
@@ -91,19 +92,40 @@ export const ProjectTabs: React.FC = () => {
   // Вкладку бросили за окном или оттянули от полосы вниз — выносим проект в отдельное окно у курсора. Точку даёт
   // main: координаты `dragend` при броске вне окна Chromium отдаёт не всегда. `dropEffect` не смотрим: над чужим
   // приложением, принимающим перетаскивание, он не `none`, и вынос молча не срабатывал (проверка владельца, TASK-295).
-  const handleDragEnd = async (projectPath: string) => {
+  const handleDragEnd = async (e: React.DragEvent, projectPath: string) => {
     const droppedOnTab = droppedOnTabRef.current;
     droppedOnTabRef.current = false;
     setDragPath(null);
     setDropTargetPath(null);
-    if (isProjectWindow) return;
     const context = await window.api?.getWindowDropContext?.();
+    // Окно проекта (TASK-296): полоса вкладок главного окна принимает вкладку сама; бросок в остальную часть
+    // главного окна тоже возвращает проект — окно закрывается, главное получает вкладку.
+    if (isProjectWindow) {
+      if (context && shouldReturnToMainWindow(context, e.dataTransfer.dropEffect !== 'none')) void window.api?.reattachProjectWindow?.();
+      return;
+    }
     const strip = scrollContainerRef.current?.getBoundingClientRect();
     if (context && strip && shouldDetachTab(context, strip, droppedOnTab)) await detach(projectPath, context.cursor);
   };
 
   return (
-    <div className="flex items-stretch h-full min-w-0 select-none">
+    <div
+      className="flex items-stretch h-full min-w-0 select-none"
+      // Пустое место полосы принимает вкладку окна проекта — она встаёт в конец (TASK-296). Своя вкладка здесь не
+      // принимается: её бросок мимо вкладок решает `dragend`.
+      onDragOver={(e) => {
+        if (isProjectWindow || dragPath || !e.dataTransfer.types.includes(TAB_DRAG_TYPE)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      }}
+      onDrop={(e) => {
+        if (isProjectWindow || dragPath) return;
+        const from = e.dataTransfer.getData(TAB_DRAG_TYPE);
+        if (!from || activeProjectPaths.includes(from)) return;
+        e.preventDefault();
+        returnProjectFromWindow(from);
+      }}
+    >
       <div
         ref={scrollContainerRef}
         onWheel={handleWheel}
@@ -137,15 +159,18 @@ export const ProjectTabs: React.FC = () => {
                 if (e.key === 'Enter') selectProject(project);
               }}
               // Перетаскивание (TASK-295): между вкладками — порядок, за пределы окна — отдельное окно.
-              draggable={!isProjectWindow && isOpen}
+              // В окне проекта единственную вкладку тоже тащат — обратно в главное окно (TASK-296).
+              draggable={isOpen}
               onDragStart={(e) => {
                 e.dataTransfer.setData(TAB_DRAG_TYPE, project.path);
                 e.dataTransfer.effectAllowed = 'move';
                 setDragPath(project.path);
               }}
               onDragOver={(e) => {
-                if (!dragPath || !e.dataTransfer.types.includes(TAB_DRAG_TYPE)) return;
+                // Главное окно принимает и свои вкладки, и вкладку окна проекта; окно проекта бросков не принимает.
+                if (isProjectWindow || !e.dataTransfer.types.includes(TAB_DRAG_TYPE)) return;
                 e.preventDefault();
+                e.stopPropagation();
                 e.dataTransfer.dropEffect = 'move';
                 if (dropTargetPath !== project.path) setDropTargetPath(project.path);
               }}
@@ -155,11 +180,17 @@ export const ProjectTabs: React.FC = () => {
               onDrop={(e) => {
                 const from = e.dataTransfer.getData(TAB_DRAG_TYPE);
                 e.preventDefault();
-                droppedOnTabRef.current = Boolean(from);
-                if (from) reorderProjectTab(from, project.path);
+                e.stopPropagation();
                 setDropTargetPath(null);
+                if (!from) return;
+                if (activeProjectPaths.includes(from)) {
+                  droppedOnTabRef.current = true;
+                  reorderProjectTab(from, project.path);
+                } else {
+                  returnProjectFromWindow(from, project.path);
+                }
               }}
-              onDragEnd={() => void handleDragEnd(project.path)}
+              onDragEnd={(e) => void handleDragEnd(e, project.path)}
               onContextMenu={(e) => {
                 if (project.remote) return;
                 e.preventDefault();

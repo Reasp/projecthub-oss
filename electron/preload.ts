@@ -1015,6 +1015,7 @@ const api: IElectronAPI = {
   openProjectWindow: (projectPath: string, at?: { x: number; y: number } | null) => invoke('projectWindow:open', projectPath, at ?? null),
   reattachProjectWindow: () => invoke('projectWindow:reattach'),
   getWindowDropContext: () => invoke('projectWindow:getDropContext'),
+  closeProjectWindow: (projectPath: string) => invoke('projectWindow:close', projectPath),
   onProjectWindowClosed: (callback: (info: { projectPath: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, info: { projectPath: string }) => callback(info);
     ipcRenderer.on('projectWindow:closed', handler);
