@@ -1011,6 +1011,17 @@ const api: IElectronAPI = {
       ipcRenderer.removeListener('deeplink:available', handler);
     };
   },
+  /** Окна проектов (TASK-295): вынести проект в окно, вернуть его вкладкой, границы своего окна. */
+  openProjectWindow: (projectPath: string, at?: { x: number; y: number } | null) => invoke('projectWindow:open', projectPath, at ?? null),
+  reattachProjectWindow: () => invoke('projectWindow:reattach'),
+  getWindowDropContext: () => invoke('projectWindow:getDropContext'),
+  onProjectWindowClosed: (callback: (info: { projectPath: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, info: { projectPath: string }) => callback(info);
+    ipcRenderer.on('projectWindow:closed', handler);
+    return () => {
+      ipcRenderer.removeListener('projectWindow:closed', handler);
+    };
+  },
   // Дерево флота (TASK-174): сводка этого ПК и событие её изменения
   getLocalOverview: () => invoke('fleet:getLocalOverview'),
   onLocalOverviewChanged: (callback: () => void) => {

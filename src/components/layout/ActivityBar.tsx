@@ -35,6 +35,7 @@ import { withGroupSeparators } from '../../lib/activityBarGroups';
 import { ProfileTransferModal } from '../settings/ProfileTransferModal';
 import { KnowledgeBaseDocModal } from '../docs/KnowledgeBaseDocModal';
 import { profileTransferText } from '../../i18n/profileTransferText';
+import { isProjectWindow } from '../../lib/windowContext';
 
 interface ContextMenuState {
   isOpen: boolean;
@@ -181,22 +182,24 @@ export const ActivityBar: React.FC = () => {
     >
       {/* Место под светофор macOS (TASK-211): видно, только когда кнопки окна слева */}
       <div className="titlebar-controls-spacer w-full shrink-0" aria-hidden />
-      {/* Список проектов: показывает и прячет сайдбар (Ctrl+[) */}
-      <button
-        type="button"
-        onClick={toggleSidebar}
-        className={itemClass(isSidebarOpen)}
-        title={`${isSidebarOpen ? t.sidebar.hideSidebar : t.sidebar.showSidebar} (Ctrl+[)`}
-        aria-label={t.sidebar.title}
-        aria-pressed={isSidebarOpen}
-      >
-        {isSidebarOpen && activeIndicator}
-        <FolderKanban className="w-5 h-5" />
-        <VoiceBadge
-          command={isSidebarOpen ? t.sidebar.hideMenuCommand : t.sidebar.showMenuCommand}
-          position="right"
-        />
-      </button>
+      {/* Список проектов: показывает и прячет сайдбар (Ctrl+[). В окне проекта каталога нет (TASK-295). */}
+      {!isProjectWindow && (
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className={itemClass(isSidebarOpen)}
+          title={`${isSidebarOpen ? t.sidebar.hideSidebar : t.sidebar.showSidebar} (Ctrl+[)`}
+          aria-label={t.sidebar.title}
+          aria-pressed={isSidebarOpen}
+        >
+          {isSidebarOpen && activeIndicator}
+          <FolderKanban className="w-5 h-5" />
+          <VoiceBadge
+            command={isSidebarOpen ? t.sidebar.hideMenuCommand : t.sidebar.showMenuCommand}
+            position="right"
+          />
+        </button>
+      )}
 
       {selectedProject && (
         <>

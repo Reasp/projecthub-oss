@@ -48,6 +48,30 @@ export async function detachLinkedDirs(worktreePath: string): Promise<string[]> 
   return removed;
 }
 
+/** Ссылки верхнего уровня, которые остались в каталоге: снять их не вышло — удалять дерево нельзя. */
+async function remainingLinkedDirs(worktreePath: string): Promise<string[]> {
+  const names = await fs.readdir(worktreePath).catch(() => [] as string[]);
+  const linked: string[] = [];
+  for (const name of names) {
+    const stat = await fs.lstat(path.join(worktreePath, name)).catch(() => null);
+    if (stat?.isSymbolicLink()) linked.push(name);
+  }
+  return linked;
+}
+
+/** Файлы заняты другим процессом (Windows: открытый файл, текущий каталог процесса). */
+const BUSY_CODES = new Set(['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY']);
+
+/** Повторы `fs.rm` при EBUSY/EPERM/ENOTEMPTY: линейная пауза 200 мс × попытка, всего около 4 секунд. */
+const RM_MAX_RETRIES = 6;
+const RM_RETRY_DELAY_MS = 200;
+
+/**
+ * Закрыть терминалы и процессы ProjectHub, работающие в каталоге дерева, до его удаления (TASK-269): иначе Windows
+ * не отдаёт каталог. Задаёт main ([[decision-6]]); без него удаление идёт как раньше.
+ */
+export type ReleaseWorktreeHandles = (worktreePath: string) => Promise<void>;
+
 /**
  * Пути из `git status --porcelain -z -uall`: записи `XY путь` через NUL; у переименования и копирования (`R`, `C` в
  * первой колонке) следом идёт исходный путь — он пропускается.
@@ -341,16 +365,43 @@ export class WorktreeService {
     }
   }
 
+  private releaseHandles: ReleaseWorktreeHandles | null = null;
+
+  /** Main подключает закрытие терминалов и процессов дерева перед удалением (TASK-269). */
+  setReleaseHandles(release: ReleaseWorktreeHandles | null): void {
+    this.releaseHandles = release;
+  }
+
+  /** Удаление worktree для внутренних вызовов: ошибка — в лог, результат `false`. */
+  async removeWorktree(projectPath: string, worktreePath: string, force = false): Promise<boolean> {
+    try {
+      await this.removeWorktreeOrThrow(projectPath, worktreePath, force);
+      return true;
+    } catch (err) {
+      console.error(`[WorktreeService] Failed to remove worktree ${worktreePath}:`, err);
+      return false;
+    }
+  }
+
   /**
    * Удаление worktree (AC #1). Незакоммиченные изменения сначала уходят в снимок ([[decision-8]] п. 5): не получилось —
-   * дерево остаётся, результат `false`.
+   * дерево остаётся. Терминалы и процессы дерева закрываются заранее, занятые файлы удаляются с повтором; неудача —
+   * `AppError` с причиной, человек может повторить (TASK-269, [[decision-6]]).
    */
-  async removeWorktree(projectPath: string, worktreePath: string, force = false): Promise<boolean> {
+  async removeWorktreeOrThrow(projectPath: string, worktreePath: string, force = false): Promise<void> {
+    if (this.releaseHandles) {
+      await this.releaseHandles(worktreePath).catch((err) => console.warn(`[WorktreeService] Could not release ${worktreePath}:`, err));
+    }
     // Ссылки внутри worktree (junction node_modules) — до удаления, иначе удаление дойдёт до их цели.
     await detachLinkedDirs(worktreePath);
+    const stuckLinks = await remainingLinkedDirs(worktreePath);
+    if (stuckLinks.length > 0) throw new AppError('git.worktreeLinkStuck', { path: worktreePath, names: stuckLinks.join(', ') });
+    // Без `.git` (прошлое удаление прервалось на полпути) git нашёл бы репозиторий основного дерева выше по пути и
+    // снимок забрал бы его изменения: такому дереву сохранять нечего.
+    const linked = existsSync(path.join(worktreePath, '.git'));
     // Без `force` git сам не удаляет грязное дерево — снимок нужен только при принудительном удалении.
     let dirty: WorktreeDirtyState | null = null;
-    if (force) {
+    if (force && linked) {
       try {
         dirty = await this.worktreeDirtyState(worktreePath);
       } catch (err) {
@@ -360,32 +411,34 @@ export class WorktreeService {
     }
     if (dirty && dirty.count > 0) {
       const ref = await this.preserveWorktreeSnapshot(worktreePath);
-      if (!ref) return false;
+      if (!ref) throw new AppError('git.worktreeSnapshotFailed', { path: worktreePath });
       console.info(`[WorktreeService] ${dirty.count} uncommitted file(s) of ${worktreePath} preserved in ${ref}`);
     }
     try {
-      const git = simpleGit(projectPath);
       const args = ['worktree', 'remove', worktreePath];
       if (force) {
         args.push('--force');
       }
-      await git.raw(args);
-      return true;
+      await simpleGit(projectPath).raw(args);
+      return;
     } catch (err) {
-      console.error(`[WorktreeService] Failed to remove worktree ${worktreePath}:`, err);
-      // Если git worktree remove не смог удалить из-за заблокированных/неотслеживаемых файлов,
-      // пробуем удалить физически и выполнить prune
-      if (force && existsSync(worktreePath)) {
-        try {
-          await fs.rm(worktreePath, { recursive: true, force: true });
-          await this.pruneWorktrees(projectPath);
-          return true;
-        } catch (rmErr) {
-          console.error(`[WorktreeService] Fallback rm failed for ${worktreePath}:`, rmErr);
-        }
+      console.warn(`[WorktreeService] git worktree remove failed for ${worktreePath}:`, err);
+      // Каталога уже нет — осталась только запись git о дереве.
+      if (!existsSync(worktreePath)) {
+        await this.pruneWorktrees(projectPath);
+        return;
       }
-      return false;
+      if (!force) throw new AppError('git.worktreeRemoveFailed', { path: worktreePath, reason: errorMessage(err) });
     }
+    // git не удалил занятые или неотслеживаемые файлы: удаляем каталог сами с повтором и убираем запись git.
+    try {
+      await fs.rm(worktreePath, { recursive: true, force: true, maxRetries: RM_MAX_RETRIES, retryDelay: RM_RETRY_DELAY_MS });
+    } catch (rmErr) {
+      const code = (rmErr as NodeJS.ErrnoException)?.code;
+      if (code && BUSY_CODES.has(code)) throw new AppError('git.worktreeRemoveBusy', { path: worktreePath });
+      throw new AppError('git.worktreeRemoveFailed', { path: worktreePath, reason: errorMessage(rmErr) });
+    }
+    await this.pruneWorktrees(projectPath);
   }
 
   /**

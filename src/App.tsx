@@ -38,6 +38,7 @@ import { parsePeerPairingLink } from './utils/remotePairingLink';
 import { useTranslation } from './i18n/useTranslation';
 import { useToast } from './hooks/useTimeoutState';
 import { Bot, ShieldAlert, X } from './components/common/icons';
+import { isProjectWindow } from './lib/windowContext';
 
 
 /** Фокус в элементе, где пользователь вводит текст: input/textarea/contentEditable или терминал xterm. */
@@ -75,8 +76,20 @@ export const App: React.FC = () => {
   const dismissFallbackNotice = useHitlStore((s) => s.dismissFallbackNotice);
 
   useEffect(() => {
-    fetchProjects();
+    // Главное окно открывает окна проектов, вынесенных в прошлый раз (TASK-295).
+    void fetchProjects().then(() => useProjectStore.getState().restoreDetachedWindows());
   }, [fetchProjects]);
+
+  // Заголовок окна проекта — имя проекта: так окна различаются на панели задач (TASK-295).
+  useEffect(() => {
+    if (isProjectWindow && selectedProject) document.title = `${selectedProject.name} — ProjectHub`;
+  }, [selectedProject]);
+
+  // Человек закрыл окно проекта — проект возвращается вкладкой главного окна (TASK-295).
+  useEffect(() => {
+    if (isProjectWindow || !window.api?.onProjectWindowClosed) return;
+    return window.api.onProjectWindowClosed(({ projectPath }) => useProjectStore.getState().reattachProject(projectPath));
+  }, []);
 
   // Встроенный заголовок окна (TASK-210): шапка перетаскивает окно, справа — место под кнопки окна.
   useEffect(() => installTitlebarOverlay(), []);
@@ -86,24 +99,29 @@ export const App: React.FC = () => {
     useHitlStore.getState().init();
   }, []);
 
+  // Глобальные службы — только в главном окне: в окне проекта (TASK-295) они дали бы второй звук уведомления,
+  // вторую очередь ссылок и второй обработчик запросов телефона.
   // Уведомления: журнал доставок, звук и настройки каналов (TASK-63)
   useEffect(() => {
+    if (isProjectWindow) return;
     useNotificationStore.getState().init();
   }, []);
 
   // Automations: правила, их состояние и журнал из main (TASK-74)
   useEffect(() => {
+    if (isProjectWindow) return;
     useAutomationsStore.getState().init();
   }, []);
 
   // Федерация: список удалённых хостов и их события в hub-режиме (TASK-66)
   useEffect(() => {
+    if (isProjectWindow) return;
     useFederationStore.getState().init();
   }, []);
 
   // Ссылка projecthub://pair с другого ПК (decision-143 п. 4): форма добавления хоста, подключение — кнопкой человека.
   useEffect(() => {
-    if (!window.api?.takeDeepLinks) return;
+    if (isProjectWindow || !window.api?.takeDeepLinks) return;
     const drain = async () => {
       for (const link of await window.api.takeDeepLinks()) {
         const fields = parsePeerPairingLink(link);
@@ -120,7 +138,7 @@ export const App: React.FC = () => {
    * Окно уже показано и сфокусировано в main — здесь только выбор проекта и вкладки.
    */
   useEffect(() => {
-    if (!window.api?.onNotificationNavigate) return;
+    if (isProjectWindow || !window.api?.onNotificationNavigate) return;
     return window.api.onNotificationNavigate((action) => {
       if (!action) return;
       const focusProject = (projectPath?: string) => {
@@ -173,19 +191,25 @@ export const App: React.FC = () => {
     });
   }, [projects, selectProject, setActiveTab]);
 
-  // Sync state with built-in MCP server
+  // Sync state with built-in MCP server. Окон с проектами может быть несколько (TASK-295): состояние сообщает окно
+  // в фокусе — при смене проекта или вкладки и когда окно получает фокус.
   useEffect(() => {
-    if (window.api?.setMcpAppState) {
+    if (!window.api?.setMcpAppState) return;
+    const report = () => {
+      if (!document.hasFocus()) return;
       window.api.setMcpAppState({
         activeProject: selectedProject ? { name: selectedProject.name, path: selectedProject.path } : null,
         activeTab
       });
-    }
+    };
+    report();
+    window.addEventListener('focus', report);
+    return () => window.removeEventListener('focus', report);
   }, [selectedProject, activeTab]);
 
   // Agents Studio с телефона (TASK-140.10, decision-83): промпт и остановка идут через стор, как с вкладки на ПК.
   useEffect(() => {
-    if (!window.api?.onStudioRemoteRequest) return;
+    if (isProjectWindow || !window.api?.onStudioRemoteRequest) return;
     return window.api.onStudioRemoteRequest((req) => {
       void handleStudioRemoteRequest(req, {
         getState: () => useAIStudioStore.getState(),
@@ -198,7 +222,7 @@ export const App: React.FC = () => {
 
   // Handle remote actions from external MCP clients (Claude Code, Cursor, Antigravity)
   useEffect(() => {
-    if (!window.api?.onRemoteAction) return;
+    if (isProjectWindow || !window.api?.onRemoteAction) return;
 
     const unsub = window.api.onRemoteAction((action) => {
       console.log('[App] Remote MCP Action received:', action);
@@ -369,7 +393,8 @@ export const App: React.FC = () => {
       <div className="flex-1 flex min-h-0">
         <ActivityBar />
 
-        {isSidebarOpen && <Sidebar />}
+        {/* Каталог проектов — в главном окне; окно проекта показывает один проект (TASK-295) */}
+        {isSidebarOpen && !isProjectWindow && <Sidebar />}
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <Header />
@@ -403,7 +428,8 @@ export const App: React.FC = () => {
       <AISettingsHost />
 
       {/* Global Voice Control Widget (STT/TTS) */}
-      <VoiceControlWidget />
+      {/* Голос — один на приложение, в главном окне: второй виджет слушал бы тот же микрофон */}
+      {!isProjectWindow && <VoiceControlWidget />}
 
       {/* Remote MCP Action Toast Notification */}
       {remoteActionToast && (

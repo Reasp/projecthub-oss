@@ -115,7 +115,17 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
 
     setActionLoadingPath(wt.path);
     try {
-      await removeWorktreeAction(wt.path, true);
+      // Неудача (файлы заняты другой программой) — ошибка с повтором, пока человек не откажется (TASK-269).
+      for (;;) {
+        const result = await removeWorktreeAction(wt.path, true);
+        if (result.ok || !result.error) break;
+        const retry = await dialog.confirm({
+          title: t.worktrees.removeFailedTitle,
+          message: result.error,
+          confirmText: t.worktrees.retryRemove
+        });
+        if (!retry) break;
+      }
     } finally {
       setActionLoadingPath(null);
     }

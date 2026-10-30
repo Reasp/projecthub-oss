@@ -1,4 +1,4 @@
-import { ipcMain, shell, dialog } from 'electron';
+import { BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type { CreatePtyOptions, AISession } from '../../src/types/electron';
@@ -304,9 +304,10 @@ export function registerAiIpc(ctx: IpcContext) {
   studioRemoteBridge.setWindowGetter(() => ctx.getMainWindow());
 
   // AI Stream Chat
-  ipcMain.handle('ai:streamChat', async (_event, rawReq: AIStreamRequest) => {
+  ipcMain.handle('ai:streamChat', async (event, rawReq: AIStreamRequest) => {
     let req = rawReq;
-    const targetWin = ctx.getMainWindow();
+    // Поток — окну, которое начало ход: главное или окно проекта (TASK-295).
+    const targetWin = BrowserWindow.fromWebContents(event.sender) ?? ctx.getMainWindow();
     if (!targetWin) return;
     const send = (channel: string, payload: unknown, extra?: unknown) => {
       if (!targetWin.isDestroyed()) {
@@ -446,10 +447,8 @@ export function registerAiIpc(ctx: IpcContext) {
 
   // Multi-Agent Swarm (TASK-54)
   agentFleetService.on('swarmEvent', (event) => {
-    const win = ctx.getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('swarm:event', event);
-    }
+    // Карточки агентов видят главное окно и окна проектов (TASK-295).
+    for (const win of ctx.getAppWindows()) win.webContents.send('swarm:event', event);
   });
 
   ipcMain.handle('swarm:startFanOut', async (_event, options: StartFanOutOptions) => {
@@ -479,10 +478,8 @@ export function registerAiIpc(ctx: IpcContext) {
 
   // Планировщик подзадач (TASK-80, decision-49)
   planService.on('planEvent', (event) => {
-    const win = ctx.getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('plan:event', event);
-    }
+    // Карточки агентов видят главное окно и окна проектов (TASK-295).
+    for (const win of ctx.getAppWindows()) win.webContents.send('plan:event', event);
   });
 
   ipcMain.handle('plan:generate', async (_event, options: GeneratePlanOptions) => {
@@ -722,7 +719,7 @@ export function registerAiIpc(ctx: IpcContext) {
     if (typeof swarmId !== 'string') return { success: false, error: 'Invalid swarm id' };
     const content = await agentFleetService.exportTrace(swarmId, typeof agentId === 'string' ? agentId : undefined);
     if (content === null) return { success: false, ...appErrorFields(new AppError('swarm.traceNotFound', { id: swarmId })) };
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const dialogOptions = {
       title: hostText(getHostLanguage()).dialogs.exportTrace,
       defaultPath: `${swarmId}${typeof agentId === 'string' ? `-${agentId}` : ''}.trace.jsonl`,
@@ -748,7 +745,7 @@ export function registerAiIpc(ctx: IpcContext) {
     const fmt: SwarmExportFormat = format === 'json' ? 'json' : 'markdown';
     const content = agentFleetService.exportSession(swarmId, fmt);
     if (content === null) return { success: false, error: `Swarm session ${swarmId} not found` };
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const ext = fmt === 'json' ? 'json' : 'md';
     const dialogOptions = {
       title: hostText(getHostLanguage()).dialogs.exportSwarm,

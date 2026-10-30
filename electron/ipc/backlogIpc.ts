@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -64,8 +64,15 @@ function taskIdFromFile(data: Record<string, unknown>, filePath: string): string
 }
 
 export function registerBacklogIpc(ctx: IpcContext) {
-  ipcMain.handle('backlog:watchProject', async (_event, projectPath: string) => {
-    backlogWatcher.watch(projectPath, ctx.getMainWindow());
+  // Наблюдатель — у окна, которое показывает проект: главного или окна проекта (TASK-295).
+  const watchFor = (sender: Electron.WebContents, projectPath: string) => {
+    const main = ctx.getMainWindow();
+    const win = BrowserWindow.fromWebContents(sender) ?? main;
+    backlogWatcher.watch(projectPath, win, win === main);
+  };
+
+  ipcMain.handle('backlog:watchProject', async (event, projectPath: string) => {
+    watchFor(event.sender, projectPath);
   });
 
   // Состав статусов задаёт конфиг открытого проекта, а не ProjectHub (TASK-68, decision-24).
@@ -73,11 +80,11 @@ export function registerBacklogIpc(ctx: IpcContext) {
     return readBacklogConfig(projectPath);
   });
 
-  ipcMain.handle('backlog:getTasks', async (_event, projectPath: string) => {
+  ipcMain.handle('backlog:getTasks', async (event, projectPath: string) => {
     const tasksDir = path.join(projectPath, 'backlog', 'tasks');
     if (!existsSync(tasksDir)) return [];
 
-    backlogWatcher.watch(projectPath, ctx.getMainWindow());
+    watchFor(event.sender, projectPath);
 
     const taskList: BacklogTask[] = [];
     try {

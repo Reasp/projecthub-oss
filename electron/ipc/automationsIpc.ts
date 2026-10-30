@@ -18,8 +18,7 @@ export function registerAutomationsIpc(ctx: IpcContext) {
     if (pending) return;
     pending = setTimeout(() => {
       pending = null;
-      const win = ctx.getMainWindow();
-      if (win && !win.isDestroyed()) win.webContents.send('automations:changed');
+      for (const win of ctx.getAppWindows()) win.webContents.send('automations:changed');
     }, 200);
   });
 

@@ -66,6 +66,30 @@ import {
   withRemoteProjects
 } from '../utils/remoteProjects';
 import { useDialogStore } from './useDialogStore';
+import { moveTab, orderProjectsByPaths } from '../lib/projectWindow';
+import { isProjectWindow, projectWindowPath } from '../lib/windowContext';
+
+/** Проекты, вынесенные в отдельные окна (TASK-295): главное окно открывает их снова при запуске. */
+const DETACHED_PROJECTS_KEY = 'projecthub_detached_projects';
+
+function loadDetachedProjects(): string[] {
+  if (typeof window === 'undefined' || isProjectWindow) return [];
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(DETACHED_PROJECTS_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDetachedProjects(paths: string[]): void {
+  if (typeof window === 'undefined' || isProjectWindow) return;
+  try {
+    localStorage.setItem(DETACHED_PROJECTS_KEY, JSON.stringify(paths));
+  } catch (e) {
+    console.error('Failed to save detached projects to localStorage:', e);
+  }
+}
 
 /** Проекты других ПК, открытые в прошлый раз (TASK-280): маршрут вызовов регистрируется до первого обращения. */
 function loadRemoteProjects(): ProjectInfo[] {
@@ -267,6 +291,16 @@ interface ProjectState {
   setFilterOnlyActive: (filterOnlyActive: boolean) => void;
   activateProject: (project: ProjectInfo) => void;
   deactivateProject: (projectPath: string) => void;
+  /** Проекты, вынесенные в отдельные окна (TASK-295): во вкладках главного окна их нет. */
+  detachedProjectPaths: string[];
+  /** Перетаскивание вкладки: `from` встаёт на место `to`, порядок сохраняется. */
+  reorderProjectTab: (from: string, to: string) => void;
+  /** Вынести проект в отдельное окно у точки экрана; `false` — не вынесен. */
+  detachProjectToWindow: (projectPath: string, at?: { x: number; y: number } | null) => Promise<boolean>;
+  /** Окно проекта закрыто — проект снова вкладка главного окна и выбран. */
+  reattachProject: (projectPath: string) => void;
+  /** При запуске главного окна открыть окна проектов, вынесенных в прошлый раз. */
+  restoreDetachedWindows: () => void;
   /** Проект другого ПК вкладкой, как локальный (TASK-280): `projectPath` — путь на хосте. */
   openRemoteProject: (p: { hostId: string; machineName: string; projectPath: string; projectName: string }) => void;
   toggleProjectActive: (project: ProjectInfo) => void;
@@ -479,7 +513,8 @@ interface ProjectState {
   setActiveWorktree: (worktreePath: string | null) => Promise<void>;
   loadWorktreesAction: (projectPath?: string) => Promise<GitWorktreeInfo[]>;
   createWorktreeAction: (branch: string, newBranch?: boolean, baseCommitOrBranch?: string, customPath?: string) => Promise<GitWorktreeInfo | null>;
-  removeWorktreeAction: (worktreePath: string, force?: boolean) => Promise<boolean>;
+  /** Удаление дерева; неудача — текст ошибки для окна с повтором (TASK-269). */
+  removeWorktreeAction: (worktreePath: string, force?: boolean) => Promise<{ ok: boolean; error?: string }>;
   pruneWorktreesAction: () => Promise<boolean>;
   getWorktreeDiffAction: (worktreeBranch: string, baseBranch: string, worktreePath?: string) => Promise<string>;
   /** `commitPending` — закоммитить незакоммиченное в worktree этим сообщением до слияния (TASK-267). */
@@ -619,6 +654,8 @@ const loadInitialSidebarState = (): boolean => {
 
 const loadInitialActiveProjects = (): string[] => {
   if (typeof window === 'undefined') return [];
+  // Окно проекта показывает только свой проект и не трогает вкладки главного окна (TASK-295).
+  if (projectWindowPath) return [projectWindowPath];
   try {
     const raw = localStorage.getItem(ACTIVE_PROJECTS_STORAGE_KEY);
     if (raw) {
@@ -655,7 +692,7 @@ const saveActiveWorktrees = (map: Record<string, string>) => {
 };
 
 const saveActiveProjects = (paths: string[]) => {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined' || isProjectWindow) return;
   try {
     localStorage.setItem(ACTIVE_PROJECTS_STORAGE_KEY, JSON.stringify(paths));
   } catch (e) {
@@ -711,6 +748,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   // Multi-Project Session & In-Memory Cache
   projectDataCache: {},
   activeProjectPaths: loadInitialActiveProjects(),
+  detachedProjectPaths: loadDetachedProjects(),
   lastSelectedProjectPath: null,
   filterOnlyActive: loadInitialFilterActive(),
   removedProjectNotice: null,
@@ -837,8 +875,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     // If deactivated project was currently active, switch to next available active project
     if (get().selectedProject?.path === projectPath) {
-      const allProjects = get().projects;
-      const nextActive = allProjects.find((p) => next.includes(p.path));
+      // Проект, вынесенный в окно (TASK-295), в главном окне не выбирается.
+      const allProjects = get().projects.filter((p) => !get().detachedProjectPaths.includes(p.path));
+      const nextActive = orderProjectsByPaths(allProjects, next)[0];
       if (nextActive) {
         get().selectProject(nextActive);
       } else if (allProjects.length > 0) {
@@ -847,6 +886,54 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         clearPersistedTaskFilters();
         set({ ...emptyProjectScopedState(), selectedProject: null, isProjectDataLoading: false });
       }
+    }
+  },
+
+  reorderProjectTab: (from: string, to: string) => {
+    const next = moveTab(get().activeProjectPaths, from, to);
+    if (next === get().activeProjectPaths) return;
+    saveActiveProjects(next);
+    set({ activeProjectPaths: next });
+  },
+
+  detachProjectToWindow: async (projectPath, at) => {
+    if (isProjectWindow || !window.api?.openProjectWindow) return false;
+    const project = get().projects.find((p) => p.path === projectPath);
+    // Проект другого ПК живёт маршрутом вызовов главного окна (TASK-280) — в отдельное окно его не выносим.
+    if (!project || project.remote) return false;
+    const detached = [...get().detachedProjectPaths.filter((p) => p !== projectPath), projectPath];
+    saveDetachedProjects(detached);
+    set({ detachedProjectPaths: detached });
+    // Сначала вкладка уходит из главного окна (вместе с git-вотчером), потом окно проекта поднимает свой.
+    get().deactivateProject(projectPath);
+    try {
+      await window.api.openProjectWindow(projectPath, at ?? null);
+      return true;
+    } catch (e) {
+      console.error('Failed to open project window:', e);
+      get().reattachProject(projectPath);
+      return false;
+    }
+  },
+
+  reattachProject: (projectPath: string) => {
+    const detached = get().detachedProjectPaths.filter((p) => !samePath(p, projectPath));
+    saveDetachedProjects(detached);
+    set({ detachedProjectPaths: detached });
+    const project = get().projects.find((p) => samePath(p.path, projectPath));
+    if (project) get().activateProject(project);
+  },
+
+  restoreDetachedWindows: () => {
+    if (isProjectWindow || !window.api?.openProjectWindow) return;
+    const known = get().detachedProjectPaths.filter((p) => get().projects.some((project) => project.path === p));
+    if (known.length !== get().detachedProjectPaths.length) {
+      saveDetachedProjects(known);
+      set({ detachedProjectPaths: known });
+    }
+    for (const p of known) {
+      if (get().activeProjectPaths.includes(p)) get().deactivateProject(p);
+      window.api.openProjectWindow(p, null).catch((e: unknown) => console.error('Failed to restore project window:', e));
     }
   },
 
@@ -859,9 +946,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   switchProjectByIndex: (index: number) => {
-    const activePaths = get().activeProjectPaths;
-    const allProjects = get().projects;
-    const activeProjects = allProjects.filter((p) => activePaths.includes(p.path));
+    // Номер — как у вкладки в шапке: порядок вкладок, а не каталога (TASK-295).
+    const activeProjects = orderProjectsByPaths(get().projects, get().activeProjectPaths);
 
     if (index >= 0 && index < activeProjects.length) {
       get().selectProject(activeProjects[index]);
@@ -869,9 +955,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   switchToNextProject: () => {
-    const activePaths = get().activeProjectPaths;
-    const allProjects = get().projects;
-    const activeProjects = allProjects.filter((p) => activePaths.includes(p.path));
+    const activeProjects = orderProjectsByPaths(get().projects, get().activeProjectPaths);
     if (activeProjects.length <= 1) return;
 
     const curPath = get().selectedProject?.path;
@@ -881,9 +965,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   switchToPrevProject: () => {
-    const activePaths = get().activeProjectPaths;
-    const allProjects = get().projects;
-    const activeProjects = allProjects.filter((p) => activePaths.includes(p.path));
+    const activeProjects = orderProjectsByPaths(get().projects, get().activeProjectPaths);
     if (activeProjects.length <= 1) return;
 
     const curPath = get().selectedProject?.path;
@@ -956,7 +1038,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
 
-    if (typeof window !== 'undefined') {
+    // Проект открыт в своём окне (TASK-295): главное окно показывает то окно, а не вторую копию проекта.
+    if (!isProjectWindow && get().detachedProjectPaths.includes(selectedProject.path)) {
+      window.api?.openProjectWindow?.(selectedProject.path, null).catch(() => {});
+      return;
+    }
+
+    if (typeof window !== 'undefined' && !isProjectWindow) {
       try { localStorage.setItem(SELECTED_PROJECT_KEY, selectedProject.path); } catch {}
     }
 
@@ -1393,7 +1481,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const list = withRemoteProjects(local, get().projects);
         set({ projects: list });
 
-        if (!get().selectedProject && list.length > 0) {
+        // Окно проекта (TASK-295) выбирает свой проект; путь из main нормализован — сравниваем без регистра.
+        const ownProject = projectWindowPath ? list.find((p) => samePath(p.path, projectWindowPath)) : undefined;
+        if (ownProject) {
+          if (get().selectedProject?.path !== ownProject.path) {
+            set({ activeProjectPaths: [ownProject.path] });
+            get().selectProject(ownProject);
+          }
+        } else if (!get().selectedProject && list.length > 0) {
           const storedPath = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_PROJECT_KEY) : null;
           if (storedPath) {
             const matchedStored = list.find((p) => p.path === storedPath);
@@ -2149,19 +2244,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   removeWorktreeAction: async (worktreePath: string, force = false) => {
     const project = get().selectedProject;
-    if (!window.api?.removeWorktree || !project) return false;
+    if (!window.api?.removeWorktree || !project) return { ok: false };
     try {
-      const ok = await window.api.removeWorktree(project.path, worktreePath, force);
-      if (ok) {
-        get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeRemoved, { path: worktreePath }));
-        await get().loadWorktreesAction(project.path);
-        await get().loadGitRepoDetails(project);
-      }
-      return ok;
+      await window.api.removeWorktree(project.path, worktreePath, force);
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeRemoved, { path: worktreePath }));
+      await get().loadWorktreesAction(project.path);
+      await get().loadGitRepoDetails(project);
+      return { ok: true };
     } catch (e: unknown) {
       console.error('Failed to remove worktree:', e);
-      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeRemoveError, { message: appErrorText(e, getDictionary(get().language).appErrors) }));
-      return false;
+      const message = appErrorText(e, getDictionary(get().language).appErrors);
+      get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.worktreeRemoveError, { message }));
+      // Дерево могло удалиться частично — список обновляем и при ошибке.
+      await get().loadWorktreesAction(project.path);
+      return { ok: false, error: message };
     }
   },
 

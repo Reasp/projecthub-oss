@@ -9,12 +9,16 @@ import { runBaseSync, type BaseSyncResult } from '../services/baseSync';
 import { execGit } from '../services/checkpointGit';
 import { assertInsideProject } from '../services/pathGuard';
 import { runWorktreeInit } from '../services/worktreeInitService';
+import { releaseWorktreeHandles } from '../services/worktreeHandles';
 import { guardedCommit } from '../services/commitSecretGuard';
 import { readBacklogConfig } from '../services/backlogConfigService';
 import type { AddWorktreeOptions, PRCreateOptions } from '../../src/types/electron';
 import type { ConflictResolution } from '../services/mergeConflicts';
 
 export function registerGitIpc() {
+  // Терминалы и процессы дерева закрываются перед его удалением — из окна, Swarm и чистки сирот (TASK-269).
+  worktreeService.setReleaseHandles(releaseWorktreeHandles);
+
   // Git Core & Status
   ipcMain.handle('git:getLog', async (_event, projectPath: string, maxCount = 30) => {
     return await gitService.getLog(await assertWorkspaceRoot(projectPath), maxCount);
@@ -146,7 +150,9 @@ export function registerGitIpc() {
   ipcMain.handle('git:worktree:remove', async (_event, projectPath: string, worktreePath: string, force = false) => {
     const safeProject = await assertRegisteredProject(projectPath);
     assertInsideProject(safeProject, worktreePath);
-    return await worktreeService.removeWorktree(safeProject, worktreePath, force);
+    // Неудача — AppError с причиной: окно показывает её с кнопкой «Повторить» (TASK-269).
+    await worktreeService.removeWorktreeOrThrow(safeProject, worktreePath, force);
+    return true;
   });
 
   ipcMain.handle('git:worktree:prune', async (_event, projectPath: string) => {

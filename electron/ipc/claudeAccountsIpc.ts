@@ -38,7 +38,7 @@ export function registerClaudeAccountsIpc(ctx: IpcContext) {
       if (!processConfigDir) throw new AppError('accounts.processEnvMissing');
       return claudeAccountService.connectExternal(name, processConfigDir);
     }
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const options = {
       properties: ['openDirectory' as const, 'showHiddenFiles' as const],
       title: `${ENGINE_TITLE[engine]}: ${CLI_ACCOUNT_ENV_VAR[engine]}`

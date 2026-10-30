@@ -35,7 +35,7 @@ export function registerEditionIpc(ctx: IpcContext): void {
     ipcMain.handle(channel, (_event, ...args) => handler(...args));
   });
   editionRegistry.setTextFileSaver(async (options) => {
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const dialogOptions = { title: options.title, defaultPath: options.defaultName, ...(options.filters ? { filters: options.filters } : {}) };
     const result = win ? await dialog.showSaveDialog(win, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
     if (result.canceled || !result.filePath) return { success: false, canceled: true };
@@ -48,7 +48,7 @@ export function registerEditionIpc(ctx: IpcContext): void {
   });
 
   editionRegistry.setPdfSaver(async (options) => {
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const dialogOptions = { title: options.title, defaultPath: options.defaultName, filters: [{ name: 'PDF', extensions: ['pdf'] }] };
     const result = win ? await dialog.showSaveDialog(win, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
     if (result.canceled || !result.filePath) return { success: false, canceled: true };

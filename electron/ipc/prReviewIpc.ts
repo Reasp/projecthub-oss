@@ -16,8 +16,7 @@ export function registerPrReviewIpc(ctx: IpcContext) {
     if (pending) return;
     pending = setTimeout(() => {
       pending = null;
-      const win = ctx.getMainWindow();
-      if (win && !win.isDestroyed()) win.webContents.send('prReview:changed');
+      for (const win of ctx.getAppWindows()) win.webContents.send('prReview:changed');
     }, 200);
   });
 

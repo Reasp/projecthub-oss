@@ -93,7 +93,7 @@ export function registerProjectsIpc(ctx: IpcContext) {
 
   // Dialog: Select Directory
   ipcMain.handle('dialog:selectDirectory', async () => {
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     if (!win) return null;
     const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory'],

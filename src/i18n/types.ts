@@ -101,6 +101,10 @@ export interface TranslationDictionary {
   };
   projectTabs: {
     closeTab: string;
+    /** Окно проекта (TASK-295): вынести вкладку, вернуть в главное окно, отказ при идущем ходе Studio. */
+    openInNewWindow: string;
+    returnToMainWindow: string;
+    detachBlockedByRun: string;
     /** Подсказка вкладки проекта другого ПК (TASK-280). */
     remoteTabTooltip: string;
     activeProjectsCount: string;
@@ -2245,6 +2249,9 @@ export interface TranslationDictionary {
     reviewAndMerge: string;
     removeWorktree: string;
     confirmRemove: string;
+    /** Удаление дерева не удалось: заголовок ошибки и кнопка повтора (TASK-269). */
+    removeFailedTitle: string;
+    retryRemove: string;
     clean: string;
     dirty: string;
     mainWorktree: string;

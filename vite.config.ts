@@ -31,6 +31,12 @@ const prepareDistElectron: Plugin = {
   }
 };
 
+// Порт dev-сервера выдаёт ProjectHub в PORT (`portStrategy: 'auto'` в .projecthub.json): dev-серверы основного
+// дерева и worktree работают одновременно (TASK-269). Electron и процессы проектов, которые он запускает, PORT не
+// наследуют — иначе dev-сервер чужого проекта взял бы тот же порт.
+const devServerPort = Number(process.env.PORT) > 0 ? Number(process.env.PORT) : undefined;
+delete process.env.PORT;
+
 // https://vitejs.dev/config/
 export default defineConfig({
   base: './',
@@ -83,6 +89,8 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173
+    port: devServerPort ?? 5173,
+    // Порт выдан ProjectHub — занять именно его: соседний сервер мог зарезервировать следующий.
+    strictPort: devServerPort !== undefined
   }
 });

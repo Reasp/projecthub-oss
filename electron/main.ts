@@ -1,6 +1,6 @@
 // Первым: до любого запуска процессов Windows не ищет git/npm/docker в рабочем каталоге (decision-191).
 import './services/exeLookupGuard';
-import { app, BrowserWindow, dialog, globalShortcut, shell, session, crashReporter, screen } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell, session, crashReporter, screen } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
@@ -51,6 +51,8 @@ import { registerAllIpc } from './ipc';
 import { buildInfoPath, formatBuildInfo, readBuildInfo } from './services/buildInfo';
 import { RebuildWatch } from './services/rebuildWatch';
 import { DEEP_LINK_SCHEME, deepLinkService, findDeepLink } from './services/deepLinkService';
+import { assertRegisteredProject } from './services/projectPathGuard';
+import { buildProjectWindowHash, projectWindowBounds } from '../src/lib/projectWindow';
 
 // Локальные crash-репорты (TASK-58, decision-14 п.4, decision-7): дампы падений остаются на диске
 // пользователя (`app.getPath('crashDumps')`) и собираются в архив только вручную из «Диагностики» —
@@ -121,6 +123,8 @@ app.on('open-url', (event, url) => {
 
 let win: BrowserWindow | null = null;
 let voiceOverlayWin: BrowserWindow | null = null;
+/** Окна проектов, вынесенные из вкладок (TASK-295): ключ — путь проекта (`projectWindowKey`). */
+const projectWindows = new Map<string, BrowserWindow>();
 /** Оверлей «Агент управляет компьютером» поверх всех окон (TASK-82, decision-27 п. 4). */
 let computerOverlayWin: BrowserWindow | null = null;
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -164,7 +168,7 @@ function isAppUrl(url: string): boolean {
 }
 
 function isOwnWindowContents(contents: Electron.WebContents): boolean {
-  const own = [win, voiceOverlayWin, computerOverlayWin].filter(
+  const own = [win, voiceOverlayWin, computerOverlayWin, ...projectWindows.values()].filter(
     (w): w is BrowserWindow => Boolean(w) && !w!.isDestroyed()
   );
   return own.some((w) => w.webContents.id === contents.id);
@@ -396,6 +400,123 @@ function createWindow() {
   });
 }
 
+// ───────────────────── Окна проектов, вынесенные из вкладок (TASK-295, decision-201) ─────────────────────
+
+/** Ключ окна проекта: путь без учёта регистра на Windows — один проект, одно окно. */
+function projectWindowKey(projectPath: string): string {
+  const normalized = path.normalize(projectPath);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+/** Окна приложения, где живёт рабочая область проекта: главное и окна проектов (без оверлеев). */
+function appWindows(): BrowserWindow[] {
+  return [win, ...projectWindows.values()].filter((w): w is BrowserWindow => Boolean(w) && !w!.isDestroyed());
+}
+
+/**
+ * Окно проекта: тот же рендерер с хэшем `#/project-window?path=…`, рабочая область одного проекта. Повторный вынос
+ * того же проекта показывает уже открытое окно. Закрытие окна человеком возвращает проект вкладкой в главное окно;
+ * при выходе из приложения окно остаётся в списке главного окна и откроется при следующем запуске.
+ */
+function openProjectWindow(projectPath: string, at: { x: number; y: number } | null): void {
+  const key = projectWindowKey(projectPath);
+  const existing = projectWindows.get(key);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return;
+  }
+
+  const distPath = path.join(__dirname, '../dist');
+  const indexPath = path.join(distPath, 'index.html');
+  const preloadCjs = path.join(__dirname, 'preload.cjs');
+  const preloadPath = existsSync(preloadCjs) ? preloadCjs : path.join(__dirname, 'preload.js');
+  const display = at ? screen.getDisplayNearestPoint(at) : win && !win.isDestroyed() ? screen.getDisplayMatching(win.getBounds()) : screen.getPrimaryDisplay();
+  const bounds = projectWindowBounds(at, display.workArea);
+
+  const projectWin = new BrowserWindow({
+    title: `${path.basename(projectPath)} — ProjectHub`,
+    icon: ['../dist/icon.png', '../public/icon.png', '../build/icon.png'].map((rel) => path.join(__dirname, rel)).find((file) => existsSync(file)),
+    ...bounds,
+    minWidth: WINDOW_MIN_SIZE.width,
+    minHeight: WINDOW_MIN_SIZE.height,
+    backgroundColor: '#0f1117',
+    autoHideMenuBar: true,
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, titleBarOverlay: { height: TITLE_BAR_OVERLAY.height }, trafficLightPosition: MAC_TRAFFIC_LIGHTS }
+      : { titleBarStyle: 'hidden' as const, titleBarOverlay: TITLE_BAR_OVERLAY }),
+    webPreferences: {
+      preload: preloadPath,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false
+    }
+  });
+  projectWindows.set(key, projectWin);
+  hardenWebContents(projectWin.webContents);
+  // Отвод событий для туннеля другого ПК (TASK-280) остаётся у главного окна: tapWindowEvents делает окно
+  // отправителем удалённых вызовов.
+  projectWin.webContents.on('console-message', (event) => {
+    const text = `[Renderer:${path.basename(projectPath)}] ${event.message} (${event.sourceId || '?'}:${event.lineNumber})`;
+    if (event.level === 'error') logger.error(text);
+    else if (event.level === 'warning') logger.warn(text);
+    else logger.debug(text);
+  });
+  projectWin.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+      projectWin.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
+  const hash = buildProjectWindowHash(projectPath);
+  if (VITE_DEV_SERVER_URL) void projectWin.loadURL(`${VITE_DEV_SERVER_URL}#${hash}`);
+  else void projectWin.loadFile(indexPath, { hash });
+
+  projectWin.on('closed', () => {
+    if (projectWindows.get(key) === projectWin) projectWindows.delete(key);
+    // Выход из приложения — окно восстановится при запуске; иначе проект возвращается вкладкой.
+    if (isQuitRequested || isCleaningUp) return;
+    if (win && !win.isDestroyed()) win.webContents.send('projectWindow:closed', { projectPath });
+  });
+}
+
+function registerProjectWindowIpc(): void {
+  ipcMain.handle('projectWindow:open', async (_event, projectPath: unknown, at: unknown) => {
+    const safeProject = await assertRegisteredProject(projectPath as string);
+    const point =
+      at && typeof at === 'object' && Number.isFinite((at as { x: number }).x) && Number.isFinite((at as { y: number }).y)
+        ? { x: Math.round((at as { x: number }).x), y: Math.round((at as { y: number }).y) }
+        : null;
+    openProjectWindow(safeProject, point);
+    return true;
+  });
+
+  // «Вернуть в главное окно»: окно проекта закрывается, главное окно получает проект вкладкой и выбирает его.
+  ipcMain.handle('projectWindow:reattach', (event) => {
+    const sender = BrowserWindow.fromWebContents(event.sender);
+    for (const [key, projectWin] of projectWindows) {
+      if (projectWin !== sender) continue;
+      projectWin.close();
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      }
+      return key;
+    }
+    return null;
+  });
+
+  // Границы своего окна и курсор на экране: вкладку бросили за пределами окна — её выносят в отдельное окно у курсора.
+  // Курсор берётся у main: координаты `dragend` Chromium при броске вне окна отдаёт не всегда.
+  ipcMain.handle('projectWindow:getDropContext', (event) => {
+    const bounds = BrowserWindow.fromWebContents(event.sender)?.getBounds();
+    return bounds ? { bounds, cursor: screen.getCursorScreenPoint() } : null;
+  });
+}
+
 function createVoiceOverlayWindow(): BrowserWindow {
   if (voiceOverlayWin && !voiceOverlayWin.isDestroyed()) {
     return voiceOverlayWin;
@@ -526,9 +647,16 @@ function syncComputerOverlay(state: ComputerOverlayState): void {
 // Регистрация всех доменных IPC обработчиков (TASK-46)
 registerAllIpc({
   getMainWindow: () => win,
+  getAppWindows: appWindows,
+  // Диалог файла — над окном, где его вызвали: окно проекта или главное (TASK-295).
+  getDialogWindow: () => {
+    const focused = BrowserWindow.getFocusedWindow();
+    return focused && appWindows().includes(focused) ? focused : win;
+  },
   getVoiceOverlayWindow: () => voiceOverlayWin,
   createVoiceOverlayWindow
 });
+registerProjectWindowIpc();
 
 // ─────────────────── Трей, уведомления и Telegram (TASK-63, decision-13) ───────────────────
 

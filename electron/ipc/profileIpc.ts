@@ -25,7 +25,7 @@ export function registerProfileIpc(ctx: IpcContext) {
   ipcMain.handle('profile:export', async (_event, password: unknown, sections?: unknown) => {
     if (typeof password !== 'string') return { canceled: true };
     const tx = hostText(getHostLanguage()).dialogs;
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const options = {
       title: tx.exportProfile,
       defaultPath: `projecthub-profile-${new Date().toISOString().slice(0, 10)}.${PROFILE_FILE_EXTENSION}`,
@@ -39,7 +39,7 @@ export function registerProfileIpc(ctx: IpcContext) {
 
   ipcMain.handle('profile:chooseFile', async () => {
     const tx = hostText(getHostLanguage()).dialogs;
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const options = {
       title: tx.importProfile,
       properties: ['openFile' as const],
@@ -78,7 +78,7 @@ export function registerProfileIpc(ctx: IpcContext) {
   ipcMain.handle('profile:cloneProject', async (_event, remote: unknown, name: unknown) => {
     if (typeof remote !== 'string') return null;
     const tx = hostText(getHostLanguage()).dialogs;
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const options = { title: tx.cloneProjectInto, properties: ['openDirectory' as const, 'createDirectory' as const] };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (result.canceled || result.filePaths.length === 0) return null;

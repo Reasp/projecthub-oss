@@ -14,10 +14,8 @@ import type { IpcContext } from './types';
  */
 export function registerHitlIpc(ctx: IpcContext) {
   appEventBus.subscribe((event) => {
-    const win = ctx.getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('bus:event', event);
-    }
+    // Шина событий нужна и окнам проектов: карточки одобрения Agents Studio живут там (TASK-295).
+    for (const win of ctx.getAppWindows()) win.webContents.send('bus:event', event);
   });
 
   ipcMain.handle('hitl:listPending', async (_event, filter?: { projectPath?: string; sessionId?: string }) => {
@@ -57,7 +55,7 @@ export function registerHitlIpc(ctx: IpcContext) {
   ipcMain.handle('hitl:exportAudit', async (_event, query?: HitlAuditQuery, format?: 'jsonl' | 'json' | 'csv') => {
     const fmt: 'jsonl' | 'json' | 'csv' = format === 'csv' ? 'csv' : format === 'json' ? 'json' : 'jsonl';
     const content = await hitlService.exportAudit(query && typeof query === 'object' ? query : {}, fmt);
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const month = query?.month ? `-${query.month}` : '';
     const dialogOptions = {
       title: hostText(getHostLanguage()).dialogs.exportHitlAudit,

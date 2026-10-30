@@ -64,7 +64,7 @@ function asRequest(raw: unknown): InitRequest {
  */
 export function registerInitIpc(ctx: IpcContext) {
   ipcMain.handle('init:selectFolder', async () => {
-    const win = ctx.getMainWindow();
+    const win = ctx.getDialogWindow();
     const options: Electron.OpenDialogOptions = { properties: ['openDirectory', 'createDirectory'] };
     const pick = win && !win.isDestroyed() ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (pick.canceled || !pick.filePaths[0]) return null;
@@ -100,7 +100,7 @@ export function registerInitIpc(ctx: IpcContext) {
 
   ipcMain.handle('templates:addFolder', () =>
     wrap(async () => {
-      const win = ctx.getMainWindow();
+      const win = ctx.getDialogWindow();
       const options: Electron.OpenDialogOptions = { properties: ['openDirectory'] };
       const pick = win && !win.isDestroyed() ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
       if (pick.canceled || !pick.filePaths[0]) return null;
@@ -110,7 +110,7 @@ export function registerInitIpc(ctx: IpcContext) {
 
   ipcMain.handle('templates:addZip', () =>
     wrap(async () => {
-      const win = ctx.getMainWindow();
+      const win = ctx.getDialogWindow();
       const options: Electron.OpenDialogOptions = { properties: ['openFile'], filters: [{ name: 'Zip', extensions: ['zip'] }] };
       const pick = win && !win.isDestroyed() ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
       if (pick.canceled || !pick.filePaths[0]) return null;

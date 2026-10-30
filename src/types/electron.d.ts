@@ -1794,6 +1794,15 @@ export interface IElectronAPI {
   getFederationHosts: () => Promise<FederationHost[]>;
   takeDeepLinks: () => Promise<string[]>;
   onDeepLinkAvailable: (callback: () => void) => () => void;
+  /** Окна проектов (TASK-295, decision-201): вынести проект в окно у точки экрана, вернуть вкладкой, границы окна. */
+  openProjectWindow: (projectPath: string, at?: { x: number; y: number } | null) => Promise<boolean>;
+  reattachProjectWindow: () => Promise<string | null>;
+  getWindowDropContext: () => Promise<{
+    bounds: { x: number; y: number; width: number; height: number };
+    cursor: { x: number; y: number };
+  } | null>;
+  /** Человек закрыл окно проекта — главное окно возвращает проект вкладкой. */
+  onProjectWindowClosed: (callback: (info: { projectPath: string }) => void) => () => void;
   /** Сводка флота этого ПК (TASK-174, decision-129) и событие её изменения с дебаунсом. */
   getLocalOverview: () => Promise<import('../utils/fleetOverview').RemoteOverview>;
   onLocalOverviewChanged: (callback: () => void) => () => void;
