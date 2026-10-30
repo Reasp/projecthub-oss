@@ -42,6 +42,17 @@ function parseNumberWord(text: string): number | null {
   return null;
 }
 
+/** Глаголы перехода: «открой», «перейди на», «покажи», «go to». */
+const NAV_VERB = '(?:открой|открыть|перейди|перейти|переключи(?:сь)?|покажи|показать|включи|go to|open|show|switch to)(?:\\s+(?:на|в|к))?';
+
+/**
+ * Командная форма темы (TASK-274): вся фраза — необязательный глагол, необязательное «вкладку» и сама тема.
+ * Подстрока не годится: «функции», «версии», «план работы на день» — свободная речь, её разбирает модель.
+ */
+function isTopicCommand(text: string, nouns: string, verbs: string = NAV_VERB): boolean {
+  return new RegExp(`^(?:(?:${verbs})\\s+)?(?:(?:вкладк[ауи]|tab)\\s+)?(?:${nouns})(?:\\s+проекта)?$`, 'iu').test(text);
+}
+
 import { CONFIGURABLE_COMMANDS } from './voiceCommandPhrases';
 
 export function parseVoiceCommand(text: string, customPhrases?: Record<string, string[]>): ParsedVoiceCommand {
@@ -126,30 +137,28 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
   // ─────────────────────────────────────────────────────────────────
   // 2. AGENTS STUDIO TABS & SESSION MANAGEMENT
   // ─────────────────────────────────────────────────────────────────
-  // A. New Dialog / Session: «новый диалог», «новая вкладка», «новая сессия», «new session»
+  // A. New Dialog / Session: «новый диалог», «создай новую вкладку», «создай чат», «new session». Только вся фраза:
+  // «создай новый чат для задачи про логи» — уже просьба, её разбирает модель (TASK-274). Прежний intent
+  // `create_ai_session` слит с `new_ai_session` настраиваемых фраз — действие у них одно.
   if (
-    normalized.includes('новый диалог') ||
-    normalized.includes('новая вкладка') ||
-    normalized.includes('новая сессия') ||
-    normalized.includes('новый чат') ||
-    normalized.includes('создай диалог') ||
-    normalized.includes('new chat') ||
-    normalized.includes('new session')
+    /^(?:(?:создай|создать|открой|открыть|начни|начать)\s+)?(?:нов(?:ый|ую|ая|ое)\s+(?:диалог|вкладк[ау]|сесси[юя]|чат)|new (?:chat|session|tab|dialog))$/iu.test(normalized) ||
+    /^(?:создай|создать|начни|начать|create|start)\s+(?:диалог|чат|сесси[юя]|chat|session)$/iu.test(normalized)
   ) {
     return {
       type: 'ai_control',
-      intent: 'create_ai_session',
-      feedbackText: 'Создаю новый диалог в Agents Studio'
+      intent: 'new_ai_session',
+      feedbackText: 'Создаю новый чат'
     };
   }
 
-  // B. Show Claude Usage & Limits: «лимиты», «лимиты клод», «покажи лимиты», «расход токенов», «покажи расход», «квота», «usage»
+  // B. Show Claude Usage & Limits: «лимиты», «покажи лимиты клод», «расход токенов», «квота», «usage». Только командой:
+  // «потратил много токенов на задачу» — свободная речь для модели (TASK-274).
   if (
-    normalized.includes('лимит') ||
-    normalized.includes('расход') ||
-    normalized.includes('квот') ||
-    normalized.includes('usage') ||
-    normalized.includes('токен')
+    isTopicCommand(
+      normalized,
+      '(?:лимит\\p{L}*|квот\\p{L}*)(?:\\s+(?:claude|клод\\p{L}*|клауд\\p{L}*))?|расход(?:\\s+токенов)?|токены|usage|limits',
+      `${NAV_VERB}|какие|сколько|check`
+    )
   ) {
     return {
       type: 'ai_control',
@@ -171,20 +180,6 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
       type: 'ai_control',
       intent: 'close_ai_session',
       feedbackText: 'Закрываю текущий чат'
-    };
-  }
-
-  // C. New Chat / Session: «новый чат», «создай чат», «новая сессия», «new chat», «create chat»
-  if (
-    /^(новый чат|создай чат|создать чат|новая сессия|создай сессию|создать сессию|новый диалог|new chat|create chat|new session)$/i.test(normalized) ||
-    normalized === 'новый чат' ||
-    normalized === 'создай чат' ||
-    normalized === 'new chat'
-  ) {
-    return {
-      type: 'ai_control',
-      intent: 'new_ai_session',
-      feedbackText: 'Создаю новый чат'
     };
   }
 
@@ -445,16 +440,14 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
   // ─────────────────────────────────────────────────────────────────
   // 5. MAIN TAB NAVIGATION
   // ─────────────────────────────────────────────────────────────────
+  // Только командная форма — глагол и тема или одна тема (TASK-274). Раньше правила ловили подстроки: «ии» в
+  // «функции», «версии», «сессии», «план» в «план работы на день», и свободная речь не доходила до модели.
   if (
-    normalized.includes('студи') ||
-    normalized.includes('ассистент') ||
-    normalized.includes('клауд') ||
-    normalized.includes('ии') ||
-    // «Agents Studio» и прежние «AI Studio», «Claude Studio» (TASK-137).
-    normalized.includes('studio') ||
-    normalized.includes('claude') ||
-    /^(чат|чет|чад|чят|chat)$/i.test(normalized) ||
-    /^(открой|открыть|перейди в|перейти в|переключи на|покажи)\s+(чат|чет|чад|чят|chat)$/i.test(normalized)
+    isTopicCommand(
+      normalized,
+      // «Agents Studio» и прежние «AI Studio», «Claude Studio» (TASK-137).
+      '(?:(?:agents?|агент\\p{L}*|ai|claude|клауд|клод)\\s+)?(?:studio|студи\\p{L}*)(?:\\s+агентов)?|ассистент\\p{L}*|клауд|claude|ии|ai|чат|чет|чад|чят|chat'
+    )
   ) {
     return {
       type: 'navigation',
@@ -464,13 +457,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     };
   }
 
-  if (
-    normalized.includes('бэклог') ||
-    normalized.includes('задач') ||
-    normalized.includes('доск') ||
-    normalized.includes('kanban') ||
-    normalized.includes('tasks')
-  ) {
+  if (isTopicCommand(normalized, 'бэклог\\p{L}*|(?:доск\\p{L}*\\s+)?задач\\p{L}*|доск\\p{L}*|канбан\\p{L}*|kanban|tasks|backlog')) {
     return {
       type: 'navigation',
       intent: 'navigate_kanban',
@@ -479,13 +466,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     };
   }
 
-  if (
-    normalized.includes('майлстоун') ||
-    normalized.includes('план') ||
-    normalized.includes('дорожн') ||
-    normalized.includes('релиз') ||
-    normalized.includes('milestones')
-  ) {
+  if (isTopicCommand(normalized, 'майлстоун\\p{L}*|план\\p{L}?|дорожн\\p{L}*\\s+карт\\p{L}*|релиз\\p{L}*|вех\\p{L}*|milestones?|roadmap')) {
     return {
       type: 'navigation',
       intent: 'navigate_milestones',
@@ -494,13 +475,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     };
   }
 
-  if (
-    normalized.includes('гит') ||
-    normalized.includes('ветк') ||
-    normalized.includes('коммит') ||
-    normalized.includes('дифф') ||
-    normalized.includes('git')
-  ) {
+  if (isTopicCommand(normalized, 'гит|git|ветк\\p{L}*|коммиты|дифф?\\p{L}*|репозитори\\p{L}*|branches|commits|diff')) {
     return {
       type: 'navigation',
       intent: 'navigate_git',
@@ -509,13 +484,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     };
   }
 
-  if (
-    normalized.includes('файл') ||
-    normalized.includes('проводник') ||
-    normalized.includes('дерев') ||
-    normalized.includes('explorer') ||
-    normalized.includes('files')
-  ) {
+  if (isTopicCommand(normalized, 'файл\\p{L}*|проводник\\p{L}*|дерев\\p{L}*\\s+файлов|explorer|files')) {
     return {
       type: 'navigation',
       intent: 'navigate_files',
@@ -524,13 +493,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     };
   }
 
-  if (
-    normalized.includes('пул') ||
-    normalized.includes('пиар') ||
-    normalized.includes('реквест') ||
-    normalized.includes('pull request') ||
-    normalized.includes('prs')
-  ) {
+  if (isTopicCommand(normalized, 'пул\\p{L}*(?:\\s+реквест\\p{L}*)?|пиар\\p{L}*|реквест\\p{L}*|pull requests?|prs?')) {
     return {
       type: 'navigation',
       intent: 'navigate_prs',
@@ -539,14 +502,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     };
   }
 
-  if (
-    normalized.includes('документ') ||
-    normalized.includes('баз') ||
-    normalized.includes('знаний') ||
-    normalized.includes('доки') ||
-    normalized.includes('adr') ||
-    normalized.includes('docs')
-  ) {
+  if (isTopicCommand(normalized, 'документ\\p{L}*|доки|баз\\p{L}*\\s+знаний|решения|adr|docs|documentation')) {
     return {
       type: 'navigation',
       intent: 'navigate_docs',
@@ -555,12 +511,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     };
   }
 
-  if (
-    normalized.includes('аналитик') ||
-    normalized.includes('статистик') ||
-    normalized.includes('график') ||
-    normalized.includes('analytics')
-  ) {
+  if (isTopicCommand(normalized, 'аналитик\\p{L}*|статистик\\p{L}*|график\\p{L}*|отч[её]т\\p{L}*|analytics')) {
     return {
       type: 'navigation',
       intent: 'navigate_analytics',
@@ -569,13 +520,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     };
   }
 
-  if (
-    normalized.includes('терминал') ||
-    normalized.includes('консоль') ||
-    normalized.includes('логи') ||
-    normalized === 'terminal' ||
-    normalized === 'console'
-  ) {
+  if (isTopicCommand(normalized, 'терминал\\p{L}*|консол\\p{L}*|логи|terminal|console|logs', `${NAV_VERB}|скрой|закрой|спрячь|hide|close`)) {
     return {
       type: 'navigation',
       intent: 'toggle_terminal',

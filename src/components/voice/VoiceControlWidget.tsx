@@ -179,7 +179,7 @@ export const VoiceControlWidget: React.FC = () => {
       const projectPath = selectedProject?.path;
 
       // A. Create new Chat / Session: «новый чат», «создай чат»
-      if ((cmd.intent === 'create_ai_session' || cmd.intent === 'new_ai_session') && projectPath) {
+      if (cmd.intent === 'new_ai_session' && projectPath) {
         setActiveTab('ai');
         createSession(projectPath);
         const feedback = t.voice.feedback.chatCreated;
