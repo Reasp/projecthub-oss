@@ -148,9 +148,15 @@ export function cliModeArgs(mode: StudioCliMode | undefined): string[] {
  */
 export type CliForkKind = 'branch' | 'side';
 
-/** Аргументы продолжения разговора для `claude -p`; без сессии побочный вопрос всё равно не пишется на диск. */
-export function cliResumeArgs(cliSessionId: string | undefined, fork: CliForkKind | undefined): string[] {
-  const args = cliSessionId ? ['--resume', cliSessionId, ...(fork ? ['--fork-session'] : [])] : [];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Аргументы продолжения разговора для `claude -p`; без сессии побочный вопрос всё равно не пишется на диск.
+ * `resumeAt` (`/rewind`, TASK-284) — разговор только до этой записи, и только в ответвлении: исходная сессия цела.
+ */
+export function cliResumeArgs(cliSessionId: string | undefined, fork: CliForkKind | undefined, resumeAt?: string): string[] {
+  const at = fork && resumeAt && UUID_RE.test(resumeAt) ? ['--resume-session-at', resumeAt] : [];
+  const args = cliSessionId ? ['--resume', cliSessionId, ...at, ...(fork ? ['--fork-session'] : [])] : [];
   if (fork === 'side') args.push('--no-session-persistence');
   return args;
 }

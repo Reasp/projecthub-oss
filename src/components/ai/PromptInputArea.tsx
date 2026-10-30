@@ -23,6 +23,10 @@ interface PromptInputAreaProps {
   footerStart?: React.ReactNode;
   /** Перед микрофоном: авто-подтверждение. */
   footerEnd?: React.ReactNode;
+  /** Текст, который надо поставить в поле: откат `/rewind` возвращает реплику (TASK-284); `nonce` — повтор того же. */
+  prefill?: { text: string; nonce: number } | null;
+  /** Поле приняло `prefill`. */
+  onPrefillApplied?: () => void;
 }
 
 export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
@@ -32,7 +36,9 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   onSend,
   onAbort,
   footerStart,
-  footerEnd
+  footerEnd,
+  prefill,
+  onPrefillApplied
 }) => {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
@@ -52,6 +58,20 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
       el.scrollTop = el.scrollHeight;
     }
   }, [input]);
+
+  const prefillNonce = prefill?.nonce;
+  const prefillText = prefill?.text;
+  const onPrefillAppliedRef = useRef(onPrefillApplied);
+  useEffect(() => {
+    onPrefillAppliedRef.current = onPrefillApplied;
+  });
+  useEffect(() => {
+    if (prefillNonce === undefined || prefillText === undefined) return;
+    inputRef.current = prefillText;
+    setInput(prefillText);
+    textareaRef.current?.focus();
+    onPrefillAppliedRef.current?.();
+  }, [prefillNonce, prefillText]);
 
   // Распознанная речь сама в поле не попадает (TASK-275): вне диктовки это команды, а не текст промпта.
   useEffect(() => {

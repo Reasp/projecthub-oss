@@ -86,7 +86,7 @@ export const CLI_TRANSCRIPT_LIMIT = 200;
 /** Читается хвост файла сессии: в начале длинной сессии — то, что модель всё равно уже сжала. */
 const TRANSCRIPT_TAIL_BYTES = 16 * 1024 * 1024;
 
-function humanText(content: unknown): string {
+export function humanText(content: unknown): string {
   if (typeof content === 'string') return content.trim().startsWith('<') ? '' : content.trim();
   if (!Array.isArray(content)) return '';
   // Результаты инструментов и служебные части CLI (`<system-reminder>`, `<ide_opened_file>`) — не реплика человека.
@@ -141,9 +141,12 @@ export function cliTranscriptMessages(text: string, limit = CLI_TRANSCRIPT_LIMIT
   return out.slice(-limit);
 }
 
-/** Реплики сессии CLI `sessionId` рабочего каталога `cwd`; пусто, если файла нет. */
-export async function readCliSessionMessages(configDir: string, cwd: string, sessionId: string): Promise<CliTranscriptMessage[]> {
-  if (!isCliSessionId(sessionId)) return [];
+/**
+ * Хвост файла сессии CLI `sessionId` рабочего каталога `cwd` (до `maxBytes`); `null`, если файла нет. Хвост мог начаться
+ * посреди строки — первую неполную строку отбрасывают парсеры (JSON не разберётся).
+ */
+export async function readCliSessionTail(configDir: string, cwd: string, sessionId: string, maxBytes = TRANSCRIPT_TAIL_BYTES): Promise<string | null> {
+  if (!isCliSessionId(sessionId)) return null;
   const root = path.join(configDir, 'projects');
   const names = await fs.readdir(root).catch(() => [] as string[]);
   for (const dir of matchSessionDirs(names, cwd)) {
@@ -152,16 +155,21 @@ export async function readCliSessionMessages(configDir: string, cwd: string, ses
     if (!handle) continue;
     try {
       const { size } = await handle.stat();
-      const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
+      const start = Math.max(0, size - maxBytes);
       const buffer = Buffer.alloc(size - start);
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, start);
-      // Хвост мог начаться посреди строки — первую неполную строку отбрасывает парсер (JSON не разберётся).
-      return cliTranscriptMessages(buffer.subarray(0, bytesRead).toString('utf8'));
+      return buffer.subarray(0, bytesRead).toString('utf8');
     } finally {
       await handle.close();
     }
   }
-  return [];
+  return null;
+}
+
+/** Реплики сессии CLI `sessionId` рабочего каталога `cwd`; пусто, если файла нет. */
+export async function readCliSessionMessages(configDir: string, cwd: string, sessionId: string): Promise<CliTranscriptMessage[]> {
+  const text = await readCliSessionTail(configDir, cwd, sessionId);
+  return text === null ? [] : cliTranscriptMessages(text);
 }
 
 export async function listCliSessions(configDir: string, cwd: string): Promise<CliSessionSummary[]> {

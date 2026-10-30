@@ -23,7 +23,8 @@ import {
   Landmark,
   History,
   Smartphone,
-  Server
+  Server,
+  RotateCcw
 } from '../common/icons';
 import { ClaudeLogo } from '../common/BrandLogo';
 import { useAIStudioStore, type AISession } from '../../store/useAIStudioStore';
@@ -44,6 +45,8 @@ import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig, wi
 import { REASONING_EFFORT_OPTIONS } from '../../lib/reasoningEffort';
 import { QueuedMessagesBar } from './QueuedMessagesBar';
 import { SideQuestionPanel } from './SideQuestionPanel';
+import { CliRewindModal } from './CliRewindModal';
+import { studioCliText } from '../../i18n/studioCliText';
 import { goesToClaudeCli } from '../../lib/studioCliCommands';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { RateLimitWarningBanner } from './RateLimitWarningBanner';
@@ -60,7 +63,7 @@ import { CliCommandModal } from './CliCommandModal';
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf, sessionWorktreeState, worktreeLabel } from '../../lib/studioWorktree';
 
 export const AIStudioView: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const dialog = useDialog();
   const { selectedProject, tasks, gitRepoDetails, workspaceRoot, worktrees, setActiveWorktree, createWorktreeAction } = useProjectStore();
   const {
@@ -104,6 +107,9 @@ export const AIStudioView: React.FC = () => {
     queuedMessages,
     sideQuestions,
     closeSideQuestion,
+    openRewind,
+    promptPrefill,
+    clearPromptPrefill,
     removeQueuedMessage,
     clearQueuedMessages,
     sendNextQueued,
@@ -257,6 +263,9 @@ export const AIStudioView: React.FC = () => {
 
   // Во вкладке Claude Code режим architect — plan mode CLI (TASK-272).
   const tabGoesToCli = goesToClaudeCli(sessionRequestConfig(config, currentSession?.agent));
+  // Откат с реплики (TASK-284) — у вкладки Claude Code с разговором CLI, между ходами, не в чужой сессии участника.
+  const canRewind = tabGoesToCli && !!currentSession?.claudeCliSessionId && !isStreaming && !currentSession?.memberId && !!currentSessionId;
+  const rewindLabel = studioCliText(language).rewindAction;
   // Усилие вкладки (TASK-273): своё или общее из настроек; пустое — по умолчанию модели.
   const tabEffort = currentSession?.agent?.reasoningEffort;
   const tabRequestEffort = tabEffort ?? config.reasoningEffort;
@@ -895,6 +904,19 @@ export const AIStudioView: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono px-1">
+                      {/* `/rewind` с реплики (TASK-284): разговор Claude Code вкладки откатывается к месту перед ней */}
+                      {isUser && canRewind && (
+                        <button
+                          type="button"
+                          onClick={() => openRewind(projectPath, currentSessionId, msg.id)}
+                          className="text-slate-500 hover:text-slate-200"
+                          title={rewindLabel}
+                          aria-label={rewindLabel}
+                          data-testid="studio-rewind-message"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       {usageView && (
                         <span
@@ -999,6 +1021,8 @@ export const AIStudioView: React.FC = () => {
         gitRepoDetails={gitRepoDetails}
         onSend={(text) => sendMessage(projectPath, text)}
         onAbort={() => currentSessionId && abortStream(currentSessionId)}
+        prefill={promptPrefill && promptPrefill.sessionId === currentSessionId ? promptPrefill : null}
+        onPrefillApplied={clearPromptPrefill}
         footerStart={
           <>
             {currentSessionId && (
@@ -1085,6 +1109,8 @@ export const AIStudioView: React.FC = () => {
       {isHistoryOpen && <SessionHistoryModal projectPath={projectPath} onClose={() => setIsHistoryOpen(false)} />}
       {/* Слеш-команды Claude Code, которые Studio выполняет сама (TASK-230). */}
       <CliCommandModal />
+      {/* `/rewind` вкладки Claude Code (TASK-284) */}
+      <CliRewindModal />
     </div>
   );
 };

@@ -15,6 +15,7 @@ import type {
   SubagentInfo,
   RateLimitWarning,
   AutoApproveRules,
+  CliRewindPoint,
   ContextPartKey,
   ProviderErrorInfo,
   StudioSessionAgent,
@@ -33,6 +34,7 @@ import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf } from '../lib/studioWorktree';
 import { clearQueue, enqueueMessage, nextAfterTurn, removeQueuedMessage, type StudioQueues } from '../lib/studioMessageQueue';
 import { forkedSession, insertAfter } from '../lib/studioSessionFork';
+import { feedBeforePoint, rewoundSession } from '../lib/studioRewind';
 
 export type { AISession };
 
@@ -130,6 +132,19 @@ interface AIStudioState {
   askSideQuestion: (projectPath: string, sessionId: string, question: string) => Promise<void>;
   /** Закрыть панель побочного вопроса; идущий ответ останавливается. */
   closeSideQuestion: (sessionId: string) => void;
+  /** Окно `/rewind` (TASK-284): вкладка и, если окно открыто с реплики ленты, эта реплика. */
+  rewindRequest: { projectPath: string; sessionId: string; messageId?: string } | null;
+  openRewind: (projectPath: string, sessionId: string, messageId?: string) => void;
+  closeRewind: () => void;
+  /** Откат разговора вкладки к точке: лента до реплики, следующий ход — ответвление CLI до записи перед ней. */
+  /** `filesRestored` — сколько файлов вернул откат кода перед этим: итог показывается одной подсказкой. */
+  rewindConversation: (projectPath: string, sessionId: string, point: CliRewindPoint, messageId?: string, filesRestored?: number) => Promise<void>;
+  /** Откат файлов к состоянию перед репликой (`--rewind-files`); итог — в панели над полем ввода. */
+  rewindFiles: (projectPath: string, sessionId: string, point: CliRewindPoint, fileCount: number) => Promise<boolean>;
+  /** Текст для поля ввода вкладки: откат возвращает реплику (TASK-284); `nonce` различает повтор того же текста. */
+  promptPrefill: { sessionId: string; text: string; nonce: number } | null;
+  /** Поле приняло текст — повторный показ поля его не подставит. */
+  clearPromptPrefill: () => void;
   /**
    * Повтор ответа, упавшего с ошибкой (TASK-70.6): сообщение пользователя и ответ с ошибкой убираются
    * из диалога, и сообщение отправляется заново — с текущими настройками провайдера и модели.
@@ -182,7 +197,7 @@ export interface CreateSessionOptions {
 /** Перехваченная слеш-команда Claude Code вкладки (TASK-230). */
 /** Панель над полем ввода (TASK-283): ответ `/btw` или подсказка, почему команда не выполнена. */
 export interface StudioSideQuestion {
-  command: 'btw' | 'fork';
+  command: 'btw' | 'fork' | 'rewind';
   /** Канал ответа: у каждого вопроса свой, ответ прежнего вопроса в новый не попадёт. Пустой у подсказки. */
   streamId: string;
   question: string;
@@ -321,6 +336,24 @@ function activeWorkRoot(projectPath: string): string | null | undefined {
   return projectState.selectedProject?.path === projectPath ? projectState.workspaceRoot : projectState.activeWorktreeByProject[projectPath];
 }
 
+/**
+ * Запрос к разговору CLI вкладки (`/rewind`, TASK-284): каталог, где он начат, аккаунт вкладки и id сессии. `null` —
+ * разговора CLI у вкладки нет.
+ */
+export function tabCliQuery(
+  projectPath: string,
+  session: AISession
+): { projectPath: string; cwd: string; cliSessionId: string; claudeAccountId?: string } | null {
+  if (!session.claudeCliSessionId) return null;
+  const claudeAccountId = sessionClaudeAccountId(session.agent);
+  return {
+    projectPath,
+    cwd: session.claudeCliCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
+    cliSessionId: session.claudeCliSessionId,
+    ...(claudeAccountId ? { claudeAccountId } : {})
+  };
+}
+
 /** Словарь Studio на языке интерфейса — для заголовков вкладок по умолчанию (TASK-204). */
 const studioText = () => getDictionary(useProjectStore.getState().language).aiStudio;
 const cliText = () => studioCliText(useProjectStore.getState().language);
@@ -346,6 +379,8 @@ export const useAIStudioStore = create<AIStudioState>()(
       streamingSessions: {},
       queuedMessages: {},
       sideQuestions: {},
+      rewindRequest: null,
+      promptPrefill: null,
       config: DEFAULT_CONFIG,
       mode: 'agent',
       isSettingsOpen: false,
@@ -642,7 +677,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           sessions: {
             ...state.sessions,
             [projectPath]: (state.sessions[projectPath] || []).map((s) =>
-              s.id === sessionId ? { ...s, claudeCliSessionId: cliSessionId, claudeCliCwd: cwd, claudeCliForkPending: undefined } : s
+              s.id === sessionId ? { ...s, claudeCliSessionId: cliSessionId, claudeCliCwd: cwd, claudeCliForkPending: undefined, claudeCliResumeAt: undefined } : s
             )
           }
         }));
@@ -754,6 +789,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           mode: 'chat',
           ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),
           claudeCliFork: 'side',
+          // Откаченная вкладка (TASK-284) спрашивает об откаченном разговоре.
+          ...(session.claudeCliForkPending && session.claudeCliResumeAt ? { claudeCliResumeAt: session.claudeCliResumeAt } : {}),
           ...(sameWorkPath(workDir, projectPath) ? {} : { workspaceRoot: workDir }),
           ...(claudeAccountId ? { claudeAccountId } : {}),
           ...(session.activeTaskId ? { taskId: session.activeTaskId } : {}),
@@ -770,6 +807,67 @@ export const useAIStudioStore = create<AIStudioState>()(
       closeSideQuestion: (sessionId: string) => {
         stopSideStream(sessionId);
         set((state) => ({ sideQuestions: withoutKey(state.sideQuestions, sessionId) }));
+      },
+
+      openRewind: (projectPath: string, sessionId: string, messageId?: string) =>
+        set({ rewindRequest: { projectPath, sessionId, ...(messageId ? { messageId } : {}) } }),
+      closeRewind: () => set({ rewindRequest: null }),
+      clearPromptPrefill: () => set({ promptPrefill: null }),
+
+      rewindConversation: async (projectPath: string, sessionId: string, point: CliRewindPoint, messageId?: string, filesRestored?: number) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session) return;
+        // Реплики нет в ленте вкладки (ленту начали позже разговора) — лента до точки из файла сессии CLI.
+        let feed: AIMessage[] | undefined;
+        const query = tabCliQuery(projectPath, session);
+        if (!messageId && query && window.api?.readCliSession) {
+          const history = await window.api.readCliSession(query).catch(() => []);
+          feed = feedBeforePoint(history.map((m) => ({ ...m })), point);
+        }
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => (s.id === sessionId ? rewoundSession(s, point, messageId, feed) : s))
+          },
+          // Реплика возвращается в поле ввода, как в CLI: её можно поправить и отправить заново.
+          promptPrefill: { sessionId, text: point.text, nonce: Date.now() },
+          sideQuestions: {
+            ...state.sideQuestions,
+            [sessionId]: {
+              command: 'rewind',
+              streamId: '',
+              question: '',
+              answer: '',
+              status: 'notice',
+              notice: filesRestored === undefined ? cliText().rewindConversationDone : `${cliText().rewindFilesDone(filesRestored)} ${cliText().rewindConversationDone}`
+            }
+          }
+        }));
+        void sessionPersister.flushNow();
+      },
+
+      rewindFiles: async (projectPath: string, sessionId: string, point: CliRewindPoint, fileCount: number) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        const query = session ? tabCliQuery(projectPath, session) : null;
+        if (!query || !window.api?.cliRewindFiles) return false;
+        const result = await window.api
+          .cliRewindFiles({ ...query, promptUuid: point.uuid })
+          .catch((err: unknown) => ({ ok: false, output: err instanceof Error ? err.message : String(err) }));
+        const texts = cliText();
+        set((state) => ({
+          sideQuestions: {
+            ...state.sideQuestions,
+            [sessionId]: {
+              command: 'rewind',
+              streamId: '',
+              question: '',
+              answer: '',
+              status: 'notice',
+              notice: result.ok ? texts.rewindFilesDone(fileCount) : texts.rewindFilesFailed(result.output || '—')
+            }
+          }
+        }));
+        return result.ok;
       },
 
       renameSession: (projectPath: string, sessionId: string, newTitle: string) => {
@@ -900,7 +998,7 @@ export const useAIStudioStore = create<AIStudioState>()(
 
           const updated = existing.map((s) =>
             s.id === targetSessionId
-              ? { ...s, messages: [], title: studioText().newChat, autoTitle: true, claudeCliSessionId: undefined, claudeCliForkPending: undefined }
+              ? { ...s, messages: [], title: studioText().newChat, autoTitle: true, claudeCliSessionId: undefined, claudeCliForkPending: undefined, claudeCliResumeAt: undefined }
               : s
           );
 
@@ -976,6 +1074,11 @@ export const useAIStudioStore = create<AIStudioState>()(
         // `/fork` после хода вкладки (из очереди) берёт и его: ответвление — от законченного разговора.
         if (cli?.kind === 'fork') {
           get().forkSession(projectPath, activeSessionId, cli.title);
+          return;
+        }
+        // `/rewind` (TASK-284) — окно выбора точки; во время хода команда ждала в очереди.
+        if (cli?.kind === 'rewind') {
+          get().openRewind(projectPath, activeSessionId);
           return;
         }
         if (cli?.kind === 'resume' && cli.cliSessionId) {
@@ -1077,6 +1180,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               targetSession.claudeCliCwd = workDir;
               // Ответвление получило свою сессию CLI (TASK-283): дальше вкладка продолжает её, а не исходную.
               delete targetSession.claudeCliForkPending;
+              delete targetSession.claudeCliResumeAt;
             }
 
             const msgs = [...targetSession.messages];
@@ -1283,7 +1387,9 @@ export const useAIStudioStore = create<AIStudioState>()(
           config: requestConfig,
           mode: requestMode,
           claudeCliSessionId: currentSession.claudeCliSessionId,
-          ...(currentSession.claudeCliForkPending && currentSession.claudeCliSessionId ? { claudeCliFork: 'branch' as const } : {}),
+          ...(currentSession.claudeCliForkPending && currentSession.claudeCliSessionId
+            ? { claudeCliFork: 'branch' as const, ...(currentSession.claudeCliResumeAt ? { claudeCliResumeAt: currentSession.claudeCliResumeAt } : {}) }
+            : {}),
           taskId: currentSession.activeTaskId,
           contextParts: currentSession.contextParts,
           // Агент работает в дереве вкладки (TASK-268, decision-195); основное дерево — без поля, как раньше.

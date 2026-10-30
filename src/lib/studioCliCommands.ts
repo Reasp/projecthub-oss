@@ -6,7 +6,7 @@ import { claudeEngineOf } from './connections';
  * (`claude -p`), и встроенные интерактивные команды CLI отвечает «isn't available in this environment»: `/resume` ждёт
  * выбора в интерактивном списке, `/remote-control` и настройки — живой процесс с терминалом. Studio перехватывает их
  * до отправки: `/resume` — свой выбор сессии, `/plan` — plan mode вкладки (TASK-282), `/fork` и `/btw` — ответвление
- * разговора (TASK-283), остальное — продолжение разговора в терминале ProjectHub.
+ * разговора (TASK-283), `/rewind` — откат к реплике (TASK-284), остальное — продолжение разговора в терминале ProjectHub.
  */
 
 export type StudioCliCommand =
@@ -14,6 +14,7 @@ export type StudioCliCommand =
   | { kind: 'plan'; prompt?: string }
   | { kind: 'fork'; title?: string }
   | { kind: 'btw'; question: string }
+  | { kind: 'rewind' }
   | { kind: 'terminal'; command: string };
 
 /**
@@ -55,7 +56,6 @@ const TERMINAL_ONLY = new Set([
   'plugin',
   'add-dir',
   'export',
-  'rewind',
   'exit',
   'bug',
   'feedback',
@@ -99,6 +99,8 @@ export function studioCliCommand(text: string, config: Pick<AIProviderConfig, 'p
   // `/fork [имя]` и `/branch [имя]` (TASK-283) — вкладка-ответвление; `/btw <вопрос>` — побочный вопрос без записи.
   if (name === 'fork' || name === 'branch') return rest ? { kind: 'fork', title: rest.slice(0, 120) } : { kind: 'fork' };
   if (name === 'btw') return { kind: 'btw', question: rest };
+  // `/rewind` (TASK-284) — свой выбор точки отката: разговор и, по подтверждению, файлы.
+  if (name === 'rewind') return { kind: 'rewind' };
   // `/config key=value` CLI выполняет и без терминала, без аргументов — открывает экран настроек.
   if (name === 'config' && rest) return null;
   return TERMINAL_ONLY.has(name) ? { kind: 'terminal', command: name } : null;

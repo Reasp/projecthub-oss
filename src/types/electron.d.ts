@@ -1402,6 +1402,12 @@ export interface IElectronAPI {
   listCliSessions: (query: { projectPath: string; cwd?: string; claudeAccountId?: string }) => Promise<CliSessionSummary[]>;
   /** Переписка сессии Claude Code — в ленту вкладки после `/resume` (TASK-282): текст реплик, без инструментов. */
   readCliSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => Promise<CliTranscriptMessage[]>;
+  /** Реплики человека текущего разговора CLI — точки `/rewind` (TASK-284). */
+  cliRewindPoints: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => Promise<CliRewindPoint[]>;
+  /** Файлы, которые изменит откат к реплике: сравнение с копиями CLI. */
+  cliRewindPreview: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string; promptUuid: string }) => Promise<CliRewindFile[]>;
+  /** Откат файлов к состоянию перед репликой (`--rewind-files`); `output` — текст CLI. */
+  cliRewindFiles: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string; promptUuid: string }) => Promise<{ ok: boolean; output: string }>;
   /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
   claudeAccounts: {
     overview: () => Promise<ClaudeAccountsOverview>;
@@ -3242,6 +3248,11 @@ export interface AISession {
    * (`--fork-session`), после события init поле снимается.
    */
   claudeCliForkPending?: boolean;
+  /**
+   * Откат `/rewind` (TASK-284): первый ход ответвления продолжает разговор только до этой записи CLI
+   * (`--resume-session-at`). Действует вместе с `claudeCliForkPending` и снимается с ним.
+   */
+  claudeCliResumeAt?: string;
   /** Задача, привязанная к сессии (TASK-64) — по ней contextBuilder собирает контекст на каждое сообщение. */
   activeTaskId?: string;
   /** Какие части контекста включены; по умолчанию (без поля) — все. */
@@ -3324,6 +3335,8 @@ export interface AIStreamRequest {
    * `side` — побочный вопрос `/btw` без записи сессии и без инструментов.
    */
   claudeCliFork?: 'branch' | 'side';
+  /** Откат разговора `/rewind` (TASK-284): ответвление продолжает разговор CLI только до этой записи. */
+  claudeCliResumeAt?: string;
 }
 
 export interface GitWorktreeInfo {
@@ -3461,6 +3474,21 @@ export interface CliTranscriptMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+}
+
+/** Точка `/rewind` (TASK-284): реплика человека текущего разговора CLI. */
+export interface CliRewindPoint {
+  uuid: string;
+  /** Запись перед репликой — разговор продолжается с неё; `null` — реплика первая. */
+  keepUuid: string | null;
+  text: string;
+  timestamp: string;
+}
+
+/** Файл, который изменит откат: вернётся к прежнему, удалится или вернётся удалённый. */
+export interface CliRewindFile {
+  path: string;
+  change: 'modify' | 'delete' | 'restore';
 }
 
 export interface ClaudeUsageLimitWindow {

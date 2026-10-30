@@ -24,7 +24,27 @@ const en = {
   btwHint: 'Answered from this tab’s conversation without tools. Neither the question nor the answer is added to it.',
   btwUsage: 'Type the question after /btw, for example: /btw which file did we change last?',
   btwAnswering: 'Answering…',
-  btwStop: 'Stop'
+  btwStop: 'Stop',
+  rewindTitle: 'Rewind',
+  rewindHint:
+    'Pick the message to go back to. The conversation continues from just before it in a new Claude Code session; the original session stays intact. The message returns to the input field.',
+  rewindAction: 'Rewind to here',
+  rewindNoSession: 'This tab has no Claude Code conversation yet — there is nothing to rewind.',
+  rewindEmpty: 'No messages to rewind to in this conversation.',
+  rewindStreaming: 'Wait for the current reply to finish or stop it first.',
+  rewindFilesLoading: 'Checking files…',
+  rewindNoFiles: 'Files: nothing to restore — the agent has not changed files after this message, or they are already as they were.',
+  rewindFilesTitle: (n: number) => `Files the rewind will restore (${n}):`,
+  rewindFilesWarning:
+    'Restoring code returns these files to their state before the message. Changes made in them later, including your own, are lost. Other files are not touched.',
+  rewindChange: { modify: 'restore content', delete: 'delete (created later)', restore: 'bring back (deleted later)' } as Record<'modify' | 'delete' | 'restore', string>,
+  rewindConversation: 'Restore conversation',
+  rewindBoth: 'Restore code and conversation',
+  rewindCodeOnly: 'Restore code only',
+  cancel: 'Cancel',
+  rewindFilesDone: (n: number) => `Files restored to their state before the message (${n}).`,
+  rewindFilesFailed: (detail: string) => `Claude Code could not restore the files: ${detail}`,
+  rewindConversationDone: 'Conversation rewound. The next message continues from before the chosen one.'
 };
 
 export type StudioCliText = typeof en;
@@ -50,7 +70,27 @@ const ru: StudioCliText = {
   btwHint: 'Ответ по разговору вкладки, без инструментов. Ни вопрос, ни ответ в разговор не попадают.',
   btwUsage: 'Напишите вопрос после /btw, например: /btw какой файл мы меняли последним?',
   btwAnswering: 'Отвечает…',
-  btwStop: 'Остановить'
+  btwStop: 'Остановить',
+  rewindTitle: 'Откат',
+  rewindHint:
+    'Выберите реплику, к которой вернуться. Разговор продолжится с места перед ней в новой сессии Claude Code, исходная сессия не меняется. Реплика вернётся в поле ввода.',
+  rewindAction: 'Откатить к этой реплике',
+  rewindNoSession: 'У вкладки ещё нет разговора Claude Code — откатывать нечего.',
+  rewindEmpty: 'В этом разговоре нет реплик для отката.',
+  rewindStreaming: 'Дождитесь конца ответа или остановите его.',
+  rewindFilesLoading: 'Проверяю файлы…',
+  rewindNoFiles: 'Файлы: возвращать нечего — после этой реплики агент файлы не менял, или они уже в прежнем виде.',
+  rewindFilesTitle: (n) => `Файлы, которые вернёт откат (${n}):`,
+  rewindFilesWarning:
+    'Откат кода возвращает эти файлы к состоянию перед репликой. Изменения, сделанные в них позже, в том числе ваши, пропадут. Другие файлы не трогаются.',
+  rewindChange: { modify: 'вернуть содержимое', delete: 'удалить (создан позже)', restore: 'вернуть (удалён позже)' },
+  rewindConversation: 'Откатить разговор',
+  rewindBoth: 'Откатить код и разговор',
+  rewindCodeOnly: 'Откатить только код',
+  cancel: 'Отмена',
+  rewindFilesDone: (n) => `Файлы возвращены к состоянию перед репликой (${n}).`,
+  rewindFilesFailed: (detail) => `Claude Code не смог вернуть файлы: ${detail}`,
+  rewindConversationDone: 'Разговор откачен. Следующее сообщение продолжит его с места перед выбранной репликой.'
 };
 
 export const STUDIO_CLI_TEXT: Record<Language, StudioCliText> = { en, ru };

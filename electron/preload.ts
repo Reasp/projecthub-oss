@@ -459,6 +459,12 @@ const api: IElectronAPI = {
   claudeLogout: (query?: { projectPath?: string; accountId?: string }) => invoke('ai:claudeLogout', query),
   listCliSessions: (query: { projectPath: string; cwd?: string; claudeAccountId?: string }) => invoke('ai:listCliSessions', query),
   readCliSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => invoke('ai:readCliSession', query),
+  // `/rewind` в Agents Studio (TASK-284)
+  cliRewindPoints: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => invoke('ai:cliRewindPoints', query),
+  cliRewindPreview: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string; promptUuid: string }) =>
+    invoke('ai:cliRewindPreview', query),
+  cliRewindFiles: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string; promptUuid: string }) =>
+    invoke('ai:cliRewindFiles', query),
   // Профили аккаунтов Claude Code (TASK-152, decision-87)
   claudeAccounts: {
     overview: () => invoke('claudeAccounts:overview'),

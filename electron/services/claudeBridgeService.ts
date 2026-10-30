@@ -53,6 +53,7 @@ import type { ApiToolContext } from './apiToolExecutor.js';
 import { getApiToolExecutor } from './apiToolExecutorDeps.js';
 import { createStudioToolCallbacks, type AgentStatusKey } from './studioToolAdapter.js';
 import { claudeCliEffortArgs, normalizeReasoningEffort } from './reasoningEffort.js';
+import { CLI_FILE_CHECKPOINTING_ENV } from './claudeCliRewind.js';
 import { usesClaudeCli } from './modelTarget.js';
 import { getHostLanguage } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
@@ -1423,6 +1424,8 @@ class ClaudeBridgeService extends EventEmitter {
       memberId?: string;
       /** Ответвление разговора Claude CLI (TASK-283): вкладка-ответвление или побочный вопрос `/btw`. */
       claudeCliFork?: CliForkKind;
+      /** Откат разговора `/rewind` (TASK-284): ответвление продолжает разговор только до этой записи CLI. */
+      claudeCliResumeAt?: string;
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1524,6 +1527,7 @@ class ClaudeBridgeService extends EventEmitter {
       claudeAccountId?: string;
       memberId?: string;
       claudeCliFork?: CliForkKind;
+      claudeCliResumeAt?: string;
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1564,7 +1568,7 @@ class ClaudeBridgeService extends EventEmitter {
     const existingCliSessionId = req.claudeCliSessionId || (cachedHere ? cached.id : undefined);
     // Побочный вопрос `/btw` (TASK-283): ответвление без записи и без инструментов, id его сессии вкладке не нужен.
     const sideQuestion = req.claudeCliFork === 'side';
-    const cliArgs = ['-p', ...cliResumeArgs(existingCliSessionId, req.claudeCliFork)];
+    const cliArgs = ['-p', ...cliResumeArgs(existingCliSessionId, req.claudeCliFork, req.claudeCliResumeAt)];
     if (req.config.model && req.config.model !== 'default') {
       cliArgs.push('--model', req.config.model);
     }
@@ -1674,6 +1678,8 @@ class ClaudeBridgeService extends EventEmitter {
             ...process.env,
             FORCE_COLOR: '0',
             CLAUDE_CONFIG_DIR: account.configDir,
+            // Копии файлов перед правками, как в терминале (TASK-284): без них `/rewind` вкладки нечем откатить код.
+            [CLI_FILE_CHECKPOINTING_ENV]: 'true',
             // Сессия участника общего хоста: коммиты CLI подписаны им, коммиттер — ProjectHub Agent (TASK-142.3).
             ...launcherGitEnv(editionRegistry.launcherProfile(req.memberId)),
             // Инструмент разрешений ждёт человека — стандартный таймаут MCP-инструмента слишком мал.

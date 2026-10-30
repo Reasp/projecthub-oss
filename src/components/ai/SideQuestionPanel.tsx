@@ -1,5 +1,5 @@
 import React from 'react';
-import { GitBranch, Loader2, HelpCircle, Square, X } from '../common/icons';
+import { GitBranch, Loader2, HelpCircle, RotateCcw, Square, X } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { studioCliText } from '../../i18n/studioCliText';
 import type { StudioSideQuestion } from '../../store/useAIStudioStore';
@@ -18,8 +18,14 @@ export const SideQuestionPanel: React.FC<{ side: StudioSideQuestion | undefined;
   return (
     <div className="mx-4 mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs" data-testid="studio-side-question">
       <div className="flex items-center gap-2">
-        {side.command === 'fork' ? <GitBranch className="w-3.5 h-3.5 text-amber-300 shrink-0" /> : <HelpCircle className="w-3.5 h-3.5 text-amber-300 shrink-0" />}
-        <span className="font-medium text-amber-200 shrink-0">{side.command === 'fork' ? '/fork' : c.btwTitle}</span>
+        {side.command === 'fork' ? (
+          <GitBranch className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+        ) : side.command === 'rewind' ? (
+          <RotateCcw className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+        ) : (
+          <HelpCircle className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+        )}
+        <span className="font-medium text-amber-200 shrink-0">{side.command === 'fork' ? '/fork' : side.command === 'rewind' ? c.rewindTitle : c.btwTitle}</span>
         {side.question && <span className="text-slate-300 truncate" title={side.question}>{side.question}</span>}
         <button
           type="button"

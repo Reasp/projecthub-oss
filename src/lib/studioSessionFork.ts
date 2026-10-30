@@ -15,6 +15,8 @@ export function forkedSession(source: AISession, fork: { id: string; title: stri
     claudeCliSessionId: source.claudeCliSessionId,
     ...(source.claudeCliCwd ? { claudeCliCwd: source.claudeCliCwd } : {}),
     claudeCliForkPending: true,
+    // Ответвление откаченной вкладки (TASK-284) начинается с того же места разговора.
+    ...(source.claudeCliForkPending && source.claudeCliResumeAt ? { claudeCliResumeAt: source.claudeCliResumeAt } : {}),
     ...(source.agent ? { agent: { ...source.agent } } : {}),
     ...(source.worktree ? { worktree: { ...source.worktree } } : {}),
     ...(source.activeTaskId ? { activeTaskId: source.activeTaskId } : {}),

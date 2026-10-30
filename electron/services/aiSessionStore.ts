@@ -5,6 +5,7 @@ import type { AISession, AIMessage, AIToolCall } from '../../src/types/electron'
 import { sanitizeSessionAgent } from '../../src/lib/studioSessionAgent.js';
 import { sanitizeSessionWorktree } from '../../src/lib/studioWorktree.js';
 import { getStatePath } from './appPaths.js';
+import { isCliSessionId } from './claudeCliSessions.js';
 import { stateFields, withVersion } from './stateFiles.js';
 
 /** Версия формата файла сессии и метки проекта (decision-104). */
@@ -126,6 +127,7 @@ export function compactSessionForStorage(session: AISession): AISession {
     ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),
     ...(session.claudeCliSessionId && typeof session.claudeCliCwd === 'string' && session.claudeCliCwd ? { claudeCliCwd: session.claudeCliCwd.slice(0, 1000) } : {}),
     ...(session.claudeCliSessionId && session.claudeCliForkPending === true ? { claudeCliForkPending: true } : {}),
+    ...(session.claudeCliSessionId && session.claudeCliForkPending === true && isCliSessionId(session.claudeCliResumeAt) ? { claudeCliResumeAt: session.claudeCliResumeAt } : {}),
     // История, источник и модель (TASK-140.10, decision-83): закрытая вкладка остаётся на диске в истории.
     ...(typeof session.archivedAt === 'number' ? { archivedAt: session.archivedAt } : {}),
     ...(session.origin === 'phone' || session.origin === 'desktop' ? { origin: session.origin } : {}),

@@ -54,7 +54,8 @@ import { studioLiveRuns } from '../services/studioLiveRuns';
 import type { IpcContext } from './types';
 import path from 'node:path';
 import { claudeAccountService } from '../services/claudeAccountService';
-import { isCliSessionId, listCliSessions, readCliSessionMessages } from '../services/claudeCliSessions';
+import { isCliSessionId, listCliSessions, readCliSessionMessages, readCliSessionTail } from '../services/claudeCliSessions';
+import { cliRewindPoints, cliRewindPreview, runCliRewindFiles } from '../services/claudeCliRewind';
 
 /** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
 function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
@@ -250,6 +251,38 @@ export function registerAiIpc(ctx: IpcContext) {
     const slotAccountId = typeof query?.claudeAccountId === 'string' && query.claudeAccountId ? query.claudeAccountId : undefined;
     const { account } = await claudeAccountService.resolve({ projectPath, ...(slotAccountId ? { slotAccountId } : {}) });
     return readCliSessionMessages(account.configDir, cwd, query.cliSessionId);
+  });
+
+  // `/rewind` (TASK-284, decision-205): точки отката, предпросмотр файлов и откат файлов — те же проверки, что у списка.
+  type CliRewindQuery = { projectPath?: unknown; cwd?: unknown; claudeAccountId?: unknown; cliSessionId?: unknown; promptUuid?: unknown };
+  const cliRewindScope = async (query?: CliRewindQuery) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    const cwd = typeof query?.cwd === 'string' && query.cwd.trim() ? path.resolve(query.cwd) : projectPath;
+    const rel = path.relative(projectPath, cwd);
+    if (rel.startsWith('..') || path.isAbsolute(rel) || !isCliSessionId(query?.cliSessionId)) return null;
+    const slotAccountId = typeof query?.claudeAccountId === 'string' && query.claudeAccountId ? query.claudeAccountId : undefined;
+    const { account } = await claudeAccountService.resolve({ projectPath, ...(slotAccountId ? { slotAccountId } : {}) });
+    const transcript = await readCliSessionTail(account.configDir, cwd, query.cliSessionId);
+    return transcript === null ? null : { configDir: account.configDir, cwd, cliSessionId: query.cliSessionId, transcript };
+  };
+  ipcMain.handle('ai:cliRewindPoints', async (_event, query?: CliRewindQuery) => {
+    const scope = await cliRewindScope(query);
+    return scope ? cliRewindPoints(scope.transcript) : [];
+  });
+  ipcMain.handle('ai:cliRewindPreview', async (_event, query?: CliRewindQuery) => {
+    const scope = await cliRewindScope(query);
+    if (!scope || !isCliSessionId(query?.promptUuid)) return [];
+    return cliRewindPreview(scope.configDir, scope.cwd, scope.cliSessionId, scope.transcript, query.promptUuid);
+  });
+  ipcMain.handle('ai:cliRewindFiles', async (_event, query?: CliRewindQuery) => {
+    const scope = await cliRewindScope(query);
+    if (!scope || !isCliSessionId(query?.promptUuid)) return { ok: false, output: 'session not found' };
+    const promptUuid = query.promptUuid;
+    // Откатывается только реплика текущего разговора вкладки: чужой uuid CLI отклонил бы и сам.
+    if (!cliRewindPoints(scope.transcript).some((p) => p.uuid === promptUuid)) return { ok: false, output: 'message not found' };
+    const result = await runCliRewindFiles(scope.configDir, scope.cwd, scope.cliSessionId, promptUuid);
+    console.info(`[aiIpc] /rewind files ${scope.cliSessionId} → ${promptUuid}: ${result.ok ? 'ok' : 'failed'}`);
+    return result;
   });
 
   // Streaming & Session Lifecycle
