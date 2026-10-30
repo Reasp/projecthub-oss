@@ -30,6 +30,7 @@ import { canWriteStudioSession } from '../utils/studioRemote';
 import { getDictionary } from '../i18n';
 import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib/studioSessionTitle';
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf } from '../lib/studioWorktree';
+import { clearQueue, enqueueMessage, nextAfterTurn, removeQueuedMessage, type StudioQueues } from '../lib/studioMessageQueue';
 
 export type { AISession };
 
@@ -40,6 +41,12 @@ interface AIStudioState {
   lastActiveSessionId: Record<string, string>; // projectPath -> previous active sessionId
   /** sessionId -> идёт ответ: вкладки одного проекта отвечают параллельно (TASK-171). */
   streamingSessions: Record<string, true>;
+  /** sessionId -> сообщения, написанные во время ответа вкладки (TASK-273): уходят по одному после конца хода. */
+  queuedMessages: StudioQueues<SendMessageOptions>;
+  removeQueuedMessage: (sessionId: string, messageId: string) => void;
+  clearQueuedMessages: (sessionId: string) => void;
+  /** Отправить первое сообщение очереди сейчас — после остановки или ошибки очередь сама не идёт. */
+  sendNextQueued: (projectPath: string, sessionId: string) => void;
   config: AIProviderConfig;
   mode: 'chat' | 'agent' | 'architect';
   isSettingsOpen: boolean;
@@ -181,6 +188,11 @@ export interface SendMessageOptions {
   mode?: 'chat' | 'agent' | 'architect';
   /** Кто пишет: участник общего хоста с устройства (TASK-142.3); окно хоста — без поля. */
   memberId?: string;
+  /**
+   * Вкладка, в чьей очереди ждало сообщение (TASK-273). В отличие от `sessionId` слеш-команды Claude Code при этом
+   * по-прежнему перехватываются окном — сообщение было набрано в нём.
+   */
+  queuedSessionId?: string;
 }
 
 function releaseSessionInMain(sessionId: string): void {
@@ -196,9 +208,9 @@ export function withoutKey<T>(record: Record<string, T>, key: string): Record<st
   return rest;
 }
 
-type SessionScopedFields = 'streamingSessions' | 'liveOutputs' | 'rateLimitWarnings' | 'pendingApprovals';
+type SessionScopedFields = 'streamingSessions' | 'liveOutputs' | 'rateLimitWarnings' | 'pendingApprovals' | 'queuedMessages';
 
-/** Сброс стрима, живого вывода, предупреждения о лимитах и ожидающих одобрений закрываемой/очищаемой сессии. */
+/** Сброс стрима, живого вывода, предупреждения о лимитах, очереди и ожидающих одобрений закрываемой/очищаемой сессии. */
 function sessionResetPatch(
   state: Pick<AIStudioState, SessionScopedFields>,
   projectPath: string,
@@ -208,7 +220,8 @@ function sessionResetPatch(
   const patch: Partial<Pick<AIStudioState, SessionScopedFields>> = {
     streamingSessions: withoutKey(state.streamingSessions, sessionId),
     liveOutputs: withoutKey(state.liveOutputs, sessionId),
-    rateLimitWarnings: withoutKey(state.rateLimitWarnings, sessionId)
+    rateLimitWarnings: withoutKey(state.rateLimitWarnings, sessionId),
+    queuedMessages: clearQueue(state.queuedMessages, sessionId)
   };
   const current = state.pendingApprovals[projectPath] || [];
   if (current.some((r) => r.sessionId === sessionId)) {
@@ -242,6 +255,8 @@ const loadingProjects = new Set<string>();
  * только после конца прошлого — иначе конец остановленного ответа достался бы новому (TASK-171).
  */
 const liveStreams = new Map<string, { cleanup: () => void }>();
+/** Вкладки, чей ход остановил человек: конец такого хода очередь не отправляет (TASK-273). */
+const abortedTurns = new Set<string>();
 /** Сколько ждать конца остановленного ответа от main, прежде чем снять его самим. */
 export const ABORT_FALLBACK_MS = 3000;
 
@@ -282,6 +297,7 @@ export const useAIStudioStore = create<AIStudioState>()(
       activeSessionId: {},
       lastActiveSessionId: {},
       streamingSessions: {},
+      queuedMessages: {},
       config: DEFAULT_CONFIG,
       mode: 'agent',
       isSettingsOpen: false,
@@ -562,6 +578,16 @@ export const useAIStudioStore = create<AIStudioState>()(
 
       cliCommand: null,
       clearCliCommand: () => set({ cliCommand: null }),
+
+      removeQueuedMessage: (sessionId: string, messageId: string) =>
+        set((state) => ({ queuedMessages: removeQueuedMessage(state.queuedMessages, sessionId, messageId) })),
+      clearQueuedMessages: (sessionId: string) => set((state) => ({ queuedMessages: clearQueue(state.queuedMessages, sessionId) })),
+      sendNextQueued: (projectPath: string, sessionId: string) => {
+        const next = get().queuedMessages[sessionId]?.[0];
+        if (!next || get().streamingSessions[sessionId]) return;
+        set((state) => ({ queuedMessages: removeQueuedMessage(state.queuedMessages, sessionId, next.id) }));
+        void get().sendMessage(projectPath, next.text, { ...next.opts, queuedSessionId: sessionId });
+      },
       attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string, cwd: string) => {
         set((state) => ({
           cliCommand: null,
@@ -717,6 +743,7 @@ export const useAIStudioStore = create<AIStudioState>()(
 
       abortStream: async (sessionId: string) => {
         if (!sessionId || !get().streamingSessions[sessionId] || !window.api?.abortAIStream) return;
+        abortedTurns.add(sessionId);
         await window.api.abortAIStream(sessionId);
         releaseStreamLater(sessionId, set);
       },
@@ -724,19 +751,32 @@ export const useAIStudioStore = create<AIStudioState>()(
       sendMessage: async (projectPath: string, text: string, opts: SendMessageOptions = {}) => {
         if (!text.trim() || !window.api?.streamAIChat) return;
 
-        let activeSessionId = opts.sessionId || get().activeSessionId[projectPath];
+        let activeSessionId = opts.sessionId || opts.queuedSessionId || get().activeSessionId[projectPath];
         let projectSessions = get().sessions[projectPath] || [];
 
         if (!activeSessionId || !projectSessions.some((s) => s.id === activeSessionId)) {
-          if (opts.sessionId) return; // сессию для телефона готовит обработчик запроса — сюда не доходит
+          // Сессию для телефона готовит обработчик запроса; вкладку очереди могли закрыть — тогда сообщение не нужно.
+          if (opts.sessionId || opts.queuedSessionId) return;
           activeSessionId = get().createSession(projectPath);
           projectSessions = get().sessions[projectPath] || [];
         }
-        // Занята только эта вкладка: другие вкладки проекта отвечают параллельно (TASK-171).
-        if (get().streamingSessions[activeSessionId]) return;
         const currentSession = projectSessions.find((s) => s.id === activeSessionId)!;
         // Пишет в сессию только её владелец (decision-84 п. 5): чужая сессия участника — только для чтения.
         if (!canWriteStudioSession(currentSession, opts.memberId)) return;
+        // Занята только эта вкладка (TASK-171): сообщение встаёт в её очередь и уйдёт после хода (TASK-273).
+        if (get().streamingSessions[activeSessionId]) {
+          const queueKey = activeSessionId;
+          const { queuedSessionId: _queued, ...queuedOpts } = opts;
+          set((state) => ({
+            queuedMessages: enqueueMessage(state.queuedMessages, queueKey, {
+              id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              text: text.trim(),
+              opts: queuedOpts,
+              queuedAt: Date.now()
+            })
+          }));
+          return;
+        }
         // Модель с телефона — на этот запрос; иначе агент вкладки поверх общего конфига (TASK-170).
         const requestConfig = opts.config ?? sessionRequestConfig(get().config, currentSession.agent);
         const requestMode = opts.mode ?? get().mode;
@@ -821,6 +861,16 @@ export const useAIStudioStore = create<AIStudioState>()(
 
         const streamId = activeSessionId;
         const streamEnded = (state: AIStudioState) => ({ streamingSessions: withoutKey(state.streamingSessions, streamId) });
+        abortedTurns.delete(streamId);
+        // Конец хода (TASK-273): сам закончившийся ход отправляет следующее сообщение очереди; остановка и ошибка — нет.
+        const afterTurn = (ended: 'complete' | 'error') => {
+          const aborted = abortedTurns.delete(streamId);
+          const next = nextAfterTurn(get().queuedMessages[streamId], {
+            ended: aborted ? 'aborted' : ended,
+            streaming: !!get().streamingSessions[streamId]
+          });
+          if (next) get().sendNextQueued(projectPath, streamId);
+        };
 
         // Listen to streaming events
         const unsubChunk = window.api.onAIChunk(streamId, (chunk) => {
@@ -984,6 +1034,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               })
             );
           }
+          afterTurn('complete');
         });
 
         const unsubError = window.api.onAIError(streamId, (err, info) => {
@@ -1018,6 +1069,7 @@ export const useAIStudioStore = create<AIStudioState>()(
 
           cleanup();
           void sessionPersister.flushNow();
+          afterTurn('error');
         });
 
         const stream = { cleanup: () => {} };

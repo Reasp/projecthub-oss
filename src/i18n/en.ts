@@ -1972,7 +1972,19 @@ export const en: TranslationDictionary = {
       accountTitle: 'Claude Code account of this tab: {name}',
       accountHeading: 'Claude Code account for this tab',
       accountFromProject: 'Same as project ({name})',
-      tabAgent: 'Agent: {agent}'
+      tabAgent: 'Agent: {agent}',
+      queueSend: 'Add to queue: sent after the current reply (Enter)',
+      effortTitle: 'Reasoning effort for this tab',
+      effortInherit: 'As in settings ({effort})',
+      effortShort: 'Effort: {effort}'
+    },
+    queue: {
+      title: 'Queued ({count})',
+      hintStreaming: 'Sent one by one after the current reply.',
+      hintPaused: 'Paused after a stop or an error.',
+      sendNext: 'Send next',
+      clear: 'Clear queue',
+      remove: 'Remove from queue'
     },
     steps: {
       title: 'Agent Steps & Tool Calls',

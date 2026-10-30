@@ -40,7 +40,9 @@ import { PromptInputArea } from './PromptInputArea';
 import { ContextAppliedCard } from './ContextAppliedCard';
 import { SessionAgentPicker } from './SessionAgentPicker';
 import { ComposerMenu } from './ComposerMenu';
-import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig } from '../../lib/studioSessionAgent';
+import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig, withSessionEffort } from '../../lib/studioSessionAgent';
+import { REASONING_EFFORT_OPTIONS } from '../../lib/reasoningEffort';
+import { QueuedMessagesBar } from './QueuedMessagesBar';
 import { goesToClaudeCli } from '../../lib/studioCliCommands';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { RateLimitWarningBanner } from './RateLimitWarningBanner';
@@ -98,6 +100,10 @@ export const AIStudioView: React.FC = () => {
     setSessionAgent,
     setSessionWorktree,
     toggleContextPart,
+    queuedMessages,
+    removeQueuedMessage,
+    clearQueuedMessages,
+    sendNextQueued,
     sendMessage,
     retryFailedMessage,
     abortStream,
@@ -248,6 +254,10 @@ export const AIStudioView: React.FC = () => {
 
   // Во вкладке Claude Code режим architect — plan mode CLI (TASK-272).
   const tabGoesToCli = goesToClaudeCli(sessionRequestConfig(config, currentSession?.agent));
+  // Усилие вкладки (TASK-273): своё или общее из настроек; пустое — по умолчанию модели.
+  const tabEffort = currentSession?.agent?.reasoningEffort;
+  const tabRequestEffort = tabEffort ?? config.reasoningEffort;
+  const effortLabel = (effort: typeof tabRequestEffort) => (effort ? t.reasoningEffort[effort] : t.reasoningEffort.modelDefaultShort);
   const modeLabel = (m: 'agent' | 'chat' | 'architect') =>
     m === 'agent'
       ? t.aiStudio.input.agentMode
@@ -962,6 +972,17 @@ export const AIStudioView: React.FC = () => {
         </div>
       )}
 
+      {/* Очередь вкладки (TASK-273): сообщения, написанные во время ответа */}
+      {!currentSession?.memberId && currentSessionId && (
+        <QueuedMessagesBar
+          queue={queuedMessages[currentSessionId] ?? []}
+          isStreaming={isStreaming}
+          onRemove={(id) => removeQueuedMessage(currentSessionId, id)}
+          onClear={() => clearQueuedMessages(currentSessionId)}
+          onSendNext={() => sendNextQueued(projectPath, currentSessionId)}
+        />
+      )}
+
       {/* 3. Isolated Memoized Prompt Input Area (0ms typing lag) */}
       {!currentSession?.memberId && <PromptInputArea
         mode={mode}
@@ -999,6 +1020,37 @@ export const AIStudioView: React.FC = () => {
                 onSelect: () => setMode(m)
               }))}
             />
+            {/* Усилие рассуждений вкладки (TASK-273); без своего — общее из настроек */}
+            {currentSessionId && (
+              <ComposerMenu
+                title={t.aiStudio.input.effortTitle}
+                heading={t.aiStudio.input.effortTitle}
+                chevron
+                testId="composer-effort-menu"
+                trigger={
+                  <>
+                    <BrainCircuit className={`w-4 h-4 ${tabEffort ? 'text-indigo-300' : ''}`} />
+                    <span>{t.aiStudio.input.effortShort.replace('{effort}', effortLabel(tabRequestEffort).toLocaleLowerCase())}</span>
+                  </>
+                }
+                items={[
+                  {
+                    key: 'inherit',
+                    label: t.aiStudio.input.effortInherit.replace('{effort}', effortLabel(config.reasoningEffort).toLocaleLowerCase()),
+                    checked: !tabEffort,
+                    onSelect: () => setSessionAgent(projectPath, currentSessionId, withSessionEffort(currentAgent, undefined))
+                  },
+                  ...REASONING_EFFORT_OPTIONS.map((effort) => ({
+                    key: effort,
+                    label: t.reasoningEffort[effort],
+                    checked: tabEffort === effort,
+                    // Claude Code CLI не умеет выключать рассуждения (`--effort` без «none»).
+                    disabled: effort === 'none' && tabGoesToCli,
+                    onSelect: () => setSessionAgent(projectPath, currentSessionId, withSessionEffort(currentAgent, effort))
+                  }))
+                ]}
+              />
+            )}
           </>
         }
         footerEnd={

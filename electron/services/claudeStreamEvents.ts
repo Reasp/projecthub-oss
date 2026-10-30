@@ -46,6 +46,88 @@ export function clipToolResult(text: string, max = CLI_TOOL_RESULT_MAX): string 
 }
 
 // ---------------------------------------------------------------------------
+// Потоковый текст (TASK-273)
+// ---------------------------------------------------------------------------
+
+/** Флаг `claude -p`: события `stream_event` с дельтами текста и рассуждений по мере генерации. */
+export const CLI_PARTIAL_MESSAGES_FLAG = '--include-partial-messages';
+
+export type CliStreamChannel = 'text' | 'thinking';
+
+export interface CliStreamPiece {
+  channel: CliStreamChannel;
+  text: string;
+  /** Первый кусок нового блока: лента начинает его новым абзацем, как в терминале. */
+  newBlock: boolean;
+}
+
+interface StreamedBlock {
+  channel: CliStreamChannel;
+  text: string;
+  /** Блок уже сверен с целым блоком события `assistant`. */
+  final: boolean;
+}
+
+/**
+ * Дельты `stream_event` основного агента и сверка с целыми блоками `assistant`. С `--include-partial-messages`
+ * CLI 2.1.314 сначала шлёт дельты блока (`content_block_delta`), затем тот же блок целиком событием `assistant`
+ * с тем же `message.id`: целый блок отдаёт в ленту только то, чего не было в дельтах. Без дельт (старый CLI,
+ * блок без потока) целый блок уходит как раньше. События подагентов (`parent_tool_use_id`) сюда не передаются.
+ */
+export class CliPartialMessages {
+  private messageId = '';
+  private blocks = new Map<number, StreamedBlock>();
+
+  /** Кусок ленты из `stream_event`; `null` — событие без текста (старт сообщения, JSON инструмента, подпись). */
+  onStreamEvent(event: unknown): CliStreamPiece | null {
+    const e = (event as { event?: unknown } | null)?.event as
+      | { type?: unknown; index?: unknown; message?: { id?: unknown }; content_block?: { type?: unknown }; delta?: { type?: unknown; text?: unknown; thinking?: unknown } }
+      | undefined;
+    if (!e) return null;
+    if (e.type === 'message_start') {
+      this.messageId = typeof e.message?.id === 'string' ? e.message.id : '';
+      this.blocks.clear();
+      return null;
+    }
+    const index = typeof e.index === 'number' ? e.index : -1;
+    if (e.type === 'content_block_start') {
+      const kind = e.content_block?.type;
+      if (kind === 'text' || kind === 'thinking') this.blocks.set(index, { channel: kind, text: '', final: false });
+      return null;
+    }
+    if (e.type !== 'content_block_delta') return null;
+    const channel: CliStreamChannel | null = e.delta?.type === 'text_delta' ? 'text' : e.delta?.type === 'thinking_delta' ? 'thinking' : null;
+    if (!channel) return null;
+    const value = channel === 'text' ? e.delta?.text : e.delta?.thinking;
+    if (typeof value !== 'string' || !value) return null;
+    let block = this.blocks.get(index);
+    if (!block || block.channel !== channel) {
+      block = { channel, text: '', final: false };
+      this.blocks.set(index, block);
+    }
+    const newBlock = block.text === '';
+    block.text += value;
+    return { channel, text: value, newBlock };
+  }
+
+  /**
+   * Часть целого блока `assistant`, которой не было в дельтах. Целый блок сверяется с первым ещё не сверенным
+   * блоком того же канала: CLI шлёт блоки по порядку. Расхождение с уже показанным текстом не дублируется.
+   */
+  finalPiece(messageId: unknown, channel: CliStreamChannel, text: string): CliStreamPiece | null {
+    if (!text) return null;
+    const block = messageId === this.messageId && this.messageId
+      ? [...this.blocks.entries()].sort(([a], [b]) => a - b).map(([, b]) => b).find((b) => b.channel === channel && !b.final)
+      : undefined;
+    if (!block) return { channel, text, newBlock: true };
+    block.final = true;
+    if (!text.startsWith(block.text)) return null;
+    const rest = text.slice(block.text.length);
+    return rest ? { channel, text: rest, newBlock: block.text === '' } : null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Режим вкладки и plan mode (TASK-272)
 // ---------------------------------------------------------------------------
 

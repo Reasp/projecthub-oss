@@ -3267,6 +3267,8 @@ export interface StudioSessionAgent {
   profileId?: string;
   model: string;
   claudeAccountId?: string;
+  /** Усилие рассуждений вкладки (TASK-273); без поля — общее из настроек Agents Studio. */
+  reasoningEffort?: AIProviderConfig['reasoningEffort'];
 }
 
 /** Запрос хоста к стору Agents Studio от имени телефона (`aiStudio:remoteRequest`). */

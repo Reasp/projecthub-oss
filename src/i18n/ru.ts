@@ -1973,7 +1973,19 @@ export const ru: TranslationDictionary = {
       accountTitle: 'Аккаунт Claude Code этой вкладки: {name}',
       accountHeading: 'Аккаунт Claude Code вкладки',
       accountFromProject: 'Как у проекта ({name})',
-      tabAgent: 'Агент: {agent}'
+      tabAgent: 'Агент: {agent}',
+      queueSend: 'В очередь: уйдёт после текущего ответа (Enter)',
+      effortTitle: 'Усилие рассуждений этой вкладки',
+      effortInherit: 'Как в настройках ({effort})',
+      effortShort: 'Усилие: {effort}'
+    },
+    queue: {
+      title: 'В очереди ({count})',
+      hintStreaming: 'Уйдут по одному после текущего ответа.',
+      hintPaused: 'Пауза после остановки или ошибки.',
+      sendNext: 'Отправить следующее',
+      clear: 'Очистить очередь',
+      remove: 'Убрать из очереди'
     },
     steps: {
       title: 'Шаги агента и вызовы инструментов',

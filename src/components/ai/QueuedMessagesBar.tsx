@@ -1,0 +1,57 @@
+import React from 'react';
+import { ListPlus, Send, Trash2, X } from '../common/icons';
+import { useTranslation } from '../../i18n/useTranslation';
+import type { QueuedStudioMessage } from '../../lib/studioMessageQueue';
+
+/**
+ * Очередь сообщений вкладки над полем ввода (TASK-273): что уйдёт после текущего ответа. Каждое можно убрать,
+ * очередь — очистить; после остановки или ошибки очередь ждёт, и следующее отправляется кнопкой.
+ */
+export const QueuedMessagesBar: React.FC<{
+  queue: QueuedStudioMessage[];
+  isStreaming: boolean;
+  onRemove: (id: string) => void;
+  onClear: () => void;
+  onSendNext: () => void;
+}> = ({ queue, isStreaming, onRemove, onClear, onSendNext }) => {
+  const { t } = useTranslation();
+  const l = t.aiStudio.queue;
+  if (queue.length === 0) return null;
+  return (
+    <div className="mx-4 mt-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-2.5 py-2 text-xs" data-testid="studio-queue">
+      <div className="flex items-center gap-2">
+        <ListPlus className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+        <span className="font-medium text-indigo-200">{l.title.replace('{count}', String(queue.length))}</span>
+        <span className="text-slate-400 truncate">{isStreaming ? l.hintStreaming : l.hintPaused}</span>
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          {!isStreaming && (
+            <button type="button" onClick={onSendNext} className="ph-btn ph-btn-primary h-6 px-2" data-testid="studio-queue-send-next">
+              <Send className="w-3 h-3" />
+              <span>{l.sendNext}</span>
+            </button>
+          )}
+          <button type="button" onClick={onClear} className="ph-btn ph-btn-ghost h-6 px-1.5" title={l.clear} aria-label={l.clear} data-testid="studio-queue-clear">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      <ol className="mt-1.5 space-y-1">
+        {queue.map((m, i) => (
+          <li key={m.id} className="flex items-center gap-2 rounded-md bg-ph-hover/60 px-2 py-1">
+            <span className="text-slate-500 tabular-nums shrink-0">{i + 1}.</span>
+            <span className="text-slate-200 truncate flex-1" title={m.text}>{m.text}</span>
+            <button
+              type="button"
+              onClick={() => onRemove(m.id)}
+              className="text-slate-500 hover:text-red-300 shrink-0"
+              title={l.remove}
+              aria-label={l.remove}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+};

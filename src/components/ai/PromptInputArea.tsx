@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
-import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, GitCommit, Rocket, Landmark, At } from '../common/icons';
+import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, ListPlus, GitCommit, Rocket, Landmark, At } from '../common/icons';
 import type { BacklogTask, GitRepoDetails } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { voiceService, type VoiceState } from '../../services/voiceService';
@@ -60,8 +60,9 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
     voiceService.toggleHandsFree();
   };
 
+  // Во время ответа сообщение не теряется, а встаёт в очередь вкладки (TASK-273).
   const handleSend = () => {
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim()) return;
     const textToSend = input.trim();
     setInput('');
     if (textareaRef.current) {
@@ -179,7 +180,6 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
               title={t.aiStudio.input.quickPrompts}
               heading={t.aiStudio.input.quickPrompts}
               items={quickItems}
-              disabled={isStreaming}
               trigger={<Zap className="w-4 h-4" />}
               testId="composer-quick-menu"
             />
@@ -227,15 +227,28 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
           </div>
 
           {isStreaming ? (
-            <button
-              type="button"
-              onClick={onAbort}
-              className="ph-btn ph-btn-danger shrink-0"
-              title={t.aiStudio.input.stop}
-            >
-              <Square className="w-3.5 h-3.5 fill-current" />
-              <span>{t.aiStudio.input.stop}</span>
-            </button>
+            <>
+              {input.trim() && (
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  className="ph-btn ph-btn-secondary shrink-0"
+                  title={t.aiStudio.input.queueSend}
+                  data-testid="composer-queue-send"
+                >
+                  <ListPlus className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onAbort}
+                className="ph-btn ph-btn-danger shrink-0"
+                title={t.aiStudio.input.stop}
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span>{t.aiStudio.input.stop}</span>
+              </button>
+            </>
           ) : (
             <button
               type="button"

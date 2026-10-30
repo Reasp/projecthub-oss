@@ -19,6 +19,8 @@ import { parseClaudeResultEvent, priceUsage, type AgentUsage } from './agentCost
 import {
   applySubagentUpdate,
   CLI_EXIT_PLAN_TOOL,
+  CLI_PARTIAL_MESSAGES_FLAG,
+  CliPartialMessages,
   cliModeArgs,
   clipToolResult,
   cliToolResults,
@@ -31,6 +33,7 @@ import {
   subagentFromToolUse,
   subagentProgressFromText,
   type CliSetModePermission,
+  type CliStreamPiece,
   type CliSubagentUpdate
 } from './claudeStreamEvents.js';
 import { pricingService } from './pricingService.js';
@@ -1641,7 +1644,8 @@ class ClaudeBridgeService extends EventEmitter {
       this.failStudioSession(sessionId, projectPath, new AppError('studio.mcpUnavailable'), onError);
       return;
     }
-    cliArgs.push('--output-format', 'stream-json', '--verbose');
+    // Дельты текста по мере генерации (TASK-273): лента печатает ответ, а не ждёт целого блока.
+    cliArgs.push('--output-format', 'stream-json', '--verbose', CLI_PARTIAL_MESSAGES_FLAG);
 
     const cleanupHitl = () => {
       this.cliPermissionContexts.delete(sessionId);
@@ -1718,6 +1722,20 @@ class ClaudeBridgeService extends EventEmitter {
       this.registerSubagent(next);
       onChunk({ subagent: next });
     };
+    // Дельты основного агента и сверка с целыми блоками `assistant` (TASK-273): текст не дублируется.
+    const partial = new CliPartialMessages();
+    const emitPiece = (piece: CliStreamPiece | null) => {
+      if (!piece) return;
+      if (piece.channel === 'thinking') {
+        accumulatedThought += piece.text;
+        onChunk({ thought: piece.text });
+        return;
+      }
+      // Текст следующего блока (после вызовов инструментов) — новым абзацем, как в терминале (TASK-271).
+      const text = piece.newBlock && accumulatedText && !/\s$/.test(accumulatedText) ? `\n\n${piece.text}` : piece.text;
+      accumulatedText += text;
+      onChunk({ text });
+    };
 
     child.stdout.on('data', async (data: Buffer) => {
       buffer += data.toString('utf-8');
@@ -1756,7 +1774,10 @@ class ClaudeBridgeService extends EventEmitter {
             onChunk({ rateLimitWarning: warning });
           }
 
-          if (event.type === 'assistant' && event.message?.content) {
+          if (event.type === 'stream_event') {
+            // Дельты подагента не показываются: его текст — строка прогресса из целого сообщения (TASK-272).
+            if (!parentToolUseIdOf(event)) emitPiece(partial.onStreamEvent(event));
+          } else if (event.type === 'assistant' && event.message?.content) {
             // Сообщение подагента (TASK-272): текст — в его строку прогресса, шаги — с parentId, рассуждения не показываются.
             const parent = parentToolUseIdOf(event);
             for (const item of event.message.content) {
@@ -1765,10 +1786,8 @@ class ClaudeBridgeService extends EventEmitter {
               } else if (parent && item.type === 'thinking') {
                 continue;
               } else if (item.type === 'text') {
-                // Текст следующего сообщения ассистента (после вызовов инструментов) — новым абзацем, как в терминале (TASK-271).
-                const piece = accumulatedText && !/\s$/.test(accumulatedText) && item.text ? `\n\n${item.text}` : item.text;
-                accumulatedText += piece;
-                onChunk({ text: piece });
+                // В ленту — только то, чего не было в дельтах этого блока (TASK-273).
+                emitPiece(partial.finalPiece(event.message.id, 'text', String(item.text ?? '')));
 
                 // Check text for rate limit warning phrases
                 const lowerText = item.text.toLowerCase();
@@ -1787,8 +1806,7 @@ class ClaudeBridgeService extends EventEmitter {
                   onChunk({ rateLimitWarning: warning });
                 }
               } else if (item.type === 'thinking') {
-                accumulatedThought += item.thinking;
-                onChunk({ thought: item.thinking });
+                emitPiece(partial.finalPiece(event.message.id, 'thinking', String(item.thinking ?? '')));
               } else if (item.type === 'tool_use') {
                 const tc: AIToolCall = {
                   id: item.id || `tool-${Date.now()}`,

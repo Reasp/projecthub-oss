@@ -1,9 +1,10 @@
 import type { AIProviderConfig, StudioSessionAgent } from '../types/electron';
 import { claudeEngineOf } from './connections';
+import { parseReasoningEffort, type ReasoningEffort } from './reasoningEffort';
 
 /**
- * Агент вкладки Agents Studio (TASK-170): у каждой вкладки свои провайдер, модель и аккаунт Claude Code.
- * Остальные настройки (авто-подтверждение, температура, рассуждения) общие — из конфига Studio.
+ * Агент вкладки Agents Studio (TASK-170): у каждой вкладки свои провайдер, модель, аккаунт Claude Code и усилие
+ * рассуждений (TASK-273, без своего — общее). Остальные настройки (авто-подтверждение, температура) общие — из конфига Studio.
  */
 
 const PROVIDERS: ReadonlyArray<AIProviderConfig['provider']> = ['anthropic', 'openrouter', 'deepseek', 'ollama', 'custom', 'openai-compatible'];
@@ -20,8 +21,15 @@ export function sessionRequestConfig(global: AIProviderConfig, agent: StudioSess
     provider: agent.provider,
     model: agent.model,
     ...(agent.provider === 'anthropic' ? { engine: claudeEngineOf(global) } : {}),
-    ...(agent.provider === 'openai-compatible' && agent.profileId ? { profileId: agent.profileId } : {})
+    ...(agent.provider === 'openai-compatible' && agent.profileId ? { profileId: agent.profileId } : {}),
+    ...(agent.reasoningEffort ? { reasoningEffort: agent.reasoningEffort } : {})
   };
+}
+
+/** Усилие вкладки; `undefined` — вернуть общее из настроек Agents Studio. */
+export function withSessionEffort(current: StudioSessionAgent, effort: ReasoningEffort | undefined): StudioSessionAgent {
+  const { reasoningEffort: _old, ...rest } = current;
+  return effort ? { ...rest, reasoningEffort: effort } : rest;
 }
 
 /** Текущий агент вкладки: свой, а у старой вкладки без поля — общий выбор Studio. */
@@ -48,7 +56,9 @@ export function withSelection(
     ...(selection.provider === 'openai-compatible' && selection.profileId ? { profileId: selection.profileId } : {}),
     ...(selection.provider === 'anthropic' && current.provider === 'anthropic' && current.claudeAccountId
       ? { claudeAccountId: current.claudeAccountId }
-      : {})
+      : {}),
+    // Усилие — выбор вкладки, а не модели: смена модели его не сбрасывает (TASK-273).
+    ...(current.reasoningEffort ? { reasoningEffort: current.reasoningEffort } : {})
   };
 }
 
@@ -92,12 +102,14 @@ export function sanitizeSessionAgent(value: unknown): StudioSessionAgent | undef
   if (typeof v.provider !== 'string' || !PROVIDERS.includes(v.provider as AIProviderConfig['provider'])) return undefined;
   if (typeof v.model !== 'string' || !v.model.trim()) return undefined;
   const provider = v.provider as AIProviderConfig['provider'];
+  const effort = parseReasoningEffort(typeof v.reasoningEffort === 'string' ? v.reasoningEffort : undefined);
   return {
     provider,
     model: v.model.slice(0, 200),
     ...(provider === 'openai-compatible' && typeof v.profileId === 'string' && v.profileId ? { profileId: v.profileId.slice(0, 120) } : {}),
     ...(provider === 'anthropic' && typeof v.claudeAccountId === 'string' && v.claudeAccountId.trim()
       ? { claudeAccountId: v.claudeAccountId.trim().slice(0, 120) }
-      : {})
+      : {}),
+    ...(effort ? { reasoningEffort: effort } : {})
   };
 }

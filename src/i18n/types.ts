@@ -1846,6 +1846,18 @@ export interface TranslationDictionary {
       accountHeading: string;
       accountFromProject: string;
       tabAgent: string;
+      queueSend: string;
+      effortTitle: string;
+      effortInherit: string;
+      effortShort: string;
+    };
+    queue: {
+      title: string;
+      hintStreaming: string;
+      hintPaused: string;
+      sendNext: string;
+      clear: string;
+      remove: string;
     };
     steps: {
       title: string;
