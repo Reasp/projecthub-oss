@@ -76,6 +76,7 @@
     <string name="outcome_already_decided">Already decided</string>
     <string name="outcome_not_found">Request not found — it may have expired</string>
     <string name="outcome_rejected">The computer did not accept the decision — open the app</string>
+    <string name="outcome_unconfirmed">The computer did not confirm the decision — open the app</string>
     <string name="outcome_not_owner">This request is from another member’s agent — they or a maintainer decide it</string>
     <string name="outcome_not_owner_host">This request is from the host owner’s agent — the owner or a maintainer decides it</string>
     <string name="outcome_not_owner_member">This request is from the agent of %1$s — they or a maintainer decide it</string>

@@ -18,7 +18,8 @@ import java.nio.charset.StandardCharsets;
  * Кнопки «Одобрить» и «Отклонить» в уведомлении (TASK-140.3, decision-115). Решение подписывается ключом кнопок
  * этого ПК (HMAC-SHA256) и уходит на хост напрямую по его адресам из push: локальная сеть, VPN, туннель. Способ
  * подтверждения — `notification`, если экран заблокирован, иначе `unlocked`; хост сам сверяет его с классом риска.
- * Через релей кнопка не работает — тогда уведомление предлагает открыть приложение.
+ * Через релей кнопка не работает — тогда уведомление предлагает открыть приложение. Итог показывается только по
+ * ответу, подписанному тем же ключом (TASK-252, decision-192): иначе «компьютер не подтвердил решение».
  */
 public class PushActionReceiver extends BroadcastReceiver {
     static final String ACTION = "com.projecthub.mobile.PUSH_ACTION";
@@ -97,23 +98,26 @@ public class PushActionReceiver extends BroadcastReceiver {
                 } catch (Exception e) {
                     continue;
                 }
-                if (status == 200) {
-                    outcome = ctx.getString("allow".equals(decision) ? R.string.outcome_approved : R.string.outcome_denied);
-                    done = true;
-                } else if (status == 409) {
-                    JSONObject refusal = new JSONObject(reply.isEmpty() ? "{}" : reply);
-                    String reason = refusal.optString("reason");
-                    JSONObject key = refusal.optJSONObject("reasonKey");
-                    JSONObject params = key == null ? null : key.optJSONObject("params");
-                    outcome = PushRefusal.text(Texts.of(ctx), reason,
-                        key == null ? null : key.optString("code"),
-                        params == null ? null : params.optString("member"));
-                    done = PushRefusal.isFinal(reason);
-                    break;
-                } else if (status == 403) {
-                    outcome = ctx.getString(R.string.outcome_rejected);
-                    break;
+                JSONObject json;
+                try {
+                    json = new JSONObject(reply.isEmpty() ? "{}" : reply);
+                } catch (Exception e) {
+                    json = new JSONObject();
                 }
+                // Итог — только по подписанному ответу (TASK-252): посредник мог ответить 200, не передав решение.
+                // Неподписанный ответ — как обрыв: следующий адрес (туннель) может дойти до хоста по-настоящему.
+                // Подписаны и причина, и код с именем участника: текст отказа посредник не подменит.
+                JSONObject key = json.optJSONObject("reasonKey");
+                JSONObject params = key == null ? null : key.optJSONObject("params");
+                PushReply.Shown shown = PushReply.shown(Texts.of(ctx), reg.actionKey, PushReply.prefix(hid, did, rid, decision, confirm, ts), decision, status,
+                    json.optString("reason"),
+                    key == null ? "" : key.optString("code"),
+                    params == null ? "" : params.optString("member"),
+                    json.optString("replyMac"));
+                outcome = shown.text;
+                if (!shown.verified) continue;
+                done = shown.done;
+                break;
             }
         } catch (Exception e) {
             // Повреждённый список адресов — остаётся «нет связи».

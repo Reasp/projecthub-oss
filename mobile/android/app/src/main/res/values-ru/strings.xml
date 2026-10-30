@@ -71,6 +71,7 @@
     <string name="outcome_already_decided">Уже решено</string>
     <string name="outcome_not_found">Запрос не найден — возможно, истёк</string>
     <string name="outcome_rejected">Компьютер не принял решение — откройте приложение</string>
+    <string name="outcome_unconfirmed">Компьютер не подтвердил решение — откройте приложение</string>
     <string name="outcome_not_owner">Это запрос агента другого участника — решает он сам или maintainer</string>
     <string name="outcome_not_owner_host">Это запрос агента владельца хоста — решает он сам или maintainer</string>
     <string name="outcome_not_owner_member">Это запрос агента участника %1$s — решает он сам или maintainer</string>

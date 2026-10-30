@@ -77,7 +77,15 @@ import { fitsPhoneReview, hitlDetailForPhone } from './remoteHitlDetail.js';
 import { listRemoteDocs, readRemoteDoc, REMOTE_DOC_MAX_BYTES } from './remoteDocs.js';
 import { diffDocBranch, sanitizeResolutions } from './docBranches.js';
 import { closeDocBranchAsHuman, docBranchesOverview, mergeDocBranchAsHuman, remoteDocBranchDiff } from './docBranchActions.js';
-import { parsePushAction, parsePushRegistration, verifyPushAction, type PushHostEndpoint, type PushRegistration } from './remotePush.js';
+import {
+  parsePushAction,
+  parsePushRegistration,
+  pushActionReplyMac,
+  pushActionReplyOutcome,
+  verifyPushAction,
+  type PushHostEndpoint,
+  type PushRegistration
+} from './remotePush.js';
 import { RemotePushService, type PushTarget } from './remotePushService.js';
 import { RemoteInboxService, type InboxTask, type NoteContext } from './remoteInboxService.js';
 import { FleetOverviewService } from './fleetOverviewService.js';
@@ -1632,31 +1640,38 @@ class RemoteControlService {
   /**
    * Кнопка уведомления (`POST /api/remote/push-action`): решение, подписанное ключом кнопок устройства. Способ
    * `notification`/`unlocked` хост сверяет с классом риска так же, как для решения из приложения (decision-112 п. 3).
+   * Ответ на проверенную кнопку подписан тем же ключом (TASK-252, decision-192): без подписи телефон не покажет итог.
    */
   private async handlePushAction(body: unknown): Promise<{ status: number; result: Record<string, unknown> }> {
     const action = parsePushAction(body);
     if (!action) return { status: 400, result: { ok: false, reason: 'bad_request' } };
     const record = this.deviceTokens.get(action.deviceId);
-    if (!record?.push || !this.isTokenApproved(record) || !verifyPushAction(record.push.actionKey, this.hostId, action, Date.now())) {
+    const push = record?.push;
+    if (!record || !push || !this.isTokenApproved(record) || !verifyPushAction(push.actionKey, this.hostId, action, Date.now())) {
+      // Кнопку не проверить — и ответ подписать нечем: телефон покажет «не подтверждено».
       return { status: 403, result: { ok: false, reason: 'forbidden' } };
     }
+    const signed = (status: number, result: Record<string, unknown>) => ({
+      status,
+      result: { ...result, replyMac: pushActionReplyMac(push.actionKey, this.hostId, action, status, pushActionReplyOutcome(status, result)) }
+    });
     const pushRights = this.effectiveDeviceRights({ id: action.deviceId, name: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), rights: record.rights });
-    if (this.readOnly || pushRights === 'readOnly') return { status: 403, result: { ok: false, reason: 'read_only' } };
+    if (this.readOnly || pushRights === 'readOnly') return signed(403, { ok: false, reason: 'read_only' });
     const pending = hitlService.getPending(action.requestId);
-    if (pending && !this.hitlVisibleToRecord(pending, action.deviceId)) return { status: 404, result: { ok: false, reason: 'not_found' } };
+    if (pending && !this.hitlVisibleToRecord(pending, action.deviceId)) return signed(404, { ok: false, reason: 'not_found' });
     const result = hitlService.decide(
       action.requestId,
       { approved: action.decision === 'allow' },
       { kind: 'remote', deviceId: action.deviceId, deviceName: record.deviceName, ...(record.memberId ? { memberId: record.memberId } : {}), confirm: action.confirm }
     );
-    if (!result.ok) return { status: 409, result: hitlRefusal(result) };
+    if (!result.ok) return signed(409, hitlRefusal(result));
     this.notifyRenderer('remote:hitlDecisionMade', {
       requestId: action.requestId,
       sessionId: result.request.sessionId,
       approved: action.decision === 'allow',
       byDevice: record.deviceName
     });
-    return { status: 200, result: { ok: true } };
+    return signed(200, { ok: true });
   }
 
   public async sendTelegramNotification(text: string): Promise<boolean> {

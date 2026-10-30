@@ -318,6 +318,32 @@ export function parsePushAction(value: unknown): PushAction | null {
   return { deviceId, requestId, decision, confirm, ts, mac };
 }
 
+export const PUSH_ACTION_REPLY_LABEL = 'projecthub-push-action-reply-v1';
+
+/**
+ * Строка подписи ответа хоста на кнопку (TASK-252, [[decision-192]]): та же кнопка — устройство, запрос, решение,
+ * способ и время нажатия — и итог: код HTTP и причина (`ok` у успеха). Посредник без ключа кнопок не выдаст отказ
+ * за успех и не подставит ответ на другую кнопку.
+ */
+export function pushActionReplyString(hostId: string, a: Omit<PushAction, 'mac'>, status: number, outcome: string): string {
+  return [PUSH_ACTION_REPLY_LABEL, hostId, a.deviceId, a.requestId, a.decision, a.confirm, String(a.ts), String(status), outcome].join('\n');
+}
+
+export function pushActionReplyMac(actionKey: string, hostId: string, a: Omit<PushAction, 'mac'>, status: number, outcome: string): string {
+  return crypto.createHmac('sha256', Buffer.from(actionKey, 'base64url')).update(pushActionReplyString(hostId, a, status, outcome)).digest('base64url');
+}
+
+/**
+ * Итог ответа для подписи: `ok` у 200, иначе причина отказа, код `reasonKey` и имя участника из его параметров — всё,
+ * из чего телефон собирает текст отказа (ревью TASK-252: иначе посредник подменил бы имя в уведомлении).
+ */
+export function pushActionReplyOutcome(status: number, result: { reason?: unknown; reasonKey?: unknown }): string {
+  if (status === 200) return 'ok';
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  const key = (result.reasonKey ?? {}) as { code?: unknown; params?: { member?: unknown } };
+  return [str(result.reason), str(key.code), str(key.params?.member)].join('\n');
+}
+
 /** Подпись кнопки верна и свежая. Класс риска и права проверяет `hitlService.decide`, как для любого решения. */
 export function verifyPushAction(actionKey: string, hostId: string, action: PushAction, now: number): boolean {
   if (Math.abs(now - action.ts) > PUSH_ACTION_WINDOW_MS) return false;
