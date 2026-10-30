@@ -2210,6 +2210,12 @@ export interface TranslationDictionary {
     mergeIntoLabel: string;
     moveToReviewCheckbox: string;
     deleteAfterMergeCheckbox: string;
+    /** Незакоммиченное в worktree перед слиянием (TASK-267). */
+    uncommittedBanner: string;
+    commitBeforeMerge: string;
+    commitMessagePlaceholder: string;
+    /** Удаление грязного дерева: изменения уходят в снимок сохранённых результатов. */
+    confirmRemoveDirty: string;
     loadingDiffBetween: string;
     noDiffWithBranch: string;
     syncedDesc: string;

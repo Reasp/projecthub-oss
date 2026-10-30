@@ -1317,6 +1317,8 @@ export interface IElectronAPI {
   listWorktrees: (projectPath: string) => Promise<GitWorktreeInfo[]>;
   addWorktree: (projectPath: string, options: AddWorktreeOptions) => Promise<GitWorktreeInfo>;
   removeWorktree: (projectPath: string, worktreePath: string, force?: boolean) => Promise<boolean>;
+  /** Незакоммиченные файлы worktree (TASK-267): окно предупреждает до слияния и удаления. */
+  getWorktreeDirtyState: (projectPath: string, worktreePath: string) => Promise<WorktreeDirtyState>;
   pruneWorktrees: (projectPath: string) => Promise<boolean>;
   getWorktreeDiff: (projectPath: string, worktreeBranch: string, baseBranch: string, worktreePath?: string) => Promise<string>;
   mergeWorktree: (projectPath: string, worktreeBranch: string, targetBranch: string, options?: MergeOptions) => Promise<MergeWorktreeResult>;
@@ -3315,6 +3317,19 @@ export interface BacklogRenumberSummary {
 export interface MergeOptions {
   /** Человек подтвердил перенумерацию входящей стороны (показан `renumberRequired`). */
   renumber?: boolean;
+  /**
+   * Незакоммиченные изменения в worktree сливаемой ветки (TASK-267): `refuse` — не сливать, вернуть `worktreeDirty`;
+   * `commit` — сначала закоммитить их сообщением `commitMessage`. Без поля проверки нет (Swarm фиксирует результат сам).
+   */
+  pendingChanges?: 'refuse' | 'commit';
+  commitMessage?: string;
+}
+
+/** Незакоммиченные файлы worktree: пути относительно дерева, не больше 50 штук, и общее число. */
+export interface WorktreeDirtyState {
+  path: string;
+  count: number;
+  files: string[];
 }
 
 export interface MergeWorktreeResult {
@@ -3329,6 +3344,8 @@ export interface MergeWorktreeResult {
   renumberRequired?: BacklogRenumberSummary;
   /** Слито с перенумерацией входящей стороны. */
   renumbered?: BacklogRenumbering[];
+  /** В worktree ветки есть незакоммиченные изменения, а `pendingChanges: 'refuse'` — слияние не начато. */
+  worktreeDirty?: WorktreeDirtyState;
 }
 
 export interface OrphanedWorktreeScan {

@@ -11,7 +11,7 @@ import {
   FileDiff,
   FolderOpen
 } from '../common/icons';
-import type { GitWorktreeInfo, MergeState } from '../../types/electron';
+import type { GitWorktreeInfo, MergeState, WorktreeDirtyState } from '../../types/electron';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { SplitDiffViewer } from './SplitDiffViewer';
@@ -31,6 +31,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
   const {
     selectedProject,
     gitRepoDetails,
+    worktrees,
     tasks,
     updateTaskStatusLocal,
     removeWorktreeAction,
@@ -40,8 +41,21 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
     setActiveTab
   } = useProjectStore();
 
+  // Цель по умолчанию — ветка основного дерева (TASK-267): `currentBranch` описывает активное дерево, и если активен
+  // сам worktree, ветка сливалась бы сама в себя.
+  const mainBranch = worktrees.find((w) => w.isMain)?.branch;
   const [targetBranch, setTargetBranch] = useState(
-    gitRepoDetails?.currentBranch || (gitRepoDetails?.branches?.includes('master') ? 'master' : 'main')
+    (mainBranch && mainBranch !== worktree.branch ? mainBranch : null) ||
+      (gitRepoDetails?.branches?.includes('master') ? 'master' : 'main')
+  );
+  const matchingTask = worktree.taskId
+    ? tasks.find((task) => task.id.toLowerCase() === worktree.taskId?.toLowerCase())
+    : null;
+  // Незакоммиченное в worktree: слияние переносит только коммиты, поэтому по умолчанию — коммит перед слиянием.
+  const [dirtyState, setDirtyState] = useState<WorktreeDirtyState | null>(null);
+  const [commitPending, setCommitPending] = useState(true);
+  const [commitMessage, setCommitMessage] = useState(
+    matchingTask ? `${matchingTask.id.toLowerCase()}: ${matchingTask.title}` : `wip(${worktree.branch || 'worktree'})`
   );
   const [deleteAfterMerge, setDeleteAfterMerge] = useState(true);
   const [updateTaskToReview, setUpdateTaskToReview] = useState(true);
@@ -59,9 +73,21 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
   const [pullError, setPullError] = useState<string | null>(null);
   const [diffVersion, setDiffVersion] = useState(0);
 
-  const matchingTask = worktree.taskId
-    ? tasks.find((t) => t.id.toLowerCase() === worktree.taskId?.toLowerCase())
-    : null;
+  useEffect(() => {
+    if (worktree.isMain || !selectedProject || !window.api?.getWorktreeDirtyState) return;
+    let cancelled = false;
+    window.api
+      .getWorktreeDirtyState(selectedProject.path, worktree.path)
+      .then((state) => {
+        if (!cancelled) setDirtyState(state);
+      })
+      .catch((err: unknown) => console.warn('[worktree] dirty state failed:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProject, worktree.path, worktree.isMain, diffVersion]);
+
+  const hasUncommitted = (dirtyState?.count ?? 0) > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -174,8 +200,14 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
     setErrorMessage(null);
     setConflictFiles(null);
     try {
-      const res = await mergeWorktreeAction(worktree.branch, targetBranch);
+      const message = commitMessage.trim();
+      const res = await mergeWorktreeAction(
+        worktree.branch,
+        targetBranch,
+        hasUncommitted && commitPending && message ? { message } : undefined
+      );
       if (!res.success) {
+        if (res.worktreeDirty) setDirtyState(res.worktreeDirty);
         if (res.conflictedFiles && res.conflictedFiles.length > 0) {
           setConflictFiles(res.conflictedFiles);
         }
@@ -294,6 +326,35 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
             >
               {t.mergeConflicts.resolveButton}
             </button>
+          </div>
+        )}
+
+        {/* Незакоммиченное в worktree (TASK-267): без коммита слияние его не перенесёт */}
+        {hasUncommitted && !worktreeInMerge && (
+          <div data-testid="worktree-uncommitted" className="px-6 py-3 bg-amber-950/40 border-b border-amber-800/60 flex flex-col gap-2 shrink-0">
+            <div className="flex items-center gap-2 text-xs text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>{t.worktrees.uncommittedBanner.replace('{count}', String(dirtyState?.count ?? 0))}</span>
+            </div>
+            <div className="flex items-center gap-3 pl-6">
+              <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer select-none shrink-0">
+                <input
+                  type="checkbox"
+                  checked={commitPending}
+                  onChange={(e) => setCommitPending(e.target.checked)}
+                  className="rounded border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 bg-ph-elevated"
+                />
+                <span>{t.worktrees.commitBeforeMerge}</span>
+              </label>
+              <input
+                type="text"
+                value={commitMessage}
+                disabled={!commitPending}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder={t.worktrees.commitMessagePlaceholder}
+                className="flex-1 min-w-0 px-2 py-1 rounded-md bg-ph-elevated border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+            </div>
           </div>
         )}
 
@@ -449,7 +510,7 @@ export const WorktreeCompleteModal: React.FC<WorktreeCompleteModalProps> = ({
 
             <button
               type="button"
-              disabled={isMerging || worktreeInMerge}
+              disabled={isMerging || worktreeInMerge || (hasUncommitted && commitPending && !commitMessage.trim())}
               onClick={handleMerge}
               className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-md transition flex items-center gap-1.5 disabled:opacity-50"
             >

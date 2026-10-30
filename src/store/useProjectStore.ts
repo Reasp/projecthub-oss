@@ -449,7 +449,8 @@ interface ProjectState {
   removeWorktreeAction: (worktreePath: string, force?: boolean) => Promise<boolean>;
   pruneWorktreesAction: () => Promise<boolean>;
   getWorktreeDiffAction: (worktreeBranch: string, baseBranch: string, worktreePath?: string) => Promise<string>;
-  mergeWorktreeAction: (worktreeBranch: string, targetBranch: string) => Promise<MergeWorktreeResult>;
+  /** `commitPending` — закоммитить незакоммиченное в worktree этим сообщением до слияния (TASK-267). */
+  mergeWorktreeAction: (worktreeBranch: string, targetBranch: string, commitPending?: { message: string }) => Promise<MergeWorktreeResult>;
   checkoutWorktreeFilesAction: (branch: string, filePaths: string[]) => Promise<{ success: boolean; error?: string; files?: string[] }>;
   findOrphanedWorktreesAction: (activeTaskIds?: string[], activeSwarmIds?: string[]) => Promise<OrphanedWorktreeScan>;
   cleanOrphanedWorktreesAction: (worktreePaths: string[], branches: string[]) => Promise<CleanOrphanedResult>;
@@ -2126,12 +2127,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  mergeWorktreeAction: async (worktreeBranch: string, targetBranch: string) => {
+  mergeWorktreeAction: async (worktreeBranch: string, targetBranch: string, commitPending?: { message: string }) => {
     const project = get().selectedProject;
     if (!window.api?.mergeWorktree || !project) return { success: false, error: 'No project' };
+    // Без согласия на коммит main отказывает при незакоммиченном в worktree (TASK-267); повтор после перенумерации
+    // коммитит снова только то, что появилось после первого вызова.
+    const pending: MergeOptions = commitPending ? { pendingChanges: 'commit', commitMessage: commitPending.message } : { pendingChanges: 'refuse' };
     try {
       const res = await mergeWithRenumberConfirm(
-        (options) => window.api.mergeWorktree(project.path, worktreeBranch, targetBranch, options),
+        (options) => window.api.mergeWorktree(project.path, worktreeBranch, targetBranch, { ...pending, ...options }),
         worktreeBranch,
         targetBranch,
         get().language

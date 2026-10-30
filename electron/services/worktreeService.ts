@@ -11,8 +11,11 @@ import type {
   MergeOptions,
   MergeWorktreeResult,
   OrphanedWorktreeScan,
-  CleanOrphanedResult
+  CleanOrphanedResult,
+  WorktreeDirtyState
 } from '../../src/types/electron';
+import { AGENT_COMMITTER } from '../extensions/editionRegistry.js';
+import { agentResultRef, RESULT_REFLOG_MESSAGE } from './agentResultRefs.js';
 import { findTaskFile } from './taskFileLookup.js';
 import { normalizeFrontmatter, withUpdatedDate } from './backlogTaskFormat.js';
 import { dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, summarizeRenumber, type PreparedIncoming } from './backlogMerge.js';
@@ -44,6 +47,25 @@ export async function detachLinkedDirs(worktreePath: string): Promise<string[]> 
   }
   return removed;
 }
+
+/**
+ * Пути из `git status --porcelain -z -uall`: записи `XY путь` через NUL; у переименования и копирования (`R`, `C` в
+ * первой колонке) следом идёт исходный путь — он пропускается.
+ */
+export function parseStatusPorcelainZ(raw: string): string[] {
+  const parts = raw.split('\0');
+  const files: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i];
+    if (entry.length < 4) continue;
+    files.push(entry.slice(3));
+    if (entry[0] === 'R' || entry[0] === 'C') i++;
+  }
+  return files;
+}
+
+/** Сколько путей грязного дерева отдавать окну: окно показывает список, а не весь репозиторий. */
+const DIRTY_FILES_SHOWN = 50;
 
 /**
  * Нормализация пути для сравнения (учитывая особенности Windows).
@@ -256,12 +278,76 @@ export class WorktreeService {
     }
   }
 
+  /** Незакоммиченные файлы дерева, включая untracked (TASK-267). Каталога нет — дерево чистое. */
+  async worktreeDirtyState(worktreePath: string): Promise<WorktreeDirtyState> {
+    if (!existsSync(worktreePath)) return { path: worktreePath, count: 0, files: [] };
+    const files = parseStatusPorcelainZ(await simpleGit(worktreePath).raw(['status', '--porcelain', '-z', '-uall']));
+    return { path: worktreePath, count: files.length, files: files.slice(0, DIRTY_FILES_SHOWN) };
+  }
+
+  /** Worktree ветки (не основное дерево) и его незакоммиченные файлы; ветка не выписана в worktree — `null`. */
+  protected async branchWorktreeDirtyState(projectPath: string, branch: string): Promise<WorktreeDirtyState | null> {
+    const wt = (await this.listWorktrees(projectPath)).find((w) => !w.isMain && w.branch === branch);
+    return wt ? this.worktreeDirtyState(wt.path) : null;
+  }
+
   /**
-   * Удаление worktree (AC #1).
+   * Коммит всех изменений дерева (`add -A`) от имени пользователя git — это его работа, не агента. Хуки проекта
+   * выполняются как при обычном коммите; отказ хука или нет `user.name` — ошибка с причиной.
+   */
+  protected async commitWorktreeChanges(worktreePath: string, message: string): Promise<void> {
+    const git = simpleGit(worktreePath);
+    try {
+      await git.raw(['add', '-A']);
+      await git.raw(['commit', '-m', message]);
+    } catch (err) {
+      throw new AppError('git.worktreeCommitFailed', { reason: errorMessage(err) });
+    }
+  }
+
+  /**
+   * Снимок незакоммиченных изменений в ref результатов (`refs/projecthub/results/worktree-<каталог>/removed-<время>`,
+   * TASK-238): его видно в окне сохранённых результатов, оттуда он восстанавливается в ветку. Автор снимка — технический,
+   * как у результата агента: `stash create` без `user.name` падает. `null` — снимок не получился.
+   */
+  protected async preserveWorktreeSnapshot(worktreePath: string): Promise<string | null> {
+    const git = simpleGit(worktreePath);
+    const who = ['-c', `user.name=${AGENT_COMMITTER.name}`, '-c', `user.email=${AGENT_COMMITTER.email}`];
+    try {
+      await git.raw(['add', '-A']);
+      const hash = (await git.raw([...who, 'stash', 'create', `ProjectHub: ${path.basename(worktreePath)} before removal`])).trim();
+      if (!/^[0-9a-f]{40,64}$/i.test(hash)) return null;
+      const ref = agentResultRef(`worktree-${path.basename(worktreePath)}`, `removed-${Date.now()}`);
+      await git.raw(['update-ref', '--create-reflog', '-m', RESULT_REFLOG_MESSAGE, ref, hash]);
+      return ref;
+    } catch (err) {
+      console.error(`[WorktreeService] Failed to snapshot ${worktreePath} before removal:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Удаление worktree (AC #1). Незакоммиченные изменения сначала уходят в снимок ([[decision-8]] п. 5): не получилось —
+   * дерево остаётся, результат `false`.
    */
   async removeWorktree(projectPath: string, worktreePath: string, force = false): Promise<boolean> {
     // Ссылки внутри worktree (junction node_modules) — до удаления, иначе удаление дойдёт до их цели.
     await detachLinkedDirs(worktreePath);
+    // Без `force` git сам не удаляет грязное дерево — снимок нужен только при принудительном удалении.
+    let dirty: WorktreeDirtyState | null = null;
+    if (force) {
+      try {
+        dirty = await this.worktreeDirtyState(worktreePath);
+      } catch (err) {
+        // Повреждённое дерево git не читает: сохранять нечего, удаление идёт как раньше.
+        console.warn(`[WorktreeService] Could not read status of ${worktreePath}:`, err);
+      }
+    }
+    if (dirty && dirty.count > 0) {
+      const ref = await this.preserveWorktreeSnapshot(worktreePath);
+      if (!ref) return false;
+      console.info(`[WorktreeService] ${dirty.count} uncommitted file(s) of ${worktreePath} preserved in ${ref}`);
+    }
     try {
       const git = simpleGit(projectPath);
       const args = ['worktree', 'remove', worktreePath];
@@ -390,6 +476,22 @@ export class WorktreeService {
           uncleanWorkingTree: true,
           ...appErrorFields(new AppError('git.workingTreeDirty'))
         };
+      }
+
+      // Незакоммиченное в worktree ветки сливается только коммитом (TASK-267): иначе дифф в окне показывает правки,
+      // а слияние их не несёт и следующее удаление дерева их стирает. До перенумерации — она строится от вершины ветки.
+      if (options.pendingChanges) {
+        const dirty = await this.branchWorktreeDirtyState(projectPath, worktreeBranch);
+        if (dirty && dirty.count > 0) {
+          if (options.pendingChanges === 'refuse') {
+            return {
+              success: false,
+              worktreeDirty: dirty,
+              ...appErrorFields(new AppError('git.worktreeDirty', { branch: worktreeBranch, count: dirty.count }))
+            };
+          }
+          await this.commitWorktreeChanges(dirty.path, options.commitMessage?.trim() || `wip(${worktreeBranch}): work in worktree`);
+        }
       }
 
       // Номера backlog, добавленные обеими ветками, — до слияния и до checkout (decision-76 п. 6): человек видит

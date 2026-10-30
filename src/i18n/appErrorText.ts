@@ -637,6 +637,8 @@ const EN = {
   'git.renumberRequiredCurrent': 'Backlog numbers in {branch} collide with the current branch: the incoming branch needs renumbering',
   'git.renumberRequired': 'Backlog numbers in {branch} collide with {target}: the incoming branch needs renumbering',
   'git.workingTreeDirty': 'The working tree has uncommitted changes. Commit or stash them before merging.',
+  'git.worktreeDirty': 'The worktree of {branch} has {count} uncommitted file(s): the merge would not include them. Commit them first.',
+  'git.worktreeCommitFailed': 'Could not commit the worktree changes: {reason}',
   'git.mergeConflictIn': 'Merge conflict in: {files}',
   // Ветки документации (decision-151).
   'docs.branchesNeedGit': 'Documentation branches work only in a git repository: the project has no .git.',
@@ -1623,6 +1625,8 @@ export const appErrorTextRu: AppErrorLabels = {
   'git.renumberRequiredCurrent': 'Номера backlog в {branch} совпали с текущей веткой: нужна перенумерация входящей ветки',
   'git.renumberRequired': 'Номера backlog в {branch} совпали с {target}: нужна перенумерация входящей ветки',
   'git.workingTreeDirty': 'В рабочем дереве есть незакоммиченные изменения. Закоммитьте или уберите их в stash перед слиянием.',
+  'git.worktreeDirty': 'В worktree ветки {branch} незакоммиченных файлов: {count}. Слияние их не унесёт — сначала закоммитьте.',
+  'git.worktreeCommitFailed': 'Не удалось закоммитить изменения worktree: {reason}',
   'git.mergeConflictIn': 'Конфликт слияния в файлах: {files}',
   'docs.branchesNeedGit': 'Ветки документации работают только в git-репозитории: в проекте нет .git.',
   'docs.branchNotFound': 'Ветка документации {id} не найдена. Список — doc_branch_list.',

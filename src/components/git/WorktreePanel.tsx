@@ -100,7 +100,13 @@ export const WorktreePanel: React.FC<WorktreePanelProps> = ({ onSelectTask }) =>
 
   const handleRemove = async (wt: GitWorktreeInfo) => {
     if (wt.isMain) return;
-    const confirmText = t.worktrees.confirmRemove.replace('{path}', wt.path);
+    // Грязное дерево удаляется со снимком изменений (TASK-267) — человек видит это до подтверждения.
+    const dirty = selectedProject && window.api?.getWorktreeDirtyState
+      ? await window.api.getWorktreeDirtyState(selectedProject.path, wt.path).catch(() => null)
+      : null;
+    const confirmText = dirty && dirty.count > 0
+      ? t.worktrees.confirmRemoveDirty.replace('{path}', wt.path).replace('{count}', String(dirty.count))
+      : t.worktrees.confirmRemove.replace('{path}', wt.path);
     const confirmed = await dialog.confirm({
       message: confirmText,
       danger: true

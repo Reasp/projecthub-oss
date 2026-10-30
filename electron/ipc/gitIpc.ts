@@ -159,9 +159,23 @@ export function registerGitIpc() {
     return await worktreeService.getWorktreeDiff(safeProject, worktreeBranch, baseBranch, worktreePath);
   });
 
-  ipcMain.handle('git:worktree:merge', async (_event, projectPath: string, worktreeBranch: string, targetBranch: string, options?: { renumber?: unknown }) => {
+  ipcMain.handle('git:worktree:dirtyState', async (_event, projectPath: string, worktreePath: string) => {
     const safeProject = await assertRegisteredProject(projectPath);
-    return await worktreeService.mergeWorktree(safeProject, worktreeBranch, targetBranch, { renumber: options?.renumber === true });
+    if (typeof worktreePath !== 'string' || !isProjectWorktreeRoot(safeProject, worktreePath)) {
+      throw new AppError('access.notProjectWorktree', { path: String(worktreePath) });
+    }
+    return await worktreeService.worktreeDirtyState(path.resolve(worktreePath));
+  });
+
+  // Слияние из окна — работа человека: незакоммиченное в worktree не теряется молча (TASK-267). Без явного `commit`
+  // окно получает `worktreeDirty` и спрашивает.
+  ipcMain.handle('git:worktree:merge', async (_event, projectPath: string, worktreeBranch: string, targetBranch: string, options?: { renumber?: unknown; pendingChanges?: unknown; commitMessage?: unknown }) => {
+    const safeProject = await assertRegisteredProject(projectPath);
+    return await worktreeService.mergeWorktree(safeProject, worktreeBranch, targetBranch, {
+      renumber: options?.renumber === true,
+      pendingChanges: options?.pendingChanges === 'commit' ? 'commit' : 'refuse',
+      ...(typeof options?.commitMessage === 'string' ? { commitMessage: options.commitMessage.slice(0, 2000) } : {})
+    });
   });
 
   // Слияние worktree встало на конфликте — подтянуть целевую ветку в ветку worktree и разрешить там (TASK-139.6).
