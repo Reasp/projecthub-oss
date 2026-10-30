@@ -16,7 +16,23 @@ import { CHILD_CLOSE_GRACE_MS, superviseChildExit } from './processSweep.js';
 import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountService.js';
 import { parseClaudeResultEvent, priceUsage, type AgentUsage } from './agentCost.js';
-import { clipToolResult, cliToolResults } from './claudeStreamEvents.js';
+import {
+  applySubagentUpdate,
+  CLI_EXIT_PLAN_TOOL,
+  cliModeArgs,
+  clipToolResult,
+  cliToolResults,
+  isCliPlanFile,
+  parentToolUseIdOf,
+  planDecision,
+  planTextOf,
+  subagentFromSystemEvent,
+  subagentFromToolResult,
+  subagentFromToolUse,
+  subagentProgressFromText,
+  type CliSetModePermission,
+  type CliSubagentUpdate
+} from './claudeStreamEvents.js';
 import { pricingService } from './pricingService.js';
 import { hitlService, ApprovalCancelledError } from './hitlService.js';
 import { keyedHitlText, readAnswerDenied } from './hitlText.js';
@@ -249,7 +265,7 @@ export interface CliPermissionRequest {
 
 /** Ответ инструмента разрешений в формате, который ожидает Claude Code. */
 export type CliPermissionDecision =
-  | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+  | { behavior: 'allow'; updatedInput: Record<string, unknown>; updatedPermissions?: CliSetModePermission[] }
   | { behavior: 'deny'; message: string };
 
 /** Вопрос AskUserQuestion из ввода Claude CLI: поля приходят как есть, без схемы. */
@@ -290,6 +306,8 @@ export interface CliPermissionMeta {
   roleSlug?: string;
   /** Имя профиля аккаунта Claude Code — в карточки и аудит HITL (decision-87 п. 14). */
   claudeAccount?: string;
+  /** `CLAUDE_CONFIG_DIR` запуска: файл плана CLI (`plans/*.md`) пишется туда без карточки (TASK-272). */
+  claudeConfigDir?: string;
   /** Права роли (decision-9): применяются поверх глобальных настроек и только сужают их. */
   permissions?: RolePermissions;
   /** Рабочее дерево сессии (worktree), если агент запущен не в основном дереве (TASK-62). */
@@ -637,6 +655,18 @@ class ClaudeBridgeService extends EventEmitter {
       return deny(`The user denied ${what}${res.text ? `: ${res.text}` : ''}`);
     };
 
+    // Файл плана самого Claude Code (plan mode, TASK-272): каталог аккаунта, а не проект. Без него CLI 2.1.314
+    // утверждает пустой план — запись разрешается без карточки, с записью в аудит.
+    if (!ctx.sandbox && CLI_WRITE_TOOLS.includes(toolName) && isCliPlanFile(filePathOf(), ctx.claudeConfigDir)) {
+      hitlService.recordAutoDecision(
+        { sessionId, projectPath, type: 'file_write', title: `${toolName}: cli-plan-file`, ...meta, filePath: filePathOf() },
+        'allow',
+        'cli-plan-file',
+        'Claude Code plan file in the account plans folder'
+      );
+      return allow();
+    }
+
     if (verdict.verdict === 'deny') {
       recordAuto('deny', CLI_WRITE_TOOLS.includes(toolName) ? 'file_write' : 'command', {
         filePath: filePathOf() || undefined,
@@ -785,6 +815,27 @@ class ClaudeBridgeService extends EventEmitter {
         createdAt: Date.now()
       });
       return decide(res, 'running a subagent');
+    }
+
+    // Plan mode (TASK-272): план — карточкой «Утвердить план»; утверждение выводит CLI из плана в обычный режим,
+    // правки дальше идут через эти же карточки. Автономному запуску утверждать некому — план принимается.
+    if (toolName === CLI_EXIT_PLAN_TOOL) {
+      if (autonomous) {
+        recordAuto('allow', 'question');
+        return planDecision(true, input);
+      }
+      // CLI подставляет `plan` из файла плана; если его нет — читаем сам файл, только из каталога планов аккаунта.
+      let plan = planTextOf(input);
+      if (!plan && !ctx.sandbox && isCliPlanFile(input.planFilePath, ctx.claudeConfigDir)) {
+        plan = planTextOf({ plan: await fs.readFile(String(input.planFilePath), 'utf-8').catch(() => '') });
+      }
+      const res = await ask({
+        id: newId(), sessionId, projectPath, type: 'question',
+        ...keyedHitlText({ code: 'plan_approval', ...(plan ? { ownDetails: true } : {}) }, { details: plan || undefined }),
+        createdAt: Date.now()
+      });
+      if (res === null) return deny(interrupted);
+      return planDecision(res.approved, input, res.approved ? undefined : res.text);
     }
 
     // Прочие инструменты (WebFetch, WebSearch, MCP-инструменты и т.п.).
@@ -1509,6 +1560,8 @@ class ClaudeBridgeService extends EventEmitter {
     if (req.config.model && req.config.model !== 'default') {
       cliArgs.push('--model', req.config.model);
     }
+    // Режим architect — plan mode Claude Code (TASK-272).
+    cliArgs.push(...cliModeArgs(req.mode));
     // Усилие рассуждений сессии (TASK-70.3, decision-41 п. 5): `--effort`, «none» CLI не поддерживает.
     const effort = claudeCliEffortArgs(normalizeReasoningEffort(req.config.reasoningEffort));
     cliArgs.push(...effort.args);
@@ -1565,6 +1618,7 @@ class ClaudeBridgeService extends EventEmitter {
       origin: 'studio',
       engine: 'claude-cli',
       claudeAccount: account.name,
+      claudeConfigDir: account.configDir,
       workspaceRoot: workDir,
       ...(req.taskId ? { taskId: req.taskId } : {}),
       ...(req.memberId ? { memberId: req.memberId } : {})
@@ -1654,6 +1708,16 @@ class ClaudeBridgeService extends EventEmitter {
     let resultUsage: AgentUsage | undefined;
     // Итог `is_error` (нет входа, ошибка API): ответ показывается в чате, но статус проекта — ошибка (TASK-204).
     let resultError: string | undefined;
+    // Подагенты хода по id вызова Agent/Task (TASK-272): их текст и шаги не смешиваются с ответом основного агента.
+    const subagentRecords = new Map<string, SubagentInfo>();
+    const updateSubagent = (upd: CliSubagentUpdate | null, start = false) => {
+      // Системные события task_* бывают и у фоновых команд — учитываются только известные подагенты.
+      if (!upd || (!start && !subagentRecords.has(upd.toolUseId))) return;
+      const next = applySubagentUpdate(subagentRecords.get(upd.toolUseId), upd, { parentSessionId: sessionId, projectPath, now: Date.now() });
+      subagentRecords.set(upd.toolUseId, next);
+      this.registerSubagent(next);
+      onChunk({ subagent: next });
+    };
 
     child.stdout.on('data', async (data: Buffer) => {
       buffer += data.toString('utf-8');
@@ -1693,8 +1757,14 @@ class ClaudeBridgeService extends EventEmitter {
           }
 
           if (event.type === 'assistant' && event.message?.content) {
+            // Сообщение подагента (TASK-272): текст — в его строку прогресса, шаги — с parentId, рассуждения не показываются.
+            const parent = parentToolUseIdOf(event);
             for (const item of event.message.content) {
-              if (item.type === 'text') {
+              if (parent && item.type === 'text') {
+                updateSubagent(subagentProgressFromText(parent, String(item.text ?? '')));
+              } else if (parent && item.type === 'thinking') {
+                continue;
+              } else if (item.type === 'text') {
                 // Текст следующего сообщения ассистента (после вызовов инструментов) — новым абзацем, как в терминале (TASK-271).
                 const piece = accumulatedText && !/\s$/.test(accumulatedText) && item.text ? `\n\n${item.text}` : item.text;
                 accumulatedText += piece;
@@ -1723,25 +1793,34 @@ class ClaudeBridgeService extends EventEmitter {
                 const tc: AIToolCall = {
                   id: item.id || `tool-${Date.now()}`,
                   name: item.name,
-                  args: item.input || {}
+                  args: item.input || {},
+                  ...(parent ? { parentId: parent } : {})
                 };
                 toolCalls.push(tc);
                 // Карточки одобрения здесь больше не создаются: событие tool_use приходит уже
                 // после решения о разрешении. Одобрение запрашивается до выполнения инструмента
                 // через --permission-prompt-tool → handleCliPermissionRequest (TASK-42).
                 onChunk({ toolCall: tc });
+                if (parent) updateSubagent({ toolUseId: parent, progress: String(item.name ?? '') });
+                else updateSubagent(subagentFromToolUse(tc.id, tc.name, tc.args), true);
               }
             }
           } else if (event.type === 'user') {
             // Результаты инструментов (tool_result) — в аудит HITL по tool_use_id (TASK-57)
             // и выводом шага в ленту Studio, как под вызовом в терминале (TASK-271).
             this.noteCliUserEvent(event);
+            const parent = parentToolUseIdOf(event);
             for (const r of cliToolResults(event)) {
+              // Итог вызова Agent/Task у основного агента — итог подагента (TASK-272).
+              if (!parent) updateSubagent(subagentFromToolResult(r));
               const idx = toolCalls.findIndex((tc) => tc.id === r.toolUseId);
               if (idx === -1) continue;
               toolCalls[idx] = { ...toolCalls[idx], status: r.isError ? 'error' : 'done', ...(r.text ? { result: clipToolResult(r.text) } : {}) };
               onChunk({ toolCall: toolCalls[idx] });
             }
+          } else if (event.type === 'system') {
+            // task_started / task_progress / task_notification подагентов CLI (TASK-272).
+            updateSubagent(subagentFromSystemEvent(event));
           } else if (event.type === 'result') {
             if (event.result && typeof event.result === 'string' && !accumulatedText) {
               accumulatedText = event.result;

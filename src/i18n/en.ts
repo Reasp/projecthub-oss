@@ -1960,6 +1960,7 @@ export const en: TranslationDictionary = {
       agentMode: 'Agent',
       chatMode: 'Chat',
       adrMode: 'ADR',
+      planMode: 'Plan',
       contextTags: 'Insert context',
       quickPrompts: 'Quick prompts',
       handsFreePlaceholder: 'Talon Voice active: speak aloud hands-free...',
@@ -1999,7 +2000,9 @@ export const en: TranslationDictionary = {
         question: 'Question',
         mcp: 'MCP tool',
         other: 'Tool'
-      }
+      },
+      subagentSteps: 'Subagent steps',
+      subagentStepsCount: '{count} steps'
     },
     todos: {
       title: 'Plan',
@@ -2040,6 +2043,9 @@ export const en: TranslationDictionary = {
     autoApproveOff: 'Disabled (manual review for all actions)',
     approval: {
       diffLabel: 'Changes to the file',
+      planLabel: 'Agent plan',
+      approvePlan: 'Approve plan',
+      rejectPlan: 'Reject',
       riskLow: 'Low risk',
       riskModerate: 'Moderate risk',
       riskHigh: 'High risk',

@@ -22,7 +22,7 @@ import type {
 import { useProjectStore } from './useProjectStore';
 import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
-import { upsertToolCall } from '../lib/aiToolCalls';
+import { isApprovedPlanExit, upsertToolCall } from '../lib/aiToolCalls';
 import { effectiveSessionAgent, keepsClaudeCliSession, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
 import { goesToClaudeCli, studioCliCommand, unavailableCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
 import { studioCliText } from '../i18n/studioCliText';
@@ -899,6 +899,9 @@ export const useAIStudioStore = create<AIStudioState>()(
               };
             }
 
+            // План утверждён (ExitPlanMode выполнен): CLI вышел из plan mode — и вкладка выходит из architect (TASK-272).
+            const planApproved = isApprovedPlanExit(chunk.toolCall) && state.mode === 'architect';
+
             return {
               sessions: {
                 ...state.sessions,
@@ -907,7 +910,8 @@ export const useAIStudioStore = create<AIStudioState>()(
               pendingApprovals: newPendingApprovals,
               subagents: newSubagents,
               rateLimitWarnings: newRateLimitWarnings,
-              liveOutputs: newLiveOutputs
+              liveOutputs: newLiveOutputs,
+              ...(planApproved ? { mode: 'agent' as const } : {})
             };
           });
         });

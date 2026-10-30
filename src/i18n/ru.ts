@@ -1961,6 +1961,7 @@ export const ru: TranslationDictionary = {
       agentMode: 'Agent',
       chatMode: 'Chat',
       adrMode: 'ADR',
+      planMode: 'План',
       contextTags: 'Вставить контекст',
       quickPrompts: 'Быстрые команды',
       handsFreePlaceholder: 'Talon Voice активен: говорите текст вслух без кнопок...',
@@ -2000,7 +2001,9 @@ export const ru: TranslationDictionary = {
         question: 'Вопрос',
         mcp: 'Инструмент MCP',
         other: 'Инструмент'
-      }
+      },
+      subagentSteps: 'Шаги подагента',
+      subagentStepsCount: 'шагов: {count}'
     },
     todos: {
       title: 'План',
@@ -2041,6 +2044,9 @@ export const ru: TranslationDictionary = {
     autoApproveOff: 'Выключено (ручное подтверждение действий)',
     approval: {
       diffLabel: 'Изменения файла',
+      planLabel: 'План агента',
+      approvePlan: 'Утвердить план',
+      rejectPlan: 'Отклонить',
       riskLow: 'Низкий риск',
       riskModerate: 'Средний риск',
       riskHigh: 'Высокий риск',

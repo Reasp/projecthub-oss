@@ -16,3 +16,11 @@ export function upsertToolCall(list: AIToolCall[] | undefined, call: AIToolCall)
   next[idx] = { ...current[idx], ...call };
   return next;
 }
+
+/**
+ * ExitPlanMode основного агента выполнен — человек утвердил план, Claude CLI вышел из plan mode (TASK-272).
+ * Отклонённый план приходит результатом с ошибкой, ExitPlanMode подагента режим вкладки не меняет.
+ */
+export function isApprovedPlanExit(call: AIToolCall | undefined): boolean {
+  return Boolean(call && call.name === 'ExitPlanMode' && call.status === 'done' && !call.parentId);
+}

@@ -42,6 +42,7 @@
     <string name="hitl_code_question">Вопрос от Claude Code</string>
     <string name="hitl_code_read_excluded">⚠️ Файл в списке исключений для чтения</string>
     <string name="hitl_code_subagent">Запуск подагента</string>
+    <string name="hitl_code_plan_approval">Утвердить план</string>
     <string name="hitl_code_tool">Инструмент</string>
     <string name="hitl_code_browser_host">Браузер Playwright MCP выходит за пределы браузера</string>
     <string name="hitl_code_assistant_question">Вопрос от ассистента</string>

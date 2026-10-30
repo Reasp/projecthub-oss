@@ -12,7 +12,7 @@ export const SubagentsPanel: React.FC<SubagentsPanelProps> = ({ subagents, onClo
   const { t } = useTranslation();
 
   return (
-    <div className="bg-ph-elevated border border-slate-800 rounded-xl p-4 space-y-3 shadow-xl">
+    <div className="bg-ph-elevated border border-slate-800 rounded-xl p-4 space-y-3 shadow-xl" data-testid="subagents-panel">
       <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
         <div className="flex items-center gap-2">
           <GitFork className="w-4 h-4 text-indigo-400" />
@@ -79,6 +79,11 @@ export const SubagentsPanel: React.FC<SubagentsPanelProps> = ({ subagents, onClo
                 <p className="text-[11px] text-slate-400 italic">
                   {t.common.status}: {sub.progress}
                 </p>
+              )}
+
+              {/* Итог подагента Claude Code (TASK-272) */}
+              {sub.output && sub.status !== 'running' && (
+                <p className="text-[11px] text-slate-300 whitespace-pre-wrap line-clamp-6">{sub.output}</p>
               )}
             </div>
           ))}

@@ -1940,6 +1940,7 @@ export type HitlTextCode =
   | 'question'
   | 'read_excluded'
   | 'subagent'
+  | 'plan_approval'
   | 'tool'
   | 'browser_host'
   | 'assistant_question'
@@ -3110,6 +3111,8 @@ export interface AIToolCall {
   args: Record<string, unknown>;
   status?: 'pending' | 'accepted' | 'rejected' | 'running' | 'done' | 'error';
   result?: unknown;
+  /** Вызов подагента Claude CLI (`Agent`/`Task`), внутри которого сделан этот шаг (TASK-272). */
+  parentId?: string;
   diff?: {
     filePath: string;
     oldContent: string;

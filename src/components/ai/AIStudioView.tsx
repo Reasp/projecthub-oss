@@ -40,7 +40,8 @@ import { PromptInputArea } from './PromptInputArea';
 import { ContextAppliedCard } from './ContextAppliedCard';
 import { SessionAgentPicker } from './SessionAgentPicker';
 import { ComposerMenu } from './ComposerMenu';
-import { effectiveSessionAgent, sessionClaudeAccountId } from '../../lib/studioSessionAgent';
+import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig } from '../../lib/studioSessionAgent';
+import { goesToClaudeCli } from '../../lib/studioCliCommands';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { RateLimitWarningBanner } from './RateLimitWarningBanner';
 import { AgentStepsAccordion } from './AgentStepsAccordion';
@@ -245,8 +246,16 @@ export const AIStudioView: React.FC = () => {
     if (wt) setSessionWorktree(projectPath, currentSession.id, { path: wt.path, branch: wt.branch || branch });
   };
 
+  // Во вкладке Claude Code режим architect — plan mode CLI (TASK-272).
+  const tabGoesToCli = goesToClaudeCli(sessionRequestConfig(config, currentSession?.agent));
   const modeLabel = (m: 'agent' | 'chat' | 'architect') =>
-    m === 'agent' ? t.aiStudio.input.agentMode : m === 'chat' ? t.aiStudio.input.chatMode : t.aiStudio.input.adrMode;
+    m === 'agent'
+      ? t.aiStudio.input.agentMode
+      : m === 'chat'
+      ? t.aiStudio.input.chatMode
+      : tabGoesToCli
+      ? t.aiStudio.input.planMode
+      : t.aiStudio.input.adrMode;
   const modeIcon = (m: 'agent' | 'chat' | 'architect') =>
     m === 'agent' ? <Zap className="w-3.5 h-3.5" /> : m === 'chat' ? <MessageSquare className="w-3.5 h-3.5" /> : <Landmark className="w-3.5 h-3.5" />;
 

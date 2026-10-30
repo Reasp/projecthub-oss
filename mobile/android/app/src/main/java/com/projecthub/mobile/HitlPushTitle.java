@@ -31,6 +31,7 @@ final class HitlPushTitle {
             case "question": return R.string.hitl_code_question;
             case "read_excluded": return R.string.hitl_code_read_excluded;
             case "subagent": return R.string.hitl_code_subagent;
+            case "plan_approval": return R.string.hitl_code_plan_approval;
             case "tool": return R.string.hitl_code_tool;
             case "browser_host": return R.string.hitl_code_browser_host;
             case "assistant_question": return R.string.hitl_code_assistant_question;

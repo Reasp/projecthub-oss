@@ -128,6 +128,29 @@ export function toolSubject(name: string, args: Record<string, unknown> | undefi
   return subject ? oneLine(subject) : undefined;
 }
 
+export interface GroupedSteps {
+  /** Шаги основного агента в порядке вызова. */
+  top: AIToolCall[];
+  /** Шаги подагента по id его вызова `Agent`/`Task` (TASK-272). */
+  children: Record<string, AIToolCall[]>;
+}
+
+/** Шаги подагентов — внутрь шага их вызова; шаг с неизвестным родителем остаётся сверху, чтобы не пропасть. */
+export function groupSubagentSteps(toolCalls: AIToolCall[] | undefined): GroupedSteps {
+  const list = toolCalls ?? [];
+  const ids = new Set(list.map((tc) => tc.id));
+  const top: AIToolCall[] = [];
+  const children: Record<string, AIToolCall[]> = {};
+  for (const tc of list) {
+    if (tc.parentId && tc.parentId !== tc.id && ids.has(tc.parentId)) {
+      (children[tc.parentId] ??= []).push(tc);
+    } else {
+      top.push(tc);
+    }
+  }
+  return { top, children };
+}
+
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';
 
 export interface TodoItem {
@@ -162,7 +185,8 @@ export function latestTodos(toolCalls: AIToolCall[] | undefined): TodoItem[] | n
   if (!toolCalls) return null;
   for (let i = toolCalls.length - 1; i >= 0; i--) {
     const tc = toolCalls[i];
-    if (tc.name !== 'TodoWrite') continue;
+    // План подагента — его собственный, не план ответа (TASK-272).
+    if (tc.name !== 'TodoWrite' || tc.parentId) continue;
     const todos = parseTodos(tc.args);
     if (todos) return todos;
   }

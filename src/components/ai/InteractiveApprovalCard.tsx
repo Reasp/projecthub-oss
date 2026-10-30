@@ -20,6 +20,7 @@ import { VoiceBadge } from '../voice/VoiceBadge';
 import { RiskBadge } from '../hitl/RiskBadge';
 import { describeHitlRequest } from '../../lib/agentStatusText';
 import { DiffPatchView } from './DiffPatchView';
+import { MarkdownViewer } from '../common/MarkdownViewer';
 
 interface InteractiveApprovalCardProps {
   request: ApprovalRequest;
@@ -44,6 +45,8 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
   const text = describeHitlRequest(request, t.hitl.requestText);
   const qData = text.questionData;
   const isMulti = Boolean(qData?.isMultiSelect);
+  // Утверждение плана Claude Code (ExitPlanMode в plan mode, TASK-272).
+  const isPlan = request.textKey?.code === 'plan_approval';
 
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
   const [isOtherSelected, setIsOtherSelected] = useState(false);
@@ -339,11 +342,19 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
             {text.title}
           </p>
 
-          {text.details && (
+          {/* План Claude Code из ExitPlanMode — Markdown, как в терминале (TASK-272) */}
+          {isPlan && request.details ? (
+            <div
+              className="p-3 rounded-lg bg-ph-panel border border-slate-800 max-h-96 overflow-y-auto text-xs"
+              aria-label={t.aiStudio.approval.planLabel}
+            >
+              <MarkdownViewer content={request.details} emptyMessage={null} className="text-slate-200" />
+            </div>
+          ) : text.details ? (
             <p className="text-[11px] text-slate-400">
               {text.details}
             </p>
-          )}
+          ) : null}
 
           {/* File path preview; запись Claude CLI — с диффом, как в терминале (TASK-271) */}
           {request.filePath && (
@@ -401,7 +412,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
               title={t.aiStudio.approval.voiceApproveTitle}
             >
               <Check className="w-4 h-4" />
-              <span>{t.aiStudio.approval.allowOnce}</span>
+              <span>{isPlan ? t.aiStudio.approval.approvePlan : t.aiStudio.approval.allowOnce}</span>
               <VoiceBadge command={t.voice.voiceBadges.approve} variant="emerald" />
             </button>
 
@@ -413,7 +424,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
               title={t.aiStudio.approval.voiceRejectTitle}
             >
               <X className="w-4 h-4" />
-              <span>{t.aiStudio.approval.deny}</span>
+              <span>{isPlan ? t.aiStudio.approval.rejectPlan : t.aiStudio.approval.deny}</span>
               <VoiceBadge command={t.voice.voiceBadges.reject} variant="amber" />
             </button>
           </div>

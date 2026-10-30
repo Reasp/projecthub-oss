@@ -23,7 +23,7 @@ import type { AIToolCall } from '../../types/electron';
 import { DiffReviewCard } from './DiffReviewCard';
 import { AgentTodoList } from './AgentTodoList';
 import { useTranslation } from '../../i18n/useTranslation';
-import { parseTodos, toolKind, toolLabel, toolSubject, type AgentToolKind } from '../../lib/agentToolView';
+import { groupSubagentSteps, parseTodos, toolKind, toolLabel, toolSubject, type AgentToolKind } from '../../lib/agentToolView';
 
 const KIND_ICON: Record<AgentToolKind, { Icon: typeof Wrench; className: string }> = {
   shell: { Icon: Terminal, className: 'text-amber-400' },
@@ -63,9 +63,11 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
 
   if (!toolCalls || toolCalls.length === 0) return null;
 
-  const totalCount = toolCalls.length;
-  const completedCount = toolCalls.filter((tc) => tc.status === 'accepted' || tc.status === 'done' || (!tc.diff && (!tc.status || tc.status === 'pending'))).length;
-  const runningCount = toolCalls.filter((tc) => tc.status === 'running').length;
+  // Шаги подагентов — внутри шага их вызова Agent/Task, как в терминале Claude Code (TASK-272).
+  const { top, children } = groupSubagentSteps(toolCalls);
+  const totalCount = top.length;
+  const completedCount = top.filter((tc) => tc.status === 'accepted' || tc.status === 'done' || (!tc.diff && (!tc.status || tc.status === 'pending'))).length;
+  const runningCount = top.filter((tc) => tc.status === 'running').length;
   const hasPendingDiff = toolCalls.some((tc) => tc.diff && (!tc.status || tc.status === 'pending'));
 
   const toggleTool = (toolId: string) => {
@@ -82,6 +84,136 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
       <span className="shrink-0" title={t.aiStudio.steps.kinds[kind]} aria-label={t.aiStudio.steps.kinds[kind]}>
         <Icon className={`w-3.5 h-3.5 ${className}`} />
       </span>
+    );
+  };
+
+  const renderStep = (tool: AIToolCall, idx: number): React.ReactNode => {
+    const isToolExpanded = expandedToolIds[tool.id] ?? (tool.diff ? true : false);
+    const isRunning = tool.status === 'running';
+    const isError = tool.status === 'error';
+    const isDone = tool.status === 'done' || tool.status === 'accepted';
+    const kind = toolKind(tool.name);
+    const subject = toolSubject(tool.name, tool.args);
+    const todos = kind === 'todo' ? parseTodos(tool.args) : null;
+    const nested = children[tool.id] ?? [];
+
+    return (
+      <div
+        key={tool.id || idx}
+        className="rounded-xl border border-slate-800 bg-ph-raised overflow-hidden transition"
+      >
+        {/* Single Tool Item Header */}
+        <div
+          onClick={() => toggleTool(tool.id)}
+          className="px-3 py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-800/30 transition text-xs font-mono select-none"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-slate-500 text-[11px]">#{idx + 1}</span>
+            {getToolIcon(tool.name)}
+            <span className="font-semibold text-slate-200 truncate" title={tool.name}>
+              {toolLabel(tool.name)}
+            </span>
+            {subject && (
+              <span
+                className={`text-[11px] truncate max-w-xs ${kind === 'shell' ? 'text-amber-300/80' : 'text-indigo-300'}`}
+                title={subject}
+              >
+                ({subject})
+              </span>
+            )}
+            {nested.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-violet-500/15 text-violet-300 border border-violet-500/30 shrink-0">
+                {t.aiStudio.steps.subagentStepsCount.replace('{count}', String(nested.length))}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {isRunning ? (
+              <span className="flex items-center gap-1 text-[11px] text-amber-400 font-medium">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {t.aiStudio.steps.running}
+              </span>
+            ) : isError ? (
+              <span className="flex items-center gap-1 text-[11px] text-rose-400 font-medium">
+                <AlertCircle className="w-3 h-3" />
+                {t.common.failed}
+              </span>
+            ) : isDone || !tool.status || (!tool.diff && tool.status === 'pending') ? (
+              <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+                <CheckCircle2 className="w-3 h-3" />
+                {t.common.completed}
+              </span>
+            ) : (
+              <span className="text-[11px] text-slate-400 font-medium">
+                {tool.status || 'pending'}
+              </span>
+            )}
+
+            <div className="p-0.5 text-slate-500 hover:text-slate-300">
+              {isToolExpanded ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Sub-item Details (Args, Diffs, Console output) */}
+        {isToolExpanded && (
+          <div className="p-3 bg-ph-base border-t border-slate-800/80 space-y-2 text-xs">
+            {/* Шаги подагента — внутри его вызова (TASK-272) */}
+            {nested.length > 0 && (
+              <div className="space-y-1.5 pl-2 border-l-2 border-violet-500/30" aria-label={t.aiStudio.steps.subagentSteps}>
+                <span className="text-[11px] font-mono text-violet-300/90">{t.aiStudio.steps.subagentSteps}:</span>
+                {nested.map((child, childIdx) => renderStep(child, childIdx))}
+              </div>
+            )}
+            {/* Render DiffReviewCard if diff exists */}
+            {tool.diff ? (
+              <DiffReviewCard
+                toolCall={tool}
+                messageId={messageId}
+                projectPath={projectPath}
+                onAccept={onAcceptDiff}
+                onReject={onRejectDiff}
+              />
+            ) : todos ? (
+              <AgentTodoList items={todos} bare />
+            ) : (
+              <>
+                {/* Tool Arguments View */}
+                {tool.args && Object.keys(tool.args).length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-mono text-slate-500">
+                      {t.aiStudio.steps.viewArgs}:
+                    </span>
+                    <pre className="p-2 rounded-lg bg-ph-raised border border-slate-800/80 text-[11px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-40">
+                      {JSON.stringify(tool.args, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Tool Execution Result / Live Output */}
+                {tool.result && (
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-mono text-slate-400/90 flex items-center gap-1">
+                      <Terminal className="w-3 h-3" />
+                      {t.aiStudio.steps.viewResult}:
+                    </span>
+                    <pre className="p-2.5 rounded-lg bg-ph-base border border-slate-800 font-mono text-[11px] text-emerald-300/90 overflow-x-auto whitespace-pre-wrap max-h-56">
+                      {typeof tool.result === 'string'
+                        ? tool.result
+                        : JSON.stringify(tool.result, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -145,122 +277,7 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
       {/* Collapsible Steps Content */}
       {isOpen && (
         <div className="p-3 border-t border-slate-800/80 bg-ph-panel space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
-          {toolCalls.map((tool, idx) => {
-            const isToolExpanded = expandedToolIds[tool.id] ?? (tool.diff ? true : false);
-            const isRunning = tool.status === 'running';
-            const isError = tool.status === 'error';
-            const isDone = tool.status === 'done' || tool.status === 'accepted';
-            const kind = toolKind(tool.name);
-            const subject = toolSubject(tool.name, tool.args);
-            const todos = kind === 'todo' ? parseTodos(tool.args) : null;
-
-            return (
-              <div
-                key={tool.id || idx}
-                className="rounded-xl border border-slate-800 bg-ph-raised overflow-hidden transition"
-              >
-                {/* Single Tool Item Header */}
-                <div
-                  onClick={() => toggleTool(tool.id)}
-                  className="px-3 py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-800/30 transition text-xs font-mono select-none"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-slate-500 text-[11px]">#{idx + 1}</span>
-                    {getToolIcon(tool.name)}
-                    <span className="font-semibold text-slate-200 truncate" title={tool.name}>
-                      {toolLabel(tool.name)}
-                    </span>
-                    {subject && (
-                      <span
-                        className={`text-[11px] truncate max-w-xs ${kind === 'shell' ? 'text-amber-300/80' : 'text-indigo-300'}`}
-                        title={subject}
-                      >
-                        ({subject})
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isRunning ? (
-                      <span className="flex items-center gap-1 text-[11px] text-amber-400 font-medium">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        {t.aiStudio.steps.running}
-                      </span>
-                    ) : isError ? (
-                      <span className="flex items-center gap-1 text-[11px] text-rose-400 font-medium">
-                        <AlertCircle className="w-3 h-3" />
-                        {t.common.failed}
-                      </span>
-                    ) : isDone || !tool.status || (!tool.diff && tool.status === 'pending') ? (
-                      <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                        <CheckCircle2 className="w-3 h-3" />
-                        {t.common.completed}
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-slate-400 font-medium">
-                        {tool.status || 'pending'}
-                      </span>
-                    )}
-
-                    <div className="p-0.5 text-slate-500 hover:text-slate-300">
-                      {isToolExpanded ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sub-item Details (Args, Diffs, Console output) */}
-                {isToolExpanded && (
-                  <div className="p-3 bg-ph-base border-t border-slate-800/80 space-y-2 text-xs">
-                    {/* Render DiffReviewCard if diff exists */}
-                    {tool.diff ? (
-                      <DiffReviewCard
-                        toolCall={tool}
-                        messageId={messageId}
-                        projectPath={projectPath}
-                        onAccept={onAcceptDiff}
-                        onReject={onRejectDiff}
-                      />
-                    ) : todos ? (
-                      <AgentTodoList items={todos} bare />
-                    ) : (
-                      <>
-                        {/* Tool Arguments View */}
-                        {tool.args && Object.keys(tool.args).length > 0 && (
-                          <div className="space-y-1">
-                            <span className="text-[11px] font-mono text-slate-500">
-                              {t.aiStudio.steps.viewArgs}:
-                            </span>
-                            <pre className="p-2 rounded-lg bg-ph-raised border border-slate-800/80 text-[11px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-40">
-                              {JSON.stringify(tool.args, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-
-                        {/* Tool Execution Result / Live Output */}
-                        {tool.result && (
-                          <div className="space-y-1">
-                            <span className="text-[11px] font-mono text-slate-400/90 flex items-center gap-1">
-                              <Terminal className="w-3 h-3" />
-                              {t.aiStudio.steps.viewResult}:
-                            </span>
-                            <pre className="p-2.5 rounded-lg bg-ph-base border border-slate-800 font-mono text-[11px] text-emerald-300/90 overflow-x-auto whitespace-pre-wrap max-h-56">
-                              {typeof tool.result === 'string'
-                                ? tool.result
-                                : JSON.stringify(tool.result, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {top.map((tool, idx) => renderStep(tool, idx))}
         </div>
       )}
     </div>

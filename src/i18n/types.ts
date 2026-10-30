@@ -1833,6 +1833,7 @@ export interface TranslationDictionary {
       agentMode: string;
       chatMode: string;
       adrMode: string;
+      planMode: string;
       contextTags: string;
       quickPrompts: string;
       handsFreePlaceholder: string;
@@ -1859,6 +1860,8 @@ export interface TranslationDictionary {
       showDetails: string;
       noOutput: string;
       kinds: Record<'shell' | 'edit' | 'write' | 'read' | 'search' | 'list' | 'agent' | 'web' | 'todo' | 'plan' | 'question' | 'mcp' | 'other', string>;
+      subagentSteps: string;
+      subagentStepsCount: string;
     };
     todos: {
       title: string;
@@ -1900,6 +1903,9 @@ export interface TranslationDictionary {
     approval: {
       title: string;
       diffLabel: string;
+      planLabel: string;
+      approvePlan: string;
+      rejectPlan: string;
       riskLow: string;
       riskModerate: string;
       riskHigh: string;

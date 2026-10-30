@@ -58,6 +58,8 @@ export type HitlTextCode =
   // Остальные источники запросов (TASK-202.8): Claude CLI, хуки терминала, рой, план, инструменты проекта.
   | 'read_excluded'
   | 'subagent'
+  /** ExitPlanMode Claude CLI в plan mode (TASK-272): план — в `details`, утверждение выводит CLI из плана. */
+  | 'plan_approval'
   | 'tool'
   | 'browser_host'
   | 'assistant_question'

@@ -47,6 +47,7 @@
     <string name="hitl_code_question">Question from Claude Code</string>
     <string name="hitl_code_read_excluded">⚠️ File is on the read exclusion list</string>
     <string name="hitl_code_subagent">Run subagent</string>
+    <string name="hitl_code_plan_approval">Approve the plan</string>
     <string name="hitl_code_tool">Tool</string>
     <string name="hitl_code_browser_host">Playwright MCP browser goes beyond the browser</string>
     <string name="hitl_code_assistant_question">Question from the assistant</string>
