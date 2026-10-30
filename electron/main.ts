@@ -512,8 +512,16 @@ function registerProjectWindowIpc(): void {
   // Границы своего окна и курсор на экране: вкладку бросили за пределами окна — её выносят в отдельное окно у курсора.
   // Курсор берётся у main: координаты `dragend` Chromium при броске вне окна отдаёт не всегда.
   ipcMain.handle('projectWindow:getDropContext', (event) => {
-    const bounds = BrowserWindow.fromWebContents(event.sender)?.getBounds();
-    return bounds ? { bounds, cursor: screen.getCursorScreenPoint() } : null;
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    if (!owner) return null;
+    const context = {
+      bounds: owner.getBounds(),
+      content: owner.getContentBounds(),
+      zoom: event.sender.getZoomFactor(),
+      cursor: screen.getCursorScreenPoint()
+    };
+    console.log(`[ProjectWindow] tab drag end: cursor ${context.cursor.x},${context.cursor.y} window ${JSON.stringify(context.bounds)} zoom ${context.zoom}`);
+    return context;
   });
 }
 

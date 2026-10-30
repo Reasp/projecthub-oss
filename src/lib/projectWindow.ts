@@ -54,6 +54,38 @@ export function isOutsideRect(point: { x: number; y: number }, rect: ScreenRect)
   return point.x < rect.x || point.y < rect.y || point.x >= rect.x + rect.width || point.y >= rect.y + rect.height;
 }
 
+/** Насколько ниже полосы вкладок надо оттянуть вкладку, чтобы она оторвалась в окно (CSS-пиксели). */
+export const TAB_TEAR_OFF_DISTANCE = 80;
+
+export interface TabDragEndContext {
+  /** Курсор в момент броска, экранные координаты (DIP). */
+  cursor: { x: number; y: number };
+  /** Границы окна целиком и его клиентской области (DIP). */
+  bounds: ScreenRect;
+  content: ScreenRect;
+  /** Масштаб страницы: CSS-пиксель = zoom DIP. */
+  zoom: number;
+}
+
+/**
+ * Выносить ли вкладку в окно по окончании перетаскивания. Решает место броска, а не `dropEffect`: над другим
+ * приложением, которое принимает перетаскивание (VS Code, браузер), Chromium отдаёт `move`/`copy`, и бросок за окно
+ * не считался выносом. Выносим, если вкладку бросили за окном или оттянули от полосы вкладок вниз, как отрыв вкладки
+ * в браузере: у развёрнутого окна «за окном» — только панель задач. Бросок на вкладку — перестановка.
+ */
+export function shouldDetachTab(
+  context: TabDragEndContext,
+  strip: { top: number; bottom: number },
+  droppedOnTab: boolean,
+  tearOff = TAB_TEAR_OFF_DISTANCE
+): boolean {
+  if (droppedOnTab) return false;
+  if (isOutsideRect(context.cursor, context.bounds)) return true;
+  const zoom = context.zoom > 0 ? context.zoom : 1;
+  const clientY = (context.cursor.y - context.content.y) / zoom;
+  return clientY > strip.bottom + tearOff || clientY < strip.top - tearOff;
+}
+
 /** Размер нового окна проекта по умолчанию. */
 export const PROJECT_WINDOW_SIZE = { width: 1280, height: 820 };
 

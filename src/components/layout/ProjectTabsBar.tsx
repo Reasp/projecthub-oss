@@ -7,7 +7,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useVoiceState } from '../../hooks/useVoiceState';
 import { useDialog } from '../../hooks/useDialog';
 import { VoiceBadge } from '../voice/VoiceBadge';
-import { isOutsideRect, orderProjectsByPaths } from '../../lib/projectWindow';
+import { orderProjectsByPaths, shouldDetachTab } from '../../lib/projectWindow';
 import { isProjectWindow } from '../../lib/windowContext';
 
 /** Тип данных перетаскивания вкладки проекта: путь проекта. */
@@ -42,6 +42,8 @@ export const ProjectTabs: React.FC = () => {
   const dialog = useDialog();
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  /** Вкладку бросили на другую вкладку — это перестановка, а не вынос (`drop` приходит раньше `dragend`). */
+  const droppedOnTabRef = useRef(false);
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; projectPath: string } | null>(null);
@@ -86,15 +88,18 @@ export const ProjectTabs: React.FC = () => {
     await detachProjectToWindow(projectPath, at);
   };
 
-  // Вкладку бросили за пределами окна — выносим проект в отдельное окно у курсора. Точку даёт main: координаты
-  // `dragend` при броске вне окна Chromium отдаёт не всегда.
-  const handleDragEnd = async (e: React.DragEvent, projectPath: string) => {
-    const dropped = e.dataTransfer.dropEffect !== 'none';
+  // Вкладку бросили за окном или оттянули от полосы вниз — выносим проект в отдельное окно у курсора. Точку даёт
+  // main: координаты `dragend` при броске вне окна Chromium отдаёт не всегда. `dropEffect` не смотрим: над чужим
+  // приложением, принимающим перетаскивание, он не `none`, и вынос молча не срабатывал (проверка владельца, TASK-295).
+  const handleDragEnd = async (projectPath: string) => {
+    const droppedOnTab = droppedOnTabRef.current;
+    droppedOnTabRef.current = false;
     setDragPath(null);
     setDropTargetPath(null);
-    if (dropped || isProjectWindow) return;
+    if (isProjectWindow) return;
     const context = await window.api?.getWindowDropContext?.();
-    if (context && isOutsideRect(context.cursor, context.bounds)) await detach(projectPath, context.cursor);
+    const strip = scrollContainerRef.current?.getBoundingClientRect();
+    if (context && strip && shouldDetachTab(context, strip, droppedOnTab)) await detach(projectPath, context.cursor);
   };
 
   return (
@@ -150,10 +155,11 @@ export const ProjectTabs: React.FC = () => {
               onDrop={(e) => {
                 const from = e.dataTransfer.getData(TAB_DRAG_TYPE);
                 e.preventDefault();
+                droppedOnTabRef.current = Boolean(from);
                 if (from) reorderProjectTab(from, project.path);
                 setDropTargetPath(null);
               }}
-              onDragEnd={(e) => void handleDragEnd(e, project.path)}
+              onDragEnd={() => void handleDragEnd(project.path)}
               onContextMenu={(e) => {
                 if (project.remote) return;
                 e.preventDefault();
