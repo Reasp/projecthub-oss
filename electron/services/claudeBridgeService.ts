@@ -22,6 +22,8 @@ import {
   CLI_PARTIAL_MESSAGES_FLAG,
   CliPartialMessages,
   cliModeArgs,
+  cliResumeArgs,
+  CLI_SIDE_QUESTION_PROMPT,
   clipToolResult,
   cliToolResults,
   isCliPlanFile,
@@ -32,6 +34,7 @@ import {
   subagentFromToolResult,
   subagentFromToolUse,
   subagentProgressFromText,
+  type CliForkKind,
   type CliSetModePermission,
   type CliStreamPiece,
   type CliSubagentUpdate
@@ -1418,6 +1421,8 @@ class ClaudeBridgeService extends EventEmitter {
       claudeAccountId?: string;
       /** Участник общего хоста, чья сессия (TASK-142.3): git-автор коммитов, которые делает CLI. */
       memberId?: string;
+      /** Ответвление разговора Claude CLI (TASK-283): вкладка-ответвление или побочный вопрос `/btw`. */
+      claudeCliFork?: CliForkKind;
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1518,6 +1523,7 @@ class ClaudeBridgeService extends EventEmitter {
       systemPromptAddon?: string;
       claudeAccountId?: string;
       memberId?: string;
+      claudeCliFork?: CliForkKind;
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1556,10 +1562,9 @@ class ClaudeBridgeService extends EventEmitter {
     const cached = this.sessionClaudeCliIds.get(sessionId);
     const cachedHere = cached?.configDir === account.configDir && sameDir(cached.workDir, workDir);
     const existingCliSessionId = req.claudeCliSessionId || (cachedHere ? cached.id : undefined);
-    const cliArgs = ['-p'];
-    if (existingCliSessionId) {
-      cliArgs.push('--resume', existingCliSessionId);
-    }
+    // Побочный вопрос `/btw` (TASK-283): ответвление без записи и без инструментов, id его сессии вкладке не нужен.
+    const sideQuestion = req.claudeCliFork === 'side';
+    const cliArgs = ['-p', ...cliResumeArgs(existingCliSessionId, req.claudeCliFork)];
     if (req.config.model && req.config.model !== 'default') {
       cliArgs.push('--model', req.config.model);
     }
@@ -1569,9 +1574,10 @@ class ClaudeBridgeService extends EventEmitter {
     const effort = claudeCliEffortArgs(normalizeReasoningEffort(req.config.reasoningEffort));
     cliArgs.push(...effort.args);
     if (effort.note) console.info(`[claudeBridge] ${effort.note}`);
-    if (req.builtinTools) {
+    const builtinTools = sideQuestion ? [] : req.builtinTools;
+    if (builtinTools) {
       // Пустое значение отключает все встроенные инструменты; MCP-инструменты из --mcp-config остаются
-      cliArgs.push(quoteShellArg(`--tools=${req.builtinTools.join(',')}`));
+      cliArgs.push(quoteShellArg(`--tools=${builtinTools.join(',')}`));
     }
 
     // Контекст задачи (TASK-64) — задача/AC, RAG, GitNexus и git-статус в системный промпт
@@ -1594,6 +1600,7 @@ class ClaudeBridgeService extends EventEmitter {
       systemAddon.push(buildComputerUseInstructions(`mcp__${CLI_HITL_MCP_SERVER_NAME}__${COMPUTER_TOOL_PREFIX}`));
     }
     if (req.systemPromptAddon?.trim()) systemAddon.push(req.systemPromptAddon.trim());
+    if (sideQuestion) systemAddon.push(CLI_SIDE_QUESTION_PROMPT);
     // Многострочный текст передаётся файлом: CLI запускается через оболочку (shell: true), и cmd.exe
     // обрезает командную строку на первом переводе строки — без файла терялись --mcp-config,
     // --permission-prompt-tool и --output-format, а CLI отвечал пустым сообщением (TASK-82).
@@ -1749,7 +1756,7 @@ class ClaudeBridgeService extends EventEmitter {
         try {
           const event = JSON.parse(trimmed);
 
-          if (event.session_id) {
+          if (event.session_id && !sideQuestion) {
             this.sessionClaudeCliIds.set(sessionId, { id: event.session_id, configDir: account.configDir, workDir });
             onChunk({ claudeCliSessionId: event.session_id });
           }

@@ -17,7 +17,14 @@ const en = {
   remoteHint: 'To follow Agents Studio sessions from a phone, use ProjectHub Remote Control: the phone sees them without a terminal.',
   noSession: 'This tab has no Claude Code session yet — the terminal starts a new one.',
   openTerminal: 'Continue in terminal',
-  close: 'Close'
+  close: 'Close',
+  forkTitle: (title: string) => `${title} (branch)`,
+  forkNothing: 'This tab has no Claude Code conversation yet, so there is nothing to branch. Send a message first.',
+  btwTitle: 'Side question',
+  btwHint: 'Answered from this tab’s conversation without tools. Neither the question nor the answer is added to it.',
+  btwUsage: 'Type the question after /btw, for example: /btw which file did we change last?',
+  btwAnswering: 'Answering…',
+  btwStop: 'Stop'
 };
 
 export type StudioCliText = typeof en;
@@ -36,7 +43,14 @@ const ru: StudioCliText = {
   remoteHint: 'Следить за сессиями Agents Studio с телефона можно через Remote Control ProjectHub: телефон видит их без терминала.',
   noSession: 'У вкладки ещё нет сессии Claude Code — терминал начнёт новую.',
   openTerminal: 'Продолжить в терминале',
-  close: 'Закрыть'
+  close: 'Закрыть',
+  forkTitle: (title) => `${title} (ветка)`,
+  forkNothing: 'У вкладки ещё нет разговора Claude Code — ответвлять нечего. Сначала отправьте сообщение.',
+  btwTitle: 'Побочный вопрос',
+  btwHint: 'Ответ по разговору вкладки, без инструментов. Ни вопрос, ни ответ в разговор не попадают.',
+  btwUsage: 'Напишите вопрос после /btw, например: /btw какой файл мы меняли последним?',
+  btwAnswering: 'Отвечает…',
+  btwStop: 'Остановить'
 };
 
 export const STUDIO_CLI_TEXT: Record<Language, StudioCliText> = { en, ru };

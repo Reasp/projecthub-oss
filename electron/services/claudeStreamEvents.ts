@@ -138,6 +138,27 @@ export function cliModeArgs(mode: StudioCliMode | undefined): string[] {
   return mode === 'architect' ? ['--permission-mode', 'plan'] : [];
 }
 
+// ---------------------------------------------------------------------------
+// Ответвление разговора: /fork, /branch и /btw (TASK-283)
+// ---------------------------------------------------------------------------
+
+/**
+ * `branch` — вкладка-ответвление: первый ход продолжает историю в новой сессии CLI, исходная не меняется.
+ * `side` — побочный вопрос `/btw`: ответвление без записи сессии на диск (проверено на 2.1.314).
+ */
+export type CliForkKind = 'branch' | 'side';
+
+/** Аргументы продолжения разговора для `claude -p`; без сессии побочный вопрос всё равно не пишется на диск. */
+export function cliResumeArgs(cliSessionId: string | undefined, fork: CliForkKind | undefined): string[] {
+  const args = cliSessionId ? ['--resume', cliSessionId, ...(fork ? ['--fork-session'] : [])] : [];
+  if (fork === 'side') args.push('--no-session-persistence');
+  return args;
+}
+
+/** Системная пометка побочного вопроса: в CLI `/btw` отвечает по разговору, без инструментов. */
+export const CLI_SIDE_QUESTION_PROMPT =
+  'This is a side question (/btw) about the conversation so far. Answer briefly from what you already know; tools are unavailable, and the answer is not added to the main conversation.';
+
 export const CLI_EXIT_PLAN_TOOL = 'ExitPlanMode';
 
 /** Сколько текста плана уходит в карточку утверждения. */

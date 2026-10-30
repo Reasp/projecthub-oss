@@ -5,13 +5,15 @@ import { claudeEngineOf } from './connections';
  * Слеш-команды Claude Code, которые Agents Studio выполнить не может (TASK-230). Studio запускает CLI без терминала
  * (`claude -p`), и встроенные интерактивные команды CLI отвечает «isn't available in this environment»: `/resume` ждёт
  * выбора в интерактивном списке, `/remote-control` и настройки — живой процесс с терминалом. Studio перехватывает их
- * до отправки: `/resume` — свой выбор сессии, `/plan` — plan mode вкладки (TASK-282), остальное — продолжение
- * разговора в терминале ProjectHub.
+ * до отправки: `/resume` — свой выбор сессии, `/plan` — plan mode вкладки (TASK-282), `/fork` и `/btw` — ответвление
+ * разговора (TASK-283), остальное — продолжение разговора в терминале ProjectHub.
  */
 
 export type StudioCliCommand =
   | { kind: 'resume'; cliSessionId?: string }
   | { kind: 'plan'; prompt?: string }
+  | { kind: 'fork'; title?: string }
+  | { kind: 'btw'; question: string }
   | { kind: 'terminal'; command: string };
 
 /**
@@ -35,9 +37,6 @@ const TERMINAL_ONLY = new Set([
   'skills',
   'workflows',
   'tasks',
-  'btw',
-  'branch',
-  'fork',
   'copy',
   'focus',
   'login',
@@ -97,6 +96,9 @@ export function studioCliCommand(text: string, config: Pick<AIProviderConfig, 'p
   }
   // `/plan [задача]` в CLI включает plan mode сессии; в Studio это режим architect (decision-196).
   if (name === 'plan') return rest ? { kind: 'plan', prompt: rest } : { kind: 'plan' };
+  // `/fork [имя]` и `/branch [имя]` (TASK-283) — вкладка-ответвление; `/btw <вопрос>` — побочный вопрос без записи.
+  if (name === 'fork' || name === 'branch') return rest ? { kind: 'fork', title: rest.slice(0, 120) } : { kind: 'fork' };
+  if (name === 'btw') return { kind: 'btw', question: rest };
   // `/config key=value` CLI выполняет и без терминала, без аргументов — открывает экран настроек.
   if (name === 'config' && rest) return null;
   return TERMINAL_ONLY.has(name) ? { kind: 'terminal', command: name } : null;

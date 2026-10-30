@@ -3237,6 +3237,11 @@ export interface AISession {
   claudeCliSessionId?: string;
   /** Папка, где начат разговор CLI (TASK-230): там его ищут `/resume` и терминал после смены активного дерева. */
   claudeCliCwd?: string;
+  /**
+   * Вкладка — ответвление `/fork` (TASK-283): её первый ход продолжает `claudeCliSessionId` в новой сессии CLI
+   * (`--fork-session`), после события init поле снимается.
+   */
+  claudeCliForkPending?: boolean;
   /** Задача, привязанная к сессии (TASK-64) — по ней contextBuilder собирает контекст на каждое сообщение. */
   activeTaskId?: string;
   /** Какие части контекста включены; по умолчанию (без поля) — все. */
@@ -3314,6 +3319,11 @@ export interface AIStreamRequest {
   claudeAccountId?: string;
   /** Участник общего хоста, чья сессия (TASK-142.3): хост сам выбирает его worktree и права HITL. */
   memberId?: string;
+  /**
+   * Ответвление разговора Claude CLI (TASK-283): `branch` — первый ход вкладки-ответвления (`--fork-session`),
+   * `side` — побочный вопрос `/btw` без записи сессии и без инструментов.
+   */
+  claudeCliFork?: 'branch' | 'side';
 }
 
 export interface GitWorktreeInfo {

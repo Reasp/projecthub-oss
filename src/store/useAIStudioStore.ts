@@ -16,6 +16,7 @@ import type {
   RateLimitWarning,
   AutoApproveRules,
   ContextPartKey,
+  ProviderErrorInfo,
   StudioSessionAgent,
   StudioSessionWorktree
 } from '../types/electron';
@@ -31,6 +32,7 @@ import { getDictionary } from '../i18n';
 import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib/studioSessionTitle';
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf } from '../lib/studioWorktree';
 import { clearQueue, enqueueMessage, nextAfterTurn, removeQueuedMessage, type StudioQueues } from '../lib/studioMessageQueue';
+import { forkedSession, insertAfter } from '../lib/studioSessionFork';
 
 export type { AISession };
 
@@ -119,6 +121,16 @@ interface AIStudioState {
   /** Привязать вкладку к сессии Claude Code: следующее сообщение продолжит её через `--resume`. */
   attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string, cwd: string) => void;
   /**
+   * `/fork` и `/branch` (TASK-283): вкладка-ответвление сразу за исходной, с её лентой и разговором CLI. Возвращает id
+   * новой вкладки; `null` — у вкладки ещё нет разговора CLI, вместо ответвления — подсказка.
+   */
+  forkSession: (projectPath: string, sessionId: string, title?: string) => string | null;
+  /** Побочные вопросы `/btw` по вкладкам (TASK-283): ответ над полем ввода, в разговор вкладки не попадает. */
+  sideQuestions: Record<string, StudioSideQuestion>;
+  askSideQuestion: (projectPath: string, sessionId: string, question: string) => Promise<void>;
+  /** Закрыть панель побочного вопроса; идущий ответ останавливается. */
+  closeSideQuestion: (sessionId: string) => void;
+  /**
    * Повтор ответа, упавшего с ошибкой (TASK-70.6): сообщение пользователя и ответ с ошибкой убираются
    * из диалога, и сообщение отправляется заново — с текущими настройками провайдера и модели.
    */
@@ -168,7 +180,20 @@ export interface CreateSessionOptions {
 }
 
 /** Перехваченная слеш-команда Claude Code вкладки (TASK-230). */
-export type PendingCliCommand = Exclude<StudioCliCommand, { kind: 'plan' }> & {
+/** Панель над полем ввода (TASK-283): ответ `/btw` или подсказка, почему команда не выполнена. */
+export interface StudioSideQuestion {
+  command: 'btw' | 'fork';
+  /** Канал ответа: у каждого вопроса свой, ответ прежнего вопроса в новый не попадёт. Пустой у подсказки. */
+  streamId: string;
+  question: string;
+  answer: string;
+  status: 'running' | 'done' | 'error' | 'notice';
+  error?: string;
+  providerError?: ProviderErrorInfo;
+  notice?: string;
+}
+
+export type PendingCliCommand = Extract<StudioCliCommand, { kind: 'resume' | 'terminal' }> & {
   projectPath: string;
   sessionId: string;
   claudeAccountId?: string;
@@ -208,9 +233,12 @@ export function withoutKey<T>(record: Record<string, T>, key: string): Record<st
   return rest;
 }
 
-type SessionScopedFields = 'streamingSessions' | 'liveOutputs' | 'rateLimitWarnings' | 'pendingApprovals' | 'queuedMessages';
+type SessionScopedFields = 'streamingSessions' | 'liveOutputs' | 'rateLimitWarnings' | 'pendingApprovals' | 'queuedMessages' | 'sideQuestions';
 
-/** Сброс стрима, живого вывода, предупреждения о лимитах, очереди и ожидающих одобрений закрываемой/очищаемой сессии. */
+/**
+ * Сброс стрима, живого вывода, предупреждения о лимитах, очереди, побочного вопроса и ожидающих одобрений
+ * закрываемой/очищаемой сессии. Поток побочного вопроса останавливает вызывающий (`stopSideStream`).
+ */
 function sessionResetPatch(
   state: Pick<AIStudioState, SessionScopedFields>,
   projectPath: string,
@@ -221,7 +249,8 @@ function sessionResetPatch(
     streamingSessions: withoutKey(state.streamingSessions, sessionId),
     liveOutputs: withoutKey(state.liveOutputs, sessionId),
     rateLimitWarnings: withoutKey(state.rateLimitWarnings, sessionId),
-    queuedMessages: clearQueue(state.queuedMessages, sessionId)
+    queuedMessages: clearQueue(state.queuedMessages, sessionId),
+    sideQuestions: withoutKey(state.sideQuestions, sessionId)
   };
   const current = state.pendingApprovals[projectPath] || [];
   if (current.some((r) => r.sessionId === sessionId)) {
@@ -275,8 +304,26 @@ function releaseStreamLater(sessionId: string, setState: (fn: (s: AIStudioState)
   else release();
 }
 
+/** Потоки побочных вопросов `/btw` по вкладкам (TASK-283): новый вопрос и закрытие панели останавливают прежний. */
+const sideStreams = new Map<string, { streamId: string; cleanup: () => void }>();
+
+function stopSideStream(sessionId: string): void {
+  const side = sideStreams.get(sessionId);
+  if (!side) return;
+  sideStreams.delete(sessionId);
+  side.cleanup();
+  void window.api?.abortAIStream?.(side.streamId);
+}
+
+/** Активное дерево проекта: у выбранного проекта — окна, у остальных — запомненное (TASK-268). */
+function activeWorkRoot(projectPath: string): string | null | undefined {
+  const projectState = useProjectStore.getState();
+  return projectState.selectedProject?.path === projectPath ? projectState.workspaceRoot : projectState.activeWorktreeByProject[projectPath];
+}
+
 /** Словарь Studio на языке интерфейса — для заголовков вкладок по умолчанию (TASK-204). */
 const studioText = () => getDictionary(useProjectStore.getState().language).aiStudio;
+const cliText = () => studioCliText(useProjectStore.getState().language);
 
 function createInitialSession(): AISession {
   const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -298,6 +345,7 @@ export const useAIStudioStore = create<AIStudioState>()(
       lastActiveSessionId: {},
       streamingSessions: {},
       queuedMessages: {},
+      sideQuestions: {},
       config: DEFAULT_CONFIG,
       mode: 'agent',
       isSettingsOpen: false,
@@ -594,7 +642,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           sessions: {
             ...state.sessions,
             [projectPath]: (state.sessions[projectPath] || []).map((s) =>
-              s.id === sessionId ? { ...s, claudeCliSessionId: cliSessionId, claudeCliCwd: cwd } : s
+              s.id === sessionId ? { ...s, claudeCliSessionId: cliSessionId, claudeCliCwd: cwd, claudeCliForkPending: undefined } : s
             )
           }
         }));
@@ -625,6 +673,103 @@ export const useAIStudioStore = create<AIStudioState>()(
             }));
           })
           .catch((err) => console.warn('[AIStudio] Не удалось прочитать переписку сессии Claude Code:', err));
+      },
+
+      forkSession: (projectPath: string, sessionId: string, title?: string) => {
+        const source = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!source) return null;
+        const fork = forkedSession(source, {
+          id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: title?.trim() || cliText().forkTitle(source.title),
+          now: Date.now()
+        });
+        if (!fork) {
+          set((state) => ({
+            sideQuestions: {
+              ...state.sideQuestions,
+              [sessionId]: { command: 'fork', streamId: '', question: '', answer: '', status: 'notice', notice: cliText().forkNothing }
+            }
+          }));
+          return null;
+        }
+        set((state) => ({
+          sessions: { ...state.sessions, [projectPath]: insertAfter(state.sessions[projectPath] || [], sessionId, fork) }
+        }));
+        get().switchSession(projectPath, fork.id);
+        return fork.id;
+      },
+
+      askSideQuestion: async (projectPath: string, sessionId: string, question: string) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session || !window.api?.streamAIChat) return;
+        stopSideStream(sessionId);
+        const text = question.trim();
+        if (!text) {
+          set((state) => ({
+            sideQuestions: {
+              ...state.sideQuestions,
+              [sessionId]: { command: 'btw', streamId: '', question: '', answer: '', status: 'notice', notice: cliText().btwUsage }
+            }
+          }));
+          return;
+        }
+        const streamId = `${sessionId}::btw-${Date.now()}`;
+        // Ответ прежнего вопроса или закрытой панели в эту запись не попадает.
+        const patch = (fn: (q: StudioSideQuestion) => StudioSideQuestion) =>
+          set((state) => {
+            const current = state.sideQuestions[sessionId];
+            return current?.streamId === streamId ? { sideQuestions: { ...state.sideQuestions, [sessionId]: fn(current) } } : {};
+          });
+        set((state) => ({
+          sideQuestions: { ...state.sideQuestions, [sessionId]: { command: 'btw', streamId, question: text, answer: '', status: 'running' } }
+        }));
+        const unsubChunk = window.api.onAIChunk(streamId, (chunk) => {
+          if (chunk.text) patch((q) => ({ ...q, answer: q.answer + chunk.text }));
+        });
+        const unsubComplete = window.api.onAIComplete(streamId, (msg) => {
+          patch((q) => ({ ...q, answer: msg.content || q.answer, status: 'done' }));
+          cleanup();
+        });
+        const unsubError = window.api.onAIError(streamId, (err, info) => {
+          patch((q) => ({ ...q, status: 'error', error: err, ...(info ? { providerError: info } : {}) }));
+          cleanup();
+        });
+        const cleanup = () => {
+          unsubChunk();
+          unsubComplete();
+          unsubError();
+          if (sideStreams.get(sessionId)?.streamId === streamId) sideStreams.delete(sessionId);
+        };
+        sideStreams.set(sessionId, { streamId, cleanup });
+
+        // Ответвление разговора вкладки без записи (`--fork-session --no-session-persistence`) в её каталоге и аккаунте.
+        const config = sessionRequestConfig(get().config, session.agent);
+        const claudeAccountId = sessionClaudeAccountId(session.agent);
+        const workDir = sessionWorkDir(session, activeWorkRoot(projectPath), projectPath);
+        const req: AIStreamRequest = {
+          sessionId: streamId,
+          projectPath,
+          messages: [{ id: `msg-${Date.now()}`, role: 'user', content: text, timestamp: new Date().toISOString() }],
+          config,
+          mode: 'chat',
+          ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),
+          claudeCliFork: 'side',
+          ...(sameWorkPath(workDir, projectPath) ? {} : { workspaceRoot: workDir }),
+          ...(claudeAccountId ? { claudeAccountId } : {}),
+          ...(session.activeTaskId ? { taskId: session.activeTaskId } : {}),
+          ...(session.contextParts ? { contextParts: session.contextParts } : {})
+        };
+        try {
+          await window.api.streamAIChat(req);
+        } catch (err) {
+          patch((q) => ({ ...q, status: 'error', error: err instanceof Error ? err.message : String(err) }));
+          cleanup();
+        }
+      },
+
+      closeSideQuestion: (sessionId: string) => {
+        stopSideStream(sessionId);
+        set((state) => ({ sideQuestions: withoutKey(state.sideQuestions, sessionId) }));
       },
 
       renameSession: (projectPath: string, sessionId: string, newTitle: string) => {
@@ -701,6 +846,7 @@ export const useAIStudioStore = create<AIStudioState>()(
 
       closeSession: (projectPath: string, sessionId: string) => {
         releaseSessionInMain(sessionId);
+        stopSideStream(sessionId);
         // Диалог с сообщениями уходит в историю (файл остаётся с `archivedAt`), пустой — удаляется (TASK-140.10).
         const closing = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
         if (closing && closing.messages.length > 0) sessionPersister.archive(projectPath, { ...closing, archivedAt: Date.now() });
@@ -743,7 +889,10 @@ export const useAIStudioStore = create<AIStudioState>()(
 
       clearSession: (projectPath: string, sessionId?: string) => {
         const targetSessionId = sessionId || get().activeSessionId[projectPath];
-        if (targetSessionId) releaseSessionInMain(targetSessionId);
+        if (targetSessionId) {
+          releaseSessionInMain(targetSessionId);
+          stopSideStream(targetSessionId);
+        }
         // Очищенная вкладка остаётся: новый ответ в ней — только после конца прерванного (общий канал сессии).
         const wasStreaming = !!(targetSessionId && get().streamingSessions[targetSessionId]);
         set((state) => {
@@ -751,7 +900,7 @@ export const useAIStudioStore = create<AIStudioState>()(
 
           const updated = existing.map((s) =>
             s.id === targetSessionId
-              ? { ...s, messages: [], title: studioText().newChat, autoTitle: true, claudeCliSessionId: undefined }
+              ? { ...s, messages: [], title: studioText().newChat, autoTitle: true, claudeCliSessionId: undefined, claudeCliForkPending: undefined }
               : s
           );
 
@@ -790,6 +939,16 @@ export const useAIStudioStore = create<AIStudioState>()(
         const currentSession = projectSessions.find((s) => s.id === activeSessionId)!;
         // Пишет в сессию только её владелец (decision-84 п. 5): чужая сессия участника — только для чтения.
         if (!canWriteStudioSession(currentSession, opts.memberId)) return;
+        // Модель с телефона — на этот запрос; иначе агент вкладки поверх общего конфига (TASK-170).
+        const requestConfig = opts.config ?? sessionRequestConfig(get().config, currentSession.agent);
+        // Интерактивные команды Claude Code в `claude -p` не работают — Studio выполняет их сама (TASK-230). С телефона
+        // (`opts.sessionId`) диалога нет: команда уходит в CLI как раньше.
+        const cli = opts.sessionId || opts.fromRemote ? null : studioCliCommand(text, requestConfig);
+        // `/btw` (TASK-283) отвечает и во время хода вкладки, как в CLI: в очередь не встаёт.
+        if (cli?.kind === 'btw') {
+          await get().askSideQuestion(projectPath, activeSessionId, cli.question);
+          return;
+        }
         // Занята только эта вкладка (TASK-171): сообщение встаёт в её очередь и уйдёт после хода (TASK-273).
         if (get().streamingSessions[activeSessionId]) {
           const queueKey = activeSessionId;
@@ -804,12 +963,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           }));
           return;
         }
-        // Модель с телефона — на этот запрос; иначе агент вкладки поверх общего конфига (TASK-170).
-        const requestConfig = opts.config ?? sessionRequestConfig(get().config, currentSession.agent);
         const requestMode = opts.mode ?? get().mode;
         const claudeAccountId = requestConfig.provider === 'anthropic' ? sessionClaudeAccountId(currentSession.agent) : undefined;
-        // Интерактивные команды Claude Code в `claude -p` не работают — Studio выполняет их сама (TASK-230). С телефона
-        // (`opts.sessionId`) диалога нет: команда уходит в CLI как раньше.
         // Каталог вкладки (TASK-268, decision-195): её дерево, а не активное дерево приложения. Вкладка без дерева
         // закрепляется за каталогом первого сообщения — после смены активного дерева разговор остаётся в своём.
         const projectState = useProjectStore.getState();
@@ -818,7 +973,11 @@ export const useAIStudioStore = create<AIStudioState>()(
         const workDir = sessionWorkDir(currentSession, activeRoot, projectPath);
         const pinnedWorktree = currentSession.worktree ?? sessionWorktreeOf(workDir, isSelected ? projectState.worktrees : [], projectPath);
         const cliCwd = workDir;
-        const cli = opts.sessionId || opts.fromRemote ? null : studioCliCommand(text, requestConfig);
+        // `/fork` после хода вкладки (из очереди) берёт и его: ответвление — от законченного разговора.
+        if (cli?.kind === 'fork') {
+          get().forkSession(projectPath, activeSessionId, cli.title);
+          return;
+        }
         if (cli?.kind === 'resume' && cli.cliSessionId) {
           get().attachCliSession(projectPath, activeSessionId, cli.cliSessionId, cliCwd);
           return;
@@ -916,6 +1075,8 @@ export const useAIStudioStore = create<AIStudioState>()(
             if (chunk.claudeCliSessionId) {
               targetSession.claudeCliSessionId = chunk.claudeCliSessionId;
               targetSession.claudeCliCwd = workDir;
+              // Ответвление получило свою сессию CLI (TASK-283): дальше вкладка продолжает её, а не исходную.
+              delete targetSession.claudeCliForkPending;
             }
 
             const msgs = [...targetSession.messages];
@@ -1122,6 +1283,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           config: requestConfig,
           mode: requestMode,
           claudeCliSessionId: currentSession.claudeCliSessionId,
+          ...(currentSession.claudeCliForkPending && currentSession.claudeCliSessionId ? { claudeCliFork: 'branch' as const } : {}),
           taskId: currentSession.activeTaskId,
           contextParts: currentSession.contextParts,
           // Агент работает в дереве вкладки (TASK-268, decision-195); основное дерево — без поля, как раньше.

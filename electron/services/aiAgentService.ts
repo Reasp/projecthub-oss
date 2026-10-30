@@ -179,6 +179,8 @@ export interface AIStreamRequest {
   claudeAccountId?: string;
   /** Участник общего хоста, чья сессия (TASK-142.3): его worktree, HITL ему, стоимость на него. */
   memberId?: string;
+  /** Ответвление разговора Claude CLI (TASK-283): вкладка-ответвление или побочный вопрос `/btw`. */
+  claudeCliFork?: 'branch' | 'side';
 }
 
 /** Инструмент прокси управления компьютером в формате, который отдаёт `computerUseService.listProxyTools()`. */

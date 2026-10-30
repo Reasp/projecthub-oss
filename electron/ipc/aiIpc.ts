@@ -317,7 +317,9 @@ export function registerAiIpc(ctx: IpcContext) {
     };
 
     // Поток любой сессии Studio дублируется сопряжённым телефонам в сокращённом виде (TASK-140.10, decision-83).
-    studioRemoteBridge.streamStarted(req.projectPath, req.sessionId);
+    // Побочный вопрос `/btw` (TASK-283) — не вкладка: телефону его поток не нужен.
+    const phone = rawReq.claudeCliFork === 'side' ? null : studioRemoteBridge;
+    phone?.streamStarted(req.projectPath, req.sessionId);
     // Ограничения запуска (бюджеты Team, decision-124): исчерпанный бюджет не пускает новый промпт.
     const launchCtx = studioLaunchContext(req);
     const launch = await editionRegistry.checkAgentLaunch(launchCtx);
@@ -325,7 +327,7 @@ export function registerAiIpc(ctx: IpcContext) {
     const refuse = (err: Error) => {
       const info = appErrorKeyOf(err) ? toProviderErrorInfo(err) : undefined;
       send(`ai:error:${req.sessionId}`, err.message, info);
-      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, err.message, info?.messageKey);
+      phone?.streamEnded(req.projectPath, req.sessionId, err.message, info?.messageKey);
     };
     if (!launch.allowed) {
       refuse(launchRefusal(launch));
@@ -353,12 +355,12 @@ export function registerAiIpc(ctx: IpcContext) {
         req,
         (chunk) => {
           send(`ai:chunk:${req.sessionId}`, chunk);
-          studioRemoteBridge.streamChunk(req.projectPath, req.sessionId, chunk);
+          phone?.streamChunk(req.projectPath, req.sessionId, chunk);
         },
         (fullMsg) => {
           studioLiveRuns.finish(req.sessionId);
           send(`ai:complete:${req.sessionId}`, fullMsg);
-          studioRemoteBridge.streamEnded(req.projectPath, req.sessionId);
+          phone?.streamEnded(req.projectPath, req.sessionId);
           const usage = fullMsg.usage;
           editionRegistry.emitAgentRun({
             ...launchCtx,
@@ -378,7 +380,7 @@ export function registerAiIpc(ctx: IpcContext) {
         (err, info) => {
           studioLiveRuns.finish(req.sessionId);
           send(`ai:error:${req.sessionId}`, err, info);
-          studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, info?.message || err, info?.messageKey);
+          phone?.streamEnded(req.projectPath, req.sessionId, info?.message || err, info?.messageKey);
         }
       );
     } catch (err: any) {
@@ -389,7 +391,7 @@ export function registerAiIpc(ctx: IpcContext) {
       console.error(`[Main] ai:streamChat failed for session ${req.sessionId}: ${message}`);
       claudeBridgeService.setProjectStatus(req.projectPath, 'error', { code: 'failed', detail: message });
       send(`ai:error:${req.sessionId}`, message, info);
-      studioRemoteBridge.streamEnded(req.projectPath, req.sessionId, message, info?.messageKey);
+      phone?.streamEnded(req.projectPath, req.sessionId, message, info?.messageKey);
     }
     // `finally` здесь нельзя: путь Claude CLI возвращается сразу после запуска процесса, конец ответа —
     // только `onComplete`/`onError` (они же срабатывают при отмене).

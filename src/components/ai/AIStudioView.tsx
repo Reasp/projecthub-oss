@@ -43,6 +43,7 @@ import { ComposerMenu } from './ComposerMenu';
 import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig, withSessionEffort } from '../../lib/studioSessionAgent';
 import { REASONING_EFFORT_OPTIONS } from '../../lib/reasoningEffort';
 import { QueuedMessagesBar } from './QueuedMessagesBar';
+import { SideQuestionPanel } from './SideQuestionPanel';
 import { goesToClaudeCli } from '../../lib/studioCliCommands';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { RateLimitWarningBanner } from './RateLimitWarningBanner';
@@ -101,6 +102,8 @@ export const AIStudioView: React.FC = () => {
     setSessionWorktree,
     toggleContextPart,
     queuedMessages,
+    sideQuestions,
+    closeSideQuestion,
     removeQueuedMessage,
     clearQueuedMessages,
     sendNextQueued,
@@ -970,6 +973,11 @@ export const AIStudioView: React.FC = () => {
         <div className="mx-3 mb-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200" data-testid="studio-member-readonly">
           {t.aiStudio.memberSession(currentSession.memberId)}
         </div>
+      )}
+
+      {/* Побочный вопрос `/btw` и подсказки `/fork` (TASK-283) — вне разговора вкладки */}
+      {!currentSession?.memberId && currentSessionId && (
+        <SideQuestionPanel side={sideQuestions[currentSessionId]} onClose={() => closeSideQuestion(currentSessionId)} />
       )}
 
       {/* Очередь вкладки (TASK-273): сообщения, написанные во время ответа */}
