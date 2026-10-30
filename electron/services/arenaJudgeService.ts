@@ -12,8 +12,8 @@
  */
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { checkDetailOf, executeCheck, pendingCheckResult } from './checkRunner.js';
-import { editionRegistry } from '../extensions/editionRegistry.js';
+import { checkDetailOf, executeCheck, type CheckSandboxRunner } from './checkRunner.js';
+import { memberSandboxService } from './memberSandboxService.js';
 import { AppError, appErrorFields } from '../../src/lib/appError.js';
 import { visualArtifactService } from './visualArtifactService.js';
 import type { AIMessage } from './aiAgentService.js';
@@ -232,14 +232,6 @@ export class ArenaJudgeService {
     rerun: boolean
   ): Promise<void> {
     const enabled = config.checks.filter((c) => c.enabled !== false);
-    // Изолированный участник (TASK-150.2): скрипты проверок пишет его агент, а выполнял бы их хост — вне контейнера.
-    if (editionRegistry.launcherProfile(session.memberId)?.sandbox) {
-      for (const agent of candidates) {
-        agent.checks = enabled.map((c) => ({ ...pendingCheckResult(c), status: 'skipped' as const, ...checkDetailOf(new AppError('checks.sandboxed')) }));
-      }
-      hooks.onUpdate();
-      return;
-    }
     if (enabled.length === 0) {
       for (const agent of candidates) {
         if (!agent.checks || rerun) agent.checks = [];
@@ -257,6 +249,7 @@ export class ArenaJudgeService {
       portStrategy?: 'fixed' | 'auto';
       port?: number;
       artifacts?: CheckDefinition['artifacts'];
+      sandbox?: CheckSandboxRunner;
     }
     const jobs: Job[] = [];
     // Артефакты ui-smoke этого прогона судьи — отдельный каталог на кандидата (decision-55 п. 5).
@@ -280,6 +273,16 @@ export class ArenaJudgeService {
         hooks.log(agent, `[Judge] Checks skipped: directory ${workdir} not found.`);
         continue;
       }
+      // Изолированный участник (TASK-246): скрипты проверок пишет его агент — они идут в его контейнере без сети.
+      let sandbox: CheckSandboxRunner | null;
+      try {
+        sandbox = await memberSandboxService.checkRunner(session.memberId, session.projectPath, workdir);
+      } catch (err) {
+        const detail = err instanceof AppError ? err : new AppError('swarm.sandboxPlanInvalid', { reason: err instanceof Error ? err.message : String(err) });
+        for (const result of agent.checks) Object.assign(result, { status: 'error' as const }, checkDetailOf(detail));
+        hooks.log(agent, `[Judge] Checks not run: ${detail.message}`);
+        continue;
+      }
       agent.checks.forEach((result, i) => {
         jobs.push({
           agent,
@@ -289,7 +292,8 @@ export class ArenaJudgeService {
           timeoutMs: enabled[i].timeoutMs,
           portStrategy: enabled[i].portStrategy,
           port: enabled[i].port,
-          artifacts: enabled[i].artifacts
+          artifacts: enabled[i].artifacts,
+          ...(sandbox ? { sandbox } : {})
         });
       });
     }
@@ -305,7 +309,8 @@ export class ArenaJudgeService {
           return;
         }
         const running = executeCheck(job.result, job, job.workdir!, signal, {
-          artifacts: { scope, agentId: job.agent.id, run: judgeRun }
+          artifacts: { scope, agentId: job.agent.id, run: judgeRun },
+          ...(job.sandbox ? { sandbox: job.sandbox } : {})
         });
         hooks.onUpdate(job.agent.id);
         hooks.log(job.agent, `[Judge] Check “${job.result.name}”: ${job.command}`);

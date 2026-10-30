@@ -25,7 +25,9 @@ import {
   withUpdatedDate
 } from './backlogTaskFormat.js';
 import { summarizeCheckResult } from './arenaChecks.js';
-import { executeCheck, pendingCheckResult, setCheckDetail } from './checkRunner.js';
+import { executeCheck, pendingCheckResult, setCheckDetail, type CheckSandboxRunner } from './checkRunner.js';
+import { memberSandboxService } from './memberSandboxService.js';
+import { readWorktreeFile, writeWorktreeFile } from './worktreeFs.js';
 import { AppError, appErrorFields, type AppErrorKey } from '../../src/lib/appError.js';
 import { getHostLanguage } from './hostLanguage.js';
 import { visualArtifactService } from './visualArtifactService.js';
@@ -109,15 +111,18 @@ interface RawTaskFile {
   content: string;
 }
 
-async function readTaskFile(filePath: string): Promise<RawTaskFile> {
-  const raw = await fs.readFile(filePath, 'utf-8');
+/** `worktree` — файл в рабочем каталоге агента: без следования симлинкам, которые агент мог подложить ([[decision-191]]). */
+async function readTaskFile(filePath: string, worktree?: string): Promise<RawTaskFile> {
+  const raw = worktree ? await readWorktreeFile(worktree, filePath) : await fs.readFile(filePath, 'utf-8');
   const parsed = matter(raw.replace(/\r\n/g, '\n'));
   return { eol: raw.includes('\r\n') ? '\r\n' : '\n', data: { ...parsed.data }, content: parsed.content };
 }
 
-async function writeTaskFile(filePath: string, file: RawTaskFile): Promise<void> {
+async function writeTaskFile(filePath: string, file: RawTaskFile, worktree?: string): Promise<void> {
   const text = matter.stringify(file.content, normalizeFrontmatter(withUpdatedDate(file.data)));
-  await fs.writeFile(filePath, file.eol === '\n' ? text : text.replace(/\n/g, file.eol), 'utf-8');
+  const out = file.eol === '\n' ? text : text.replace(/\n/g, file.eol);
+  if (worktree) await writeWorktreeFile(worktree, filePath, out);
+  else await fs.writeFile(filePath, out, 'utf-8');
 }
 
 function agentCost(agent: AgentSlotState): number | undefined {
@@ -298,12 +303,14 @@ export class DoneLoopService {
     const workdir = agent.worktreePath || session.projectPath;
     const baseline = state.criteriaBaseline ?? [];
     try {
-      const task = await findTaskFile(workdir, session.taskId!);
+      // Файл задачи рабочего каталога агента — его содержимое, в том числе возможный симлинк наружу.
+      const inWorktree = workdir !== session.projectPath ? workdir : undefined;
+      const task = await findTaskFile(workdir, session.taskId!, { noFollow: Boolean(inWorktree) });
       if (!task) return false;
-      const file = await readTaskFile(task.filePath);
+      const file = await readTaskFile(task.filePath, inWorktree);
       const restored = restoreCriteriaFlags(file.content, baseline.map((c) => c.completed));
       if (restored === null) return false;
-      await writeTaskFile(task.filePath, { ...file, content: restored });
+      await writeTaskFile(task.filePath, { ...file, content: restored }, inWorktree);
       hooks.log('[Done-loop] ⚠️ The agent changed criteria checkmarks in the task file — reverted: only ProjectHub checks criteria.');
       if (workdir !== session.projectPath) await hooks.materialize();
       return true;
@@ -331,6 +338,17 @@ export class DoneLoopService {
       }
       return results;
     }
+    // Изолированный участник (TASK-246): скрипты проверок пишет его агент — они идут в его контейнере без сети.
+    let sandbox: CheckSandboxRunner | null;
+    try {
+      sandbox = await memberSandboxService.checkRunner(session.memberId, session.projectPath, workdir);
+    } catch (err) {
+      for (const r of results) {
+        r.status = 'error';
+        setCheckDetail(r, err instanceof AppError ? err : new AppError('swarm.sandboxPlanInvalid', { reason: err instanceof Error ? err.message : String(err) }));
+      }
+      return results;
+    }
     for (let i = 0; i < checks.length; i++) {
       const result = results[i];
       if (hooks.signal.aborted) {
@@ -338,9 +356,10 @@ export class DoneLoopService {
         setCheckDetail(result, new AppError('checks.loopStopped'));
         continue;
       }
-      hooks.log(`[Done-loop] Check “${result.name}”: ${result.command}`);
+      hooks.log(`[Done-loop] Check “${result.name}”${sandbox ? ' (member container)' : ''}: ${result.command}`);
       const running = executeCheck(result, checks[i], workdir, hooks.signal, {
-        artifacts: { scope: visualArtifactService.swarmScope(session.id), agentId: agent.id, run: `iter-${iterationIndex}` }
+        artifacts: { scope: visualArtifactService.swarmScope(session.id), agentId: agent.id, run: `iter-${iterationIndex}` },
+        ...(sandbox ? { sandbox } : {})
       });
       hooks.onUpdate();
       await running;

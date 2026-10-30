@@ -34,7 +34,9 @@ import { usesClaudeCli } from './modelTarget.js';
 import { getHostLanguage } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
 import { editionRegistry, launcherGitEnv } from '../extensions/editionRegistry.js';
-import { sandboxMcpConfig } from './memberSandboxLauncher.js';
+import { sandboxMcpConfig, SANDBOX_MCP_CONFIG_FILE, SANDBOX_MCP_CONFIG_PATH } from './memberSandboxLauncher.js';
+import { hostPathFromSandbox, sandboxToolInput } from './memberSandbox.js';
+import { readWorktreeFile } from './worktreeFs.js';
 import { errorMessage } from './errorMessage.js';
 import {
   applyProjectPolicy,
@@ -298,8 +300,9 @@ export interface CliPermissionMeta {
   /** Задача сессии — источник фактов памяти проекта (TASK-76). */
   taskId?: string;
   /**
-   * Агент в контейнере участника (TASK-150.2): конфиги MCP и прав передаются строками JSON, а не файлами хоста, MCP —
-   * через шлюз с токеном участника; адрес MCP-сервера хоста уходит шлюзу в `onEndpoint`.
+   * Агент в контейнере участника (TASK-150.2, TASK-246): конфиг MCP — секретным файлом контейнера, правила прав —
+   * строкой JSON, а не файлами хоста; MCP — через шлюз с токеном участника; адрес MCP-сервера хоста уходит шлюзу в
+   * `onEndpoint`. Пути инструментов — пути контейнера (`/workspace/…`): политика переводит их в пути worktree.
    */
   sandbox?: { gatewayToken: string; onEndpoint: (endpoint: { url: string; token: string }) => void };
   /** Участник общего хоста, чей агент (decision-135): git-автор слияния основной ветки (decision-141). */
@@ -369,11 +372,20 @@ export async function buildCliWriteDiff(
   workDir: string,
   toolName: string,
   filePath: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  /**
+   * Агент в контейнере участника (TASK-246): `filePath` — путь контейнера, прежнее содержимое читается по пути хоста
+   * под worktree без следования симлинкам; вне worktree — пусто (файл карточки не берётся с хоста).
+   */
+  sandbox?: { hostPath: string | null }
 ): Promise<ApprovalRequest['diff'] | undefined> {
   try {
     if (toolName === 'Write' && typeof input.content === 'string') {
       let oldContent = '';
+      if (sandbox) {
+        if (sandbox.hostPath) oldContent = await readWorktreeFile(workDir, sandbox.hostPath).catch(() => '');
+        return { filePath, oldContent, newContent: input.content, patch: aiAgentService.generateDiff(oldContent, input.content, filePath) };
+      }
       const fullPath = path.resolve(workDir, filePath);
       if (existsSync(fullPath)) oldContent = await fs.readFile(fullPath, 'utf-8');
       return { filePath, oldContent, newContent: input.content, patch: aiAgentService.generateDiff(oldContent, input.content, filePath) };
@@ -584,7 +596,9 @@ class ClaudeBridgeService extends EventEmitter {
     } as const;
     // Автономный запуск (Automations, назначенные задачи): выход Playwright MCP за браузер — отказ (decision-55 п. 3).
     const autonomous = ctx.origin === 'automation' || ctx.origin === 'assigned';
-    const verdict = evaluateToolRequest(config, projectPath, toolName, input, { autonomous, workDir });
+    // Агент в контейнере участника (TASK-246) называет файлы путями контейнера: политика видит путь хоста под worktree.
+    const policyInput = ctx.sandbox ? sandboxToolInput(input, workDir) : input;
+    const verdict = evaluateToolRequest(config, projectPath, toolName, policyInput, { autonomous, workDir });
 
     const allow = (updatedInput: Record<string, unknown> = input): CliPermissionDecision => ({ behavior: 'allow', updatedInput });
     const deny = (message: string): CliPermissionDecision => ({ behavior: 'deny', message });
@@ -719,7 +733,7 @@ class ClaudeBridgeService extends EventEmitter {
         return allow();
       }
 
-      const diff = await this.buildCliWriteDiff(workDir, toolName, filePath, input);
+      const diff = await buildCliWriteDiff(workDir, toolName, filePath, input, ctx.sandbox ? { hostPath: hostPathFromSandbox(filePath, workDir) } : undefined);
       const res = await ask({
         id: newId(), sessionId, projectPath, type: 'file_write',
         ...keyedHitlText({
@@ -807,15 +821,6 @@ class ClaudeBridgeService extends EventEmitter {
     return m ? m[1].trim() : t || 'Approved';
   }
 
-  /** Диф для карточки одобрения записи (общий с хуками терминала — {@link buildCliWriteDiff}). */
-  private async buildCliWriteDiff(
-    workDir: string,
-    toolName: string,
-    filePath: string,
-    input: Record<string, unknown>
-  ): Promise<ApprovalRequest['diff'] | undefined> {
-    return buildCliWriteDiff(workDir, toolName, filePath, input);
-  }
 
   public getProjectStatus(projectPath: string): ProjectAgentStatus {
     return (
@@ -1171,7 +1176,7 @@ class ClaudeBridgeService extends EventEmitter {
     config: AIProviderConfig,
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     meta: CliPermissionMeta = {}
-  ): Promise<{ args: string[]; env: Record<string, string>; cleanup: () => void } | null> {
+  ): Promise<{ args: string[]; env: Record<string, string>; cleanup: () => void; secretFiles?: Record<string, string> } | null> {
     if (!this.cliPermissionBroker) return null;
     let endpoint: CliPermissionEndpoint | null = null;
     try {
@@ -1206,8 +1211,10 @@ class ClaudeBridgeService extends EventEmitter {
         });
         this.registerCliPermissionContext(sessionId, projectPath, effective, onChunk, meta);
         return {
-          // Без оболочки (spawn docker/podman с массивом аргументов) JSON идёт как есть, кавычки не нужны.
-          args: ['--mcp-config', mcpConfig, '--permission-prompt-tool', `mcp__${CLI_HITL_MCP_SERVER_NAME}__${CLI_HITL_PERMISSION_TOOL}`, ...(settings ? ['--settings', JSON.stringify(settings)] : [])],
+          // Конфиг MCP с токеном шлюза — секретным файлом в контейнере (TASK-246): в аргументах docker его видели бы все
+          // пользователи хоста. Правила прав токена не содержат — строкой JSON (spawn без оболочки, кавычки не нужны).
+          secretFiles: { [SANDBOX_MCP_CONFIG_FILE]: mcpConfig },
+          args: ['--mcp-config', SANDBOX_MCP_CONFIG_PATH, '--permission-prompt-tool', `mcp__${CLI_HITL_MCP_SERVER_NAME}__${CLI_HITL_PERMISSION_TOOL}`, ...(settings ? ['--settings', JSON.stringify(settings)] : [])],
           env: { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) },
           cleanup: () => this.cliPermissionContexts.delete(sessionId)
         };

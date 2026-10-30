@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import matter from 'gray-matter';
+import { listWorktreeDir, readWorktreeFile, worktreePathExistsSync } from './worktreeFs.js';
 
 export interface TaskFileMatch {
   filePath: string;
@@ -23,16 +24,27 @@ export function taskIdToFilePrefix(taskId: string): string | null {
   return match ? `task-${match[1]}`.toLowerCase() : null;
 }
 
-export async function findTaskFile(projectPath: string, taskId: string): Promise<TaskFileMatch | null> {
+export async function findTaskFile(
+  projectPath: string,
+  taskId: string,
+  /**
+   * `noFollow` — каталог пишет агент (worktree): поиск и чтение без следования симлинкам ([[decision-191]]), файл-ссылка
+   * не находится.
+   */
+  options: { noFollow?: boolean } = {}
+): Promise<TaskFileMatch | null> {
   const prefix = taskIdToFilePrefix(taskId);
   if (!prefix) return null;
 
   const tasksDir = path.join(projectPath, 'backlog', 'tasks');
-  if (!existsSync(tasksDir)) return null;
+  if (options.noFollow ? !worktreePathExistsSync(projectPath, tasksDir) : !existsSync(tasksDir)) return null;
+  const names = options.noFollow
+    ? (await listWorktreeDir(projectPath, tasksDir)).filter((e) => !e.isDirectory).map((e) => e.name)
+    : await fs.readdir(tasksDir);
 
   // После номера обязан идти разделитель: иначе `task-8` нашёл бы `task-80`, а `task-80` —
   // файл подзадачи `task-80.1`.
-  const matches = (await fs.readdir(tasksDir)).filter((file) => {
+  const matches = names.filter((file) => {
     const lower = file.toLowerCase();
     const boundary = lower.charAt(prefix.length);
     const separated = boundary !== '' && !/[\d.]/.test(boundary);
@@ -45,7 +57,7 @@ export async function findTaskFile(projectPath: string, taskId: string): Promise
     console.warn(`[taskFileLookup] ${taskId}: ${matches.length} файла с одним номером, взят «${matches[0]}»: ${matches.join(' | ')}`);
   }
   const filePath = path.join(tasksDir, matches[0]);
-  const raw = await fs.readFile(filePath, 'utf-8');
+  const raw = options.noFollow ? await readWorktreeFile(projectPath, filePath) : await fs.readFile(filePath, 'utf-8');
   const parsed = matter(raw.replace(/\r\n/g, '\n'));
   return { filePath, data: { ...parsed.data }, content: parsed.content };
 }

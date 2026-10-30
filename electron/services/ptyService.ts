@@ -17,6 +17,7 @@ import { getHostLanguage } from './hostLanguage.js';
 import { isCliSessionId } from './claudeCliSessions.js';
 import { isTerminalOnlyCommand } from '../../src/lib/studioCliCommands.js';
 import { hostText } from '../i18n/hostText.js';
+import { humanShellEnv } from './exeLookupGuard.js';
 
 /** Команда входа в профиль аккаунта во встроенном терминале по движку профиля. */
 const LOGIN_COMMAND: Record<CliAccountEngine, string> = { 'claude-cli': 'claude auth login', 'codex-cli': 'codex login', 'gemini-cli': 'gemini' };
@@ -192,8 +193,9 @@ class PtyService {
         }
       }
     }
+    // Терминал — команды человека: прежний поиск программы в текущем каталоге cmd (exeLookupGuard).
     const env = {
-      ...process.env,
+      ...humanShellEnv(process.env, options.cwd ?? options.projectPath),
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       ...accountEnv,

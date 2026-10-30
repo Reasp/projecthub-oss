@@ -75,8 +75,9 @@ function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
 async function applyStudioMember(req: AIStreamRequest): Promise<AIStreamRequest> {
   if (!req.memberId) return req;
   const profile = editionRegistry.launcherProfile(req.memberId);
-  // Изолированный участник (TASK-150.2): Studio идёт в процессе хоста, контейнера у неё нет — отказ, а не запуск вне его.
-  if (profile?.sandbox) throw new AppError('swarm.sandboxEngineUnsupported', { engine: 'Agents Studio' });
+  // Изолированный участник (TASK-150.2, TASK-246): Studio — чат процесса хоста с фоновыми процессами и управлением
+  // компьютером; агенты участника по задачам идут в его контейнере, Studio — отказ, а не запуск вне контейнера.
+  if (profile?.sandbox) throw new AppError('swarm.sandboxStudio');
   const trusted = profile?.trusted === true;
   const workspace = await editionRegistry.memberWorkspace({ projectPath: req.projectPath, memberId: req.memberId, ...(req.taskId ? { taskId: req.taskId } : {}) });
   return {

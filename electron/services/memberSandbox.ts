@@ -6,6 +6,7 @@
  * Ключей и токенов движков в контейнере нет: модель — через прокси хоста, его токен уходит переменной окружения
  * процесса `docker`/`podman`, а не аргументом (аргументы видны в списке процессов).
  */
+import crypto from 'node:crypto';
 import path from 'node:path';
 
 export type SandboxRuntime = 'docker' | 'podman';
@@ -53,6 +54,16 @@ export interface SandboxRequest {
    * `core.hooksPath` (иначе подложенный хук выполнит коммит хоста). Пути относительные, через `/`, без `..`.
    */
   readOnlyPaths?: string[];
+  /** Worktree целиком только на чтение: роль без записи файлов (Codex с `danger-full-access` внутри контейнера). */
+  readOnlyWorktree?: boolean;
+  /**
+   * Файлы с секретами для команды (TASK-246): имя → содержимое. Значение уходит переменной окружения процесса
+   * `docker`/`podman` (в аргументах только её имя), в контейнере обёртка `sh` пишет его в `SANDBOX_SECRET_DIR/<имя>`
+   * с правами `0600`, снимает переменную и запускает команду. Конфиг MCP с токеном шлюза так не виден в списке процессов.
+   */
+  secretFiles?: Record<string, string>;
+  /** Держать stdin открытым (`--interactive`): промпт CLI идёт через него. Проверкам и командам — `false`. */
+  interactive?: boolean;
   command: string[];
 }
 
@@ -65,6 +76,76 @@ export const SANDBOX_WORKDIR = '/workspace';
 /** HOME участника в томе (образ создаёт каталог пользователю node — новый том наследует владельца). */
 export const SANDBOX_HOME = '/home/member';
 export const PROXY_TOKEN_ENV = 'PROJECTHUB_MODEL_PROXY_TOKEN';
+/** Каталог секретных файлов команды внутри контейнера: во временном `/tmp`, исчезает вместе с контейнером. */
+export const SANDBOX_SECRET_DIR = '/tmp/projecthub';
+const SECRET_ENV_PREFIX = 'PROJECTHUB_SECRET_FILE_';
+
+/**
+ * Путь из контейнера (`/workspace/…` или относительный от него) → путь на хосте внутри worktree; `null` — путь вне
+ * worktree (файлы образа, `/tmp` контейнера, выход через `..`). Хост читает и пишет только то, что под worktree.
+ */
+export function hostPathFromSandbox(p: string, worktree: string): string | null {
+  const posix = p.replace(/\\/g, '/');
+  if (!posix) return null;
+  let rel: string;
+  if (posix === SANDBOX_WORKDIR) rel = '.';
+  else if (posix.startsWith(`${SANDBOX_WORKDIR}/`)) rel = posix.slice(SANDBOX_WORKDIR.length + 1);
+  else if (posix.startsWith('/') || /^[A-Za-z]:/.test(posix)) return null;
+  else rel = posix;
+  const norm = path.posix.normalize(rel || '.');
+  if (norm === '..' || norm.startsWith('../') || norm.startsWith('/')) return null;
+  return norm === '.' ? worktree : path.join(worktree, ...norm.split('/'));
+}
+
+/** Поля путей во входе инструментов Claude Code (`Write`, `Edit`, `Read`, `NotebookEdit`, `Glob`, `Grep`). */
+const TOOL_PATH_KEYS = ['file_path', 'notebook_path', 'path', 'filePath'] as const;
+/** Путь вне worktree для политики: под этим префиксом он гарантированно вне корня проекта хоста. */
+const OUTSIDE_PREFIX = '/__projecthub_container__';
+
+/**
+ * Вход инструмента агента в контейнере → вход для политики хоста (TASK-246): пути контейнера (`/workspace/…`)
+ * становятся путями хоста под worktree, остальные — путями заведомо вне проекта (файлы образа и `/tmp` контейнера).
+ * Иначе политика сочла бы любую запись в `/workspace` выходом из проекта, а абсолютный путь хоста, совпавший по
+ * написанию, — путём внутри него.
+ */
+export function sandboxToolInput(input: Record<string, unknown>, worktree: string): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...input };
+  for (const key of TOOL_PATH_KEYS) {
+    const v = input[key];
+    if (typeof v !== 'string' || v === '') continue;
+    out[key] = hostPathFromSandbox(v, worktree) ?? `${OUTSIDE_PREFIX}/${v.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+  }
+  return out;
+}
+
+/** Кусок значения одной переменной: на Windows одна переменная окружения не длиннее 32 767 символов. */
+const SECRET_CHUNK = 16_000;
+
+/** Значение по кускам без разрыва суррогатной пары. Пустое — один пустой кусок (файл всё равно создаётся). */
+export function chunkSecret(value: string, size = SECRET_CHUNK): string[] {
+  const out: string[] = [];
+  let cur = '';
+  for (const ch of value) {
+    if (cur.length + ch.length > size) {
+      out.push(cur);
+      cur = '';
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * Обёртка `sh -c` для секретных файлов: имена уже проверены, значения — только в переменных окружения, скрипт их не
+ * содержит. `exec "$@"` — команда без лишней оболочки, со своими аргументами как есть.
+ */
+function secretWrapper(files: Array<{ name: string; vars: string[] }>, command: string[]): string[] {
+  const writes = files.flatMap(({ name, vars }) => vars.map((v, j) => `printf '%s' "$${v}" ${j === 0 ? '>' : '>>'} ${SANDBOX_SECRET_DIR}/${name}`));
+  const unset = files.flatMap((f) => f.vars).join(' ');
+  const script = ['umask 077', `mkdir -p ${SANDBOX_SECRET_DIR}`, ...writes, `unset ${unset}`, 'exec "$@"'].join(' && ');
+  return ['/bin/sh', '-c', script, 'projecthub-secrets', ...command];
+}
 
 const sameFs = (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 
@@ -96,9 +177,18 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
   if (req.proxy && (!req.network || /^(none|bridge|host|default)$/i.test(req.network))) return { ok: false, reason: 'networkRequired' };
   const passEnv = Object.entries(req.passEnv ?? {});
   // Имена как в окружении POSIX; служебные переменные контейнера не перекрываются.
-  if (passEnv.some(([name]) => !/^[A-Z_][A-Z0-9_]{0,127}$/.test(name) || ['HOME', 'PATH', 'PROJECTHUB_MEMBER_ID'].includes(name))) {
+  if (
+    passEnv.some(([name]) => !/^[A-Z_][A-Z0-9_]{0,127}$/.test(name) || ['HOME', 'PATH', 'PROJECTHUB_MEMBER_ID'].includes(name) || name.startsWith(SECRET_ENV_PREFIX))
+  ) {
     return { ok: false, reason: 'envInvalid' };
   }
+  const secretEntries = Object.entries(req.secretFiles ?? {});
+  if (secretEntries.some(([name]) => !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(name))) return { ok: false, reason: 'pathInvalid' };
+  // Имена переменных — по номеру файла и куска; значения уходят только в окружение процесса docker/podman.
+  const secrets = secretEntries.map(([name, content], i) => {
+    const chunks = chunkSecret(content);
+    return { name, vars: chunks.map((_, j) => `${SECRET_ENV_PREFIX}${i}_${j}`), chunks };
+  });
 
   if (req.homeVolume !== undefined && !/^[a-z0-9][a-z0-9_.-]{0,127}$/i.test(req.homeVolume)) return { ok: false, reason: 'volumeInvalid' };
   const readOnly = req.readOnlyPaths ?? [];
@@ -106,13 +196,14 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
     return { ok: false, reason: 'pathInvalid' };
   }
   const limits = clampLimits(req.limits);
-  const name = `ph-member-${req.memberId}-${Date.now().toString(36)}`;
+  // Разовые команды и проверки участника идут параллельно: одной метки времени мало для уникального имени.
+  const name = `ph-member-${req.memberId}-${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`;
   const home = req.homeVolume ? SANDBOX_HOME : '/tmp';
   const user = req.user && Number.isInteger(req.user.uid) && Number.isInteger(req.user.gid) ? req.user : { uid: 1000, gid: 1000 };
   const args = [
     'run',
     '--rm',
-    '--interactive',
+    ...(req.interactive === false ? [] : ['--interactive']),
     `--name=${name}`,
     `--label=projecthub.member=${req.memberId}`,
     `--network=${req.network ?? 'none'}`,
@@ -127,7 +218,7 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
     `--memory=${limits.memoryMb}m`,
     `--memory-swap=${limits.memoryMb}m`,
     `--pids-limit=${limits.pids}`,
-    `--mount=type=bind,source=${path.resolve(req.worktree)},target=${SANDBOX_WORKDIR}`,
+    `--mount=type=bind,source=${path.resolve(req.worktree)},target=${SANDBOX_WORKDIR}${req.readOnlyWorktree ? ',readonly' : ''}`,
     // Поверх worktree и после него: более поздний mount перекрывает путь.
     ...readOnly.map((p) => `--mount=type=bind,source=${path.join(path.resolve(req.worktree), ...p.split('/'))},target=${SANDBOX_WORKDIR}/${p},readonly`),
     ...(req.homeVolume ? [`--mount=type=volume,source=${req.homeVolume},target=${SANDBOX_HOME}`] : []),
@@ -137,14 +228,19 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
     // Только имя: значение `docker`/`podman` берёт из своего окружения.
     ...(req.proxy ? [`--env=PROJECTHUB_MODEL_PROXY=${req.proxy.url}`, `--env=${PROXY_TOKEN_ENV}`] : []),
     ...passEnv.map(([name]) => `--env=${name}`),
+    ...secrets.flatMap((f) => f.vars.map((v) => `--env=${v}`)),
     req.image,
-    ...req.command
+    ...(secrets.length > 0 ? secretWrapper(secrets, req.command) : req.command)
   ];
   return {
     ok: true,
     runtime: req.runtime,
     name,
     args,
-    env: { ...(req.proxy ? { [PROXY_TOKEN_ENV]: req.proxy.token } : {}), ...Object.fromEntries(passEnv) }
+    env: {
+      ...(req.proxy ? { [PROXY_TOKEN_ENV]: req.proxy.token } : {}),
+      ...Object.fromEntries(passEnv),
+      ...Object.fromEntries(secrets.flatMap((f) => f.vars.map((v, j) => [v, f.chunks[j]])))
+    }
   };
 }

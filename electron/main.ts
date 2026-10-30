@@ -1,3 +1,5 @@
+// Первым: до любого запуска процессов Windows не ищет git/npm/docker в рабочем каталоге (decision-191).
+import './services/exeLookupGuard';
 import { app, BrowserWindow, dialog, globalShortcut, shell, session, crashReporter, screen } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

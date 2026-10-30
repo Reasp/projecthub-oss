@@ -1,3 +1,5 @@
+// Первым: Windows не ищет git/npm/docker в рабочем каталоге (decision-191) — ph-agent запускается без main.ts.
+import '../services/exeLookupGuard';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';

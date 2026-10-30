@@ -10,6 +10,7 @@ import { appEventBus } from './eventBus.js';
 import { isPidAlive, type EnvEntryStatus } from './envRegistryIdentity';
 import { envToolsEntryStatuses } from './processSweep';
 import { envStateDir } from './envStateDir';
+import { humanShellEnv } from './exeLookupGuard';
 import {
   findFreePort,
   findPortOwners,
@@ -253,6 +254,12 @@ export interface RunOnceOptions {
   /** `auto` — подобрать свободный порт в `PORT` и `${port}` команды. */
   portStrategy?: 'fixed' | 'auto';
   port?: number;
+  /**
+   * Готовый запуск вместо оболочки хоста (TASK-246): `docker`/`podman run` контейнера участника, команда уже внутри
+   * аргументов. `env` — окружение процесса запуска, `onStop` — снять контейнер при отмене и таймауте (смерть клиента
+   * `docker` контейнер на Windows не останавливает). Порт не подбирается: сети у контейнера нет.
+   */
+  exec?: { file: string; args: string[]; env?: Record<string, string>; onStop?: () => void };
 }
 
 export interface RunOnceResult {
@@ -489,7 +496,8 @@ class HubProcessManager {
     const shellSpec = resolveShellSpawn(effectiveCommand);
     const child = spawn(shellSpec.file, shellSpec.args, {
       cwd: workingDir,
-      env: { ...process.env, FORCE_COLOR: '1', ...actionEnv },
+      // Процессы проекта задаёт человек: прежний поиск программы в текущем каталоге cmd (exeLookupGuard).
+      env: { ...humanShellEnv(process.env, workingDir), FORCE_COLOR: '1', ...actionEnv },
       windowsVerbatimArguments: shellSpec.windowsVerbatimArguments
     });
 
@@ -740,7 +748,8 @@ class HubProcessManager {
     // Изоляция портов: проверки разных кандидатов не должны драться за один номер (decision-12).
     let effectiveCommand = command;
     let port: number | undefined;
-    if (options.portStrategy === 'auto') {
+    const exec = options.exec;
+    if (options.portStrategy === 'auto' && !exec) {
       const start = isValidPort(options.port) ? options.port : DEFAULT_PORT_SEARCH_START;
       const reserved = new Set([...this.reservedPorts(), ...this.oneShotPorts]);
       port = await findFreePort(start, PORT_SEARCH_RANGE, async (p) => !reserved.has(p) && (await isPortFree(p)));
@@ -752,13 +761,13 @@ class HubProcessManager {
     const maxBytes = options.maxOutputBytes ?? ONE_SHOT_OUTPUT_MAX_BYTES;
     const buffer: LogBufferState = { logBuffer: [], logBytes: 0 };
     let totalBytes = 0;
-    const spec = resolveShellSpawn(effectiveCommand);
+    const spec = exec ? { file: exec.file, args: exec.args, windowsVerbatimArguments: false } : resolveShellSpawn(effectiveCommand);
 
     try {
       return await new Promise<RunOnceResult>((resolve) => {
         const child = spawn(spec.file, spec.args, {
           cwd,
-          env: { ...process.env, CI: '1', FORCE_COLOR: '0', ...env },
+          env: exec ? { ...process.env, ...(exec.env ?? {}) } : { ...process.env, CI: '1', FORCE_COLOR: '0', ...env },
           windowsVerbatimArguments: spec.windowsVerbatimArguments
         });
 
@@ -769,6 +778,7 @@ class HubProcessManager {
         let timer: NodeJS.Timeout | undefined;
 
         const kill = () => {
+          exec?.onStop?.();
           if (child.pid) treeKill(child.pid, 'SIGKILL', () => {});
           else child.kill('SIGKILL');
         };

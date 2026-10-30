@@ -6,12 +6,12 @@
  * одинаковые статусы и одинаково обрезанный вывод. Проверка `ui-smoke` получает каталог
  * артефактов в `<userData>/visual` и сдаёт скриншоты/trace (TASK-78, decision-55).
  */
-import { processManager } from './processManager.js';
+import { processManager, type RunOnceResult } from './processManager.js';
 import { CHECK_OUTPUT_TAIL_CHARS, checkStatusFromExit, parseCheckOutput, tailOutput } from './arenaChecks.js';
 import { ARTIFACTS_DIR_ENV, isUiSmokeCheck, substituteArtifactsDir } from './visualArtifacts.js';
 import { visualArtifactService, type PreparedArtifactsDir } from './visualArtifactService.js';
 import type { CheckDefinition, CheckRunResult } from './arenaTypes.js';
-import type { AppError } from '../../src/lib/appError.js';
+import { AppError } from '../../src/lib/appError.js';
 
 /** Пустой результат проверки до запуска. */
 /** Причина пропуска или ошибки проверки: английский текст и код (decision-165). */
@@ -41,8 +41,15 @@ export interface CheckArtifactsTarget {
   run: string;
 }
 
+/**
+ * Запуск проверки в контейнере изолированного участника (TASK-246, [[decision-191]]): скрипты проверок пишет его
+ * агент, хост их не выполняет. Сети у контейнера нет, порт не подбирается.
+ */
+export type CheckSandboxRunner = (command: string, options: { timeoutMs?: number; signal?: AbortSignal }) => Promise<RunOnceResult>;
+
 export interface ExecuteCheckOptions {
   artifacts?: CheckArtifactsTarget;
+  sandbox?: CheckSandboxRunner;
 }
 
 /**
@@ -62,6 +69,14 @@ export async function executeCheck(
   let prepared: PreparedArtifactsDir | null = null;
   let command = def.command;
   const env: Record<string, string> = {};
+  if (options.sandbox && isUiSmokeCheck(result)) {
+    // Браузера в образе участника нет, а каталог артефактов хоста в контейнер не монтируется: его файлы хост собирал бы
+    // по путям, которые пишет агент. Блокирующая проверка не выполнена — это ошибка, а не пропуск: очередь и цикл не
+    // пропустят результат без неё (ревью TASK-246).
+    result.status = result.blocking ? 'error' : 'skipped';
+    setCheckDetail(result, new AppError('checks.sandboxUiSmoke'));
+    return result;
+  }
   if (isUiSmokeCheck(result)) {
     const target = options.artifacts ?? { scope: 'adhoc', run: `run-${result.startedAt}` };
     try {
@@ -73,14 +88,26 @@ export async function executeCheck(
     }
   }
 
-  const run = await processManager.runOnce(command, {
-    cwd: workdir,
-    timeoutMs: def.timeoutMs,
-    signal,
-    env,
-    portStrategy: def.portStrategy,
-    port: def.port
-  });
+  let run: RunOnceResult;
+  try {
+    run = options.sandbox
+      ? await options.sandbox(command, { ...(def.timeoutMs ? { timeoutMs: def.timeoutMs } : {}), ...(signal ? { signal } : {}) })
+      : await processManager.runOnce(command, {
+          cwd: workdir,
+          timeoutMs: def.timeoutMs,
+          signal,
+          env,
+          portStrategy: def.portStrategy,
+          port: def.port
+        });
+  } catch (err) {
+    // Контейнер не собрался (план отклонён): проверка не выполнена, причина — кодом.
+    result.status = 'error';
+    result.durationMs = Date.now() - (result.startedAt ?? Date.now());
+    if (err instanceof AppError) setCheckDetail(result, err);
+    else result.detail = err instanceof Error ? err.message : String(err);
+    return result;
+  }
 
   const counters = parseCheckOutput(result.kind, run.output);
   const { text, truncated } = tailOutput(run.output, CHECK_OUTPUT_TAIL_CHARS);

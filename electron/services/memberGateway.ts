@@ -3,9 +3,12 @@
  * ProjectHub только сюда, со своим коротким токеном. Шлюз проверяет токен и подставляет учётные данные хоста — ключ
  * провайдера модели и токен MCP; в контейнер они не попадают никогда.
  *
- * Маршруты — только те, что нужны Claude CLI, и только в своей сессии:
- * - `POST /model/v1/messages` и `/v1/messages/count_tokens` → API модели хоста. Остальные пути API (файлы, пакеты,
- *   администрирование аккаунта) закрыты: ключ хоста не должен открывать данные аккаунта владельца.
+ * Маршруты — только те, что нужны CLI движков, и только в своей сессии:
+ * - `POST /model/…` → API модели хоста, по протоколу движка (TASK-246): Anthropic Messages (`/v1/messages`,
+ *   `/count_tokens`) для Claude CLI, OpenAI (`/v1/chat/completions`, `/v1/responses`) для Codex CLI, Gemini
+ *   (`/v1beta/models/<модель>:generateContent|streamGenerateContent|countTokens`) для Gemini CLI. Ключ хоста шлюз
+ *   ставит в заголовок протокола. Остальные пути API (файлы, пакеты, администрирование аккаунта) закрыты: ключ хоста
+ *   не должен открывать данные аккаунта владельца.
  * - `GET /mcp/sse?<сессия HITL>` → SSE встроенного MCP-сервера, только для сессии, выданной этому токену. Адрес для
  *   сообщений из события `endpoint` шлюз переписывает на свой `/mcp/message` и привязывает id сессии MCP к токену.
  * - `POST /mcp/message?sessionId=…` → только привязанная к токену сессия MCP и только вызовы разрешённых инструментов
@@ -14,11 +17,14 @@
  * Решения по запросу — чистые функции; сервер только проксирует потоком.
  */
 import crypto from 'node:crypto';
+import { rm } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 
 export interface GatewayGrant {
   memberId: string;
+  /** Модель этого запуска (профиль LLM участника): у разных участников — свои профили. Нет — общая из `upstreams`. */
+  model?: GatewayModelUpstream;
   /** Сессия HITL этого запуска: SSE MCP пропускается только с ней в query-параметре. */
   hitlSessionId?: string;
   /** Сессии MCP (`sessionId` транспорта SSE), открытые этим токеном. */
@@ -35,9 +41,18 @@ export interface GatewayMcpUpstream {
   messagePath?: string;
 }
 
+/**
+ * API модели хоста: адрес профиля LLM как он записан (`https://api.openai.com/v1`, `https://api.anthropic.com/v1`),
+ * его ключ и дополнительные заголовки. Заголовок ключа шлюз выбирает по протоколу запроса.
+ */
+export interface GatewayModelUpstream {
+  baseUrl: string;
+  apiKey?: string;
+  headers?: Record<string, string>;
+}
+
 export interface GatewayUpstreams {
-  /** Базовый адрес API модели и заголовки с учётными данными хоста (`x-api-key`, `authorization`). */
-  model?: { baseUrl: string; headers: Record<string, string> };
+  model?: GatewayModelUpstream;
   /** Адрес встроенного MCP-сервера HITL и его токен. */
   mcp?: GatewayMcpUpstream;
 }
@@ -48,19 +63,65 @@ export type GatewayRoute =
   | { ok: true; memberId: string; kind: GatewayKind; target: URL; headers: Record<string, string>; grant: GatewayGrant }
   | { ok: false; status: 401 | 403 | 404 | 405 | 503; code: 'noToken' | 'badToken' | 'expired' | 'notFound' | 'method' | 'sessionMismatch' | 'notConfigured' };
 
-/** Пути API модели, которые нужны Claude CLI. */
-export const MODEL_PATHS = new Set(['/v1/messages', '/v1/messages/count_tokens']);
+/** Протокол API модели: Claude CLI — Anthropic, Codex CLI — OpenAI, Gemini CLI — Gemini. */
+export type ModelWire = 'anthropic' | 'openai' | 'gemini';
+
+/** Протокол по пути запроса после `/model`; `null` — такого маршрута у шлюза нет. */
+export function modelWireOf(rest: string): ModelWire | null {
+  if (rest === '/v1/messages' || rest === '/v1/messages/count_tokens') return 'anthropic';
+  if (rest === '/v1/chat/completions' || rest === '/v1/responses') return 'openai';
+  if (/^\/v1beta\/models\/[A-Za-z0-9._-]{1,128}:(generateContent|streamGenerateContent|countTokens)$/.test(rest)) return 'gemini';
+  return null;
+}
+
+/**
+ * Адрес и заголовок ключа вверх. Адрес профиля включает версию API (`…/v1`): для OpenAI к нему добавляется путь без
+ * `/v1`, для Anthropic и Gemini версия снимается — путь запроса уже с ней (`/v1/messages`, `/v1beta/models/…`).
+ */
+export function modelTarget(model: GatewayModelUpstream, wire: ModelWire, rest: string, search: string): { url: URL; auth: Record<string, string> } {
+  const base = model.baseUrl.replace(/\/+$/, '');
+  const key = model.apiKey?.trim();
+  if (wire === 'openai') return { url: joinUrl(base, rest.replace(/^\/v1(?=\/)/, ''), search), auth: key ? { authorization: `Bearer ${key}` } : {} };
+  if (wire === 'gemini') return { url: joinUrl(base.replace(/\/(v1beta|v1)(\/openai)?$/, ''), rest, search), auth: key ? { 'x-goog-api-key': key } : {} };
+  return { url: joinUrl(base.replace(/\/v1$/, ''), rest, search), auth: key ? { 'x-api-key': key } : {} };
+}
 
 /** Заголовки, которые не уходят вверх: учётные данные контейнера, хоп-заголовки и адрес шлюза. */
-const DROP_HEADERS = new Set(['authorization', 'x-api-key', 'proxy-authorization', 'host', 'connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'te', 'trailer', 'cookie']);
+const DROP_HEADERS = new Set([
+  'authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'proxy-authorization',
+  'host',
+  'connection',
+  'keep-alive',
+  'transfer-encoding',
+  'upgrade',
+  'te',
+  'trailer',
+  'cookie'
+]);
 
-/** Токен запроса: `Authorization: Bearer …` (ANTHROPIC_AUTH_TOKEN, MCP) или `x-api-key` (ANTHROPIC_API_KEY). */
+/**
+ * Заголовки контейнера, которые уходят к API модели (ревью TASK-246): формат, версия и beta-флаги протокола. Остальное —
+ * организация и проект ключа (`openai-organization`, `openai-project`, `x-goog-user-project`) и прочее — не уходит:
+ * участник не выбирает другую организацию владельца ключа.
+ */
+export function modelHeaderAllowed(name: string): boolean {
+  const n = name.toLowerCase();
+  return ['content-type', 'content-length', 'accept', 'accept-encoding', 'user-agent', 'anthropic-version', 'anthropic-beta', 'openai-beta', 'x-goog-api-client'].includes(n) || n.startsWith('x-stainless-');
+}
+
+/**
+ * Токен запроса: `Authorization: Bearer …` (ANTHROPIC_AUTH_TOKEN, ключ провайдера Codex, MCP), `x-api-key`
+ * (ANTHROPIC_API_KEY) или `x-goog-api-key` (GEMINI_API_KEY).
+ */
 export function gatewayToken(headers: Record<string, string | string[] | undefined>): string | null {
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const auth = one(headers.authorization);
   const bearer = auth && /^Bearer\s+(\S+)$/i.exec(auth.trim());
   if (bearer) return bearer[1];
-  const key = one(headers['x-api-key'])?.trim();
+  const key = (one(headers['x-api-key']) ?? one(headers['x-goog-api-key']))?.trim();
   return key || null;
 }
 
@@ -104,10 +165,14 @@ export function resolveGatewayRoute(
 
   if (url.pathname.startsWith('/model/')) {
     const rest = url.pathname.slice('/model'.length);
-    if (!MODEL_PATHS.has(rest)) return { ok: false, status: 404, code: 'notFound' };
+    const wire = modelWireOf(rest);
+    if (!wire) return { ok: false, status: 404, code: 'notFound' };
     if (method !== 'POST') return { ok: false, status: 405, code: 'method' };
-    if (!upstreams.model) return { ok: false, status: 503, code: 'notConfigured' };
-    return { ok: true, memberId: grant.memberId, kind: 'model', grant, target: joinUrl(upstreams.model.baseUrl, rest, url.search), headers: { ...headers, ...lower(upstreams.model.headers) } };
+    const model = grant.model ?? upstreams.model;
+    if (!model) return { ok: false, status: 503, code: 'notConfigured' };
+    const { url: target, auth } = modelTarget(model, wire, rest, url.search);
+    const allowed = Object.fromEntries(Object.entries(headers).filter(([name]) => modelHeaderAllowed(name)));
+    return { ok: true, memberId: grant.memberId, kind: 'model', grant, target, headers: { ...allowed, ...lower(model.headers ?? {}), ...auth } };
   }
 
   const mcp = upstreams.mcp;
@@ -209,10 +274,11 @@ export class MemberGateway {
   }
 
   /** Короткий токен участника на один запуск; отзывается по завершении агента. */
-  grant(memberId: string, opts: { hitlSessionId?: string; ttlMs?: number } = {}): string {
+  grant(memberId: string, opts: { hitlSessionId?: string; ttlMs?: number; model?: GatewayModelUpstream } = {}): string {
     const token = `phg_${crypto.randomBytes(32).toString('base64url')}`;
     this.grants.set(token, {
       memberId,
+      ...(opts.model ? { model: opts.model } : {}),
       ...(opts.hitlSessionId ? { hitlSessionId: opts.hitlSessionId } : {}),
       mcpSessions: new Set(),
       expiresAt: Date.now() + (opts.ttlMs ?? 12 * 3600_000)
@@ -235,6 +301,26 @@ export class MemberGateway {
     this.host = host;
     this.port = (server.address() as { port: number }).port;
     return { host, port: this.port };
+  }
+
+  /**
+   * Шлюз на unix-сокете (Linux, TASK-246): сетевого адреса нет совсем — ни loopback, ни моста. Сокет лежит в каталоге
+   * `0700` пользователя хоста; пересыльщик получает его монтированием каталога. Старый сокет от упавшего процесса
+   * удаляется перед `listen`.
+   */
+  async startSocket(socketPath: string): Promise<{ path: string }> {
+    if (this.server) return { path: this.host };
+    // Именованный канал Windows (`\\.\pipe\…`, только для тестов) файлом не удаляется.
+    if (!socketPath.startsWith('\\\\')) await rm(socketPath, { force: true });
+    const server = http.createServer((req, res) => this.handle(req, res));
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, () => resolve());
+    });
+    this.server = server;
+    this.host = socketPath;
+    this.port = 0;
+    return { path: socketPath };
   }
 
   async stop(): Promise<void> {
