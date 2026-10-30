@@ -19,6 +19,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { applyRolePermissions, CLI_READ_TOOLS, CLI_SUBAGENT_TOOLS, CLI_WRITE_TOOLS, commandFromInput, evaluateToolRequest, filePathFromInput, type PolicyVerdict } from './hitlPolicy.js';
 import { roleForAgentType } from './roleExport.js';
+import { cliConfigDirOfTranscript, isCliPlanFile } from './claudeStreamEvents.js';
 import { hitlService } from './hitlService.js';
 import { appEventBus } from './eventBus.js';
 import { getUserDataDir } from './appPaths.js';
@@ -326,6 +327,21 @@ export class TerminalHookService {
     const calls = policyToolCalls(event);
     // На вопрос модели отвечает человек в терминале — очередь ProjectHub тут не нужна.
     if (calls[0]?.tool === 'AskUserQuestion') return { kind: 'none' };
+
+    // Файл плана Claude Code в каталоге аккаунта (plan mode, TASK-282): «вне проекта» отказал бы, и CLI утвердил бы
+    // пустой план — как в Studio до TASK-272. Разрешается без карточки, с записью в аудит.
+    const configDir = event.engine === 'claude' ? cliConfigDirOfTranscript(event.transcriptPath) : '';
+    if (configDir && calls.length > 0 && calls.every((c) => CLI_WRITE_TOOLS.includes(c.tool) && isCliPlanFile(filePathFromInput(c.input), configDir))) {
+      const filePath = calls.map((c) => filePathFromInput(c.input)).join(', ');
+      const id = this.deps.hitl.recordAutoDecision(
+        { ...this.meta(event, projectPath), type: 'file_write', title: `${tool}: cli-plan-file`, filePath },
+        'allow',
+        'cli-plan-file',
+        'Claude Code plan file in the account plans folder'
+      );
+      this.remember(event.toolUseId, id);
+      return { kind: 'none' };
+    }
 
     const { roles } = await this.deps.loadRoles(projectPath);
     const role = roleForAgentType(roles, event.agentType);

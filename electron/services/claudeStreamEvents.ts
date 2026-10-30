@@ -157,6 +157,22 @@ export function isCliPlanFile(filePath: unknown, configDir: string | undefined, 
   return p.dirname(file) === plansDir && /\.md$/i.test(file) && p.basename(file).length > 3;
 }
 
+/**
+ * Каталог аккаунта Claude Code по пути разговора из входа хука (`transcript_path`):
+ * `<CLAUDE_CONFIG_DIR>/projects/<каталог запуска>/<id>.jsonl`, у подагента глубже. Хук терминала не знает
+ * `CLAUDE_CONFIG_DIR` процесса CLI (TASK-282) — каталог берётся отсюда. Иначе пустая строка.
+ */
+export function cliConfigDirOfTranscript(transcriptPath: unknown, platform: NodeJS.Platform = process.platform): string {
+  if (typeof transcriptPath !== 'string' || !/\.jsonl$/i.test(transcriptPath.trim())) return '';
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  if (!p.isAbsolute(transcriptPath)) return '';
+  const parts = p.resolve(transcriptPath).split(p.sep);
+  const at = parts.lastIndexOf('projects');
+  // После `projects` — каталог запуска и хотя бы файл разговора; до него — сам каталог аккаунта.
+  if (at < 1 || parts.length - at < 3) return '';
+  return parts.slice(0, at).join(p.sep) || p.sep;
+}
+
 /** Текст плана из ввода `ExitPlanMode`; пустая строка, если модель плана не передала. */
 export function planTextOf(input: Record<string, unknown> | undefined): string {
   const plan = input?.plan;

@@ -168,7 +168,7 @@ export interface CreateSessionOptions {
 }
 
 /** Перехваченная слеш-команда Claude Code вкладки (TASK-230). */
-export type PendingCliCommand = StudioCliCommand & {
+export type PendingCliCommand = Exclude<StudioCliCommand, { kind: 'plan' }> & {
   projectPath: string;
   sessionId: string;
   claudeAccountId?: string;
@@ -598,6 +598,33 @@ export const useAIStudioStore = create<AIStudioState>()(
             )
           }
         }));
+        // Пустая вкладка показывает переписку продолжаемой сессии, как `/resume` в CLI (TASK-282). Вкладка со своей
+        // перепиской её сохраняет: чужие реплики посреди неё сбили бы порядок.
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session || (session.messages || []).length > 0 || !window.api?.readCliSession) return;
+        const claudeAccountId = sessionClaudeAccountId(session.agent);
+        void window.api
+          .readCliSession({ projectPath, cwd, cliSessionId, ...(claudeAccountId ? { claudeAccountId } : {}) })
+          .then((history) => {
+            if (history.length === 0) return;
+            set((state) => ({
+              sessions: {
+                ...state.sessions,
+                [projectPath]: (state.sessions[projectPath] || []).map((s) => {
+                  // За время чтения вкладку могли привязать к другой сессии или начать в ней разговор.
+                  if (s.id !== sessionId || s.claudeCliSessionId !== cliSessionId || (s.messages || []).length > 0) return s;
+                  const firstPrompt = history.find((m) => m.role === 'user')?.content ?? '';
+                  const autoTitle = isAutoSessionTitle(s) && Boolean(firstPrompt);
+                  return {
+                    ...s,
+                    messages: history.map((m) => ({ ...m })),
+                    ...(autoTitle ? { title: titleFromPrompt(firstPrompt), autoTitle: undefined } : {})
+                  };
+                })
+              }
+            }));
+          })
+          .catch((err) => console.warn('[AIStudio] Не удалось прочитать переписку сессии Claude Code:', err));
       },
 
       renameSession: (projectPath: string, sessionId: string, newTitle: string) => {
@@ -794,6 +821,12 @@ export const useAIStudioStore = create<AIStudioState>()(
         const cli = opts.sessionId || opts.fromRemote ? null : studioCliCommand(text, requestConfig);
         if (cli?.kind === 'resume' && cli.cliSessionId) {
           get().attachCliSession(projectPath, activeSessionId, cli.cliSessionId, cliCwd);
+          return;
+        }
+        // `/plan` (TASK-282) — режим architect, то есть plan mode CLI (decision-196); текст после команды уходит уже в нём.
+        if (cli?.kind === 'plan') {
+          set({ mode: 'architect' });
+          if (cli.prompt) await get().sendMessage(projectPath, cli.prompt, { ...opts, mode: 'architect' });
           return;
         }
         if (cli) {

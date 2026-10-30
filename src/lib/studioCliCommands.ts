@@ -5,19 +5,41 @@ import { claudeEngineOf } from './connections';
  * Слеш-команды Claude Code, которые Agents Studio выполнить не может (TASK-230). Studio запускает CLI без терминала
  * (`claude -p`), и встроенные интерактивные команды CLI отвечает «isn't available in this environment»: `/resume` ждёт
  * выбора в интерактивном списке, `/remote-control` и настройки — живой процесс с терминалом. Studio перехватывает их
- * до отправки: `/resume` — свой выбор сессии, остальное — продолжение разговора в терминале ProjectHub.
+ * до отправки: `/resume` — свой выбор сессии, `/plan` — plan mode вкладки (TASK-282), остальное — продолжение
+ * разговора в терминале ProjectHub.
  */
 
-export type StudioCliCommand = { kind: 'resume'; cliSessionId?: string } | { kind: 'terminal'; command: string };
+export type StudioCliCommand =
+  | { kind: 'resume'; cliSessionId?: string }
+  | { kind: 'plan'; prompt?: string }
+  | { kind: 'terminal'; command: string };
 
 /**
- * Встроенные команды CLI, которым нужен интерактивный терминал. Список сверен с Claude Code 2.1.312: `claude -p "/X"`
- * отвечает «/X isn't available in this environment.» без хода модели. Команды, которые в `-p` работают (`/mcp`,
- * `/model`, `/context`, `/cost`, `/compact`, `/review`), уходят в CLI как есть. Команду, которой здесь нет и которую
- * CLI отклонит, ловит {@link unavailableCliCommand} по ответу.
+ * Встроенные команды CLI, которым нужен интерактивный терминал. Список сверен с Claude Code 2.1.314 (TASK-282):
+ * `claude -p "/X"` отвечает «/X isn't available in this environment.» без хода модели; `doctor`, `color`, `focus` и
+ * `reload-plugins` CLI сам относит к терминальным (`terminal_slash_commands` события init). Команды, которые в `-p`
+ * работают (`/mcp`, `/model`, `/context`, `/cost`, `/usage`, `/compact`, `/review`, `/effort`), уходят в CLI как есть.
+ * `login`, `logout`, `upgrade` и подобные вживую не проверялись — они меняют аккаунт или установку. Команду, которой
+ * здесь нет и которую CLI отклонит, ловит {@link unavailableCliCommand} по ответу.
  */
 const TERMINAL_ONLY = new Set([
   'remote-control',
+  'remote-env',
+  'mobile',
+  'desktop',
+  'teleport',
+  'chrome',
+  'voice',
+  'keybindings',
+  'sandbox',
+  'skills',
+  'workflows',
+  'tasks',
+  'btw',
+  'branch',
+  'fork',
+  'copy',
+  'focus',
   'login',
   'logout',
   'config',
@@ -64,22 +86,28 @@ export function goesToClaudeCli(config: Pick<AIProviderConfig, 'provider' | 'api
 
 export function studioCliCommand(text: string, config: Pick<AIProviderConfig, 'provider' | 'apiKey' | 'engine'>): StudioCliCommand | null {
   if (!goesToClaudeCli(config)) return null;
-  const match = /^\/([a-z][a-z-]*)(?:\s+(\S+))?/i.exec(text.trim());
-  if (!match || (text.trim().length > match[0].length && !/^\s/.test(text.trim().slice(match[0].length)))) return null;
+  const match = /^\/([a-z][a-z-]*)(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  if (!match) return null;
   const name = match[1].toLowerCase();
+  const rest = (match[2] ?? '').trim();
   if (name === 'resume') {
     // `/resume <id>` — сразу эта сессия, без списка; другой аргумент (поиск CLI) — список.
-    const arg = match[2];
+    const arg = rest.split(/\s+/)[0];
     return arg && SESSION_ID_RE.test(arg) ? { kind: 'resume', cliSessionId: arg.toLowerCase() } : { kind: 'resume' };
   }
+  // `/plan [задача]` в CLI включает plan mode сессии; в Studio это режим architect (decision-196).
+  if (name === 'plan') return rest ? { kind: 'plan', prompt: rest } : { kind: 'plan' };
+  // `/config key=value` CLI выполняет и без терминала, без аргументов — открывает экран настроек.
+  if (name === 'config' && rest) return null;
   return TERMINAL_ONLY.has(name) ? { kind: 'terminal', command: name } : null;
 }
 
 /**
- * Ответ CLI на встроенную команду, которой нет в режиме без терминала: «/X isn't available in this environment.».
+ * Ответ CLI на встроенную команду, которой нет в режиме без терминала: «/X isn't available in this environment.»
+ * (у `/focus` в 2.1.314 — «isn't available here yet»).
  * Возвращает имя команды — Studio заменяет английский ответ своим текстом и предлагает терминал.
  */
 export function unavailableCliCommand(reply: string | undefined): string | null {
-  const match = /^\/([a-z][a-z-]*) isn't available in this environment\.?$/i.exec((reply || '').trim());
+  const match = /^\/([a-z][a-z-]*) isn't available (?:in this environment|here yet)\.?$/i.exec((reply || '').trim());
   return match ? match[1].toLowerCase() : null;
 }

@@ -73,6 +73,97 @@ export function matchSessionDirs(names: readonly string[], cwd: string): string[
   return names.filter((n) => n.toLowerCase().startsWith(prefix) && /^[a-z0-9]+$/i.test(n.slice(prefix.length)));
 }
 
+/** Реплика разговора CLI для ленты вкладки после `/resume` (TASK-282): только текст, без вызовов инструментов. */
+export interface CliTranscriptMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+/** Сколько последних реплик разговора показывает вкладка: длинная сессия CLI не раздувает файл вкладки. */
+export const CLI_TRANSCRIPT_LIMIT = 200;
+/** Читается хвост файла сессии: в начале длинной сессии — то, что модель всё равно уже сжала. */
+const TRANSCRIPT_TAIL_BYTES = 16 * 1024 * 1024;
+
+function humanText(content: unknown): string {
+  if (typeof content === 'string') return content.trim().startsWith('<') ? '' : content.trim();
+  if (!Array.isArray(content)) return '';
+  // Результаты инструментов и служебные части CLI (`<system-reminder>`, `<ide_opened_file>`) — не реплика человека.
+  return content
+    .map((part: { type?: unknown; text?: unknown }) => (part?.type === 'text' && typeof part.text === 'string' ? part.text.trim() : ''))
+    .filter((part) => part && !part.startsWith('<'))
+    .join('\n\n');
+}
+
+/**
+ * Реплики человека и текст ответов модели из файла сессии CLI. Блоки одного ответа (`message.id`) CLI пишет отдельными
+ * строками — они склеиваются. Разговоры подагентов (`isSidechain`), служебные строки (`isMeta`), сводки сжатия,
+ * заглушки CLI (`<synthetic>`) и результаты инструментов пропускаются. Последние {@link CLI_TRANSCRIPT_LIMIT} реплик.
+ */
+export function cliTranscriptMessages(text: string, limit = CLI_TRANSCRIPT_LIMIT): CliTranscriptMessage[] {
+  const out: CliTranscriptMessage[] = [];
+  const byMessageId = new Map<string, CliTranscriptMessage>();
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let entry: { type?: unknown; uuid?: unknown; timestamp?: unknown; isMeta?: unknown; isSidechain?: unknown; isCompactSummary?: unknown; message?: { id?: unknown; model?: unknown; content?: unknown } };
+    try {
+      entry = JSON.parse(line) as typeof entry;
+    } catch {
+      continue;
+    }
+    if ((entry.type !== 'user' && entry.type !== 'assistant') || entry.isMeta === true || entry.isSidechain === true || entry.isCompactSummary === true) continue;
+    const timestamp = typeof entry.timestamp === 'string' ? entry.timestamp : new Date(0).toISOString();
+    const uuid = typeof entry.uuid === 'string' ? entry.uuid : `cli-${out.length}`;
+    if (entry.type === 'user') {
+      const content = humanText(entry.message?.content);
+      if (content) out.push({ id: `cli-${uuid}`, role: 'user', content, timestamp });
+      continue;
+    }
+    // Заглушки самого CLI («No response requested.» после прерванного хода) — не ответ модели.
+    if (entry.message?.model === '<synthetic>') continue;
+    const parts = Array.isArray(entry.message?.content) ? entry.message.content : [];
+    const content = parts
+      .map((part: { type?: unknown; text?: unknown }) => (part?.type === 'text' && typeof part.text === 'string' ? part.text.trim() : ''))
+      .filter(Boolean)
+      .join('\n\n');
+    if (!content) continue;
+    const messageId = typeof entry.message?.id === 'string' ? entry.message.id : '';
+    const previous = messageId ? byMessageId.get(messageId) : undefined;
+    if (previous) {
+      previous.content = `${previous.content}\n\n${content}`;
+      continue;
+    }
+    const message: CliTranscriptMessage = { id: `cli-${uuid}`, role: 'assistant', content, timestamp };
+    out.push(message);
+    if (messageId) byMessageId.set(messageId, message);
+  }
+  return out.slice(-limit);
+}
+
+/** Реплики сессии CLI `sessionId` рабочего каталога `cwd`; пусто, если файла нет. */
+export async function readCliSessionMessages(configDir: string, cwd: string, sessionId: string): Promise<CliTranscriptMessage[]> {
+  if (!isCliSessionId(sessionId)) return [];
+  const root = path.join(configDir, 'projects');
+  const names = await fs.readdir(root).catch(() => [] as string[]);
+  for (const dir of matchSessionDirs(names, cwd)) {
+    const file = path.join(root, dir, `${sessionId}.jsonl`);
+    const handle = await fs.open(file, 'r').catch(() => null);
+    if (!handle) continue;
+    try {
+      const { size } = await handle.stat();
+      const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
+      const buffer = Buffer.alloc(size - start);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, start);
+      // Хвост мог начаться посреди строки — первую неполную строку отбрасывает парсер (JSON не разберётся).
+      return cliTranscriptMessages(buffer.subarray(0, bytesRead).toString('utf8'));
+    } finally {
+      await handle.close();
+    }
+  }
+  return [];
+}
+
 export async function listCliSessions(configDir: string, cwd: string): Promise<CliSessionSummary[]> {
   const root = path.join(configDir, 'projects');
   const names = await fs.readdir(root).catch(() => [] as string[]);

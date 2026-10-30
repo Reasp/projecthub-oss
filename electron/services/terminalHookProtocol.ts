@@ -32,6 +32,8 @@ export interface NormalizedHookEvent {
   toolUseId?: string;
   /** Имя субагента (Claude Code: `agent_type`), если вызов сделан из субагента. Antigravity его не передаёт. */
   agentType?: string;
+  /** Путь разговора Claude Code (`transcript_path`): по нему находится каталог аккаунта CLI. */
+  transcriptPath?: string;
   /** Stop: хук уже продолжал работу агента в этом ходе (защита от цикла). */
   stopHookActive: boolean;
   /** Stop Antigravity: `fullyIdle: false` — разговор ещё ждёт своих субагентов, работа не закончена. */
@@ -136,6 +138,7 @@ export function parseHookPayload(engine: HookEngine, raw: unknown, eventHint?: s
       toolInput: record(p.tool_input),
       ...(str(p.tool_use_id) ? { toolUseId: str(p.tool_use_id) } : {}),
       ...(str(p.agent_type) ? { agentType: str(p.agent_type) } : {}),
+      ...(str(p.transcript_path) ? { transcriptPath: str(p.transcript_path) } : {}),
       stopHookActive: p.stop_hook_active === true,
       toolFailed: failure.failed,
       ...(failure.detail ? { errorDetail: failure.detail } : {})

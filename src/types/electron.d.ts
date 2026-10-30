@@ -1400,6 +1400,8 @@ export interface IElectronAPI {
   claudeLogout: (query?: { projectPath?: string; accountId?: string }) => Promise<boolean>;
   /** Сессии Claude Code рабочей папки под аккаунтом вкладки Studio (TASK-230, `/resume`). */
   listCliSessions: (query: { projectPath: string; cwd?: string; claudeAccountId?: string }) => Promise<CliSessionSummary[]>;
+  /** Переписка сессии Claude Code — в ленту вкладки после `/resume` (TASK-282): текст реплик, без инструментов. */
+  readCliSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => Promise<CliTranscriptMessage[]>;
   /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
   claudeAccounts: {
     overview: () => Promise<ClaudeAccountsOverview>;
@@ -3433,6 +3435,14 @@ export interface CliSessionSummary {
   id: string;
   updatedAt: number;
   title: string;
+}
+
+/** Зеркало `CliTranscriptMessage` из `electron/services/claudeCliSessions.ts`. */
+export interface CliTranscriptMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
 }
 
 export interface ClaudeUsageLimitWindow {

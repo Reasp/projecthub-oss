@@ -124,6 +124,7 @@ export const TUNNEL_CHANNELS: ReadonlySet<string> = new Set([
   'ai:clearSession',
   'ai:getClaudeAuthStatus',
   'ai:listCliSessions',
+  'ai:readCliSession',
   'ai:previewContext',
   'ai:streamChat',
   'ai:taskDraft',
