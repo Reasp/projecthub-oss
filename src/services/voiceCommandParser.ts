@@ -68,6 +68,8 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
     .trim();
 
   for (const cmd of CONFIGURABLE_COMMANDS) {
+    // «Отправь», «очисти» — команды диктовки в поле; вне режима это обычная речь (TASK-275).
+    if (cmd.promptDictationOnly) continue;
     const phrases = (customPhrases && customPhrases[cmd.intent]) || cmd.defaultPhrases;
     for (const p of phrases) {
       const normP = p.toLowerCase().trim();

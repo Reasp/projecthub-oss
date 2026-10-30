@@ -7,6 +7,8 @@ export interface CommandPhraseDefinition {
   defaultPhrases: string[];
   payload?: any;
   feedbackText: string;
+  /** Служебная команда диктовки в поле Studio: узнаётся только в этом режиме, общий разбор её пропускает (TASK-275). */
+  promptDictationOnly?: boolean;
 }
 
 export const CONFIGURABLE_COMMANDS: CommandPhraseDefinition[] = [
@@ -235,6 +237,47 @@ export const CONFIGURABLE_COMMANDS: CommandPhraseDefinition[] = [
     // Эти фразы — единственный выход из режима: всё остальное, что слышно, печатается как текст.
     defaultPhrases: ['конец диктовки', 'стоп диктовка', 'закончить диктовку', 'выключи диктовку', 'stop dictation', 'end dictation'],
     feedbackText: 'Выключаю режим диктовки'
+  },
+
+  // ── Диктовка промпта в поле Agents Studio (TASK-275) ──
+  {
+    intent: 'prompt_dictation_start',
+    type: 'ai_control',
+    category: 'dialog',
+    nameKey: 'promptDictationStart',
+    descKey: 'promptDictationStartDesc',
+    defaultPhrases: ['диктуй промпт', 'диктовка промпта', 'надиктую промпт', 'диктовка в поле', 'диктовка агенту', 'dictate prompt', 'prompt dictation'],
+    feedbackText: 'Диктовка в поле Agents Studio'
+  },
+  {
+    intent: 'prompt_dictation_send',
+    type: 'ai_control',
+    category: 'dialog',
+    nameKey: 'promptDictationSend',
+    descKey: 'promptDictationSendDesc',
+    defaultPhrases: ['отправь', 'отправить', 'отправляй', 'отправь агенту', 'send', 'send it', 'submit'],
+    feedbackText: 'Отправляю промпт',
+    promptDictationOnly: true
+  },
+  {
+    intent: 'prompt_dictation_clear',
+    type: 'ai_control',
+    category: 'dialog',
+    nameKey: 'promptDictationClear',
+    descKey: 'promptDictationClearDesc',
+    defaultPhrases: ['очисти', 'очисти поле', 'очистить', 'сотри все', 'сотри всё', 'clear', 'clear field', 'clear all'],
+    feedbackText: 'Поле очищено',
+    promptDictationOnly: true
+  },
+  {
+    intent: 'prompt_dictation_newline',
+    type: 'ai_control',
+    category: 'dialog',
+    nameKey: 'promptDictationNewline',
+    descKey: 'promptDictationNewlineDesc',
+    defaultPhrases: ['новая строка', 'с новой строки', 'new line', 'newline'],
+    feedbackText: 'Новая строка',
+    promptDictationOnly: true
   }
 ];
 

@@ -123,6 +123,11 @@ export const VOICE_INTENT_CATALOG: VoiceIntentSpec[] = [
   { id: 'quick_commit', type: 'ai_control', description: 'быстрый промпт «сделай коммит»' },
   { id: 'quick_deploy', type: 'ai_control', description: 'быстрый промпт «деплой»' },
   { id: 'show_claude_usage', type: 'ai_control', description: 'показать лимиты и расход токенов' },
+  {
+    id: 'prompt_dictation_start',
+    type: 'ai_control',
+    description: 'начать диктовку длинного промпта в поле ввода Agents Studio — сам текст промпта прозвучит следующими фразами'
+  },
 
   // ── Действия ──
   { id: 'open_code', type: 'action', description: 'открыть проект в редакторе кода' },

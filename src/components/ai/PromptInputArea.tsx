@@ -3,6 +3,12 @@ import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTo
 import type { BacklogTask, GitRepoDetails } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
 import { voiceService, type VoiceState } from '../../services/voiceService';
+import {
+  appendDictationChunk,
+  appendDictationNewline,
+  getPromptDictationTarget,
+  registerPromptDictationTarget
+} from '../../services/promptDictation';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { ComposerMenu, type ComposerMenuItem } from './ComposerMenu';
 
@@ -31,24 +37,31 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   const { t } = useTranslation();
   const [input, setInput] = useState('');
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [promptDictation, setPromptDictation] = useState(voiceService.isPromptDictationActive);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /** Текст поля для диктовки: две фразы подряд приходят раньше перерисовки. */
+  const inputRef = useRef(input);
 
+  useEffect(() => {
+    inputRef.current = input;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    if (input) {
+      el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [input]);
+
+  // Распознанная речь сама в поле не попадает (TASK-275): вне диктовки это команды, а не текст промпта.
   useEffect(() => {
     const offState = voiceService.onStateChange((st: VoiceState) => {
       setVoiceState(st);
     });
-
-    const offResult = voiceService.onResult((text: string, isFinal: boolean) => {
-      if (isFinal && text.trim()) {
-        // If recording was initiated, append to input
-        setInput((prev) => (prev ? `${prev} ${text.trim()}` : text.trim()));
-      }
-    });
-
-    // Без отписки каждое перемонтирование поля добавляло ещё один слушатель: фраза вставлялась несколько раз.
+    const offDictation = voiceService.onPromptDictationChange(setPromptDictation);
     return () => {
       offState();
-      offResult();
+      offDictation();
     };
   }, []);
 
@@ -57,25 +70,59 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   const isTranscribing = voiceState === 'transcribing';
 
   const handleToggleVoiceDictation = () => {
-    voiceService.toggleHandsFree();
+    if (voiceService.isPromptDictationActive) {
+      voiceService.stopPromptDictation();
+    } else {
+      void voiceService.startPromptDictation();
+    }
   };
 
   // Во время ответа сообщение не теряется, а встаёт в очередь вкладки (TASK-273).
-  const handleSend = () => {
-    if (!input.trim()) return;
-    const textToSend = input.trim();
+  const sendText = (text: string): boolean => {
+    const textToSend = text.trim();
+    if (!textToSend) return false;
+    inputRef.current = '';
     setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
 
     if (textToSend.toLowerCase() === '/usage' || textToSend.toLowerCase() === '/cost') {
       window.dispatchEvent(new CustomEvent('projecthub:open-claude-usage'));
-      return;
+      return true;
     }
 
     onSend(textToSend);
+    return true;
   };
+
+  const handleSend = () => {
+    sendText(input);
+  };
+
+  const sendTextRef = useRef(sendText);
+  useEffect(() => {
+    sendTextRef.current = sendText;
+  });
+
+  // Поле открытой вкладки принимает голосовую диктовку; ушли из Studio — диктовать некуда.
+  useEffect(() => {
+    const unregister = registerPromptDictationTarget({
+      apply: (text, command) => {
+        let next = appendDictationChunk(inputRef.current, text);
+        if (command === 'clear') next = '';
+        if (command === 'newline') next = appendDictationNewline(next);
+        if (command === 'send') return { sent: sendTextRef.current(next) };
+        inputRef.current = next;
+        setInput(next);
+        return { sent: false };
+      }
+    });
+    return () => {
+      unregister();
+      // StrictMode снимает поле и тут же монтирует снова — режим гасим, только если поле не вернулось.
+      setTimeout(() => {
+        if (!getPromptDictationTarget()) voiceService.stopPromptDictation();
+      }, 0);
+    };
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -156,13 +203,15 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
           spellCheck={false}
           data-gramm="false"
           data-enable-grammarly="false"
-          onChange={(e) => {
-            setInput(e.target.value);
-            e.target.style.height = 'auto';
-            e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
-          }}
+          onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isHandsFree ? t.aiStudio.input.handsFreePlaceholder : t.aiStudio.input.placeholder}
+          placeholder={
+            promptDictation
+              ? t.aiStudio.input.promptDictationPlaceholder
+              : isHandsFree
+                ? t.aiStudio.input.handsFreePlaceholder
+                : t.aiStudio.input.placeholder
+          }
           className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none resize-none font-sans px-1.5 py-1 leading-relaxed max-h-44"
         />
 
@@ -185,6 +234,16 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
             />
           </div>
 
+          {promptDictation && !isSpeech && !isTranscribing && (
+            <div
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[11px] shrink-0"
+              data-testid="prompt-dictation-badge"
+            >
+              <Mic className="w-3 h-3 text-rose-400" />
+              <span>{t.aiStudio.input.promptDictationBadge}</span>
+            </div>
+          )}
+
           {/* Live Audio Status */}
           {isSpeech && (
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] animate-pulse shrink-0">
@@ -201,29 +260,27 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
 
           {footerEnd}
 
-          {/* Voice Dictation Button in Prompt Box */}
+          {/* Диктовка промпта в это поле (TASK-275) */}
           <div className="relative inline-flex items-center shrink-0">
             <button
               type="button"
               onClick={handleToggleVoiceDictation}
+              aria-pressed={promptDictation}
+              data-testid="prompt-dictation-toggle"
               className={`p-1.5 rounded-lg transition flex items-center justify-center shrink-0 ${
-                isSpeech
+                promptDictation && isSpeech
                   ? 'bg-emerald-600 text-white ring-2 ring-emerald-500/40 animate-pulse'
-                  : isTranscribing
+                  : promptDictation && isTranscribing
                   ? 'bg-amber-600 text-white'
-                  : isHandsFree
-                  ? 'bg-indigo-600 text-white ring-2 ring-indigo-500/40'
+                  : promptDictation
+                  ? 'bg-rose-600 text-white ring-2 ring-rose-500/40'
                   : 'text-slate-400 hover:text-indigo-300 hover:bg-ph-raised'
               }`}
-              title={isHandsFree ? t.aiStudio.input.handsFreeDisableTitle : t.aiStudio.input.handsFreeEnableTitle}
+              title={promptDictation ? t.aiStudio.input.promptDictationStopTitle : t.aiStudio.input.promptDictationStartTitle}
             >
               <Mic className="w-4 h-4" />
             </button>
-            <VoiceBadge
-              command={t.aiStudio.input.voicePromptCmd}
-              altCommand={t.aiStudio.input.voiceAskCmd}
-              position="top"
-            />
+            <VoiceBadge command={t.aiStudio.input.promptDictationCmd} position="top" />
           </div>
 
           {isStreaming ? (

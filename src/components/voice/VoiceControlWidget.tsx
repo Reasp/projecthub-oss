@@ -18,6 +18,7 @@ import {
 import { ttsNoticeView } from '../../services/ttsReplyPolicy';
 import { parseVoiceCommand, type ParsedVoiceCommand } from '../../services/voiceCommandParser';
 import { isFuzzyDictationStop } from '../../services/dictationStopMatch';
+import { getPromptDictationTarget, interpretPromptDictation } from '../../services/promptDictation';
 import { applyWakeGate, createWakeWindow } from '../../services/wakeWord';
 import { summarizeForSpeech } from '../../services/ttsSummary';
 import { useProjectStore } from '../../store/useProjectStore';
@@ -246,6 +247,14 @@ export const VoiceControlWidget: React.FC = () => {
           const feedback = t.voice.feedback.chatOpened.replace('{title}', matched.title);
           setLastFeedback(feedback);
         }
+        return;
+      }
+
+      // Диктовка промпта в поле Studio (TASK-275): дальше фразы склеиваются в поле до «отправь».
+      else if (cmd.intent === 'prompt_dictation_start') {
+        setActiveTab('ai');
+        const started = await voiceService.startPromptDictation();
+        if (started) setLastFeedback(t.voice.feedback.promptDictationOn);
         return;
       }
 
@@ -608,6 +617,37 @@ export const VoiceControlWidget: React.FC = () => {
       }
       setLastFeedback(dict.voice.feedback.dictationTyped.replace('{text}', typedResponse.typed || rawText));
       return;
+    }
+
+    // Диктовка промпта в поле Studio (TASK-275): куски склеиваются в поле, узнаются только служебные
+    // команды режима. Фраза с ключевым словом, не являющаяся такой командой, идёт обычным путём ниже.
+    if (voiceService.isPromptDictationActive) {
+      const result = interpretPromptDictation(rawText, {
+        phrases: voiceService.getCommandPhrases(),
+        wakeWordEnabled: config.wakeWordEnabled === true,
+        wakeWordPhrases: config.wakeWordPhrases
+      });
+      if (result.kind === 'ignore') return;
+      if (result.kind === 'dictate') {
+        const fieldCommand = result.command === 'stop' ? null : result.command;
+        const target = getPromptDictationTarget();
+        if (!target && (result.text || fieldCommand)) {
+          setLastFeedback(dict.voice.feedback.promptDictationNoField);
+          return;
+        }
+        const outcome = target ? target.apply(result.text, fieldCommand) : { sent: false };
+        if (result.command === 'stop') {
+          voiceService.stopPromptDictation();
+          setLastFeedback(dict.voice.feedback.promptDictationOff);
+        } else if (result.command === 'send') {
+          // Один промпт — одна диктовка: после отправки «да» и «стоп» снова команды, а не текст.
+          if (outcome.sent) voiceService.stopPromptDictation();
+          setLastFeedback(outcome.sent ? dict.voice.feedback.promptDictationSent : dict.voice.feedback.promptDictationEmpty);
+        } else if (result.command === 'clear') {
+          setLastFeedback(dict.voice.feedback.promptDictationCleared);
+        }
+        return;
+      }
     }
 
     const gate = applyWakeGate(

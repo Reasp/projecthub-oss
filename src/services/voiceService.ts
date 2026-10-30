@@ -293,6 +293,11 @@ class VoiceService {
   /** Режим системной диктовки (TASK-83 п. 5): распознанное печатается в активное окно. */
   private dictationActive = false;
   private onDictationCallbacks: Set<(active: boolean) => void> = new Set();
+  /** Диктовка промпта в поле Agents Studio (TASK-275): фразы склеиваются в поле, а не исполняются. */
+  private promptDictationActive = false;
+  /** Прослушивание включил сам режим — с выходом из режима оно и выключается. */
+  private promptDictationOwnsCapture = false;
+  private onPromptDictationCallbacks: Set<(active: boolean) => void> = new Set();
   private speechStartTime = 0;
   private lastSoundTime = 0;
   private currentPhraseChunks: Float32Array[] = [];
@@ -1520,6 +1525,9 @@ class VoiceService {
   }
 
   stopListening() {
+    // Без прослушивания диктовать в поле нечем — режим гаснет вместе с ним.
+    this.promptDictationOwnsCapture = false;
+    this.setPromptDictationFlag(false);
     this.isPaused = false;
     this.notifyPauseChange();
     this.cleanupAudio();
@@ -1662,8 +1670,56 @@ class VoiceService {
 
   setDictationActive(active: boolean) {
     if (this.dictationActive === active) return;
+    // Две диктовки сразу не бывает: текст ушёл бы и в чужое окно, и в поле Studio.
+    if (active) this.stopPromptDictation();
     this.dictationActive = active;
     this.onDictationCallbacks.forEach((cb) => {
+      try { cb(active); } catch (e) {}
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // 2.3 Диктовка промпта в поле Agents Studio (TASK-275)
+  // ─────────────────────────────────────────────────────────────────
+  get isPromptDictationActive(): boolean {
+    return this.promptDictationActive;
+  }
+
+  onPromptDictationChange(callback: (active: boolean) => void): () => void {
+    this.onPromptDictationCallbacks.add(callback);
+    try {
+      callback(this.promptDictationActive);
+    } catch (e) {}
+    return () => {
+      this.onPromptDictationCallbacks.delete(callback);
+    };
+  }
+
+  /** Включает режим; если микрофон не слушал, включает прослушивание и выключит его на выходе. */
+  async startPromptDictation(): Promise<boolean> {
+    if (this.promptDictationActive) return true;
+    this.setDictationActive(false);
+    if (!this.isListening) {
+      const started = await this.startHandsFreeListening();
+      if (!started) return false;
+      this.promptDictationOwnsCapture = true;
+    }
+    this.setPromptDictationFlag(true);
+    return true;
+  }
+
+  stopPromptDictation() {
+    if (!this.promptDictationActive) return;
+    const ownsCapture = this.promptDictationOwnsCapture;
+    this.promptDictationOwnsCapture = false;
+    this.setPromptDictationFlag(false);
+    if (ownsCapture && this.isListening) this.stopListening();
+  }
+
+  private setPromptDictationFlag(active: boolean) {
+    if (this.promptDictationActive === active) return;
+    this.promptDictationActive = active;
+    this.onPromptDictationCallbacks.forEach((cb) => {
       try { cb(active); } catch (e) {}
     });
   }

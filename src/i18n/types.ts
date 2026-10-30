@@ -258,6 +258,12 @@ export interface TranslationDictionary {
       dictationOff: string;
       dictationTyped: string;
       dictationFailed: string;
+      promptDictationOn: string;
+      promptDictationOff: string;
+      promptDictationSent: string;
+      promptDictationEmpty: string;
+      promptDictationCleared: string;
+      promptDictationNoField: string;
       computerTaskRunning: string;
       computerTaskFailed: string;
       /** Модель назначения голоса непригодна: `{error}` называет назначение и где настроить (TASK-134.4). */
@@ -1841,10 +1847,11 @@ export interface TranslationDictionary {
       contextTags: string;
       quickPrompts: string;
       handsFreePlaceholder: string;
-      handsFreeDisableTitle: string;
-      handsFreeEnableTitle: string;
-      voicePromptCmd: string;
-      voiceAskCmd: string;
+      promptDictationPlaceholder: string;
+      promptDictationStartTitle: string;
+      promptDictationStopTitle: string;
+      promptDictationBadge: string;
+      promptDictationCmd: string;
       modeTitle: string;
       accountTitle: string;
       accountHeading: string;
