@@ -465,6 +465,8 @@ const api: IElectronAPI = {
     invoke('ai:cliRewindPreview', query),
   cliRewindFiles: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string; promptUuid: string }) =>
     invoke('ai:cliRewindFiles', query),
+  // `/add-dir` в Agents Studio (TASK-285)
+  checkAddDir: (query: { projectPath: string; cwd?: string; dir: string }) => invoke('ai:checkAddDir', query),
   // Профили аккаунтов Claude Code (TASK-152, decision-87)
   claudeAccounts: {
     overview: () => invoke('claudeAccounts:overview'),

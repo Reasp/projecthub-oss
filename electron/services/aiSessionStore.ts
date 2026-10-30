@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import type { AISession, AIMessage, AIToolCall } from '../../src/types/electron';
 import { sanitizeSessionAgent } from '../../src/lib/studioSessionAgent.js';
 import { sanitizeSessionWorktree } from '../../src/lib/studioWorktree.js';
+import { normalizeAddDirs } from '../../src/lib/studioAddDir.js';
 import { getStatePath } from './appPaths.js';
 import { isCliSessionId } from './claudeCliSessions.js';
 import { stateFields, withVersion } from './stateFiles.js';
@@ -128,6 +129,8 @@ export function compactSessionForStorage(session: AISession): AISession {
     ...(session.claudeCliSessionId && typeof session.claudeCliCwd === 'string' && session.claudeCliCwd ? { claudeCliCwd: session.claudeCliCwd.slice(0, 1000) } : {}),
     ...(session.claudeCliSessionId && session.claudeCliForkPending === true ? { claudeCliForkPending: true } : {}),
     ...(session.claudeCliSessionId && session.claudeCliForkPending === true && isCliSessionId(session.claudeCliResumeAt) ? { claudeCliResumeAt: session.claudeCliResumeAt } : {}),
+    // Каталоги `/add-dir` вкладки (TASK-285) переживают перезапуск, как в CLI — на всю сессию.
+    ...withAddDirs(normalizeAddDirs(session.claudeCliAddDirs)),
     // История, источник и модель (TASK-140.10, decision-83): закрытая вкладка остаётся на диске в истории.
     ...(typeof session.archivedAt === 'number' ? { archivedAt: session.archivedAt } : {}),
     ...(session.origin === 'phone' || session.origin === 'desktop' ? { origin: session.origin } : {}),
@@ -158,6 +161,10 @@ function withAgent(agent: AISession['agent']): Pick<AISession, 'agent'> {
 
 function withWorktree(worktree: AISession['worktree']): Pick<AISession, 'worktree'> {
   return worktree ? { worktree } : {};
+}
+
+function withAddDirs(dirs: string[]): Pick<AISession, 'claudeCliAddDirs'> {
+  return dirs.length ? { claudeCliAddDirs: dirs } : {};
 }
 
 function isSelection(value: unknown): value is { provider: string; profileId?: string; model: string } {

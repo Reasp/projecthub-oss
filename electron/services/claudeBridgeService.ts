@@ -54,6 +54,7 @@ import { getApiToolExecutor } from './apiToolExecutorDeps.js';
 import { createStudioToolCallbacks, type AgentStatusKey } from './studioToolAdapter.js';
 import { claudeCliEffortArgs, normalizeReasoningEffort } from './reasoningEffort.js';
 import { CLI_FILE_CHECKPOINTING_ENV } from './claudeCliRewind.js';
+import { usableAddDirs } from './cliAddDir.js';
 import { usesClaudeCli } from './modelTarget.js';
 import { getHostLanguage } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
@@ -333,6 +334,8 @@ export interface CliPermissionMeta {
   sandbox?: { gatewayToken: string; onEndpoint: (endpoint: { url: string; token: string }) => void };
   /** Участник общего хоста, чей агент (decision-135): git-автор слияния основной ветки (decision-141). */
   memberId?: string;
+  /** Каталоги `/add-dir` вкладки (TASK-285): запись в них — по карточке, а не отказ «вне проекта». */
+  addDirs?: string[];
 }
 
 interface CliPermissionContext extends CliPermissionMeta {
@@ -621,7 +624,11 @@ class ClaudeBridgeService extends EventEmitter {
     const autonomous = ctx.origin === 'automation' || ctx.origin === 'assigned';
     // Агент в контейнере участника (TASK-246) называет файлы путями контейнера: политика видит путь хоста под worktree.
     const policyInput = ctx.sandbox ? sandboxToolInput(input, workDir) : input;
-    const verdict = evaluateToolRequest(config, projectPath, toolName, policyInput, { autonomous, workDir });
+    const verdict = evaluateToolRequest(config, projectPath, toolName, policyInput, {
+      autonomous,
+      workDir,
+      ...(ctx.addDirs?.length && !ctx.sandbox ? { extraDirs: ctx.addDirs } : {})
+    });
 
     const allow = (updatedInput: Record<string, unknown> = input): CliPermissionDecision => ({ behavior: 'allow', updatedInput });
     const deny = (message: string): CliPermissionDecision => ({ behavior: 'deny', message });
@@ -774,7 +781,10 @@ class ClaudeBridgeService extends EventEmitter {
         ...keyedHitlText({
           code: isExcluded ? 'file_write_excluded' : 'file_write',
           target: filePath,
-          lines: [isExcluded ? { code: 'writeExcluded' } : { code: 'writeByTool', params: { tool: toolName } }]
+          lines: [
+            isExcluded ? { code: 'writeExcluded' } : { code: 'writeByTool', params: { tool: toolName } },
+            ...(verdict.rule === 'add-dir-write' ? [{ code: 'writeAddedDir' as const }] : [])
+          ]
         }),
         filePath,
         diff,
@@ -1426,6 +1436,8 @@ class ClaudeBridgeService extends EventEmitter {
       claudeCliFork?: CliForkKind;
       /** Откат разговора `/rewind` (TASK-284): ответвление продолжает разговор только до этой записи CLI. */
       claudeCliResumeAt?: string;
+      /** Дополнительные каталоги вкладки (`/add-dir`, TASK-285): ход идёт с `--add-dir`. */
+      claudeCliAddDirs?: string[];
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1528,6 +1540,7 @@ class ClaudeBridgeService extends EventEmitter {
       memberId?: string;
       claudeCliFork?: CliForkKind;
       claudeCliResumeAt?: string;
+      claudeCliAddDirs?: string[];
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
@@ -1574,6 +1587,9 @@ class ClaudeBridgeService extends EventEmitter {
     }
     // Режим architect — plan mode Claude Code (TASK-272).
     cliArgs.push(...cliModeArgs(req.mode));
+    // Каталоги `/add-dir` вкладки (TASK-285, decision-206). Сессии участника общего хоста их не получают: участник
+    // работает в своём дереве, каталоги хоста ему не открываются. Побочному вопросу без инструментов они не нужны.
+    const addDirs = sideQuestion || req.memberId ? [] : usableAddDirs(req.claudeCliAddDirs, workDir);
     // Усилие рассуждений сессии (TASK-70.3, decision-41 п. 5): `--effort`, «none» CLI не поддерживает.
     const effort = claudeCliEffortArgs(normalizeReasoningEffort(req.config.reasoningEffort));
     cliArgs.push(...effort.args);
@@ -1635,11 +1651,14 @@ class ClaudeBridgeService extends EventEmitter {
       claudeConfigDir: account.configDir,
       workspaceRoot: workDir,
       ...(req.taskId ? { taskId: req.taskId } : {}),
-      ...(req.memberId ? { memberId: req.memberId } : {})
+      ...(req.memberId ? { memberId: req.memberId } : {}),
+      ...(addDirs.length ? { addDirs } : {})
     });
     let hitlWarning = '';
     if (hitl) {
       cliArgs.push(...hitl.args);
+      // Только с HITL: без него запись в добавленный каталог прошла бы мимо человека.
+      for (const dir of addDirs) cliArgs.push('--add-dir', quoteShellArg(dir));
     } else if (applyProjectPolicy(req.config, workDir).autoApprove) {
       // Запасной путь без MCP — только если и политика проекта (TASK-148.1) разрешает авто-одобрение.
       cliArgs.push('--dangerously-skip-permissions');

@@ -1,5 +1,5 @@
 import React from 'react';
-import { GitBranch, Loader2, HelpCircle, RotateCcw, Square, X } from '../common/icons';
+import { FolderPlus, GitBranch, Loader2, HelpCircle, RotateCcw, Square, X } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { studioCliText } from '../../i18n/studioCliText';
 import type { StudioSideQuestion } from '../../store/useAIStudioStore';
@@ -22,10 +22,12 @@ export const SideQuestionPanel: React.FC<{ side: StudioSideQuestion | undefined;
           <GitBranch className="w-3.5 h-3.5 text-amber-300 shrink-0" />
         ) : side.command === 'rewind' ? (
           <RotateCcw className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+        ) : side.command === 'addDir' ? (
+          <FolderPlus className="w-3.5 h-3.5 text-amber-300 shrink-0" />
         ) : (
           <HelpCircle className="w-3.5 h-3.5 text-amber-300 shrink-0" />
         )}
-        <span className="font-medium text-amber-200 shrink-0">{side.command === 'fork' ? '/fork' : side.command === 'rewind' ? c.rewindTitle : c.btwTitle}</span>
+        <span className="font-medium text-amber-200 shrink-0">{side.command === 'fork' ? '/fork' : side.command === 'rewind' ? c.rewindTitle : side.command === 'addDir' ? '/add-dir' : c.btwTitle}</span>
         {side.question && <span className="text-slate-300 truncate" title={side.question}>{side.question}</span>}
         <button
           type="button"

@@ -1408,6 +1408,10 @@ export interface IElectronAPI {
   cliRewindPreview: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string; promptUuid: string }) => Promise<CliRewindFile[]>;
   /** Откат файлов к состоянию перед репликой (`--rewind-files`); `output` — текст CLI. */
   cliRewindFiles: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string; promptUuid: string }) => Promise<{ ok: boolean; output: string }>;
+  /** Проверка каталога `/add-dir` (TASK-285): настоящий путь или причина отказа. */
+  checkAddDir: (query: { projectPath: string; cwd?: string; dir: string }) => Promise<
+    { ok: true; path: string } | { ok: false; reason: 'empty' | 'notFound' | 'notDirectory' | 'insideWorkDir' }
+  >;
   /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
   claudeAccounts: {
     overview: () => Promise<ClaudeAccountsOverview>;
@@ -3253,6 +3257,11 @@ export interface AISession {
    * (`--resume-session-at`). Действует вместе с `claudeCliForkPending` и снимается с ним.
    */
   claudeCliResumeAt?: string;
+  /**
+   * Дополнительные каталоги вкладки (`/add-dir`, TASK-285): абсолютные пути вне её каталога. Ходы Claude Code идут с
+   * `--add-dir`, чтение в них — без карточки, запись — по решению человека.
+   */
+  claudeCliAddDirs?: string[];
   /** Задача, привязанная к сессии (TASK-64) — по ней contextBuilder собирает контекст на каждое сообщение. */
   activeTaskId?: string;
   /** Какие части контекста включены; по умолчанию (без поля) — все. */
@@ -3337,6 +3346,8 @@ export interface AIStreamRequest {
   claudeCliFork?: 'branch' | 'side';
   /** Откат разговора `/rewind` (TASK-284): ответвление продолжает разговор CLI только до этой записи. */
   claudeCliResumeAt?: string;
+  /** Дополнительные каталоги вкладки (`/add-dir`, TASK-285): ход Claude Code CLI идёт с `--add-dir`. */
+  claudeCliAddDirs?: string[];
 }
 
 export interface GitWorktreeInfo {

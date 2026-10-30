@@ -44,7 +44,23 @@ const en = {
   cancel: 'Cancel',
   rewindFilesDone: (n: number) => `Files restored to their state before the message (${n}).`,
   rewindFilesFailed: (detail: string) => `Claude Code could not restore the files: ${detail}`,
-  rewindConversationDone: 'Conversation rewound. The next message continues from before the chosen one.'
+  rewindConversationDone: 'Conversation rewound. The next message continues from before the chosen one.',
+  addDirTitle: 'Additional directories',
+  addDirAdded: (dir: string) =>
+    `Added ${dir}. Claude Code in this tab can read it from the next message; every change to its files waits for your approval.`,
+  addDirExists: (dir: string) => `${dir} is already added to this tab.`,
+  addDirLimit: (max: number) => `A tab can have up to ${max} additional directories. Remove one first.`,
+  addDirFailed: (dir: string, reason: 'empty' | 'notFound' | 'notDirectory' | 'insideWorkDir') =>
+    reason === 'insideWorkDir'
+      ? `${dir} is inside the tab’s folder — Claude Code already has access to it.`
+      : reason === 'notDirectory'
+        ? `${dir} is not a directory.`
+        : reason === 'empty'
+          ? 'Type the path after /add-dir, or send /add-dir alone to pick a directory.'
+          : `Directory ${dir} was not found.`,
+  addDirHint: 'Claude Code in this tab runs with --add-dir for these directories. Reading is allowed; changes need your approval.',
+  addDirRemove: (dir: string) => `Remove ${dir}`,
+  addDirMore: 'Add directory'
 };
 
 export type StudioCliText = typeof en;
@@ -90,7 +106,23 @@ const ru: StudioCliText = {
   cancel: 'Отмена',
   rewindFilesDone: (n) => `Файлы возвращены к состоянию перед репликой (${n}).`,
   rewindFilesFailed: (detail) => `Claude Code не смог вернуть файлы: ${detail}`,
-  rewindConversationDone: 'Разговор откачен. Следующее сообщение продолжит его с места перед выбранной репликой.'
+  rewindConversationDone: 'Разговор откачен. Следующее сообщение продолжит его с места перед выбранной репликой.',
+  addDirTitle: 'Дополнительные каталоги',
+  addDirAdded: (dir) =>
+    `Каталог ${dir} добавлен. Claude Code этой вкладки читает его со следующего сообщения; любое изменение его файлов ждёт вашего одобрения.`,
+  addDirExists: (dir) => `Каталог ${dir} уже добавлен вкладке.`,
+  addDirLimit: (max) => `У вкладки может быть не больше ${max} дополнительных каталогов. Сначала уберите какой-нибудь.`,
+  addDirFailed: (dir, reason) =>
+    reason === 'insideWorkDir'
+      ? `${dir} внутри папки вкладки — доступ к нему у Claude Code уже есть.`
+      : reason === 'notDirectory'
+        ? `${dir} — не каталог.`
+        : reason === 'empty'
+          ? 'Напишите путь после /add-dir или отправьте /add-dir без пути, чтобы выбрать каталог.'
+          : `Каталог ${dir} не найден.`,
+  addDirHint: 'Claude Code этой вкладки запускается с --add-dir для этих каталогов. Чтение разрешено, изменения — с вашего одобрения.',
+  addDirRemove: (dir) => `Убрать ${dir}`,
+  addDirMore: 'Добавить каталог'
 };
 
 export const STUDIO_CLI_TEXT: Record<Language, StudioCliText> = { en, ru };

@@ -45,6 +45,7 @@ import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig, wi
 import { REASONING_EFFORT_OPTIONS } from '../../lib/reasoningEffort';
 import { QueuedMessagesBar } from './QueuedMessagesBar';
 import { SideQuestionPanel } from './SideQuestionPanel';
+import { AddDirsBar } from './AddDirsBar';
 import { CliRewindModal } from './CliRewindModal';
 import { studioCliText } from '../../i18n/studioCliText';
 import { goesToClaudeCli } from '../../lib/studioCliCommands';
@@ -107,6 +108,8 @@ export const AIStudioView: React.FC = () => {
     queuedMessages,
     sideQuestions,
     closeSideQuestion,
+    addSessionDir,
+    removeSessionDir,
     openRewind,
     promptPrefill,
     clearPromptPrefill,
@@ -995,6 +998,15 @@ export const AIStudioView: React.FC = () => {
         <div className="mx-3 mb-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200" data-testid="studio-member-readonly">
           {t.aiStudio.memberSession(currentSession.memberId)}
         </div>
+      )}
+
+      {/* Каталоги `/add-dir` вкладки (TASK-285) */}
+      {!currentSession?.memberId && currentSessionId && (
+        <AddDirsBar
+          dirs={currentSession?.claudeCliAddDirs}
+          onRemove={(dir) => removeSessionDir(projectPath, currentSessionId, dir)}
+          onAdd={() => void addSessionDir(projectPath, currentSessionId, '')}
+        />
       )}
 
       {/* Побочный вопрос `/btw` и подсказки `/fork` (TASK-283) — вне разговора вкладки */}

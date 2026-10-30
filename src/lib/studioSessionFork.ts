@@ -21,6 +21,8 @@ export function forkedSession(source: AISession, fork: { id: string; title: stri
     ...(source.worktree ? { worktree: { ...source.worktree } } : {}),
     ...(source.activeTaskId ? { activeTaskId: source.activeTaskId } : {}),
     ...(source.contextParts ? { contextParts: { ...source.contextParts } } : {}),
+    // Каталоги `/add-dir` (TASK-285): ответвление продолжает разговор с тем же доступом.
+    ...(source.claudeCliAddDirs?.length ? { claudeCliAddDirs: [...source.claudeCliAddDirs] } : {}),
     ...(source.lastSelection ? { lastSelection: { ...source.lastSelection } } : {}),
     ...(source.lastMode ? { lastMode: source.lastMode } : {})
   };

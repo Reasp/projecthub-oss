@@ -183,6 +183,8 @@ export interface AIStreamRequest {
   claudeCliFork?: 'branch' | 'side';
   /** Откат разговора `/rewind` (TASK-284): ответвление продолжает разговор CLI только до этой записи. */
   claudeCliResumeAt?: string;
+  /** Дополнительные каталоги вкладки (`/add-dir`, TASK-285): только для Claude Code CLI. */
+  claudeCliAddDirs?: string[];
 }
 
 /** Инструмент прокси управления компьютером в формате, который отдаёт `computerUseService.listProxyTools()`. */

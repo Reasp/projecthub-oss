@@ -1,16 +1,19 @@
 import type { AIProviderConfig } from '../types/electron';
 import { claudeEngineOf } from './connections';
+import { addDirArgument } from './studioAddDir';
 
 /**
  * Слеш-команды Claude Code, которые Agents Studio выполнить не может (TASK-230). Studio запускает CLI без терминала
  * (`claude -p`), и встроенные интерактивные команды CLI отвечает «isn't available in this environment»: `/resume` ждёт
  * выбора в интерактивном списке, `/remote-control` и настройки — живой процесс с терминалом. Studio перехватывает их
  * до отправки: `/resume` — свой выбор сессии, `/plan` — plan mode вкладки (TASK-282), `/fork` и `/btw` — ответвление
- * разговора (TASK-283), `/rewind` — откат к реплике (TASK-284), остальное — продолжение разговора в терминале ProjectHub.
+ * разговора (TASK-283), `/rewind` — откат к реплике (TASK-284), `/add-dir` — каталог вкладки (TASK-285), остальное —
+ * продолжение разговора в терминале ProjectHub.
  */
 
 export type StudioCliCommand =
   | { kind: 'resume'; cliSessionId?: string }
+  | { kind: 'addDir'; path: string }
   | { kind: 'plan'; prompt?: string }
   | { kind: 'fork'; title?: string }
   | { kind: 'btw'; question: string }
@@ -54,7 +57,6 @@ const TERMINAL_ONLY = new Set([
   'help',
   'memory',
   'plugin',
-  'add-dir',
   'export',
   'exit',
   'bug',
@@ -101,6 +103,8 @@ export function studioCliCommand(text: string, config: Pick<AIProviderConfig, 'p
   if (name === 'btw') return { kind: 'btw', question: rest };
   // `/rewind` (TASK-284) — свой выбор точки отката: разговор и, по подтверждению, файлы.
   if (name === 'rewind') return { kind: 'rewind' };
+  // `/add-dir [путь]` (TASK-285) — каталог вкладки для `--add-dir`; без пути — выбор каталога в диалоге.
+  if (name === 'add-dir') return { kind: 'addDir', path: addDirArgument(rest) };
   // `/config key=value` CLI выполняет и без терминала, без аргументов — открывает экран настроек.
   if (name === 'config' && rest) return null;
   return TERMINAL_ONLY.has(name) ? { kind: 'terminal', command: name } : null;

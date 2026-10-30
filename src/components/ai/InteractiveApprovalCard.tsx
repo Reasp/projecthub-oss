@@ -351,7 +351,7 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
               <MarkdownViewer content={request.details} emptyMessage={null} className="text-slate-200" />
             </div>
           ) : text.details ? (
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-400 whitespace-pre-line">
               {text.details}
             </p>
           ) : null}

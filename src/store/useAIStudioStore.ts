@@ -35,6 +35,7 @@ import { sameWorkPath, sessionWorkDir, sessionWorktreeOf } from '../lib/studioWo
 import { clearQueue, enqueueMessage, nextAfterTurn, removeQueuedMessage, type StudioQueues } from '../lib/studioMessageQueue';
 import { forkedSession, insertAfter } from '../lib/studioSessionFork';
 import { feedBeforePoint, rewoundSession } from '../lib/studioRewind';
+import { hasAddDir, MAX_ADD_DIRS, withAddDir, withoutAddDir } from '../lib/studioAddDir';
 
 export type { AISession };
 
@@ -132,6 +133,12 @@ interface AIStudioState {
   askSideQuestion: (projectPath: string, sessionId: string, question: string) => Promise<void>;
   /** Закрыть панель побочного вопроса; идущий ответ останавливается. */
   closeSideQuestion: (sessionId: string) => void;
+  /**
+   * `/add-dir [путь]` (TASK-285): каталог вкладки для `--add-dir`. Без пути — системный выбор каталога. Итог — в панели
+   * над полем ввода.
+   */
+  addSessionDir: (projectPath: string, sessionId: string, dir: string) => Promise<void>;
+  removeSessionDir: (projectPath: string, sessionId: string, dir: string) => void;
   /** Окно `/rewind` (TASK-284): вкладка и, если окно открыто с реплики ленты, эта реплика. */
   rewindRequest: { projectPath: string; sessionId: string; messageId?: string } | null;
   openRewind: (projectPath: string, sessionId: string, messageId?: string) => void;
@@ -197,7 +204,7 @@ export interface CreateSessionOptions {
 /** Перехваченная слеш-команда Claude Code вкладки (TASK-230). */
 /** Панель над полем ввода (TASK-283): ответ `/btw` или подсказка, почему команда не выполнена. */
 export interface StudioSideQuestion {
-  command: 'btw' | 'fork' | 'rewind';
+  command: 'btw' | 'fork' | 'rewind' | 'addDir';
   /** Канал ответа: у каждого вопроса свой, ответ прежнего вопроса в новый не попадёт. Пустой у подсказки. */
   streamId: string;
   question: string;
@@ -809,6 +816,64 @@ export const useAIStudioStore = create<AIStudioState>()(
         set((state) => ({ sideQuestions: withoutKey(state.sideQuestions, sessionId) }));
       },
 
+      addSessionDir: async (projectPath: string, sessionId: string, dir: string) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session || !window.api?.checkAddDir) return;
+        const notice = (text: string) =>
+          set((state) => ({
+            sideQuestions: { ...state.sideQuestions, [sessionId]: { command: 'addDir', streamId: '', question: '', answer: '', status: 'notice', notice: text } }
+          }));
+        let input = dir.trim();
+        if (!input) {
+          const picked = await window.api.selectDirectory?.().catch(() => null);
+          if (!picked) return;
+          input = picked;
+        }
+        const workDir = sessionWorkDir(session, activeWorkRoot(projectPath), projectPath);
+        const checked = await window.api.checkAddDir({ projectPath, cwd: workDir, dir: input }).catch(() => null);
+        if (!checked) {
+          notice(cliText().addDirFailed(input, 'notFound'));
+          return;
+        }
+        if (!checked.ok) {
+          notice(cliText().addDirFailed(input, checked.reason));
+          return;
+        }
+        const current = (get().sessions[projectPath] || []).find((s) => s.id === sessionId)?.claudeCliAddDirs;
+        if (hasAddDir(current, checked.path)) {
+          notice(cliText().addDirExists(checked.path));
+          return;
+        }
+        const next = withAddDir(current, checked.path);
+        if (next.length === (current?.length ?? 0)) {
+          notice(cliText().addDirLimit(MAX_ADD_DIRS));
+          return;
+        }
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => (s.id === sessionId ? { ...s, claudeCliAddDirs: next } : s))
+          }
+        }));
+        notice(cliText().addDirAdded(checked.path));
+        void sessionPersister.flushNow();
+      },
+
+      removeSessionDir: (projectPath: string, sessionId: string, dir: string) => {
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => {
+              if (s.id !== sessionId) return s;
+              const { claudeCliAddDirs: _dirs, ...rest } = s;
+              const next = withoutAddDir(s.claudeCliAddDirs, dir);
+              return next.length ? { ...rest, claudeCliAddDirs: next } : rest;
+            })
+          }
+        }));
+        void sessionPersister.flushNow();
+      },
+
       openRewind: (projectPath: string, sessionId: string, messageId?: string) =>
         set({ rewindRequest: { projectPath, sessionId, ...(messageId ? { messageId } : {}) } }),
       closeRewind: () => set({ rewindRequest: null }),
@@ -1045,6 +1110,11 @@ export const useAIStudioStore = create<AIStudioState>()(
         // `/btw` (TASK-283) отвечает и во время хода вкладки, как в CLI: в очередь не встаёт.
         if (cli?.kind === 'btw') {
           await get().askSideQuestion(projectPath, activeSessionId, cli.question);
+          return;
+        }
+        // `/add-dir` (TASK-285) меняет только следующие ходы — ждать конца текущего незачем.
+        if (cli?.kind === 'addDir') {
+          await get().addSessionDir(projectPath, activeSessionId, cli.path);
           return;
         }
         // Занята только эта вкладка (TASK-171): сообщение встаёт в её очередь и уйдёт после хода (TASK-273).
@@ -1390,6 +1460,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           ...(currentSession.claudeCliForkPending && currentSession.claudeCliSessionId
             ? { claudeCliFork: 'branch' as const, ...(currentSession.claudeCliResumeAt ? { claudeCliResumeAt: currentSession.claudeCliResumeAt } : {}) }
             : {}),
+          // Каталоги `/add-dir` вкладки (TASK-285) — только Claude Code: у API-движков своего `--add-dir` нет.
+          ...(currentSession.claudeCliAddDirs?.length && goesToClaudeCli(requestConfig) ? { claudeCliAddDirs: currentSession.claudeCliAddDirs } : {}),
           taskId: currentSession.activeTaskId,
           contextParts: currentSession.contextParts,
           // Агент работает в дереве вкладки (TASK-268, decision-195); основное дерево — без поля, как раньше.

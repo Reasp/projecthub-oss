@@ -182,6 +182,15 @@ export interface ToolRequestContext {
   autonomous?: boolean;
   /** Рабочий каталог сессии (worktree агента); по умолчанию `projectPath`. */
   workDir?: string;
+  /**
+   * Каталоги, которые человек добавил вкладке (`/add-dir`, TASK-285): чтение в них — как в проекте, запись — только
+   * по карточке, а не отказ «вне проекта».
+   */
+  extraDirs?: string[];
+}
+
+function inExtraDir(extraDirs: string[] | undefined, filePath: string): boolean {
+  return !!filePath && path.isAbsolute(filePath) && (extraDirs ?? []).some((dir) => isInsideProject(dir, filePath));
 }
 
 export function evaluateToolRequest(
@@ -219,7 +228,12 @@ export function evaluateToolRequest(
 
   if (CLI_WRITE_TOOLS.includes(tool) || tool === 'write_file' || tool === 'write_to_file') {
     const filePath = filePathFromInput(input);
-    if (filePath && !isInsideProject(projectPath, filePath)) {
+    const outside = !!filePath && !isInsideProject(projectPath, filePath);
+    // Добавленный каталог (`/add-dir`): человек открыл его агенту, но авто-одобрение записи на него не распространяется.
+    if (outside && inExtraDir(context.extraDirs, filePath)) {
+      return isPathExcluded(filePath, rules?.writeExcludePatterns) ? { verdict: 'ask', rule: 'write-excluded' } : { verdict: 'ask', rule: 'add-dir-write' };
+    }
+    if (outside) {
       return {
         verdict: 'deny',
         rule: 'outside-project',
@@ -239,7 +253,7 @@ export function evaluateToolRequest(
   if (CLI_READ_TOOLS.includes(tool) || tool === 'read_file' || tool === 'read') {
     const filePath = filePathFromInput(input);
     if (isPathExcluded(filePath, rules?.readExcludePatterns)) return { verdict: 'ask', rule: 'read-excluded' };
-    if (filePath && !isInsideProject(projectPath, filePath)) return { verdict: 'ask', rule: 'read-outside' };
+    if (filePath && !isInsideProject(projectPath, filePath) && !inExtraDir(context.extraDirs, filePath)) return { verdict: 'ask', rule: 'read-outside' };
     if (rules?.allowFileRead === false) return { verdict: 'ask', rule: 'read-manual' };
     return { verdict: 'allow', rule: 'auto-read' };
   }

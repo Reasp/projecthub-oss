@@ -56,6 +56,7 @@ import path from 'node:path';
 import { claudeAccountService } from '../services/claudeAccountService';
 import { isCliSessionId, listCliSessions, readCliSessionMessages, readCliSessionTail } from '../services/claudeCliSessions';
 import { cliRewindPoints, cliRewindPreview, runCliRewindFiles } from '../services/claudeCliRewind';
+import { checkAddDir } from '../services/cliAddDir';
 
 /** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
 function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
@@ -283,6 +284,16 @@ export function registerAiIpc(ctx: IpcContext) {
     const result = await runCliRewindFiles(scope.configDir, scope.cwd, scope.cliSessionId, promptUuid);
     console.info(`[aiIpc] /rewind files ${scope.cliSessionId} → ${promptUuid}: ${result.ok ? 'ok' : 'failed'}`);
     return result;
+  });
+
+  // `/add-dir` в Agents Studio (TASK-285): каталог проверяется до того, как попадёт во вкладку. Каталог вкладки — внутри
+  // проекта, как у списка сессий; относительный путь — от него.
+  ipcMain.handle('ai:checkAddDir', async (_event, query?: { projectPath?: unknown; cwd?: unknown; dir?: unknown }) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    const cwd = typeof query?.cwd === 'string' && query.cwd.trim() ? path.resolve(query.cwd) : projectPath;
+    const rel = path.relative(projectPath, cwd);
+    const base = rel.startsWith('..') || path.isAbsolute(rel) ? projectPath : cwd;
+    return checkAddDir(typeof query?.dir === 'string' ? query.dir : '', base);
   });
 
   // Streaming & Session Lifecycle
