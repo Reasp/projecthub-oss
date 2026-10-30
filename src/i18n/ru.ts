@@ -1985,7 +1985,35 @@ export const ru: TranslationDictionary = {
       liveConsole: 'Живой вывод консоли',
       hideDetails: 'Скрыть детали',
       showDetails: 'Показать детали',
-      noOutput: 'Нет данных вывода'
+      noOutput: 'Нет данных вывода',
+      kinds: {
+        shell: 'Команда оболочки',
+        edit: 'Правка файла',
+        write: 'Запись файла',
+        read: 'Чтение файла',
+        search: 'Поиск',
+        list: 'Список папки',
+        agent: 'Подагент',
+        web: 'Веб',
+        todo: 'План (список дел)',
+        plan: 'Режим плана',
+        question: 'Вопрос',
+        mcp: 'Инструмент MCP',
+        other: 'Инструмент'
+      }
+    },
+    todos: {
+      title: 'План',
+      progress: 'выполнено {done} из {total}',
+      empty: 'План пуст',
+      statusPending: 'Ожидает',
+      statusInProgress: 'Выполняется',
+      statusCompleted: 'Выполнено'
+    },
+    turnUsage: {
+      tokens: '{input} вход / {output} выход',
+      tooltip: 'Этот ход: вход {input} (с кэшем), выход {output}, стоимость {cost}',
+      costUnknown: 'неизвестна'
     },
     activity: {
       title: 'Активность выполнения',
@@ -2012,6 +2040,7 @@ export const ru: TranslationDictionary = {
     autoApproveOn: 'Включено (файловые операции выполняются автоматически)',
     autoApproveOff: 'Выключено (ручное подтверждение действий)',
     approval: {
+      diffLabel: 'Изменения файла',
       riskLow: 'Низкий риск',
       riskModerate: 'Средний риск',
       riskHigh: 'Высокий риск',

@@ -1858,6 +1858,20 @@ export interface TranslationDictionary {
       hideDetails: string;
       showDetails: string;
       noOutput: string;
+      kinds: Record<'shell' | 'edit' | 'write' | 'read' | 'search' | 'list' | 'agent' | 'web' | 'todo' | 'plan' | 'question' | 'mcp' | 'other', string>;
+    };
+    todos: {
+      title: string;
+      progress: string;
+      empty: string;
+      statusPending: string;
+      statusInProgress: string;
+      statusCompleted: string;
+    };
+    turnUsage: {
+      tokens: string;
+      tooltip: string;
+      costUnknown: string;
     };
     activity: {
       title: string;
@@ -1885,6 +1899,7 @@ export interface TranslationDictionary {
     autoApproveOff: string;
     approval: {
       title: string;
+      diffLabel: string;
       riskLow: string;
       riskModerate: string;
       riskHigh: string;

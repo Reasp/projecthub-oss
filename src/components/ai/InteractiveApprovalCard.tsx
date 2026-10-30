@@ -19,6 +19,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { RiskBadge } from '../hitl/RiskBadge';
 import { describeHitlRequest } from '../../lib/agentStatusText';
+import { DiffPatchView } from './DiffPatchView';
 
 interface InteractiveApprovalCardProps {
   request: ApprovalRequest;
@@ -344,11 +345,18 @@ export const InteractiveApprovalCard: React.FC<InteractiveApprovalCardProps> = (
             </p>
           )}
 
-          {/* File path preview */}
+          {/* File path preview; запись Claude CLI — с диффом, как в терминале (TASK-271) */}
           {request.filePath && (
-            <div className="p-2.5 rounded-lg bg-ph-panel border border-slate-800 flex items-center gap-2 font-mono text-xs text-indigo-300">
-              <FileCode className="w-4 h-4 text-indigo-400 shrink-0" />
-              <span className="select-all">{request.filePath}</span>
+            <div className="rounded-lg bg-ph-panel border border-slate-800 overflow-hidden">
+              <div className="p-2.5 flex items-center gap-2 font-mono text-xs text-indigo-300">
+                <FileCode className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span className="select-all">{request.filePath}</span>
+              </div>
+              {request.diff?.patch && (
+                <div className="border-t border-slate-800" aria-label={t.aiStudio.approval.diffLabel}>
+                  <DiffPatchView patch={request.diff.patch} maxHeightClass="max-h-80" />
+                </div>
+              )}
             </div>
           )}
 

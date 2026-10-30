@@ -16,6 +16,7 @@ import { CHILD_CLOSE_GRACE_MS, superviseChildExit } from './processSweep.js';
 import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountService.js';
 import { parseClaudeResultEvent, priceUsage, type AgentUsage } from './agentCost.js';
+import { clipToolResult, cliToolResults } from './claudeStreamEvents.js';
 import { pricingService } from './pricingService.js';
 import { hitlService, ApprovalCancelledError } from './hitlService.js';
 import { keyedHitlText, readAnswerDenied } from './hitlText.js';
@@ -559,17 +560,8 @@ class ClaudeBridgeService extends EventEmitter {
 
   /** Разбирает событие stream-json Claude CLI типа `user` и передаёт tool_result в аудит. */
   public noteCliUserEvent(event: unknown): void {
-    const content = (event as { message?: { content?: unknown } } | null)?.message?.content;
-    if (!Array.isArray(content)) return;
-    for (const raw of content as unknown[]) {
-      const item = raw as { type?: unknown; content?: unknown; tool_use_id?: unknown; is_error?: unknown } | null;
-      if (item?.type !== 'tool_result') continue;
-      const text = typeof item.content === 'string'
-        ? item.content
-        : Array.isArray(item.content)
-          ? (item.content as unknown[]).map((c) => { const t = (c as { text?: unknown } | null)?.text; return typeof t === 'string' ? t : ''; }).join(' ')
-          : '';
-      this.noteCliToolResult(String(item.tool_use_id ?? ''), Boolean(item.is_error), text ? text.slice(0, 200) : undefined);
+    for (const r of cliToolResults(event)) {
+      this.noteCliToolResult(r.toolUseId, r.isError, r.text ? r.text.slice(0, 200) : undefined);
     }
   }
 
@@ -1703,8 +1695,10 @@ class ClaudeBridgeService extends EventEmitter {
           if (event.type === 'assistant' && event.message?.content) {
             for (const item of event.message.content) {
               if (item.type === 'text') {
-                accumulatedText += item.text;
-                onChunk({ text: item.text });
+                // Текст следующего сообщения ассистента (после вызовов инструментов) — новым абзацем, как в терминале (TASK-271).
+                const piece = accumulatedText && !/\s$/.test(accumulatedText) && item.text ? `\n\n${item.text}` : item.text;
+                accumulatedText += piece;
+                onChunk({ text: piece });
 
                 // Check text for rate limit warning phrases
                 const lowerText = item.text.toLowerCase();
@@ -1739,8 +1733,15 @@ class ClaudeBridgeService extends EventEmitter {
               }
             }
           } else if (event.type === 'user') {
-            // Результаты инструментов (tool_result) — в аудит HITL по tool_use_id (TASK-57).
+            // Результаты инструментов (tool_result) — в аудит HITL по tool_use_id (TASK-57)
+            // и выводом шага в ленту Studio, как под вызовом в терминале (TASK-271).
             this.noteCliUserEvent(event);
+            for (const r of cliToolResults(event)) {
+              const idx = toolCalls.findIndex((tc) => tc.id === r.toolUseId);
+              if (idx === -1) continue;
+              toolCalls[idx] = { ...toolCalls[idx], status: r.isError ? 'error' : 'done', ...(r.text ? { result: clipToolResult(r.text) } : {}) };
+              onChunk({ toolCall: toolCalls[idx] });
+            }
           } else if (event.type === 'result') {
             if (event.result && typeof event.result === 'string' && !accumulatedText) {
               accumulatedText = event.result;

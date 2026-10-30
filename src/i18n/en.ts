@@ -1984,7 +1984,35 @@ export const en: TranslationDictionary = {
       liveConsole: 'Live Console Stream',
       hideDetails: 'Hide Details',
       showDetails: 'Show Details',
-      noOutput: 'No output data'
+      noOutput: 'No output data',
+      kinds: {
+        shell: 'Shell command',
+        edit: 'Edit file',
+        write: 'Write file',
+        read: 'Read file',
+        search: 'Search',
+        list: 'List folder',
+        agent: 'Subagent',
+        web: 'Web',
+        todo: 'Plan (to-do list)',
+        plan: 'Plan mode',
+        question: 'Question',
+        mcp: 'MCP tool',
+        other: 'Tool'
+      }
+    },
+    todos: {
+      title: 'Plan',
+      progress: '{done} of {total} done',
+      empty: 'The plan is empty',
+      statusPending: 'Pending',
+      statusInProgress: 'In progress',
+      statusCompleted: 'Completed'
+    },
+    turnUsage: {
+      tokens: '{input} in / {output} out',
+      tooltip: 'This turn: input {input} (including cache), output {output}, cost {cost}',
+      costUnknown: 'unknown'
     },
     activity: {
       title: 'Execution Activity',
@@ -2011,6 +2039,7 @@ export const en: TranslationDictionary = {
     autoApproveOn: 'Enabled (file writes & commands execute automatically)',
     autoApproveOff: 'Disabled (manual review for all actions)',
     approval: {
+      diffLabel: 'Changes to the file',
       riskLow: 'Low risk',
       riskModerate: 'Moderate risk',
       riskHigh: 'High risk',

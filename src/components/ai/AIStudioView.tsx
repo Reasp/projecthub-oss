@@ -44,6 +44,8 @@ import { effectiveSessionAgent, sessionClaudeAccountId } from '../../lib/studioS
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { RateLimitWarningBanner } from './RateLimitWarningBanner';
 import { AgentStepsAccordion } from './AgentStepsAccordion';
+import { AgentTodoList } from './AgentTodoList';
+import { latestTodos, turnUsageView } from '../../lib/agentToolView';
 import { LiveActivitySidebar } from './LiveActivitySidebar';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { VoiceBadge } from '../voice/VoiceBadge';
@@ -777,9 +779,13 @@ export const AIStudioView: React.FC = () => {
               </div>
             </div>
           ) : (
-            messages.map((msg) => {
+            messages.map((msg, msgIdx) => {
               const isUser = msg.role === 'user';
               const isThoughtOpen = expandedThoughts[msg.id] ?? false;
+              // План агента и расход хода — как в терминале Claude Code (TASK-271).
+              const todos = isUser ? null : latestTodos(msg.toolCalls);
+              const isLiveMsg = isStreaming && msgIdx === messages.length - 1;
+              const usageView = isUser ? null : turnUsageView(msg.usage);
 
               return (
                 <div
@@ -840,6 +846,8 @@ export const AIStudioView: React.FC = () => {
                         </div>
                       ) : null}
 
+                      {todos && <AgentTodoList items={todos} live={isLiveMsg} />}
+
                       {/* Collapsible Agent Steps / Tool Calls Accordion (Remark 2) */}
                       {msg.toolCalls && msg.toolCalls.length > 0 && (
                         <AgentStepsAccordion
@@ -864,9 +872,25 @@ export const AIStudioView: React.FC = () => {
                       )}
                     </div>
 
-                    <span className="text-[11px] text-slate-500 font-mono px-1">
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono px-1">
+                      <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      {usageView && (
+                        <span
+                          data-testid="turn-usage"
+                          title={
+                            t.aiStudio.turnUsage.tooltip
+                              .replace('{input}', usageView.input)
+                              .replace('{output}', usageView.output)
+                              .replace('{cost}', usageView.cost ?? t.aiStudio.turnUsage.costUnknown) +
+                            (usageView.estimated ? `\n${t.swarm.estimatedUsageTooltip}` : '')
+                          }
+                        >
+                          {usageView.estimated ? '~' : ''}
+                          {t.aiStudio.turnUsage.tokens.replace('{input}', usageView.input).replace('{output}', usageView.output)}
+                          {usageView.cost ? ` · ${usageView.cost}` : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* User Avatar */}

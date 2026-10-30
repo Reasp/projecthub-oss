@@ -7,11 +7,39 @@ import {
   AlertCircle,
   Loader2,
   FileCode,
-  Terminal
+  Terminal,
+  Edit3,
+  FileText,
+  Search,
+  FolderOpen,
+  Bot,
+  Globe,
+  ListTodo,
+  ClipboardCheck,
+  HelpCircle,
+  Unplug
 } from '../common/icons';
 import type { AIToolCall } from '../../types/electron';
 import { DiffReviewCard } from './DiffReviewCard';
+import { AgentTodoList } from './AgentTodoList';
 import { useTranslation } from '../../i18n/useTranslation';
+import { parseTodos, toolKind, toolLabel, toolSubject, type AgentToolKind } from '../../lib/agentToolView';
+
+const KIND_ICON: Record<AgentToolKind, { Icon: typeof Wrench; className: string }> = {
+  shell: { Icon: Terminal, className: 'text-amber-400' },
+  edit: { Icon: Edit3, className: 'text-indigo-400' },
+  write: { Icon: FileCode, className: 'text-indigo-400' },
+  read: { Icon: FileText, className: 'text-sky-400' },
+  search: { Icon: Search, className: 'text-sky-400' },
+  list: { Icon: FolderOpen, className: 'text-sky-400' },
+  agent: { Icon: Bot, className: 'text-violet-400' },
+  web: { Icon: Globe, className: 'text-teal-400' },
+  todo: { Icon: ListTodo, className: 'text-emerald-400' },
+  plan: { Icon: ClipboardCheck, className: 'text-emerald-400' },
+  question: { Icon: HelpCircle, className: 'text-indigo-300' },
+  mcp: { Icon: Unplug, className: 'text-cyan-400' },
+  other: { Icon: Wrench, className: 'text-cyan-400' }
+};
 
 interface AgentStepsAccordionProps {
   toolCalls: AIToolCall[];
@@ -48,13 +76,13 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
   };
 
   const getToolIcon = (name: string) => {
-    if (name === 'run_command' || name === 'bash') {
-      return <Terminal className="w-3.5 h-3.5 text-amber-400" />;
-    }
-    if (name === 'write_file' || name === 'edit_file') {
-      return <FileCode className="w-3.5 h-3.5 text-indigo-400" />;
-    }
-    return <Wrench className="w-3.5 h-3.5 text-cyan-400" />;
+    const kind = toolKind(name);
+    const { Icon, className } = KIND_ICON[kind];
+    return (
+      <span className="shrink-0" title={t.aiStudio.steps.kinds[kind]} aria-label={t.aiStudio.steps.kinds[kind]}>
+        <Icon className={`w-3.5 h-3.5 ${className}`} />
+      </span>
+    );
   };
 
   return (
@@ -122,6 +150,9 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
             const isRunning = tool.status === 'running';
             const isError = tool.status === 'error';
             const isDone = tool.status === 'done' || tool.status === 'accepted';
+            const kind = toolKind(tool.name);
+            const subject = toolSubject(tool.name, tool.args);
+            const todos = kind === 'todo' ? parseTodos(tool.args) : null;
 
             return (
               <div
@@ -136,17 +167,15 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-slate-500 text-[11px]">#{idx + 1}</span>
                     {getToolIcon(tool.name)}
-                    <span className="font-semibold text-slate-200 truncate">
-                      {tool.name}
+                    <span className="font-semibold text-slate-200 truncate" title={tool.name}>
+                      {toolLabel(tool.name)}
                     </span>
-                    {typeof tool.args?.filePath === 'string' && tool.args.filePath && (
-                      <span className="text-indigo-300 text-[11px] truncate max-w-xs">
-                        ({tool.args.filePath})
-                      </span>
-                    )}
-                    {typeof tool.args?.command === 'string' && tool.args.command && (
-                      <span className="text-amber-300/80 text-[11px] truncate max-w-xs">
-                        `{tool.args.command}`
+                    {subject && (
+                      <span
+                        className={`text-[11px] truncate max-w-xs ${kind === 'shell' ? 'text-amber-300/80' : 'text-indigo-300'}`}
+                        title={subject}
+                      >
+                        ({subject})
                       </span>
                     )}
                   </div>
@@ -195,6 +224,8 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
                         onAccept={onAcceptDiff}
                         onReject={onRejectDiff}
                       />
+                    ) : todos ? (
+                      <AgentTodoList items={todos} bare />
                     ) : (
                       <>
                         {/* Tool Arguments View */}

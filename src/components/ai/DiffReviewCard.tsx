@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, X, FileCode, CheckCircle2, XCircle } from '../common/icons';
 import type { AIToolCall } from '../../types/electron';
 import { useTranslation } from '../../i18n/useTranslation';
+import { DiffPatchView } from './DiffPatchView';
 
 interface DiffReviewCardProps {
   toolCall: AIToolCall;
@@ -34,8 +35,6 @@ export const DiffReviewCard: React.FC<DiffReviewCardProps> = ({
       </div>
     );
   }
-
-  const patchLines = (diff.patch || '').split('\n');
 
   return (
     <div className="my-3 rounded-xl bg-ph-elevated border border-slate-700/80 overflow-hidden shadow-xl animate-in fade-in duration-150">
@@ -82,32 +81,7 @@ export const DiffReviewCard: React.FC<DiffReviewCardProps> = ({
       </div>
 
       {/* Diff Code View */}
-      <div className="p-3 bg-ph-base font-mono text-[11px] leading-relaxed max-h-72 overflow-y-auto overflow-x-auto text-slate-300 select-text">
-        <pre className="whitespace-pre">
-          {patchLines.map((line, idx) => {
-            const isAdd = line.startsWith('+') && !line.startsWith('+++');
-            const isDel = line.startsWith('-') && !line.startsWith('---');
-            const isHeader = line.startsWith('---') || line.startsWith('+++') || line.startsWith('@@');
-
-            return (
-              <div
-                key={idx}
-                className={`${
-                  isAdd
-                    ? 'bg-emerald-500/15 text-emerald-300 px-1 -mx-1 font-semibold'
-                    : isDel
-                    ? 'bg-rose-500/15 text-rose-300 px-1 -mx-1 line-through decoration-rose-500/50'
-                    : isHeader
-                    ? 'text-indigo-400 font-semibold mt-1 select-none'
-                    : 'text-slate-400'
-                }`}
-              >
-                {line || ' '}
-              </div>
-            );
-          })}
-        </pre>
-      </div>
+      <DiffPatchView patch={diff.patch} />
     </div>
   );
 };
