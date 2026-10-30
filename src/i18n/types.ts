@@ -649,6 +649,7 @@ export interface TranslationDictionary {
     noTasksFound: string;
     unknownStatusHint: string;
     agentCreatedBadge: string;
+    worktreeBadge: string;
     agentCreatedHint: string;
     awaitingApprovalFilter: string;
     awaitingApprovalFilterHint: string;
@@ -687,10 +688,12 @@ export interface TranslationDictionary {
     approveAgentTask: string;
     approveAgentTaskFailed: string;
     approveAllByReporter: string;
-    worktreeActiveTooltip: string;
-    createWorktreeTooltip: string;
     creatingWorktree: string;
-    openInWorktree: string;
+    startInWorktree: string;
+    continueInWorktree: string;
+    startInWorktreeTooltip: string;
+    continueInWorktreeTooltip: string;
+    worktreeTerminalTooltip: string;
     swarmArenaTooltip: string;
     inSwarmArena: string;
     runDoneLoop: string;
@@ -1747,6 +1750,17 @@ export interface TranslationDictionary {
     historyPrompts: string;
     fromPhone: string;
     tabAnswering: string;
+    tabWorktree: string;
+    tabWorktreeMain: string;
+    tabWorktreeMenuTitle: string;
+    tabWorktreeMenuHeading: string;
+    tabWorktreeActiveHint: string;
+    tabWorktreeMakeActive: string;
+    tabWorktreeMoveConfirm: string;
+    tabWorktreeMissing: string;
+    tabWorktreeRestore: string;
+    tabWorktreeToMain: string;
+    tabWorktreeRestoreFailed: string;
     tabWaitingApproval: string;
     allChats: string;
     /** Сессия участника общего хоста (TASK-142.3): окно хоста только читает её. */

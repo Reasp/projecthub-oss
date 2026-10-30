@@ -3243,6 +3243,19 @@ export interface AISession {
    * участники видят её только для чтения. Без поля — сессия владельца хоста.
    */
   memberId?: string;
+  /**
+   * Рабочее дерево вкладки (TASK-268, decision-195): каталог агента и `--resume` этой вкладки, независимо от активного
+   * дерева приложения. Закрепляется кнопкой «Начать в worktree», выбором во вкладке или первым сообщением. Без поля
+   * (старые сессии) — каталог разговора CLI, иначе активное дерево.
+   */
+  worktree?: StudioSessionWorktree;
+}
+
+/** Дерево вкладки Agents Studio: путь, ветка и признак основного дерева проекта. */
+export interface StudioSessionWorktree {
+  path: string;
+  branch?: string;
+  isMain?: boolean;
 }
 
 /** Агент вкладки Agents Studio (TASK-170). `claudeAccountId` действует только для Claude Code CLI. */

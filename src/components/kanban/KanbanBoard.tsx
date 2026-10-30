@@ -10,7 +10,8 @@ import {
   AlertCircle,
   Bot,
   X,
-  RefreshCw
+  RefreshCw,
+  FolderGit2
 } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -29,6 +30,7 @@ import { TaskDetailModal } from './TaskDetailModal';
 import { TaskListView } from './TaskListView';
 import { TrackerSyncModal } from './TrackerSyncModal';
 import { EditionTaskBoardBadges } from '../../extensions/editionUi';
+import { sameWorkPath, taskWorktreesById } from '../../lib/studioWorktree';
 
 export const KanbanBoard: React.FC = () => {
   const { t } = useTranslation();
@@ -50,8 +52,12 @@ export const KanbanBoard: React.FC = () => {
     deleteTaskLocal,
     toggleCriterionLocal,
     loadProjectData,
-    backlogConfig
+    backlogConfig,
+    worktrees,
+    workspaceRoot
   } = useProjectStore();
+  // Деревья задач по точной ветке task/<id> (TASK-268): значок на карточке.
+  const worktreeByTask = useMemo(() => taskWorktreesById(worktrees), [worktrees]);
 
   // Колонки доски — из `statuses` в `backlog/config.yml` проекта (TASK-68, decision-24).
   // Стандартные четыре статуса сохраняют прежние цвета и переведённые подписи,
@@ -478,6 +484,22 @@ export const KanbanBoard: React.FC = () => {
                         </div>
 
                         <h4 className="text-[13px] text-slate-100 line-clamp-2 leading-snug">{task.title}</h4>
+
+                        {/* Worktree задачи (TASK-268): ветка task/<id> выписана; активное дерево приложения — ярче */}
+                        {worktreeByTask.has(task.id.toLowerCase()) && (() => {
+                          const wt = worktreeByTask.get(task.id.toLowerCase())!;
+                          const isActiveTree = sameWorkPath(wt.path, workspaceRoot);
+                          return (
+                            <div
+                              title={`${t.kanban.worktreeBadge.replace('{branch}', wt.branch || wt.path)}\n${wt.path}`}
+                              data-testid="task-worktree-badge"
+                              className={`flex items-center gap-1 text-[11px] w-fit max-w-full min-w-0 ${isActiveTree ? 'text-cyan-300' : 'text-cyan-500/70'}`}
+                            >
+                              <FolderGit2 className="w-3 h-3 shrink-0" />
+                              <span className="font-mono truncate">{wt.branch}</span>
+                            </div>
+                          );
+                        })()}
 
                         {/* Задачу завёл агент, человек её ещё не подтвердил (decision-89) */}
                         {awaitingApproval && (

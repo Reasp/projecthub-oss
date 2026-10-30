@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { AISession, AIMessage, AIToolCall } from '../../src/types/electron';
 import { sanitizeSessionAgent } from '../../src/lib/studioSessionAgent.js';
+import { sanitizeSessionWorktree } from '../../src/lib/studioWorktree.js';
 import { getStatePath } from './appPaths.js';
 import { stateFields, withVersion } from './stateFiles.js';
 
@@ -140,6 +141,9 @@ export function compactSessionForStorage(session: AISession): AISession {
     ...(session.lastMode === 'agent' || session.lastMode === 'chat' || session.lastMode === 'architect' ? { lastMode: session.lastMode } : {}),
     // Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code переживают перезапуск.
     ...withAgent(sanitizeSessionAgent(session.agent)),
+    // Задача и дерево вкладки (TASK-268, decision-195): каталог агента и `--resume` переживают перезапуск.
+    ...(typeof session.activeTaskId === 'string' && /^[\w.-]{1,64}$/.test(session.activeTaskId) ? { activeTaskId: session.activeTaskId } : {}),
+    ...withWorktree(sanitizeSessionWorktree(session.worktree)),
     // Владелец сессии на общем хосте (TASK-142.3): без него сессия участника после перезапуска стала бы общей.
     ...(typeof session.memberId === 'string' && /^[a-z0-9][a-z0-9-]{0,31}$/.test(session.memberId) ? { memberId: session.memberId } : {})
   };
@@ -147,6 +151,10 @@ export function compactSessionForStorage(session: AISession): AISession {
 
 function withAgent(agent: AISession['agent']): Pick<AISession, 'agent'> {
   return agent ? { agent } : {};
+}
+
+function withWorktree(worktree: AISession['worktree']): Pick<AISession, 'worktree'> {
+  return worktree ? { worktree } : {};
 }
 
 function isSelection(value: unknown): value is { provider: string; profileId?: string; model: string } {

@@ -418,6 +418,12 @@ function killProcessTree(child: ChildProcess): void {
   }
 }
 
+/** Один каталог: разрешённый путь, на Windows без учёта регистра. */
+function sameDir(a: string, b: string): boolean {
+  const norm = (p: string) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  return norm(a) === norm(b);
+}
+
 class ClaudeBridgeService extends EventEmitter {
   private projectStatuses = new Map<string, ProjectAgentStatus>();
   private activeSubagents = new Map<string, SubagentInfo[]>();
@@ -431,8 +437,8 @@ class ClaudeBridgeService extends EventEmitter {
   private activeSessions = new Map<string, string>();
   /** Сессии, прерванные пользователем: их завершение считается отменой, а не ошибкой. */
   private abortedSessions = new Set<string>();
-  /** Последний id разговора CLI вкладки и каталог аккаунта, под которым он записан. */
-  private sessionClaudeCliIds = new Map<string, { id: string; configDir: string }>();
+  /** Последний id разговора CLI вкладки, каталог аккаунта и рабочий каталог, где он записан. */
+  private sessionClaudeCliIds = new Map<string, { id: string; configDir: string; workDir: string }>();
   private claudeCliCheck: (ClaudeCliAvailability & { checkedAt: number }) | null = null;
   private claudeCliCheckPromise: Promise<ClaudeCliAvailability> | null = null;
   /** Поставщик адреса встроенного MCP-сервера для --permission-prompt-tool (внедряется из main.ts). */
@@ -1499,9 +1505,11 @@ class ClaudeBridgeService extends EventEmitter {
 
     // Аккаунт Claude Code (decision-87): вкладки Studio (TASK-170), иначе привязка проекта в реестре машины, иначе по умолчанию.
     const account = (await claudeAccountService.resolve({ projectPath, slotAccountId: req.claudeAccountId })).account;
-    // Разговор CLI хранится в каталоге аккаунта: id, запомненный под другим аккаунтом, `--resume` не найдёт (TASK-170).
+    // Разговор CLI хранится в каталоге аккаунта и по каталогу запуска: id, запомненный под другим аккаунтом (TASK-170)
+    // или в другом дереве (вкладку перенесли, TASK-268), `--resume` не найдёт — окно уже сняло его, кэш тоже не берём.
     const cached = this.sessionClaudeCliIds.get(sessionId);
-    const existingCliSessionId = req.claudeCliSessionId || (cached?.configDir === account.configDir ? cached.id : undefined);
+    const cachedHere = cached?.configDir === account.configDir && sameDir(cached.workDir, workDir);
+    const existingCliSessionId = req.claudeCliSessionId || (cachedHere ? cached.id : undefined);
     const cliArgs = ['-p'];
     if (existingCliSessionId) {
       cliArgs.push('--resume', existingCliSessionId);
@@ -1668,7 +1676,7 @@ class ClaudeBridgeService extends EventEmitter {
           const event = JSON.parse(trimmed);
 
           if (event.session_id) {
-            this.sessionClaudeCliIds.set(sessionId, { id: event.session_id, configDir: account.configDir });
+            this.sessionClaudeCliIds.set(sessionId, { id: event.session_id, configDir: account.configDir, workDir });
             onChunk({ claudeCliSessionId: event.session_id });
           }
 

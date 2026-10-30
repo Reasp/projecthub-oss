@@ -1,5 +1,6 @@
 import { ipcMain, shell, dialog } from 'electron';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import type { CreatePtyOptions, AISession } from '../../src/types/electron';
 import { ptyService } from '../services/ptyService';
 import {
@@ -322,6 +323,12 @@ export function registerAiIpc(ctx: IpcContext) {
       req = await applyStudioMember(req);
     } catch (err) {
       refuse(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    // Дерево вкладки удалили (TASK-268, decision-195): запуск в основном дереве вместо него — молчаливая подмена каталога.
+    const workDir = req.workspaceRoot?.trim();
+    if (workDir && !existsSync(workDir)) {
+      refuse(new AppError('studio.worktreeMissing', { path: workDir }));
       return;
     }
     // Запросы HITL сессии участника уходят его устройствам (decision-84 п. 5). Сессия принадлежит ему навсегда.

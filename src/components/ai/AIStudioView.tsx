@@ -51,11 +51,12 @@ import { SwarmArenaView } from './swarm/SwarmArenaView';
 import { ProviderErrorCard } from './ProviderErrorCard';
 import { SessionHistoryModal } from './SessionHistoryModal';
 import { CliCommandModal } from './CliCommandModal';
+import { sameWorkPath, sessionWorkDir, sessionWorktreeOf, sessionWorktreeState, worktreeLabel } from '../../lib/studioWorktree';
 
 export const AIStudioView: React.FC = () => {
   const { t } = useTranslation();
   const dialog = useDialog();
-  const { selectedProject, tasks, gitRepoDetails, workspaceRoot } = useProjectStore();
+  const { selectedProject, tasks, gitRepoDetails, workspaceRoot, worktrees, setActiveWorktree, createWorktreeAction } = useProjectStore();
   const {
     sessions,
     sessionsLoaded,
@@ -92,6 +93,7 @@ export const AIStudioView: React.FC = () => {
     clearSession,
     setSessionTask,
     setSessionAgent,
+    setSessionWorktree,
     toggleContextPart,
     sendMessage,
     retryFailedMessage,
@@ -122,6 +124,12 @@ export const AIStudioView: React.FC = () => {
   const currentAgent = effectiveSessionAgent(config, currentSession?.agent);
   const sessionAccountId = sessionClaudeAccountId(currentSession?.agent);
   const claudeAccounts = useClaudeAccountsStore((s) => s.overview?.accounts);
+  // Дерево вкладки (TASK-268, decision-195): каталог агента и --resume этой вкладки, а не активное дерево приложения.
+  const tabWorkDir = sessionWorkDir(currentSession, workspaceRoot, projectPath);
+  const tabIsMain = sameWorkPath(tabWorkDir, projectPath);
+  const tabWorktree = currentSession?.worktree ?? sessionWorktreeOf(tabWorkDir, worktrees, projectPath);
+  const tabWorktreeState = sessionWorktreeState(currentSession, worktrees, projectPath);
+  const tabTreeLabel = tabIsMain ? t.aiStudio.tabWorktreeMain : worktreeLabel(tabWorktree);
 
   useEffect(() => {
     fetchConfig();
@@ -213,6 +221,28 @@ export const AIStudioView: React.FC = () => {
     );
   }
 
+  /** Перенос вкладки в другое дерево: разговор Claude CLI остаётся в старом каталоге — спрашиваем (decision-195). */
+  const moveTabToTree = async (path: string) => {
+    if (!currentSession || (sameWorkPath(path, tabWorkDir) && currentSession.worktree)) return;
+    const target = sessionWorktreeOf(path, worktrees, projectPath);
+    const label = target.isMain ? t.aiStudio.tabWorktreeMain : worktreeLabel(target);
+    if (currentSession.claudeCliSessionId && !sameWorkPath(path, tabWorkDir)) {
+      if (!(await dialog.confirm(t.aiStudio.tabWorktreeMoveConfirm.replace('{branch}', label)))) return;
+    }
+    setSessionWorktree(projectPath, currentSession.id, target);
+  };
+
+  /** Удалённое дерево вкладки выписывается заново из её ветки — в тот же каталог, и `--resume` снова находит разговор. */
+  const restoreTabTree = async () => {
+    const branch = currentSession?.worktree?.branch;
+    if (!currentSession || !branch || !(gitRepoDetails?.branches || []).includes(branch)) {
+      await dialog.alert(t.aiStudio.tabWorktreeRestoreFailed.replace('{branch}', branch || tabTreeLabel));
+      return;
+    }
+    const wt = await createWorktreeAction(branch, false);
+    if (wt) setSessionWorktree(projectPath, currentSession.id, { path: wt.path, branch: wt.branch || branch });
+  };
+
   const modeLabel = (m: 'agent' | 'chat' | 'architect') =>
     m === 'agent' ? t.aiStudio.input.agentMode : m === 'chat' ? t.aiStudio.input.chatMode : t.aiStudio.input.adrMode;
   const modeIcon = (m: 'agent' | 'chat' | 'architect') =>
@@ -288,7 +318,7 @@ export const AIStudioView: React.FC = () => {
                     ? 'bg-ph-panel border-indigo-400 text-slate-100'
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-ph-hover/60'
                 }`}
-                title={`${t.aiStudio.chatVoiceTooltip.replace('{title}', session.title || t.aiStudio.newChat).replaceAll('{num}', String(tabNumber))}\n${t.aiStudio.input.tabAgent.replace('{agent}', tabAgentLabel)}`}
+                title={`${t.aiStudio.chatVoiceTooltip.replace('{title}', session.title || t.aiStudio.newChat).replaceAll('{num}', String(tabNumber))}\n${t.aiStudio.input.tabAgent.replace('{agent}', tabAgentLabel)}${session.worktree && !session.worktree.isMain ? `\n${t.aiStudio.tabWorktree.replace('{branch}', worktreeLabel(session.worktree))}` : ''}`}
               >
                 {/* Voice / Tab Order Badge */}
                 <span
@@ -330,6 +360,14 @@ export const AIStudioView: React.FC = () => {
                 >
                   {session.title || t.aiStudio.newChat}
                 </span>
+                {/* Дерево вкладки (TASK-268): вкладка закреплена за worktree — значок с веткой в подсказке */}
+                {session.worktree && !session.worktree.isMain && !sameWorkPath(session.worktree.path, projectPath) && (
+                  <FolderGit2
+                    className="w-3 h-3 shrink-0 text-cyan-400"
+                    aria-label={t.aiStudio.tabWorktree.replace('{branch}', worktreeLabel(session.worktree))}
+                    data-testid="studio-tab-worktree"
+                  />
+                )}
                 {/* Свой аккаунт Claude Code вкладки — короткой подписью, чтобы различать вкладки разных аккаунтов */}
                 {tabAccountName && <span className="text-[11px] text-amber-300/80 max-w-[70px] min-w-0 truncate">{tabAccountName}</span>}
 
@@ -536,15 +574,39 @@ export const AIStudioView: React.FC = () => {
             )}
           </button>
 
-          {/* Рабочее дерево агента: он стартует с cwd в активном worktree (TASK-62) */}
-          {workspaceRoot && selectedProject && workspaceRoot !== selectedProject.path && (
-            <span
-              className="flex items-center gap-1.5 h-7 px-2 text-cyan-300 text-xs max-w-[200px] truncate shrink-0"
-              title={`${t.worktrees.switcherTitle}: ${workspaceRoot}`}
-            >
-              <FolderGit2 className="w-3 h-3 shrink-0" />
-              {workspaceRoot.split(/[\\/]/).pop()}
-            </span>
+          {/* Дерево вкладки (TASK-268, decision-195): агент и --resume работают в нём; выбор переносит только эту вкладку */}
+          {selectedProject.hasGit && (
+            <ComposerMenu
+              placement="down"
+              chevron
+              testId="studio-tab-worktree-menu"
+              trigger={
+                <span className={`flex items-center gap-1.5 max-w-[180px] min-w-0 ${tabWorktreeState === 'missing' ? 'text-rose-300' : tabIsMain ? '' : 'text-cyan-300'}`}>
+                  <FolderGit2 className="w-3 h-3 shrink-0" />
+                  <span className="truncate font-mono @max-[860px]:hidden">{tabTreeLabel}</span>
+                </span>
+              }
+              title={`${t.aiStudio.tabWorktreeMenuTitle}\n${tabWorkDir}`}
+              heading={t.aiStudio.tabWorktreeMenuHeading}
+              items={[
+                ...worktrees
+                  .filter((w) => !w.isPrunable)
+                  .map((w) => ({
+                    key: w.path,
+                    label: w.isMain ? `${t.aiStudio.tabWorktreeMain} · ${w.branch || '—'}` : w.branch || worktreeLabel({ path: w.path }),
+                    icon: <FolderGit2 className={`w-3.5 h-3.5 ${w.isMain ? 'text-slate-400' : 'text-cyan-400'}`} />,
+                    hint: [sameWorkPath(w.path, workspaceRoot) ? t.aiStudio.tabWorktreeActiveHint : '', w.path].filter(Boolean).join(' · '),
+                    checked: sameWorkPath(w.path, tabWorkDir),
+                    onSelect: () => void moveTabToTree(w.path)
+                  })),
+                {
+                  key: '__make-active',
+                  label: t.aiStudio.tabWorktreeMakeActive,
+                  disabled: tabWorktreeState === 'missing' || sameWorkPath(tabWorkDir, workspaceRoot),
+                  onSelect: () => void setActiveWorktree(tabIsMain ? null : tabWorkDir)
+                }
+              ]}
+            />
           )}
 
           {/* Модель, режим и авто-подтверждение — в нижней строке поля ввода (TASK-169); лимиты — в строке состояния (decision-73) */}
@@ -584,6 +646,22 @@ export const AIStudioView: React.FC = () => {
             subagents={projectSubagents}
             onClose={() => setIsSubagentsPanelOpen(false)}
           />
+        </div>
+      )}
+
+      {/* Дерево вкладки удалено (TASK-268, decision-195): агент не уходит молча в другой каталог */}
+      {tabWorktreeState === 'missing' && (
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-rose-950/40 border-b border-rose-900/50 text-xs text-rose-200" data-testid="studio-tab-worktree-missing">
+          <FolderGit2 className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1 min-w-[200px]">{t.aiStudio.tabWorktreeMissing.replace('{branch}', tabTreeLabel)}</span>
+          {currentSession?.worktree?.branch && (
+            <button type="button" onClick={() => void restoreTabTree()} className="px-2.5 py-1 rounded-md bg-ph-raised hover:bg-ph-hover text-slate-100">
+              {t.aiStudio.tabWorktreeRestore}
+            </button>
+          )}
+          <button type="button" onClick={() => void moveTabToTree(projectPath)} className="px-2.5 py-1 rounded-md bg-ph-raised hover:bg-ph-hover text-slate-100">
+            {t.aiStudio.tabWorktreeToMain}
+          </button>
         </div>
       )}
 

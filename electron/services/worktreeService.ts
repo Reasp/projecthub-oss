@@ -53,15 +53,30 @@ export async function detachLinkedDirs(worktreePath: string): Promise<string[]> 
  * первой колонке) следом идёт исходный путь — он пропускается.
  */
 export function parseStatusPorcelainZ(raw: string): string[] {
+  return parseStatusEntriesZ(raw).map((e) => e.path);
+}
+
+/** Записи того же вывода с признаком правки в индексе: первая колонка — не пробел и не `?`. */
+export function parseStatusEntriesZ(raw: string): Array<{ path: string; staged: boolean }> {
   const parts = raw.split('\0');
-  const files: string[] = [];
+  const entries: Array<{ path: string; staged: boolean }> = [];
   for (let i = 0; i < parts.length; i++) {
     const entry = parts[i];
     if (entry.length < 4) continue;
-    files.push(entry.slice(3));
+    entries.push({ path: entry.slice(3), staged: entry[0] !== ' ' && entry[0] !== '?' });
     if (entry[0] === 'R' || entry[0] === 'C') i++;
   }
-  return files;
+  return entries;
+}
+
+/**
+ * Незакоммиченные пути основного дерева, которые меняет слияние (TASK-268): их правку слияние перезаписало бы, и git
+ * откажет сам. Остальные незакоммиченные правки — статус задачи, который пишет сам ProjectHub, — слиянию не мешают.
+ */
+export function dirtyPathsTouchedByMerge(dirty: readonly string[], incoming: readonly string[], ignoreCase = process.platform === 'win32'): string[] {
+  const norm = (p: string) => (ignoreCase ? p.toLowerCase() : p);
+  const touched = new Set(incoming.map(norm));
+  return dirty.filter((p) => touched.has(norm(p)));
 }
 
 /** Сколько путей грязного дерева отдавать окну: окно показывает список, а не весь репозиторий. */
@@ -469,13 +484,20 @@ export class WorktreeService {
       const status = await git.status();
       originalBranch = status.current;
 
-      // Проверяем чистоту основного дерева перед слиянием
+      // Незакоммиченное основного дерева (TASK-268): слияние идёт поверх него, если дерево уже на целевой ветке, в индексе
+      // пусто и правки не пересекаются со слиянием (проверка ниже, после перенумерации). Так работает и сам git: статус
+      // задачи, который ProjectHub пишет в основное дерево при старте работы, не блокирует её завершение.
+      let mainDirty: string[] = [];
       if (!status.isClean()) {
-        return {
-          success: false,
-          uncleanWorkingTree: true,
-          ...appErrorFields(new AppError('git.workingTreeDirty'))
-        };
+        const entries = originalBranch === targetBranch ? parseStatusEntriesZ(await git.raw(['status', '--porcelain', '-z', '-uall'])) : [];
+        if (originalBranch !== targetBranch || entries.some((e) => e.staged)) {
+          return {
+            success: false,
+            uncleanWorkingTree: true,
+            ...appErrorFields(new AppError('git.workingTreeDirty'))
+          };
+        }
+        mainDirty = entries.map((e) => e.path);
       }
 
       // Незакоммиченное в worktree ветки сливается только коммитом (TASK-267): иначе дифф в окне показывает правки,
@@ -505,6 +527,20 @@ export class WorktreeService {
         };
       }
       const renumbered = prepared.status === 'renumbered' ? prepared.preview.renumber : [];
+
+      if (mainDirty.length > 0) {
+        const base = (await git.raw(['merge-base', 'HEAD', prepared.mergeRef])).trim();
+        const incoming = (await git.raw(['diff', '--name-only', '--no-renames', '-z', base, prepared.mergeRef])).split('\0').filter(Boolean);
+        const overlap = dirtyPathsTouchedByMerge(mainDirty, incoming);
+        if (overlap.length > 0) {
+          if (prepared.status === 'renumbered') await this.finishRenumbered(projectPath, prepared.mergeRef, false);
+          return {
+            success: false,
+            uncleanWorkingTree: true,
+            ...appErrorFields(new AppError('git.workingTreeDirtyOverlap', { files: overlap.slice(0, 10).join(', '), count: overlap.length }))
+          };
+        }
+      }
 
       if (originalBranch !== targetBranch) {
         await git.checkout(targetBranch);

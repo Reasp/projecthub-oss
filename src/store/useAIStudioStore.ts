@@ -16,7 +16,8 @@ import type {
   RateLimitWarning,
   AutoApproveRules,
   ContextPartKey,
-  StudioSessionAgent
+  StudioSessionAgent,
+  StudioSessionWorktree
 } from '../types/electron';
 import { useProjectStore } from './useProjectStore';
 import { useClaudeAccountsStore } from './useClaudeAccountsStore';
@@ -28,6 +29,7 @@ import { studioCliText } from '../i18n/studioCliText';
 import { canWriteStudioSession } from '../utils/studioRemote';
 import { getDictionary } from '../i18n';
 import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib/studioSessionTitle';
+import { sameWorkPath, sessionWorkDir, sessionWorktreeOf } from '../lib/studioWorktree';
 
 export type { AISession };
 
@@ -92,6 +94,11 @@ interface AIStudioState {
   setSessionTask: (projectPath: string, sessionId: string, taskId: string | undefined) => void;
   /** Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code только этой сессии. */
   setSessionAgent: (projectPath: string, sessionId: string, agent: StudioSessionAgent) => void;
+  /**
+   * Перенести вкладку в другое рабочее дерево (TASK-268, decision-195). Разговор Claude CLI живёт в каталоге, где
+   * начат: в другом дереве `--resume` его не найдёт, поэтому его id снимается, а лента остаётся.
+   */
+  setSessionWorktree: (projectPath: string, sessionId: string, worktree: StudioSessionWorktree) => void;
   /** Включает/выключает часть контекста (задача/RAG/GitNexus/git) на сессию. */
   toggleContextPart: (projectPath: string, sessionId: string, key: ContextPartKey, enabled: boolean) => void;
   clearSession: (projectPath: string, sessionId?: string) => void;
@@ -147,6 +154,10 @@ export interface CreateSessionOptions {
   memberId?: string;
   /** Агент новой вкладки (TASK-221): выбран на телефоне при открытии сессии; без поля — агент активной вкладки. */
   agent?: StudioSessionAgent;
+  /** Дерево вкладки (TASK-268): «Начать в worktree» закрепляет вкладку за деревом задачи сразу. */
+  worktree?: StudioSessionWorktree;
+  /** Задача вкладки (TASK-268): контекст задачи с первого сообщения. */
+  taskId?: string;
 }
 
 /** Перехваченная слеш-команда Claude Code вкладки (TASK-230). */
@@ -460,7 +471,9 @@ export const useAIStudioStore = create<AIStudioState>()(
           agent: opts.agent ?? effectiveSessionAgent(get().config, active?.agent),
           ...(opts.origin ? { origin: opts.origin } : {}),
           ...(opts.originDevice ? { originDevice: opts.originDevice } : {}),
-          ...(opts.memberId ? { memberId: opts.memberId } : {})
+          ...(opts.memberId ? { memberId: opts.memberId } : {}),
+          ...(opts.worktree ? { worktree: opts.worktree } : {}),
+          ...(opts.taskId ? { activeTaskId: opts.taskId } : {})
         };
         const activate = opts.activate !== false || !get().activeSessionId[projectPath];
 
@@ -605,6 +618,20 @@ export const useAIStudioStore = create<AIStudioState>()(
         }));
       },
 
+      setSessionWorktree: (projectPath: string, sessionId: string, worktree: StudioSessionWorktree) => {
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => {
+              if (s.id !== sessionId) return s;
+              const before = sessionWorkDir(s, null, projectPath);
+              if (sameWorkPath(before, worktree.path)) return { ...s, worktree };
+              return { ...s, worktree, claudeCliSessionId: undefined, claudeCliCwd: undefined };
+            })
+          }
+        }));
+      },
+
       toggleContextPart: (projectPath: string, sessionId: string, key: ContextPartKey, enabled: boolean) => {
         set((state) => {
           const projectSessions = state.sessions[projectPath] || [];
@@ -716,9 +743,14 @@ export const useAIStudioStore = create<AIStudioState>()(
         const claudeAccountId = requestConfig.provider === 'anthropic' ? sessionClaudeAccountId(currentSession.agent) : undefined;
         // Интерактивные команды Claude Code в `claude -p` не работают — Studio выполняет их сама (TASK-230). С телефона
         // (`opts.sessionId`) диалога нет: команда уходит в CLI как раньше.
-        // Папка — та, где идёт разговор CLI вкладки: после смены активного дерева сессия остаётся в своём каталоге.
-        const workspaceRoot = useProjectStore.getState().workspaceRoot || undefined;
-        const cliCwd = (currentSession.claudeCliSessionId && currentSession.claudeCliCwd) || workspaceRoot || projectPath;
+        // Каталог вкладки (TASK-268, decision-195): её дерево, а не активное дерево приложения. Вкладка без дерева
+        // закрепляется за каталогом первого сообщения — после смены активного дерева разговор остаётся в своём.
+        const projectState = useProjectStore.getState();
+        const isSelected = projectState.selectedProject?.path === projectPath;
+        const activeRoot = isSelected ? projectState.workspaceRoot : projectState.activeWorktreeByProject[projectPath];
+        const workDir = sessionWorkDir(currentSession, activeRoot, projectPath);
+        const pinnedWorktree = currentSession.worktree ?? sessionWorktreeOf(workDir, isSelected ? projectState.worktrees : [], projectPath);
+        const cliCwd = workDir;
         const cli = opts.sessionId || opts.fromRemote ? null : studioCliCommand(text, requestConfig);
         if (cli?.kind === 'resume' && cli.cliSessionId) {
           get().attachCliSession(projectPath, activeSessionId, cli.cliSessionId, cliCwd);
@@ -772,7 +804,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           const pSessions = state.sessions[projectPath] || [];
           const updated = pSessions.map((s) =>
             s.id === activeSessionId
-              ? { ...s, title: sessionTitle, ...(autoTitle ? { autoTitle: undefined } : {}), messages: updatedMessages, lastSelection, lastMode: requestMode }
+              ? { ...s, title: sessionTitle, ...(autoTitle ? { autoTitle: undefined } : {}), messages: updatedMessages, lastSelection, lastMode: requestMode, worktree: pinnedWorktree }
               : s
           );
 
@@ -800,7 +832,7 @@ export const useAIStudioStore = create<AIStudioState>()(
             const targetSession = { ...pSessions[sIdx] };
             if (chunk.claudeCliSessionId) {
               targetSession.claudeCliSessionId = chunk.claudeCliSessionId;
-              targetSession.claudeCliCwd = workspaceRoot || projectPath;
+              targetSession.claudeCliCwd = workDir;
             }
 
             const msgs = [...targetSession.messages];
@@ -1003,8 +1035,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           claudeCliSessionId: currentSession.claudeCliSessionId,
           taskId: currentSession.activeTaskId,
           contextParts: currentSession.contextParts,
-          // Агент работает в активном рабочем дереве проекта (TASK-62, decision-15).
-          workspaceRoot,
+          // Агент работает в дереве вкладки (TASK-268, decision-195); основное дерево — без поля, как раньше.
+          ...(sameWorkPath(workDir, projectPath) ? {} : { workspaceRoot: workDir }),
           ...(claudeAccountId ? { claudeAccountId } : {}),
           // Сессия участника: хост сам выберет его worktree и права (TASK-142.3).
           ...(currentSession.memberId ? { memberId: currentSession.memberId } : {})

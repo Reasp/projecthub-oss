@@ -22,7 +22,8 @@ import {
   Bot,
   PlayCircle,
   Loader2,
-  Repeat
+  Repeat,
+  TerminalSquare
 } from '../common/icons';
 import type { BacklogTask, TaskCriterion, TaskDraftResponse } from '../../types/electron';
 import { useProjectStore, samePath } from '../../store/useProjectStore';
@@ -44,6 +45,8 @@ import { MarkdownViewer } from '../common/MarkdownViewer';
 import { PlanPanel } from './PlanPanel';
 import { LaunchLimitsNotice, useLaunchCheck } from '../agents/LaunchLimitsNotice';
 import { EditionTaskCardItems } from '../../extensions/editionUi';
+import { findTaskWorktree } from '../../lib/studioWorktree';
+import { startTaskInWorktree } from '../../store/taskWorktreeFlow';
 import {
   matchStatus,
   resolveDoneStatus,
@@ -77,7 +80,6 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     worktrees,
     workspaceRoot,
     setActiveWorktree,
-    createWorktreeAction,
     createPtySessionAction,
     selectedProject,
     updateTaskStatusLocal,
@@ -129,50 +131,42 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     [awaitingApproval, tasks, task?.reporter]
   );
 
-  const taskIdNorm = task?.id?.toLowerCase() || '';
-  const existingWorktree = worktrees.find(
-    (w) =>
-      (w.taskId && w.taskId.toLowerCase() === taskIdNorm) ||
-      (w.branch && w.branch.toLowerCase().includes(taskIdNorm)) ||
-      w.path.toLowerCase().includes(taskIdNorm)
-  );
+  // Дерево задачи — только ветка `task/<id>` целиком: `task-1` не находит дерево `task-12` (TASK-268).
+  const existingWorktree = findTaskWorktree(worktrees, task?.id);
 
-  const handleOpenOrCreateWorktree = async () => {
+  /** «Начать в worktree» (TASK-268): дерево задачи → активное дерево → вкладка Agents Studio, закреплённая за ним. */
+  const handleStartInWorktree = async () => {
     if (!task || !selectedProject) return;
+    // Несохранённые правки — как при любом уходе из карточки (decision-70); карточка закрывается, когда дерево готово.
+    if (isDirty && !(await dialog.confirm(t.taskDetail.discardConfirm))) return;
     setIsWorktreeLoading(true);
     try {
-      if (existingWorktree) {
-        await createPtySessionAction(
-          selectedProject.path,
-          'claude',
-          `[WT: ${task.id}] Claude`,
-          existingWorktree.path,
-          existingWorktree.branch || undefined
-        );
-      } else {
-        const branchName = `task/${taskIdNorm}`;
-        const wt = await createWorktreeAction(branchName, true, 'HEAD');
-        if (wt) {
-          // Автоперевод в работу возможен, только если такие статусы есть у проекта (TASK-68).
-          const todoStatus = matchStatus(taskStatuses, 'To Do');
-          const inProgressStatus = matchStatus(taskStatuses, 'In Progress');
-          if (inProgressStatus && todoStatus && matchStatus([todoStatus], status)) {
-            setStatus(inProgressStatus);
-            await updateTaskStatusLocal(task.id, inProgressStatus);
-            setSavedStatus(inProgressStatus);
-          }
-          await createPtySessionAction(
-            selectedProject.path,
-            'claude',
-            `[WT: ${task.id}] Claude`,
-            wt.path,
-            wt.branch || undefined
-          );
+      const result = await startTaskInWorktree({ id: task.id, title: task.title });
+      if (!result.worktree) return; // ошибка создания — в журнале терминала, карточка остаётся открытой
+      if (result.created) {
+        // Автоперевод в работу возможен, только если такие статусы есть у проекта (TASK-68).
+        const todoStatus = matchStatus(taskStatuses, 'To Do');
+        const inProgressStatus = matchStatus(taskStatuses, 'In Progress');
+        if (inProgressStatus && todoStatus && matchStatus([todoStatus], savedStatus)) {
+          await updateTaskStatusLocal(task.id, inProgressStatus);
         }
       }
+      onClose();
     } finally {
       setIsWorktreeLoading(false);
     }
+  };
+
+  /** Интерактивный Claude Code в терминале дерева задачи (TASK-53) — для того, чего нет в Studio. */
+  const handleOpenWorktreeTerminal = async () => {
+    if (!task || !selectedProject || !existingWorktree) return;
+    await createPtySessionAction(
+      selectedProject.path,
+      'claude',
+      `[WT: ${task.id}] Claude`,
+      existingWorktree.path,
+      existingWorktree.branch || undefined
+    );
   };
 
   const parsedAssignee = parseAssignee(assignee);
@@ -972,31 +966,40 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               )
             )}
 
-            {/* Git Worktree Action (TASK-53) */}
+            {/* «Начать в worktree» (TASK-268): дерево задачи и вкладка Agents Studio в нём */}
             {selectedProject?.hasGit && (
-              existingWorktree ? (
-                <button
-                  type="button"
-                  onClick={handleOpenOrCreateWorktree}
-                  disabled={isWorktreeLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ph-raised hover:bg-ph-hover text-slate-200 border border-slate-700 text-xs font-semibold shadow-sm transition"
-                  title={t.taskDetail.worktreeActiveTooltip.replace('{path}', existingWorktree.path)}
-                >
-                  <FolderGit2 className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Worktree: {existingWorktree.branch || 'wt'}</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleOpenOrCreateWorktree}
-                  disabled={isWorktreeLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/50 text-xs font-semibold shadow-sm transition"
-                  title={t.taskDetail.createWorktreeTooltip.replace('{id}', task.id)}
-                >
-                  <FolderGit2 className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>{isWorktreeLoading ? t.taskDetail.creatingWorktree : t.taskDetail.openInWorktree}</span>
-                </button>
-              )
+              <button
+                type="button"
+                onClick={handleStartInWorktree}
+                disabled={isWorktreeLoading}
+                data-testid="task-start-in-worktree"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/50 text-xs font-semibold shadow-sm transition disabled:opacity-60"
+                title={
+                  existingWorktree
+                    ? t.taskDetail.continueInWorktreeTooltip.replace('{branch}', existingWorktree.branch || existingWorktree.path)
+                    : t.taskDetail.startInWorktreeTooltip.replace('{branch}', `task/${task.id.toLowerCase()}`)
+                }
+              >
+                {isWorktreeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderGit2 className="w-3.5 h-3.5 text-indigo-400" />}
+                <span>
+                  {isWorktreeLoading
+                    ? t.taskDetail.creatingWorktree
+                    : existingWorktree
+                      ? t.taskDetail.continueInWorktree
+                      : t.taskDetail.startInWorktree}
+                </span>
+              </button>
+            )}
+            {selectedProject?.hasGit && existingWorktree && (
+              <button
+                type="button"
+                onClick={() => void handleOpenWorktreeTerminal()}
+                className="flex items-center justify-center w-8 h-8 rounded-lg bg-ph-raised hover:bg-ph-hover text-slate-300 border border-slate-700 transition"
+                title={t.taskDetail.worktreeTerminalTooltip.replace('{path}', existingWorktree.path)}
+                aria-label={t.taskDetail.worktreeTerminalTooltip.replace('{path}', existingWorktree.path)}
+              >
+                <TerminalSquare className="w-3.5 h-3.5 text-cyan-400" />
+              </button>
             )}
 
             {/* Swarm Arena Action (TASK-54) */}
