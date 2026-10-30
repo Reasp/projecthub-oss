@@ -99,6 +99,7 @@ export const en: TranslationDictionary = {
   },
   projectTabs: {
     closeTab: 'Close project',
+    remoteTabTooltip: 'On computer {host}: {path}',
     activeProjectsCount: 'Active: {count}',
     closeAll: 'Close all tabs',
     switchProject: 'Switch project',

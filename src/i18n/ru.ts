@@ -99,6 +99,7 @@ export const ru: TranslationDictionary = {
   },
   projectTabs: {
     closeTab: 'Закрыть проект',
+    remoteTabTooltip: 'На компьютере {host}: {path}',
     activeProjectsCount: 'Активно: {count}',
     closeAll: 'Закрыть все вкладки',
     switchProject: 'Переключить проект',

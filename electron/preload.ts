@@ -1,4 +1,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import {
+  collectIds,
+  prefixHostPaths,
+  projectRootFor,
+  routeByKnownIds,
+  stripRemoteArgs,
+  type StrippedArgs
+} from '../src/lib/remoteProjectPath';
 
 /** Полезная нагрузка события pty:removed — автоудаление завершившейся сессии (TASK-50). */
 type PtyRemovedPayload = { sessionId: string; title: string; reason: 'ttl' };
@@ -63,44 +71,106 @@ function relay<T>(callback: (data: T) => void): (event: IpcRendererEvent, data: 
   return (_event, data) => callback(data as T);
 }
 
+/**
+ * Проект другого ПК в окне как локальный (TASK-280, [[decision-194]]). Его путь — `phr://<hostId>/<путь на хосте>`:
+ * вызов с таким путём или с id объекта, полученного от хоста (сессия терминала, процесс, запрос HITL), исполняет хост
+ * своим обработчиком канала. Пути ответа и событий хоста получают префикс обратно — экраны не отличают удалённый
+ * проект от локального.
+ */
+interface RemoteRoute {
+  hostId: string;
+  projectPath: string;
+}
+const remoteRoots = new Map<string, Set<string>>();
+const idRoutes = new Map<string, RemoteRoute>();
+const ID_ROUTES_MAX = 20_000;
+
+function hostRoots(hostId: string): string[] {
+  return [...(remoteRoots.get(hostId) ?? [])];
+}
+
+function rememberIds(value: unknown, route: RemoteRoute): void {
+  for (const id of collectIds(value)) {
+    idRoutes.delete(id);
+    idRoutes.set(id, route);
+  }
+  for (const id of idRoutes.keys()) {
+    if (idRoutes.size <= ID_ROUTES_MAX) break;
+    idRoutes.delete(id);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- тип ответа задаёт объявление IElectronAPI, как у ipcRenderer.invoke
+function invoke(channel: string, ...args: unknown[]): Promise<any> {
+  if (remoteRoots.size === 0) return ipcRenderer.invoke(channel, ...args);
+  let stripped: StrippedArgs;
+  try {
+    stripped = stripRemoteArgs(args);
+  } catch {
+    return Promise.reject(new Error('One call refers to projects of different computers'));
+  }
+  const route: RemoteRoute | null = stripped.hostId
+    ? { hostId: stripped.hostId, projectPath: projectRootFor(stripped.roots[0] ?? '', hostRoots(stripped.hostId)) }
+    : routeByKnownIds(args, idRoutes);
+  if (!route) return ipcRenderer.invoke(channel, ...args);
+  const target = route;
+  rememberIds(stripped.args, target);
+  return ipcRenderer.invoke('remote:ipcInvoke', target.hostId, target.projectPath, channel, stripped.args).then((result: unknown) => {
+    rememberIds(result, target);
+    return prefixHostPaths(result, target.hostId, hostRoots(target.hostId));
+  });
+}
+
+// События хоста для его проектов, открытых в этом окне: тем же каналом, что локальные, с путями `phr://`.
+ipcRenderer.on('federation:event', (_event, payload: { hostId?: unknown; event?: unknown; data?: unknown }) => {
+  if (payload?.event !== 'ipc:event' || typeof payload.hostId !== 'string') return;
+  const roots = hostRoots(payload.hostId);
+  if (roots.length === 0) return;
+  const data = payload.data as { channel?: unknown; args?: unknown } | undefined;
+  if (typeof data?.channel !== 'string' || !Array.isArray(data.args)) return;
+  rememberIds(data.args, { hostId: payload.hostId, projectPath: roots[0] });
+  const mapped = prefixHostPaths(data.args, payload.hostId, roots) as unknown[];
+  ipcRenderer.emit(data.channel, { sender: ipcRenderer }, ...mapped);
+});
+
 const api: IElectronAPI = {
   // Projects & Registry
-  listProjects: () => ipcRenderer.invoke('projects:list'),
-  scanProjects: (options?: ScanOptions) => ipcRenderer.invoke('projects:scan', options),
-  addProject: (folderPath: string) => ipcRenderer.invoke('projects:add', folderPath),
-  removeProject: (projectPath: string) => ipcRenderer.invoke('projects:remove', projectPath),
-  refreshProject: (projectPath: string) => ipcRenderer.invoke('projects:refresh', projectPath),
-  toggleFavorite: (projectPath: string) => ipcRenderer.invoke('projects:toggleFavorite', projectPath),
-  getScanRoots: () => ipcRenderer.invoke('projects:getScanRoots'),
-  setScanRoots: (roots: string[]) => ipcRenderer.invoke('projects:setScanRoots', roots),
-  getProjectDetails: (projectPath: string) => ipcRenderer.invoke('projects:getDetails', projectPath),
+  listProjects: () => invoke('projects:list'),
+  scanProjects: (options?: ScanOptions) => invoke('projects:scan', options),
+  addProject: (folderPath: string) => invoke('projects:add', folderPath),
+  removeProject: (projectPath: string) => invoke('projects:remove', projectPath),
+  refreshProject: (projectPath: string) => invoke('projects:refresh', projectPath),
+  toggleFavorite: (projectPath: string) => invoke('projects:toggleFavorite', projectPath),
+  getScanRoots: () => invoke('projects:getScanRoots'),
+  setScanRoots: (roots: string[]) => invoke('projects:setScanRoots', roots),
+  getProjectDetails: (projectPath: string) => invoke('projects:getDetails', projectPath),
   setProjectVoiceAlias: (projectPath: string, alias: string) =>
-    ipcRenderer.invoke('projects:setVoiceAlias', { projectPath, alias }),
+    invoke('projects:setVoiceAlias', { projectPath, alias }),
 
   // Documentation & ADR Decisions
-  listDocs: (projectPath: string) => ipcRenderer.invoke('docs:list', projectPath),
-  getDocLinkIndex: (projectPath: string) => ipcRenderer.invoke('docs:linkIndex', projectPath),
-  getDocLinkGraph: (projectPath: string) => ipcRenderer.invoke('docs:linkGraph', projectPath),
-  openDocsInObsidian: (projectPath: string) => ipcRenderer.invoke('docs:openInObsidian', projectPath),
-  readDoc: (filePath: string) => ipcRenderer.invoke('docs:read', filePath),
-  saveDoc: (filePath: string, content: string) => ipcRenderer.invoke('docs:save', filePath, content),
-  createDoc: (projectPath: string, params: unknown) => ipcRenderer.invoke('docs:create', projectPath, params),
-  listDocBranches: (projectPath: string) => ipcRenderer.invoke('docs:branches:list', projectPath),
-  diffDocBranch: (projectPath: string, branchId: string) => ipcRenderer.invoke('docs:branches:diff', projectPath, branchId),
-  mergeDocBranch: (projectPath: string, branchId: string, options?: unknown) => ipcRenderer.invoke('docs:branches:merge', projectPath, branchId, options),
-  closeDocBranch: (projectPath: string, branchId: string) => ipcRenderer.invoke('docs:branches:close', projectPath, branchId),
+  listDocs: (projectPath: string) => invoke('docs:list', projectPath),
+  getDocLinkIndex: (projectPath: string) => invoke('docs:linkIndex', projectPath),
+  getDocLinkGraph: (projectPath: string) => invoke('docs:linkGraph', projectPath),
+  openDocsInObsidian: (projectPath: string) => invoke('docs:openInObsidian', projectPath),
+  readDoc: (filePath: string) => invoke('docs:read', filePath),
+  saveDoc: (filePath: string, content: string) => invoke('docs:save', filePath, content),
+  createDoc: (projectPath: string, params: unknown) => invoke('docs:create', projectPath, params),
+  listDocBranches: (projectPath: string) => invoke('docs:branches:list', projectPath),
+  diffDocBranch: (projectPath: string, branchId: string) => invoke('docs:branches:diff', projectPath, branchId),
+  mergeDocBranch: (projectPath: string, branchId: string, options?: unknown) => invoke('docs:branches:merge', projectPath, branchId, options),
+  closeDocBranch: (projectPath: string, branchId: string) => invoke('docs:branches:close', projectPath, branchId),
 
   // Project Template Wizard
   checkTemplateAvailable: (customSource?: string) =>
-    ipcRenderer.invoke('template:checkAvailable', customSource),
-  setTemplatePath: (templatePath: string | null) => ipcRenderer.invoke('template:setPath', templatePath),
+    invoke('template:checkAvailable', customSource),
+  setTemplatePath: (templatePath: string | null) => invoke('template:setPath', templatePath),
 
   // Инициализация проекта и каталог шаблонов (TASK-136, decision-78)
-  initSelectFolder: () => ipcRenderer.invoke('init:selectFolder'),
-  initPreview: (request) => ipcRenderer.invoke('init:preview', request),
-  initApply: (request) => ipcRenderer.invoke('init:apply', request),
-  initFoundationStatus: (projectPath: string) => ipcRenderer.invoke('init:foundationStatus', projectPath),
-  initTemplateStatus: (projectPath: string, locale: string) => ipcRenderer.invoke('init:templateStatus', projectPath, locale),
+  initSelectFolder: () => invoke('init:selectFolder'),
+  initPreview: (request) => invoke('init:preview', request),
+  initApply: (request) => invoke('init:apply', request),
+  initFoundationStatus: (projectPath: string) => invoke('init:foundationStatus', projectPath),
+  initTemplateStatus: (projectPath: string, locale: string) => invoke('init:templateStatus', projectPath, locale),
   onInitProgress: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) => callback(data);
     ipcRenderer.on('init:progress', handler);
@@ -108,33 +178,33 @@ const api: IElectronAPI = {
       ipcRenderer.removeListener('init:progress', handler);
     };
   },
-  templatesList: (locale: string) => ipcRenderer.invoke('templates:list', locale),
-  templatesAddFolder: () => ipcRenderer.invoke('templates:addFolder'),
-  templatesAddZip: () => ipcRenderer.invoke('templates:addZip'),
-  templatesAddGit: (url: string) => ipcRenderer.invoke('templates:addGit', url),
-  templatesUpdate: (id: string) => ipcRenderer.invoke('templates:update', id),
-  templatesDuplicate: (id: string, name?: string) => ipcRenderer.invoke('templates:duplicate', id, name),
-  templatesRemove: (id: string) => ipcRenderer.invoke('templates:remove', id),
-  templatesSetTrusted: (id: string, trusted: boolean) => ipcRenderer.invoke('templates:setTrusted', id, trusted),
-  templatesOpenFolder: (id: string) => ipcRenderer.invoke('templates:openFolder', id),
-  templatesPreviewSaveProject: (projectPath, options) => ipcRenderer.invoke('templates:previewSaveProject', projectPath, options),
-  templatesSaveProject: (projectPath, options) => ipcRenderer.invoke('templates:saveProject', projectPath, options),
+  templatesList: (locale: string) => invoke('templates:list', locale),
+  templatesAddFolder: () => invoke('templates:addFolder'),
+  templatesAddZip: () => invoke('templates:addZip'),
+  templatesAddGit: (url: string) => invoke('templates:addGit', url),
+  templatesUpdate: (id: string) => invoke('templates:update', id),
+  templatesDuplicate: (id: string, name?: string) => invoke('templates:duplicate', id, name),
+  templatesRemove: (id: string) => invoke('templates:remove', id),
+  templatesSetTrusted: (id: string, trusted: boolean) => invoke('templates:setTrusted', id, trusted),
+  templatesOpenFolder: (id: string) => invoke('templates:openFolder', id),
+  templatesPreviewSaveProject: (projectPath, options) => invoke('templates:previewSaveProject', projectPath, options),
+  templatesSaveProject: (projectPath, options) => invoke('templates:saveProject', projectPath, options),
 
   // Background Processes & Terminal
   startProcess: (projectPath: string, command: string, name: string, options?: StartProcessOptions) =>
-    ipcRenderer.invoke('process:start', projectPath, command, name, options),
+    invoke('process:start', projectPath, command, name, options),
   stopProcess: (processId: string) =>
-    ipcRenderer.invoke('process:stop', processId),
+    invoke('process:stop', processId),
   restartProcess: (processId: string) =>
-    ipcRenderer.invoke('process:restart', processId),
+    invoke('process:restart', processId),
   listPortOwners: (port: number) =>
-    ipcRenderer.invoke('process:listPortOwners', port),
+    invoke('process:listPortOwners', port),
   releasePort: (port: number) =>
-    ipcRenderer.invoke('process:releasePort', port),
+    invoke('process:releasePort', port),
   listProcesses: (projectPath: string) =>
-    ipcRenderer.invoke('process:list', projectPath),
+    invoke('process:list', projectPath),
   tailProcessLog: (projectPath: string, processName: string, lines?: number) =>
-    ipcRenderer.invoke('process:tailLog', projectPath, processName, lines),
+    invoke('process:tailLog', projectPath, processName, lines),
   onProcessLogChunk: (callback: (data: { processId: string; text: string }) => void) => {
     const handler = relay(callback);
     ipcRenderer.on('process:logChunk', handler);
@@ -152,31 +222,31 @@ const api: IElectronAPI = {
 
   // Action Runner & Script Config (.projecthub.json)
   getActionConfig: (projectPath: string) =>
-    ipcRenderer.invoke('actions:getConfig', projectPath),
+    invoke('actions:getConfig', projectPath),
   saveActionConfig: (projectPath: string, config: unknown) =>
-    ipcRenderer.invoke('actions:saveConfig', projectPath, config),
+    invoke('actions:saveConfig', projectPath, config),
 
   // Vector RAG & Knowledge Search
   searchDocs: (options: RagSearchOptions) =>
-    ipcRenderer.invoke('rag:search', options),
+    invoke('rag:search', options),
   getRagStats: (projectPath: string) =>
-    ipcRenderer.invoke('rag:getStats', projectPath),
+    invoke('rag:getStats', projectPath),
 
   // System Dialogs & Launchers
-  selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
-  openInExplorer: (targetPath: string) => ipcRenderer.invoke('system:openInExplorer', targetPath),
-  openInCode: (targetPath: string) => ipcRenderer.invoke('system:openInCode', targetPath),
-  openTerminal: (targetPath: string) => ipcRenderer.invoke('system:openTerminal', targetPath),
+  selectDirectory: () => invoke('dialog:selectDirectory'),
+  openInExplorer: (targetPath: string) => invoke('system:openInExplorer', targetPath),
+  openInCode: (targetPath: string) => invoke('system:openInCode', targetPath),
+  openTerminal: (targetPath: string) => invoke('system:openTerminal', targetPath),
 
   // Backlog Tasks & Real-time Watcher
-  getTasks: (projectPath: string) => ipcRenderer.invoke('backlog:getTasks', projectPath),
-  getBacklogConfig: (projectPath: string) => ipcRenderer.invoke('backlog:getConfig', projectPath),
-  getTaskContent: (filePath: string) => ipcRenderer.invoke('backlog:getTaskContent', filePath),
-  updateTaskStatus: (filePath: string, newStatus: string) => ipcRenderer.invoke('backlog:updateTaskStatus', filePath, newStatus),
-  approveAgentTask: (filePath: string) => ipcRenderer.invoke('backlog:approveAgentTask', filePath),
+  getTasks: (projectPath: string) => invoke('backlog:getTasks', projectPath),
+  getBacklogConfig: (projectPath: string) => invoke('backlog:getConfig', projectPath),
+  getTaskContent: (filePath: string) => invoke('backlog:getTaskContent', filePath),
+  updateTaskStatus: (filePath: string, newStatus: string) => invoke('backlog:updateTaskStatus', filePath, newStatus),
+  approveAgentTask: (filePath: string) => invoke('backlog:approveAgentTask', filePath),
   approveAgentTasksByReporter: (projectPath: string, reporter: string) =>
-    ipcRenderer.invoke('backlog:approveAgentTasksByReporter', projectPath, reporter),
-  saveTask: (filePath: string, content: string) => ipcRenderer.invoke('backlog:saveTask', filePath, content),
+    invoke('backlog:approveAgentTasksByReporter', projectPath, reporter),
+  saveTask: (filePath: string, content: string) => invoke('backlog:saveTask', filePath, content),
   saveFullTask: (
     filePath: string,
     data: {
@@ -188,13 +258,13 @@ const api: IElectronAPI = {
       description: string;
       criteria?: TaskCriterion[];
     }
-  ) => ipcRenderer.invoke('backlog:saveFullTask', filePath, data),
+  ) => invoke('backlog:saveFullTask', filePath, data),
   toggleCriterion: (filePath: string, index: number, completed: boolean) =>
-    ipcRenderer.invoke('backlog:toggleCriterion', filePath, index, completed),
+    invoke('backlog:toggleCriterion', filePath, index, completed),
   createTask: (projectPath: string, task: { title: string; description: string; labels: string[]; type?: string; priority?: string; milestone?: string }) =>
-    ipcRenderer.invoke('backlog:createTask', projectPath, task),
-  deleteTask: (filePath: string) => ipcRenderer.invoke('backlog:deleteTask', filePath),
-  watchProjectTasks: (projectPath: string) => ipcRenderer.invoke('backlog:watchProject', projectPath),
+    invoke('backlog:createTask', projectPath, task),
+  deleteTask: (filePath: string) => invoke('backlog:deleteTask', filePath),
+  watchProjectTasks: (projectPath: string) => invoke('backlog:watchProject', projectPath),
   onTasksChanged: (callback: (data: { projectPath: string; event: string; filePath: string }) => void) => {
     const handler = relay(callback);
     ipcRenderer.on('backlog:tasksChanged', handler);
@@ -204,78 +274,78 @@ const api: IElectronAPI = {
   },
 
   // Milestones & Roadmap
-  listMilestones: (projectPath: string) => ipcRenderer.invoke('milestones:list', projectPath),
-  createMilestone: (projectPath: string, params: unknown) => ipcRenderer.invoke('milestones:create', projectPath, params),
-  saveMilestone: (filePath: string, params: unknown) => ipcRenderer.invoke('milestones:save', filePath, params),
-  deleteMilestone: (filePath: string) => ipcRenderer.invoke('milestones:delete', filePath),
+  listMilestones: (projectPath: string) => invoke('milestones:list', projectPath),
+  createMilestone: (projectPath: string, params: unknown) => invoke('milestones:create', projectPath, params),
+  saveMilestone: (filePath: string, params: unknown) => invoke('milestones:save', filePath, params),
+  deleteMilestone: (filePath: string) => invoke('milestones:delete', filePath),
 
   // Реестр ролей агентов (decision-9, TASK-60)
-  listRoles: (projectPath?: string) => ipcRenderer.invoke('roles:list', projectPath),
-  getAgentTaskSettings: () => ipcRenderer.invoke('agentTasks:getSettings'),
-  saveAgentTaskSettings: (settings: unknown) => ipcRenderer.invoke('agentTasks:saveSettings', settings),
+  listRoles: (projectPath?: string) => invoke('roles:list', projectPath),
+  getAgentTaskSettings: () => invoke('agentTasks:getSettings'),
+  saveAgentTaskSettings: (settings: unknown) => invoke('agentTasks:saveSettings', settings),
   saveRole: (scope: 'global' | 'project', role: unknown, projectPath?: string) =>
-    ipcRenderer.invoke('roles:save', scope, role, projectPath),
+    invoke('roles:save', scope, role, projectPath),
   deleteRole: (scope: 'global' | 'project', slug: string, projectPath?: string) =>
-    ipcRenderer.invoke('roles:delete', scope, slug, projectPath),
-  copyRoleToProject: (slug: string, projectPath: string) => ipcRenderer.invoke('roles:copyToProject', slug, projectPath),
+    invoke('roles:delete', scope, slug, projectPath),
+  copyRoleToProject: (slug: string, projectPath: string) => invoke('roles:copyToProject', slug, projectPath),
   // Экспорт ролей в нативные субагенты и хуки терминала (TASK-77, decision-54)
-  planRoleSync: (projectPath: string, options: unknown) => ipcRenderer.invoke('roles:syncPlan', projectPath, options),
-  applyRoleSync: (projectPath: string, options: unknown, choices: unknown) => ipcRenderer.invoke('roles:syncApply', projectPath, options, choices),
-  getTerminalHookSettings: () => ipcRenderer.invoke('terminalHooks:getSettings'),
-  saveTerminalHookSettings: (settings: unknown) => ipcRenderer.invoke('terminalHooks:saveSettings', settings),
-  getTerminalHookConnection: () => ipcRenderer.invoke('terminalHooks:getConnection'),
-  regenerateTerminalHookToken: () => ipcRenderer.invoke('terminalHooks:regenerateToken'),
+  planRoleSync: (projectPath: string, options: unknown) => invoke('roles:syncPlan', projectPath, options),
+  applyRoleSync: (projectPath: string, options: unknown, choices: unknown) => invoke('roles:syncApply', projectPath, options, choices),
+  getTerminalHookSettings: () => invoke('terminalHooks:getSettings'),
+  saveTerminalHookSettings: (settings: unknown) => invoke('terminalHooks:saveSettings', settings),
+  getTerminalHookConnection: () => invoke('terminalHooks:getConnection'),
+  regenerateTerminalHookToken: () => invoke('terminalHooks:regenerateToken'),
   // Менеджер скиллов проекта (TASK-105, decision-61)
-  listProjectSkills: (projectPath: string) => ipcRenderer.invoke('skills:list', projectPath),
-  listSkillSources: (projectPath: string) => ipcRenderer.invoke('skills:sources', projectPath),
-  listSourceSkills: (projectPath: string, source: unknown) => ipcRenderer.invoke('skills:sourceList', projectPath, source),
-  copySkill: (projectPath: string, request: unknown) => ipcRenderer.invoke('skills:copy', projectPath, request),
+  listProjectSkills: (projectPath: string) => invoke('skills:list', projectPath),
+  listSkillSources: (projectPath: string) => invoke('skills:sources', projectPath),
+  listSourceSkills: (projectPath: string, source: unknown) => invoke('skills:sourceList', projectPath, source),
+  copySkill: (projectPath: string, request: unknown) => invoke('skills:copy', projectPath, request),
 
   // Git
-  getGitLog: (projectPath: string, maxCount?: number) => ipcRenderer.invoke('git:getLog', projectPath, maxCount),
-  getGitStatus: (projectPath: string) => ipcRenderer.invoke('git:getStatus', projectPath),
+  getGitLog: (projectPath: string, maxCount?: number) => invoke('git:getLog', projectPath, maxCount),
+  getGitStatus: (projectPath: string) => invoke('git:getStatus', projectPath),
 
   // Git Advanced
-  getGitRepoDetails: (projectPath: string) => ipcRenderer.invoke('git:getRepoDetails', projectPath),
-  unwatchGit: (projectPath: string) => ipcRenderer.invoke('git:unwatch', projectPath),
+  getGitRepoDetails: (projectPath: string) => invoke('git:getRepoDetails', projectPath),
+  unwatchGit: (projectPath: string) => invoke('git:unwatch', projectPath),
   checkoutBranch: (projectPath: string, branchName: string, createNew?: boolean) =>
-    ipcRenderer.invoke('git:checkout', projectPath, branchName, createNew),
+    invoke('git:checkout', projectPath, branchName, createNew),
   createBranch: (projectPath: string, branchName: string) =>
-    ipcRenderer.invoke('git:createBranch', projectPath, branchName),
+    invoke('git:createBranch', projectPath, branchName),
   deleteBranch: (projectPath: string, branchName: string, force?: boolean) =>
-    ipcRenderer.invoke('git:deleteBranch', projectPath, branchName, force),
+    invoke('git:deleteBranch', projectPath, branchName, force),
   mergeBranch: (projectPath: string, branchName: string, options?: { renumber?: boolean }) =>
-    ipcRenderer.invoke('git:mergeBranch', projectPath, branchName, options),
+    invoke('git:mergeBranch', projectPath, branchName, options),
   fetchRemote: (projectPath: string) =>
-    ipcRenderer.invoke('git:fetchRemote', projectPath),
+    invoke('git:fetchRemote', projectPath),
   pullRemote: (projectPath: string) =>
-    ipcRenderer.invoke('git:pullRemote', projectPath),
+    invoke('git:pullRemote', projectPath),
   getMergeState: (projectPath: string) =>
-    ipcRenderer.invoke('git:mergeState', projectPath),
+    invoke('git:mergeState', projectPath),
   getConflictFile: (projectPath: string, filePath: string) =>
-    ipcRenderer.invoke('git:conflictFile', projectPath, filePath),
+    invoke('git:conflictFile', projectPath, filePath),
   resolveConflict: (projectPath: string, filePath: string, resolution: unknown) =>
-    ipcRenderer.invoke('git:resolveConflict', projectPath, filePath, resolution),
+    invoke('git:resolveConflict', projectPath, filePath, resolution),
   finishMerge: (projectPath: string) =>
-    ipcRenderer.invoke('git:finishMerge', projectPath),
+    invoke('git:finishMerge', projectPath),
   abortMerge: (projectPath: string) =>
-    ipcRenderer.invoke('git:abortMerge', projectPath),
+    invoke('git:abortMerge', projectPath),
   pushRemote: (projectPath: string) =>
-    ipcRenderer.invoke('git:pushRemote', projectPath),
+    invoke('git:pushRemote', projectPath),
   discardFileChanges: (projectPath: string, filePath: string) =>
-    ipcRenderer.invoke('git:discardFileChanges', projectPath, filePath),
+    invoke('git:discardFileChanges', projectPath, filePath),
   getDiffBetween: (projectPath: string, targetA: string, targetB?: string, filePath?: string) =>
-    ipcRenderer.invoke('git:getDiffBetween', projectPath, targetA, targetB, filePath),
+    invoke('git:getDiffBetween', projectPath, targetA, targetB, filePath),
   stageFile: (projectPath: string, filePath: string) =>
-    ipcRenderer.invoke('git:stageFile', projectPath, filePath),
+    invoke('git:stageFile', projectPath, filePath),
   unstageFile: (projectPath: string, filePath: string) =>
-    ipcRenderer.invoke('git:unstageFile', projectPath, filePath),
+    invoke('git:unstageFile', projectPath, filePath),
   stageAll: (projectPath: string) =>
-    ipcRenderer.invoke('git:stageAll', projectPath),
+    invoke('git:stageAll', projectPath),
   commitChanges: (projectPath: string, message: string, stageAll?: boolean, acknowledgeSecrets?: string) =>
-    ipcRenderer.invoke('git:commit', projectPath, message, stageAll, acknowledgeSecrets),
+    invoke('git:commit', projectPath, message, stageAll, acknowledgeSecrets),
   getFileDiff: (projectPath: string, filePath: string, staged?: boolean) =>
-    ipcRenderer.invoke('git:getFileDiff', projectPath, filePath, staged),
+    invoke('git:getFileDiff', projectPath, filePath, staged),
   onGitChanged: (callback: (data: { projectPath: string }) => void) => {
     const handler = relay(callback);
     ipcRenderer.on('git:changed', handler);
@@ -286,39 +356,39 @@ const api: IElectronAPI = {
 
   // Git Worktrees (TASK-53)
   listWorktrees: (projectPath: string) =>
-    ipcRenderer.invoke('git:worktree:list', projectPath),
+    invoke('git:worktree:list', projectPath),
   addWorktree: (projectPath: string, options: unknown) =>
-    ipcRenderer.invoke('git:worktree:add', projectPath, options),
+    invoke('git:worktree:add', projectPath, options),
   removeWorktree: (projectPath: string, worktreePath: string, force?: boolean) =>
-    ipcRenderer.invoke('git:worktree:remove', projectPath, worktreePath, force),
+    invoke('git:worktree:remove', projectPath, worktreePath, force),
   pruneWorktrees: (projectPath: string) =>
-    ipcRenderer.invoke('git:worktree:prune', projectPath),
+    invoke('git:worktree:prune', projectPath),
   getWorktreeDiff: (projectPath: string, worktreeBranch: string, baseBranch: string, worktreePath?: string) =>
-    ipcRenderer.invoke('git:worktree:getDiff', projectPath, worktreeBranch, baseBranch, worktreePath),
+    invoke('git:worktree:getDiff', projectPath, worktreeBranch, baseBranch, worktreePath),
   getWorktreeDirtyState: (projectPath: string, worktreePath: string) =>
-    ipcRenderer.invoke('git:worktree:dirtyState', projectPath, worktreePath),
+    invoke('git:worktree:dirtyState', projectPath, worktreePath),
   mergeWorktree: (projectPath: string, worktreeBranch: string, targetBranch: string, options?: { renumber?: boolean; pendingChanges?: 'refuse' | 'commit'; commitMessage?: string }) =>
-    ipcRenderer.invoke('git:worktree:merge', projectPath, worktreeBranch, targetBranch, options),
+    invoke('git:worktree:merge', projectPath, worktreeBranch, targetBranch, options),
   pullBaseIntoWorktree: (projectPath: string, worktreePath: string, targetBranch: string) =>
-    ipcRenderer.invoke('git:worktree:pullBase', projectPath, worktreePath, targetBranch),
+    invoke('git:worktree:pullBase', projectPath, worktreePath, targetBranch),
   checkoutWorktreeFiles: (projectPath: string, branch: string, filePaths: string[]) =>
-    ipcRenderer.invoke('git:worktree:checkoutFiles', projectPath, branch, filePaths),
+    invoke('git:worktree:checkoutFiles', projectPath, branch, filePaths),
   findOrphanedWorktrees: (projectPath: string, activeTaskIds: string[] = [], activeSwarmIds: string[] = []) =>
-    ipcRenderer.invoke('git:worktree:findOrphaned', projectPath, activeTaskIds, activeSwarmIds),
+    invoke('git:worktree:findOrphaned', projectPath, activeTaskIds, activeSwarmIds),
   cleanOrphanedWorktrees: (projectPath: string, worktreePaths: string[], branches: string[]) =>
-    ipcRenderer.invoke('git:worktree:cleanOrphaned', projectPath, worktreePaths, branches),
+    invoke('git:worktree:cleanOrphaned', projectPath, worktreePaths, branches),
 
   // Pull & Merge Requests
-  getPRProviderInfo: (projectPath: string) => ipcRenderer.invoke('pr:getProviderInfo', projectPath),
+  getPRProviderInfo: (projectPath: string) => invoke('pr:getProviderInfo', projectPath),
   listPullRequests: (projectPath: string, state?: 'all' | 'open' | 'closed' | 'merged') =>
-    ipcRenderer.invoke('pr:list', projectPath, state),
+    invoke('pr:list', projectPath, state),
   createPullRequest: (projectPath: string, options: unknown) =>
-    ipcRenderer.invoke('pr:create', projectPath, options),
+    invoke('pr:create', projectPath, options),
   // Ревью PR (TASK-81, decision-53)
-  listPrReviews: (projectPath: string, prNumber?: number) => ipcRenderer.invoke('prReview:list', projectPath, prNumber),
+  listPrReviews: (projectPath: string, prNumber?: number) => invoke('prReview:list', projectPath, prNumber),
   startPrReview: (projectPath: string, prNumber: number, options: PrReviewStartOptions) =>
-    ipcRenderer.invoke('prReview:start', projectPath, prNumber, options),
-  publishPrReview: (projectPath: string, reviewId: string) => ipcRenderer.invoke('prReview:publish', projectPath, reviewId),
+    invoke('prReview:start', projectPath, prNumber, options),
+  publishPrReview: (projectPath: string, reviewId: string) => invoke('prReview:publish', projectPath, reviewId),
   onPrReviewChanged: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('prReview:changed', handler);
@@ -327,20 +397,20 @@ const api: IElectronAPI = {
     };
   },
   getPRDiff: (projectPath: string, prNumber: number) =>
-    ipcRenderer.invoke('pr:getDiff', projectPath, prNumber),
+    invoke('pr:getDiff', projectPath, prNumber),
   setPRConnection: (projectPath: string, connectionId: string | null) =>
-    ipcRenderer.invoke('pr:setConnection', projectPath, connectionId),
-  importPRCliLogin: (projectPath: string) => ipcRenderer.invoke('pr:importCliLogin', projectPath),
-  setPRMergeStatus: (projectPath: string, status: string | null) => ipcRenderer.invoke('pr:setMergeStatus', projectPath, status),
-  getTaskPullRequests: (projectPath: string, taskId: string) => ipcRenderer.invoke('pr:forTask', projectPath, taskId),
+    invoke('pr:setConnection', projectPath, connectionId),
+  importPRCliLogin: (projectPath: string) => invoke('pr:importCliLogin', projectPath),
+  setPRMergeStatus: (projectPath: string, status: string | null) => invoke('pr:setMergeStatus', projectPath, status),
+  getTaskPullRequests: (projectPath: string, taskId: string) => invoke('pr:forTask', projectPath, taskId),
 
   // Interactive PTY Terminals (Claude Code & Multi-tab Shell)
-  createPtySession: (options: unknown) => ipcRenderer.invoke('pty:create', options),
-  writePty: (sessionId: string, data: string) => ipcRenderer.invoke('pty:write', sessionId, data),
+  createPtySession: (options: unknown) => invoke('pty:create', options),
+  writePty: (sessionId: string, data: string) => invoke('pty:write', sessionId, data),
   resizePty: (sessionId: string, cols: number, rows: number) =>
-    ipcRenderer.invoke('pty:resize', sessionId, cols, rows),
-  killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', sessionId),
-  listPtySessions: () => ipcRenderer.invoke('pty:list'),
+    invoke('pty:resize', sessionId, cols, rows),
+  killPty: (sessionId: string) => invoke('pty:kill', sessionId),
+  listPtySessions: () => invoke('pty:list'),
   onPtyData: (callback: (data: { sessionId: string; data: string }) => void) => {
     const handler = relay(callback);
     ipcRenderer.on('pty:data', handler);
@@ -365,85 +435,85 @@ const api: IElectronAPI = {
   },
 
   // Agents Studio & Claude Bridge Engine
-  getAIConfig: () => ipcRenderer.invoke('ai:getConfig'),
-  saveAIConfig: (config: unknown) => ipcRenderer.invoke('ai:saveConfig', config),
+  getAIConfig: () => invoke('ai:getConfig'),
+  saveAIConfig: (config: unknown) => invoke('ai:saveConfig', config),
   // Профили OpenAI-совместимых провайдеров (TASK-70.1, TASK-70.2)
-  getLlmProviderPresets: () => ipcRenderer.invoke('llmProfiles:presets'),
-  listLlmProfiles: () => ipcRenderer.invoke('llmProfiles:list'),
-  saveLlmProfile: (profile: unknown, apiKey?: string | null) => ipcRenderer.invoke('llmProfiles:save', { profile, apiKey }),
-  deleteLlmProfile: (id: string) => ipcRenderer.invoke('llmProfiles:delete', id),
-  listLlmProfileModels: (id: string, refresh?: boolean) => ipcRenderer.invoke('llmProfiles:listModels', id, refresh),
-  importLegacyLlmProfile: (provider: string) => ipcRenderer.invoke('llmProfiles:importLegacy', provider),
-  getAgentPricing: () => ipcRenderer.invoke('pricing:get'),
-  saveAgentPricing: (overrides: unknown) => ipcRenderer.invoke('pricing:save', overrides),
-  fetchOpenRouterPrices: () => ipcRenderer.invoke('pricing:fetchOpenRouter'),
-  getModelTiers: () => ipcRenderer.invoke('modelTiers:get'),
-  saveModelTiers: (settings: unknown) => ipcRenderer.invoke('modelTiers:save', settings),
-  seedModelTiers: (draft?: unknown) => ipcRenderer.invoke('modelTiers:seed', draft),
-  getModelAssignments: () => ipcRenderer.invoke('modelAssignments:get'),
-  saveModelAssignments: (settings: unknown) => ipcRenderer.invoke('modelAssignments:save', settings),
-  previewModelAssignments: (draft?: unknown) => ipcRenderer.invoke('modelAssignments:preview', draft),
-  generateTaskDraft: (request: unknown) => ipcRenderer.invoke('ai:taskDraft', request),
+  getLlmProviderPresets: () => invoke('llmProfiles:presets'),
+  listLlmProfiles: () => invoke('llmProfiles:list'),
+  saveLlmProfile: (profile: unknown, apiKey?: string | null) => invoke('llmProfiles:save', { profile, apiKey }),
+  deleteLlmProfile: (id: string) => invoke('llmProfiles:delete', id),
+  listLlmProfileModels: (id: string, refresh?: boolean) => invoke('llmProfiles:listModels', id, refresh),
+  importLegacyLlmProfile: (provider: string) => invoke('llmProfiles:importLegacy', provider),
+  getAgentPricing: () => invoke('pricing:get'),
+  saveAgentPricing: (overrides: unknown) => invoke('pricing:save', overrides),
+  fetchOpenRouterPrices: () => invoke('pricing:fetchOpenRouter'),
+  getModelTiers: () => invoke('modelTiers:get'),
+  saveModelTiers: (settings: unknown) => invoke('modelTiers:save', settings),
+  seedModelTiers: (draft?: unknown) => invoke('modelTiers:seed', draft),
+  getModelAssignments: () => invoke('modelAssignments:get'),
+  saveModelAssignments: (settings: unknown) => invoke('modelAssignments:save', settings),
+  previewModelAssignments: (draft?: unknown) => invoke('modelAssignments:preview', draft),
+  generateTaskDraft: (request: unknown) => invoke('ai:taskDraft', request),
   getClaudeAuthStatus: (query?: { projectPath?: string; accountId?: string; force?: boolean }) =>
-    ipcRenderer.invoke('ai:getClaudeAuthStatus', query),
-  claudeLogout: (query?: { projectPath?: string; accountId?: string }) => ipcRenderer.invoke('ai:claudeLogout', query),
-  listCliSessions: (query: { projectPath: string; cwd?: string; claudeAccountId?: string }) => ipcRenderer.invoke('ai:listCliSessions', query),
+    invoke('ai:getClaudeAuthStatus', query),
+  claudeLogout: (query?: { projectPath?: string; accountId?: string }) => invoke('ai:claudeLogout', query),
+  listCliSessions: (query: { projectPath: string; cwd?: string; claudeAccountId?: string }) => invoke('ai:listCliSessions', query),
   // Профили аккаунтов Claude Code (TASK-152, decision-87)
   claudeAccounts: {
-    overview: () => ipcRenderer.invoke('claudeAccounts:overview'),
-    statuses: (force?: boolean) => ipcRenderer.invoke('claudeAccounts:statuses', force),
-    status: (id: string, force?: boolean) => ipcRenderer.invoke('claudeAccounts:status', id, force),
-    create: (name: string, engine?: string) => ipcRenderer.invoke('claudeAccounts:create', name, engine),
-    connectExternal: (input: { name: string; source: 'dialog' | 'processEnv'; engine?: string }) => ipcRenderer.invoke('claudeAccounts:connectExternal', input),
-    rename: (id: string, name: string) => ipcRenderer.invoke('claudeAccounts:rename', id, name),
-    remove: (id: string) => ipcRenderer.invoke('claudeAccounts:remove', id),
-    logout: (id: string) => ipcRenderer.invoke('claudeAccounts:logout', id),
-    forProject: (projectPath: string) => ipcRenderer.invoke('claudeAccounts:forProject', projectPath),
-    setProject: (projectPath: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setProject', projectPath, accountId),
-    projectEngines: (projectPath: string) => ipcRenderer.invoke('claudeAccounts:projectEngines', projectPath),
+    overview: () => invoke('claudeAccounts:overview'),
+    statuses: (force?: boolean) => invoke('claudeAccounts:statuses', force),
+    status: (id: string, force?: boolean) => invoke('claudeAccounts:status', id, force),
+    create: (name: string, engine?: string) => invoke('claudeAccounts:create', name, engine),
+    connectExternal: (input: { name: string; source: 'dialog' | 'processEnv'; engine?: string }) => invoke('claudeAccounts:connectExternal', input),
+    rename: (id: string, name: string) => invoke('claudeAccounts:rename', id, name),
+    remove: (id: string) => invoke('claudeAccounts:remove', id),
+    logout: (id: string) => invoke('claudeAccounts:logout', id),
+    forProject: (projectPath: string) => invoke('claudeAccounts:forProject', projectPath),
+    setProject: (projectPath: string, accountId: string | null) => invoke('claudeAccounts:setProject', projectPath, accountId),
+    projectEngines: (projectPath: string) => invoke('claudeAccounts:projectEngines', projectPath),
     setProjectEngine: (projectPath: string, engine: string, accountId: string | null) =>
-      ipcRenderer.invoke('claudeAccounts:setProjectEngine', projectPath, engine, accountId),
-    setRole: (roleSlug: string, accountId: string | null) => ipcRenderer.invoke('claudeAccounts:setRole', roleSlug, accountId)
+      invoke('claudeAccounts:setProjectEngine', projectPath, engine, accountId),
+    setRole: (roleSlug: string, accountId: string | null) => invoke('claudeAccounts:setRole', roleSlug, accountId)
   },
   // Синхронизация задач с внешним трекером (TASK-128, decision-103)
   trackerSync: {
-    status: (projectPath: string) => ipcRenderer.invoke('trackerSync:status', projectPath),
-    save: (projectPath: string, patch: unknown) => ipcRenderer.invoke('trackerSync:save', projectPath, patch),
-    targets: (projectPath: string) => ipcRenderer.invoke('trackerSync:targets', projectPath),
-    describeTarget: (projectPath: string) => ipcRenderer.invoke('trackerSync:describeTarget', projectPath),
-    preview: (projectPath: string) => ipcRenderer.invoke('trackerSync:preview', projectPath),
-    run: (projectPath: string) => ipcRenderer.invoke('trackerSync:run', projectPath)
+    status: (projectPath: string) => invoke('trackerSync:status', projectPath),
+    save: (projectPath: string, patch: unknown) => invoke('trackerSync:save', projectPath, patch),
+    targets: (projectPath: string) => invoke('trackerSync:targets', projectPath),
+    describeTarget: (projectPath: string) => invoke('trackerSync:describeTarget', projectPath),
+    preview: (projectPath: string) => invoke('trackerSync:preview', projectPath),
+    run: (projectPath: string) => invoke('trackerSync:run', projectPath)
   },
   // Рабочие чаты (TASK-138.4, decision-110)
   chat: {
-    list: () => ipcRenderer.invoke('chat:list'),
-    save: (subscription: unknown) => ipcRenderer.invoke('chat:save', subscription),
-    remove: (id: string) => ipcRenderer.invoke('chat:remove', id),
-    targets: (kind: string, connectionId: string) => ipcRenderer.invoke('chat:targets', kind, connectionId),
-    test: (id: string) => ipcRenderer.invoke('chat:test', id)
+    list: () => invoke('chat:list'),
+    save: (subscription: unknown) => invoke('chat:save', subscription),
+    remove: (id: string) => invoke('chat:remove', id),
+    targets: (kind: string, connectionId: string) => invoke('chat:targets', kind, connectionId),
+    test: (id: string) => invoke('chat:test', id)
   },
   // CI/CD (TASK-138.3, decision-109)
   ci: {
-    providers: (projectPath: string) => ipcRenderer.invoke('ci:providers', projectPath),
-    runs: (projectPath: string, filter?: unknown) => ipcRenderer.invoke('ci:runs', projectPath, filter),
-    run: (projectPath: string, provider: string, runId: string) => ipcRenderer.invoke('ci:run', projectPath, provider, runId),
-    logs: (projectPath: string, provider: string, runId: string, jobId?: string) => ipcRenderer.invoke('ci:logs', projectPath, provider, runId, jobId),
-    retry: (projectPath: string, provider: string, runId: string, jobId?: string) => ipcRenderer.invoke('ci:retry', projectPath, provider, runId, jobId),
-    getJenkins: (projectPath: string) => ipcRenderer.invoke('ci:getJenkins', projectPath),
-    setJenkins: (projectPath: string, value: unknown) => ipcRenderer.invoke('ci:setJenkins', projectPath, value)
+    providers: (projectPath: string) => invoke('ci:providers', projectPath),
+    runs: (projectPath: string, filter?: unknown) => invoke('ci:runs', projectPath, filter),
+    run: (projectPath: string, provider: string, runId: string) => invoke('ci:run', projectPath, provider, runId),
+    logs: (projectPath: string, provider: string, runId: string, jobId?: string) => invoke('ci:logs', projectPath, provider, runId, jobId),
+    retry: (projectPath: string, provider: string, runId: string, jobId?: string) => invoke('ci:retry', projectPath, provider, runId, jobId),
+    getJenkins: (projectPath: string) => invoke('ci:getJenkins', projectPath),
+    setJenkins: (projectPath: string, value: unknown) => invoke('ci:setJenkins', projectPath, value)
   },
   // Подключения к внешним сервисам (TASK-138.1, decision-102)
   connections: {
-    services: () => ipcRenderer.invoke('connections:services'),
-    list: () => ipcRenderer.invoke('connections:list'),
-    addToken: (input: unknown, reconnectId?: string) => ipcRenderer.invoke('connections:addToken', input, reconnectId),
-    startOAuth: (input: unknown, reconnectId?: string) => ipcRenderer.invoke('connections:startOAuth', input, reconnectId),
-    getFlow: (flowId: string) => ipcRenderer.invoke('connections:getFlow', flowId),
-    cancelFlow: (flowId: string) => ipcRenderer.invoke('connections:cancelFlow', flowId),
-    openFlowPage: (flowId: string) => ipcRenderer.invoke('connections:openFlowPage', flowId),
-    check: (id: string) => ipcRenderer.invoke('connections:check', id),
-    rename: (id: string, label: string) => ipcRenderer.invoke('connections:rename', id, label),
-    remove: (id: string) => ipcRenderer.invoke('connections:remove', id),
+    services: () => invoke('connections:services'),
+    list: () => invoke('connections:list'),
+    addToken: (input: unknown, reconnectId?: string) => invoke('connections:addToken', input, reconnectId),
+    startOAuth: (input: unknown, reconnectId?: string) => invoke('connections:startOAuth', input, reconnectId),
+    getFlow: (flowId: string) => invoke('connections:getFlow', flowId),
+    cancelFlow: (flowId: string) => invoke('connections:cancelFlow', flowId),
+    openFlowPage: (flowId: string) => invoke('connections:openFlowPage', flowId),
+    check: (id: string) => invoke('connections:check', id),
+    rename: (id: string, label: string) => invoke('connections:rename', id, label),
+    remove: (id: string) => invoke('connections:remove', id),
     onChanged: (callback: (list: ConnectionView[]) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, list: ConnectionView[]) => callback(list);
       ipcRenderer.on('connections:changed', handler);
@@ -459,19 +529,19 @@ const api: IElectronAPI = {
       };
     }
   },
-  streamAIChat: (request: unknown) => ipcRenderer.invoke('ai:streamChat', request),
+  streamAIChat: (request: unknown) => invoke('ai:streamChat', request),
   previewAgentContext: (projectPath: string, taskId: string, contextParts?: unknown) =>
-    ipcRenderer.invoke('ai:previewContext', projectPath, taskId, contextParts),
-  abortAIStream: (sessionId: string) => ipcRenderer.invoke('ai:abortStream', sessionId),
-  clearAISession: (sessionId: string) => ipcRenderer.invoke('ai:clearSession', sessionId),
+    invoke('ai:previewContext', projectPath, taskId, contextParts),
+  abortAIStream: (sessionId: string) => invoke('ai:abortStream', sessionId),
+  clearAISession: (sessionId: string) => invoke('ai:clearSession', sessionId),
   applyAIDiff: (projectPath: string, relativePath: string, newContent: string) =>
-    ipcRenderer.invoke('ai:applyDiff', projectPath, relativePath, newContent),
+    invoke('ai:applyDiff', projectPath, relativePath, newContent),
   // История диалогов Agents Studio в файлах (TASK-35)
-  listAISessions: (projectPath: string) => ipcRenderer.invoke('aiSessions:list', projectPath),
-  saveAISession: (projectPath: string, session: unknown) => ipcRenderer.invoke('aiSessions:save', projectPath, session),
+  listAISessions: (projectPath: string) => invoke('aiSessions:list', projectPath),
+  saveAISession: (projectPath: string, session: unknown) => invoke('aiSessions:save', projectPath, session),
   deleteAISession: (projectPath: string, sessionId: string) =>
-    ipcRenderer.invoke('aiSessions:delete', projectPath, sessionId),
-  importAISessions: (sessionsByProject: unknown) => ipcRenderer.invoke('aiSessions:import', sessionsByProject),
+    invoke('aiSessions:delete', projectPath, sessionId),
+  importAISessions: (sessionsByProject: unknown) => invoke('aiSessions:import', sessionsByProject),
   // Agents Studio с телефона (TASK-140.10): запросы хоста к стору и ответы на них
   onStudioRemoteRequest: (callback: (req: StudioRemoteRequestPayload) => void) => {
     const handler = (_event: IpcRendererEvent, req: StudioRemoteRequestPayload) => callback(req);
@@ -481,36 +551,36 @@ const api: IElectronAPI = {
     };
   },
   replyStudioRemote: (requestId: string, reply: { ok: boolean; sessionId?: string; error?: string }) =>
-    ipcRenderer.invoke('aiStudio:remoteReply', requestId, reply),
+    invoke('aiStudio:remoteReply', requestId, reply),
 
   // Claude Bridge Approvals & Statuses
-  getAllProjectStatuses: () => ipcRenderer.invoke('claudeBridge:getAllProjectStatuses'),
-  getProjectAgentStatus: (projectPath: string) => ipcRenderer.invoke('claudeBridge:getProjectStatus', projectPath),
+  getAllProjectStatuses: () => invoke('claudeBridge:getAllProjectStatuses'),
+  getProjectAgentStatus: (projectPath: string) => invoke('claudeBridge:getProjectStatus', projectPath),
   sendApprovalResponse: (requestId: string, response: { approved: boolean; text?: string }) =>
-    ipcRenderer.invoke('claudeBridge:sendApprovalResponse', requestId, response),
-  getSubagents: (projectPath: string) => ipcRenderer.invoke('claudeBridge:getSubagents', projectPath),
-  getAvailableModels: () => ipcRenderer.invoke('claudeBridge:getAvailableModels'),
+    invoke('claudeBridge:sendApprovalResponse', requestId, response),
+  getSubagents: (projectPath: string) => invoke('claudeBridge:getSubagents', projectPath),
+  getAvailableModels: () => invoke('claudeBridge:getAvailableModels'),
   getClaudeUsage: (forceRefresh?: boolean, query?: { accountId?: string; projectPath?: string }) =>
-    ipcRenderer.invoke('claudeBridge:getUsage', forceRefresh, query),
+    invoke('claudeBridge:getUsage', forceRefresh, query),
 
   // Multi-Agent Swarm & Fleet Orchestration (TASK-54)
-  startSwarmFanOut: (options: unknown) => ipcRenderer.invoke('swarm:startFanOut', options),
-  startSwarmHandoff: (options: unknown) => ipcRenderer.invoke('swarm:startHandoff', options),
+  startSwarmFanOut: (options: unknown) => invoke('swarm:startFanOut', options),
+  startSwarmHandoff: (options: unknown) => invoke('swarm:startHandoff', options),
   // Цикл «до готовности» (TASK-75)
-  startSwarmDoneLoop: (options: unknown) => ipcRenderer.invoke('swarm:startDoneLoop', options),
-  getDoneLoopConfig: (projectPath: string) => ipcRenderer.invoke('doneLoop:getConfig', projectPath),
+  startSwarmDoneLoop: (options: unknown) => invoke('swarm:startDoneLoop', options),
+  getDoneLoopConfig: (projectPath: string) => invoke('doneLoop:getConfig', projectPath),
   // Планировщик подзадач (TASK-80, decision-49)
-  generatePlan: (options: unknown) => ipcRenderer.invoke('plan:generate', options),
-  listPlans: (projectPath?: string) => ipcRenderer.invoke('plan:list', projectPath),
-  getPlanForTask: (projectPath: string, taskId: string) => ipcRenderer.invoke('plan:getForTask', projectPath, taskId),
-  getPlanModels: (projectPath: string) => ipcRenderer.invoke('plan:models', projectPath),
-  approvePlan: (planId: string) => ipcRenderer.invoke('plan:approve', planId),
-  stopPlan: (planId: string) => ipcRenderer.invoke('plan:stop', planId),
+  generatePlan: (options: unknown) => invoke('plan:generate', options),
+  listPlans: (projectPath?: string) => invoke('plan:list', projectPath),
+  getPlanForTask: (projectPath: string, taskId: string) => invoke('plan:getForTask', projectPath, taskId),
+  getPlanModels: (projectPath: string) => invoke('plan:models', projectPath),
+  approvePlan: (planId: string) => invoke('plan:approve', planId),
+  stopPlan: (planId: string) => invoke('plan:stop', planId),
   skipPlanNode: (planId: string, taskId: string, skipped: boolean) =>
-    ipcRenderer.invoke('plan:skipNode', planId, taskId, skipped),
+    invoke('plan:skipNode', planId, taskId, skipped),
   resolvePlanConflict: (planId: string, taskId: string, action: 'retry' | 'skip' | 'stop' | 'renumber') =>
-    ipcRenderer.invoke('plan:resolveConflict', planId, taskId, action),
-  discardPlan: (planId: string) => ipcRenderer.invoke('plan:discard', planId),
+    invoke('plan:resolveConflict', planId, taskId, action),
+  discardPlan: (planId: string) => invoke('plan:discard', planId),
   onPlanEvent: (callback: (event: PlanEventPayload) => void) => {
     const handler = (_event: unknown, data: PlanEventPayload) => callback(data);
     ipcRenderer.on('plan:event', handler);
@@ -520,42 +590,42 @@ const api: IElectronAPI = {
   },
   // Запуск агента, назначенного на задачу через assignee (decision-9, TASK-60)
   runAssignedAgent: (options: { projectPath: string; taskId: string; taskTitle?: string; prompt: string; roleSlug: string; hostId?: string }) =>
-    ipcRenderer.invoke('swarm:runAssigned', options),
-  stopSwarm: (swarmId: string) => ipcRenderer.invoke('swarm:stop', swarmId),
+    invoke('swarm:runAssigned', options),
+  stopSwarm: (swarmId: string) => invoke('swarm:stop', swarmId),
   pickSwarmWinner: (swarmId: string, winnerAgentId: string, mergeIntoBase?: boolean) =>
-    ipcRenderer.invoke('swarm:pickWinner', swarmId, winnerAgentId, mergeIntoBase),
-  getSwarm: (swarmId: string) => ipcRenderer.invoke('swarm:get', swarmId),
+    invoke('swarm:pickWinner', swarmId, winnerAgentId, mergeIntoBase),
+  getSwarm: (swarmId: string) => invoke('swarm:get', swarmId),
   // Автосудья арены (TASK-61)
   runSwarmJudge: (swarmId: string, options?: { rerunChecks?: boolean; skipReview?: boolean }) =>
-    ipcRenderer.invoke('swarm:runJudge', swarmId, options),
-  cancelSwarmJudge: (swarmId: string) => ipcRenderer.invoke('swarm:cancelJudge', swarmId),
+    invoke('swarm:runJudge', swarmId, options),
+  cancelSwarmJudge: (swarmId: string) => invoke('swarm:cancelJudge', swarmId),
   composeSwarmResult: (swarmId: string, selections: Array<{ agentId: string; files: string[] }>) =>
-    ipcRenderer.invoke('swarm:compose', swarmId, selections),
-  getArenaConfig: (projectPath: string) => ipcRenderer.invoke('arena:getConfig', projectPath),
-  readVisualArtifact: (relPath: string) => ipcRenderer.invoke('visual:readArtifact', relPath),
-  revealVisualArtifact: (relPath: string) => ipcRenderer.invoke('visual:revealArtifact', relPath),
+    invoke('swarm:compose', swarmId, selections),
+  getArenaConfig: (projectPath: string) => invoke('arena:getConfig', projectPath),
+  readVisualArtifact: (relPath: string) => invoke('visual:readArtifact', relPath),
+  revealVisualArtifact: (relPath: string) => invoke('visual:revealArtifact', relPath),
   saveArenaConfig: (projectPath: string, patch: { checks?: CheckDefinition[]; arena?: ArenaSettings }) =>
-    ipcRenderer.invoke('arena:saveConfig', projectPath, patch),
-  listSwarms: (projectPath?: string) => ipcRenderer.invoke('swarm:list', projectPath),
-  resumeSwarm: (swarmId: string) => ipcRenderer.invoke('swarm:resume', swarmId),
+    invoke('arena:saveConfig', projectPath, patch),
+  listSwarms: (projectPath?: string) => invoke('swarm:list', projectPath),
+  resumeSwarm: (swarmId: string) => invoke('swarm:resume', swarmId),
   discardSwarm: (swarmId: string, cleanupWorktrees?: boolean) =>
-    ipcRenderer.invoke('swarm:discard', swarmId, cleanupWorktrees),
-  listAgentResults: (projectPath: string) => ipcRenderer.invoke('swarm:listResults', projectPath),
-  restoreAgentResult: (projectPath: string, ref: string) => ipcRenderer.invoke('swarm:restoreResult', projectPath, ref),
-  deleteAgentResult: (projectPath: string, ref: string) => ipcRenderer.invoke('swarm:deleteResult', projectPath, ref),
-  pruneAgentResults: (projectPath: string) => ipcRenderer.invoke('swarm:pruneResults', projectPath),
+    invoke('swarm:discard', swarmId, cleanupWorktrees),
+  listAgentResults: (projectPath: string) => invoke('swarm:listResults', projectPath),
+  restoreAgentResult: (projectPath: string, ref: string) => invoke('swarm:restoreResult', projectPath, ref),
+  deleteAgentResult: (projectPath: string, ref: string) => invoke('swarm:deleteResult', projectPath, ref),
+  pruneAgentResults: (projectPath: string) => invoke('swarm:pruneResults', projectPath),
   getSwarmTranscript: (swarmId: string, agentId: string) =>
-    ipcRenderer.invoke('swarm:readTranscript', swarmId, agentId),
-  exportSwarm: (swarmId: string, format: 'markdown' | 'json') => ipcRenderer.invoke('swarm:export', swarmId, format),
+    invoke('swarm:readTranscript', swarmId, agentId),
+  exportSwarm: (swarmId: string, format: 'markdown' | 'json') => invoke('swarm:export', swarmId, format),
   exportSwarmToFile: (swarmId: string, format: 'markdown' | 'json') =>
-    ipcRenderer.invoke('swarm:exportToFile', swarmId, format),
+    invoke('swarm:exportToFile', swarmId, format),
   // Таймлайн, откат, продолжение агента и трасса JSONL (TASK-72, decision-45)
-  getAgentTimeline: (swarmId: string, agentId: string) => ipcRenderer.invoke('swarm:getTimeline', swarmId, agentId),
+  getAgentTimeline: (swarmId: string, agentId: string) => invoke('swarm:getTimeline', swarmId, agentId),
   rewindAgent: (swarmId: string, agentId: string, checkpoint: number) =>
-    ipcRenderer.invoke('swarm:rewind', swarmId, agentId, checkpoint),
+    invoke('swarm:rewind', swarmId, agentId, checkpoint),
   continueAgent: (swarmId: string, agentId: string, instruction?: string) =>
-    ipcRenderer.invoke('swarm:continueAgent', swarmId, agentId, instruction),
-  exportAgentTrace: (swarmId: string, agentId?: string) => ipcRenderer.invoke('swarm:exportTrace', swarmId, agentId),
+    invoke('swarm:continueAgent', swarmId, agentId, instruction),
+  exportAgentTrace: (swarmId: string, agentId?: string) => invoke('swarm:exportTrace', swarmId, agentId),
   onSwarmEvent: (callback: (event: SwarmEventPayload) => void) => {
     const handler = relay(callback);
     ipcRenderer.on('swarm:event', handler);
@@ -607,15 +677,15 @@ const api: IElectronAPI = {
 
   // File Explorer & Helpers
   readDirectoryTree: (projectPath: string, subDir?: string, maxDepth?: number) =>
-    ipcRenderer.invoke('files:readTree', projectPath, subDir, maxDepth),
+    invoke('files:readTree', projectPath, subDir, maxDepth),
   readFileContent: (projectPath: string, relativePath: string) =>
-    ipcRenderer.invoke('files:readContent', projectPath, relativePath),
+    invoke('files:readContent', projectPath, relativePath),
   saveFileContent: (projectPath: string, relativePath: string, content: string) =>
-    ipcRenderer.invoke('files:saveContent', projectPath, relativePath, content),
+    invoke('files:saveContent', projectPath, relativePath, content),
   createFileOrFolder: (projectPath: string, relativePath: string, isDirectory = false) =>
-    ipcRenderer.invoke('files:create', projectPath, relativePath, isDirectory),
+    invoke('files:create', projectPath, relativePath, isDirectory),
   deleteFileOrFolder: (projectPath: string, relativePath: string) =>
-    ipcRenderer.invoke('files:delete', projectPath, relativePath),
+    invoke('files:delete', projectPath, relativePath),
 
   // Local Whisper STT Engine
   // Float32Array уходит через IPC как есть (structured clone сохраняет TypedArray) — без Array.from
@@ -625,27 +695,27 @@ const api: IElectronAPI = {
     language?: 'ru' | 'en' | 'auto',
     fallbackLanguage?: 'ru' | 'en'
   ) =>
-    ipcRenderer.invoke('voice:transcribeLocal', {
+    invoke('voice:transcribeLocal', {
       audioData: audioData instanceof Float32Array ? audioData : Float32Array.from(audioData),
       language,
       fallbackLanguage
     }),
-  getLocalWhisperStatus: () => ipcRenderer.invoke('voice:getLocalWhisperStatus'),
+  getLocalWhisperStatus: () => invoke('voice:getLocalWhisperStatus'),
   // Ленивый прогрев модели: вызывается при первом включении hands-free или из настроек
-  warmupLocalWhisper: () => ipcRenderer.invoke('voice:warmupLocalWhisper'),
+  warmupLocalWhisper: () => invoke('voice:warmupLocalWhisper'),
   // Шумодав и Silero VAD перед распознаванием (TASK-164.2): фраза 16 кГц туда и обратно без копий в массив
   prepareSpeech: (samples: Float32Array, options: { gate: boolean; denoise: 'off' | 'gtcrn' | 'dpdfnet' }) =>
-    ipcRenderer.invoke('voice:prepareSpeech', { samples, gate: options.gate, denoise: options.denoise }),
-  getSpeechPrepStatus: () => ipcRenderer.invoke('voice:getSpeechPrepStatus'),
+    invoke('voice:prepareSpeech', { samples, gate: options.gate, denoise: options.denoise }),
+  getSpeechPrepStatus: () => invoke('voice:getSpeechPrepStatus'),
   // Локальная модель sherpa (GigaAM, TASK-164.4): подготовка и распознавание одним вызовом
   recognizeSherpa: (
     samples: Float32Array,
     options: { gate: boolean; denoise: 'off' | 'gtcrn' | 'dpdfnet'; modelId: string }
-  ) => ipcRenderer.invoke('voice:recognizeSherpa', { samples, ...options }),
-  listAsrModels: () => ipcRenderer.invoke('asr:listModels'),
-  downloadAsrModel: (modelId: string) => ipcRenderer.invoke('asr:downloadModel', modelId),
-  cancelAsrDownload: (modelId: string) => ipcRenderer.invoke('asr:cancelDownload', modelId),
-  deleteAsrModel: (modelId: string) => ipcRenderer.invoke('asr:deleteModel', modelId),
+  ) => invoke('voice:recognizeSherpa', { samples, ...options }),
+  listAsrModels: () => invoke('asr:listModels'),
+  downloadAsrModel: (modelId: string) => invoke('asr:downloadModel', modelId),
+  cancelAsrDownload: (modelId: string) => invoke('asr:cancelDownload', modelId),
+  deleteAsrModel: (modelId: string) => invoke('asr:deleteModel', modelId),
   onAsrDownloadProgress: (callback: (progress: AsrDownloadProgress) => void) => {
     const handler = (_event: IpcRendererEvent, progress: AsrDownloadProgress) => callback(progress);
     ipcRenderer.on('asr:downloadProgress', handler);
@@ -655,14 +725,14 @@ const api: IElectronAPI = {
   },
 
   // Глобальный push-to-talk и LLM-классификатор свободных команд (TASK-83)
-  getPushToTalkStatus: () => ipcRenderer.invoke('voice:getPushToTalkStatus'),
+  getPushToTalkStatus: () => invoke('voice:getPushToTalkStatus'),
   savePushToTalkSettings: (patch: Partial<PushToTalkSettings>) =>
-    ipcRenderer.invoke('voice:savePushToTalkSettings', patch),
-  requestPushToTalkPermission: () => ipcRenderer.invoke('voice:requestPushToTalkPermission'),
-  classifyVoiceCommand: (request: VoiceClassifyRequest) => ipcRenderer.invoke('voice:classifyCommand', request),
+    invoke('voice:savePushToTalkSettings', patch),
+  requestPushToTalkPermission: () => invoke('voice:requestPushToTalkPermission'),
+  classifyVoiceCommand: (request: VoiceClassifyRequest) => invoke('voice:classifyCommand', request),
   // Голос → компьютер и системная диктовка: HITL и allowlist применяет прокси в main (TASK-82)
-  runVoiceComputerTask: (request: VoiceComputerTaskRequest) => ipcRenderer.invoke('voice:runComputerTask', request),
-  dictateVoiceText: (request: VoiceDictateRequest) => ipcRenderer.invoke('voice:dictateText', request),
+  runVoiceComputerTask: (request: VoiceComputerTaskRequest) => invoke('voice:runComputerTask', request),
+  dictateVoiceText: (request: VoiceDictateRequest) => invoke('voice:dictateText', request),
   // Горячая клавиша живёт в main, поэтому работает и при свёрнутом окне: старт/стоп приходят событием
   onPushToTalk: (callback: (event: PushToTalkEvent) => void) => {
     const handler = (_event: IpcRendererEvent, payload: PushToTalkEvent) => callback(payload);
@@ -680,14 +750,14 @@ const api: IElectronAPI = {
   },
 
   // Automations (TASK-74, decision-52): правила, подтверждение проектных, журнал, запуск сейчас
-  listAutomations: () => ipcRenderer.invoke('automations:list'),
-  saveAutomationRule: (rule: AutomationRuleInput) => ipcRenderer.invoke('automations:saveRule', rule),
-  deleteAutomationRule: (id: string) => ipcRenderer.invoke('automations:deleteRule', id),
-  setAutomationEnabled: (key: string, enabled: boolean, hash?: string) => ipcRenderer.invoke('automations:setEnabled', key, enabled, hash),
-  runAutomationNow: (key: string) => ipcRenderer.invoke('automations:runNow', key),
-  resumeAutomation: (key: string) => ipcRenderer.invoke('automations:resume', key),
-  getAutomationLog: (limit?: number) => ipcRenderer.invoke('automations:getLog', limit),
-  updateAutomationSettings: (patch: Partial<AutomationsSettings>) => ipcRenderer.invoke('automations:updateSettings', patch),
+  listAutomations: () => invoke('automations:list'),
+  saveAutomationRule: (rule: AutomationRuleInput) => invoke('automations:saveRule', rule),
+  deleteAutomationRule: (id: string) => invoke('automations:deleteRule', id),
+  setAutomationEnabled: (key: string, enabled: boolean, hash?: string) => invoke('automations:setEnabled', key, enabled, hash),
+  runAutomationNow: (key: string) => invoke('automations:runNow', key),
+  resumeAutomation: (key: string) => invoke('automations:resume', key),
+  getAutomationLog: (limit?: number) => invoke('automations:getLog', limit),
+  updateAutomationSettings: (patch: Partial<AutomationsSettings>) => invoke('automations:updateSettings', patch),
   onAutomationsChanged: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('automations:changed', handler);
@@ -697,11 +767,11 @@ const api: IElectronAPI = {
   },
 
   // Security Health (TASK-73, decision-56): аудит зависимостей, задача из находки, настройки
-  getSecurityReport: (projectPath: string) => ipcRenderer.invoke('security:getReport', projectPath),
-  runSecurityAudit: (projectPath: string) => ipcRenderer.invoke('security:runAudit', projectPath),
-  createSecurityTask: (projectPath: string, ecosystem: string, pkg: string) => ipcRenderer.invoke('security:createTask', projectPath, ecosystem, pkg),
-  getSecuritySettings: () => ipcRenderer.invoke('security:getSettings'),
-  saveSecuritySettings: (patch: Partial<SecuritySettings>) => ipcRenderer.invoke('security:saveSettings', patch),
+  getSecurityReport: (projectPath: string) => invoke('security:getReport', projectPath),
+  runSecurityAudit: (projectPath: string) => invoke('security:runAudit', projectPath),
+  createSecurityTask: (projectPath: string, ecosystem: string, pkg: string) => invoke('security:createTask', projectPath, ecosystem, pkg),
+  getSecuritySettings: () => invoke('security:getSettings'),
+  saveSecuritySettings: (patch: Partial<SecuritySettings>) => invoke('security:saveSettings', patch),
   onSecurityReportUpdated: (callback: (projectPath: string) => void) => {
     const handler = (_event: IpcRendererEvent, projectPath: string) => callback(projectPath);
     ipcRenderer.on('security:reportUpdated', handler);
@@ -711,33 +781,33 @@ const api: IElectronAPI = {
   },
 
   // Графы кода и документации (TASK-167, decision-118)
-  getCodeGraph: (projectPath: string, force?: boolean) => ipcRenderer.invoke('graph:getCode', projectPath, force === true),
-  getDocsGraph: (projectPath: string) => ipcRenderer.invoke('graph:getDocs', projectPath),
+  getCodeGraph: (projectPath: string, force?: boolean) => invoke('graph:getCode', projectPath, force === true),
+  getDocsGraph: (projectPath: string) => invoke('graph:getDocs', projectPath),
 
   // Настройка индексации GitNexus и переиндексация (TASK-176, decision-131)
-  codeIndexState: (projectPath: string) => ipcRenderer.invoke('codeIndex:getState', projectPath),
-  codeIndexPreview: (projectPath: string, settings: unknown, locale: string) => ipcRenderer.invoke('codeIndex:preview', projectPath, settings, locale),
-  codeIndexSave: (projectPath: string, settings: unknown, locale: string) => ipcRenderer.invoke('codeIndex:save', projectPath, settings, locale),
-  codeIndexReindex: (projectPath: string, force: boolean) => ipcRenderer.invoke('codeIndex:reindex', projectPath, force === true),
-  indexDocsDir: (projectPath: string) => ipcRenderer.invoke('docs:indexDocsDir', projectPath),
+  codeIndexState: (projectPath: string) => invoke('codeIndex:getState', projectPath),
+  codeIndexPreview: (projectPath: string, settings: unknown, locale: string) => invoke('codeIndex:preview', projectPath, settings, locale),
+  codeIndexSave: (projectPath: string, settings: unknown, locale: string) => invoke('codeIndex:save', projectPath, settings, locale),
+  codeIndexReindex: (projectPath: string, force: boolean) => invoke('codeIndex:reindex', projectPath, force === true),
+  indexDocsDir: (projectPath: string) => invoke('docs:indexDocsDir', projectPath),
 
   // Память проекта (TASK-76): факты backlog/memory — список, правка человеком, удаление
-  listMemory: (projectPath: string) => ipcRenderer.invoke('memory:list', projectPath),
+  listMemory: (projectPath: string) => invoke('memory:list', projectPath),
   writeMemory: (projectPath: string, draft: MemoryDraftInput, replace?: string) =>
-    ipcRenderer.invoke('memory:write', projectPath, draft, replace),
-  deleteMemory: (projectPath: string, id: string) => ipcRenderer.invoke('memory:delete', projectPath, id),
+    invoke('memory:write', projectPath, draft, replace),
+  deleteMemory: (projectPath: string, id: string) => invoke('memory:delete', projectPath, id),
 
   // Локальный TTS на голосах Piper (TASK-69): генерация в воркере main, воспроизведение в рендерере
-  getTtsStatus: () => ipcRenderer.invoke('tts:getStatus'),
-  listTtsVoices: () => ipcRenderer.invoke('tts:listVoices'),
-  downloadTtsVoice: (voiceId: string) => ipcRenderer.invoke('tts:downloadVoice', voiceId),
-  cancelTtsVoiceDownload: (voiceId: string) => ipcRenderer.invoke('tts:cancelDownload', voiceId),
-  deleteTtsVoice: (voiceId: string) => ipcRenderer.invoke('tts:deleteVoice', voiceId),
-  importTtsVoice: () => ipcRenderer.invoke('tts:importVoice'),
-  warmupTts: (voiceId: string, opts?: { auto?: boolean }) => ipcRenderer.invoke('tts:warmup', voiceId, opts),
-  speakTts: (req: TtsSpeakRequest) => ipcRenderer.invoke('tts:speak', req),
-  cancelTts: (jobId: string) => ipcRenderer.invoke('tts:cancel', jobId),
-  cancelAllTts: () => ipcRenderer.invoke('tts:cancelAll'),
+  getTtsStatus: () => invoke('tts:getStatus'),
+  listTtsVoices: () => invoke('tts:listVoices'),
+  downloadTtsVoice: (voiceId: string) => invoke('tts:downloadVoice', voiceId),
+  cancelTtsVoiceDownload: (voiceId: string) => invoke('tts:cancelDownload', voiceId),
+  deleteTtsVoice: (voiceId: string) => invoke('tts:deleteVoice', voiceId),
+  importTtsVoice: () => invoke('tts:importVoice'),
+  warmupTts: (voiceId: string, opts?: { auto?: boolean }) => invoke('tts:warmup', voiceId, opts),
+  speakTts: (req: TtsSpeakRequest) => invoke('tts:speak', req),
+  cancelTts: (jobId: string) => invoke('tts:cancel', jobId),
+  cancelAllTts: () => invoke('tts:cancelAll'),
   // PCM приходит чанками по мере готовности: Float32Array переживает structured clone как есть
   onTtsChunk: (callback: (chunk: TtsChunkPayload) => void) => {
     const handler = (_event: IpcRendererEvent, chunk: TtsChunkPayload) => callback(chunk);
@@ -769,15 +839,15 @@ const api: IElectronAPI = {
   },
 
   // Второй движок озвучки: Qwen3-TTS в сайдкаре Python (TASK-104, decision-64)
-  getQwenTtsStatus: () => ipcRenderer.invoke('tts:qwen:getStatus'),
-  listQwenTtsVoices: () => ipcRenderer.invoke('tts:qwen:listVoices'),
-  installQwenTts: (req: { models: string[]; hfEndpoint?: string }) => ipcRenderer.invoke('tts:qwen:install', req),
-  cancelQwenTtsInstall: () => ipcRenderer.invoke('tts:qwen:cancelInstall'),
-  unloadQwenTts: () => ipcRenderer.invoke('tts:qwen:unload'),
-  setQwenTtsKeepLoaded: (keep: boolean) => ipcRenderer.invoke('tts:qwen:setKeepLoaded', keep),
+  getQwenTtsStatus: () => invoke('tts:qwen:getStatus'),
+  listQwenTtsVoices: () => invoke('tts:qwen:listVoices'),
+  installQwenTts: (req: { models: string[]; hfEndpoint?: string }) => invoke('tts:qwen:install', req),
+  cancelQwenTtsInstall: () => invoke('tts:qwen:cancelInstall'),
+  unloadQwenTts: () => invoke('tts:qwen:unload'),
+  setQwenTtsKeepLoaded: (keep: boolean) => invoke('tts:qwen:setKeepLoaded', keep),
   saveQwenTtsVoice: (input: { label: string; instruct: string; seed: number }) =>
-    ipcRenderer.invoke('tts:qwen:saveVoice', input),
-  deleteQwenTtsVoice: (voiceId: string) => ipcRenderer.invoke('tts:qwen:deleteVoice', voiceId),
+    invoke('tts:qwen:saveVoice', input),
+  deleteQwenTtsVoice: (voiceId: string) => invoke('tts:qwen:deleteVoice', voiceId),
   onQwenTtsInstallProgress: (callback: (progress: QwenInstallProgressInfo) => void) => {
     const handler = (_event: IpcRendererEvent, progress: QwenInstallProgressInfo) => callback(progress);
     ipcRenderer.on('tts:qwen:installProgress', handler);
@@ -787,21 +857,21 @@ const api: IElectronAPI = {
   },
 
   // System
-  getPlatform: () => ipcRenderer.invoke('system:getPlatform'),
+  getPlatform: () => invoke('system:getPlatform'),
 
   // SafeStorage & Secret Encryption
-  isEncryptionAvailable: () => ipcRenderer.invoke('secrets:isEncryptionAvailable'),
-  encryptSecret: (text: string) => ipcRenderer.invoke('secrets:encrypt', text),
-  decryptSecret: (cipherText: string) => ipcRenderer.invoke('secrets:decrypt', cipherText),
-  saveEncryptedSecret: (key: string, value: string) => ipcRenderer.invoke('secrets:setSecret', { key, value }),
-  getEncryptedSecret: (key: string) => ipcRenderer.invoke('secrets:getSecret', key),
-  deleteEncryptedSecret: (key: string) => ipcRenderer.invoke('secrets:deleteSecret', key),
-  getSecretIssues: () => ipcRenderer.invoke('secrets:getIssues'),
-  acknowledgeSecretIssues: () => ipcRenderer.invoke('secrets:acknowledgeIssues'),
-  showSecretBackup: () => ipcRenderer.invoke('secrets:showBackup'),
-  getSecretBackupPreview: () => ipcRenderer.invoke('secrets:getBackupPreview'),
-  restoreSecretsFromBackup: (ids: string[]) => ipcRenderer.invoke('secrets:restoreFromBackup', ids),
-  deleteSecretBackupEntries: (ids: string[]) => ipcRenderer.invoke('secrets:deleteFromBackup', ids),
+  isEncryptionAvailable: () => invoke('secrets:isEncryptionAvailable'),
+  encryptSecret: (text: string) => invoke('secrets:encrypt', text),
+  decryptSecret: (cipherText: string) => invoke('secrets:decrypt', cipherText),
+  saveEncryptedSecret: (key: string, value: string) => invoke('secrets:setSecret', { key, value }),
+  getEncryptedSecret: (key: string) => invoke('secrets:getSecret', key),
+  deleteEncryptedSecret: (key: string) => invoke('secrets:deleteSecret', key),
+  getSecretIssues: () => invoke('secrets:getIssues'),
+  acknowledgeSecretIssues: () => invoke('secrets:acknowledgeIssues'),
+  showSecretBackup: () => invoke('secrets:showBackup'),
+  getSecretBackupPreview: () => invoke('secrets:getBackupPreview'),
+  restoreSecretsFromBackup: (ids: string[]) => invoke('secrets:restoreFromBackup', ids),
+  deleteSecretBackupEntries: (ids: string[]) => invoke('secrets:deleteFromBackup', ids),
   onSecretIssuesChanged: (callback: (state: SecretIssuesState) => void) => {
     const handler = (_event: IpcRendererEvent, state: SecretIssuesState) => callback(state);
     ipcRenderer.on('secrets:issuesChanged', handler);
@@ -811,13 +881,13 @@ const api: IElectronAPI = {
   },
 
   // Внешние ссылки: только через системный браузер (main проверяет схему)
-  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+  openExternal: (url: string) => invoke('shell:openExternal', url),
 
   // Remote MCP Server (External Agent Control)
-  getMcpStatus: () => ipcRenderer.invoke('mcp:getStatus'),
-  toggleMcpServer: (enable: boolean) => ipcRenderer.invoke('mcp:toggleServer', enable),
-  regenerateMcpToken: () => ipcRenderer.invoke('mcp:regenerateToken'),
-  setMcpAppState: (state: { activeProject?: { name: string; path: string } | null; activeTab?: string }) => ipcRenderer.invoke('mcp:setAppState', state),
+  getMcpStatus: () => invoke('mcp:getStatus'),
+  toggleMcpServer: (enable: boolean) => invoke('mcp:toggleServer', enable),
+  regenerateMcpToken: () => invoke('mcp:regenerateToken'),
+  setMcpAppState: (state: { activeProject?: { name: string; path: string } | null; activeTab?: string }) => invoke('mcp:setAppState', state),
   onMcpStatusChanged: (callback: (status: McpServerStatus) => void) => {
     const handler = (_event: IpcRendererEvent, status: McpServerStatus) => callback(status);
     ipcRenderer.on('mcp:statusChanged', handler);
@@ -834,14 +904,14 @@ const api: IElectronAPI = {
   },
 
   // Управление компьютером через MCP-прокси: настройки, kill-switch, диагностика (TASK-82)
-  getComputerUseStatus: () => ipcRenderer.invoke('computerUse:getStatus'),
-  getComputerUseSettings: () => ipcRenderer.invoke('computerUse:getSettings'),
-  saveComputerUseSettings: (patch: Partial<ComputerUseSettings>) => ipcRenderer.invoke('computerUse:saveSettings', patch),
-  engageComputerKillSwitch: (reason?: 'overlay' | 'manual') => ipcRenderer.invoke('computerUse:engageKillSwitch', reason),
-  releaseComputerKillSwitch: () => ipcRenderer.invoke('computerUse:releaseKillSwitch'),
-  startComputerUseRuntime: () => ipcRenderer.invoke('computerUse:startRuntime'),
-  runComputerUseDiagnostics: () => ipcRenderer.invoke('computerUse:diagnostics'),
-  takeComputerTestScreenshot: () => ipcRenderer.invoke('computerUse:testScreenshot'),
+  getComputerUseStatus: () => invoke('computerUse:getStatus'),
+  getComputerUseSettings: () => invoke('computerUse:getSettings'),
+  saveComputerUseSettings: (patch: Partial<ComputerUseSettings>) => invoke('computerUse:saveSettings', patch),
+  engageComputerKillSwitch: (reason?: 'overlay' | 'manual') => invoke('computerUse:engageKillSwitch', reason),
+  releaseComputerKillSwitch: () => invoke('computerUse:releaseKillSwitch'),
+  startComputerUseRuntime: () => invoke('computerUse:startRuntime'),
+  runComputerUseDiagnostics: () => invoke('computerUse:diagnostics'),
+  takeComputerTestScreenshot: () => invoke('computerUse:testScreenshot'),
   onComputerUseStatusChanged: (callback: (status: ComputerUseStatus) => void) => {
     const handler = (_event: IpcRendererEvent, status: ComputerUseStatus) => callback(status);
     ipcRenderer.on('computerUse:statusChanged', handler);
@@ -885,19 +955,19 @@ const api: IElectronAPI = {
   },
 
   // Remote Control (TASK-51)
-  getRemoteStatus: () => ipcRenderer.invoke('remote:getStatus'),
-  toggleRemoteControl: (enable?: boolean) => ipcRenderer.invoke('remote:toggle', enable),
-  updateRemoteConfig: (config: unknown) => ipcRenderer.invoke('remote:updateConfig', config),
-  regenerateRemoteToken: () => ipcRenderer.invoke('remote:regenerateToken'),
-  disconnectRemoteDevice: (deviceId: string) => ipcRenderer.invoke('remote:disconnectDevice', deviceId),
-  approveRemoteDevice: (deviceId: string) => ipcRenderer.invoke('remote:approveDevice', deviceId),
+  getRemoteStatus: () => invoke('remote:getStatus'),
+  toggleRemoteControl: (enable?: boolean) => invoke('remote:toggle', enable),
+  updateRemoteConfig: (config: unknown) => invoke('remote:updateConfig', config),
+  regenerateRemoteToken: () => invoke('remote:regenerateToken'),
+  disconnectRemoteDevice: (deviceId: string) => invoke('remote:disconnectDevice', deviceId),
+  approveRemoteDevice: (deviceId: string) => invoke('remote:approveDevice', deviceId),
   setRemoteDeviceRights: (deviceId: string, rights: 'readOnly' | 'hitl' | 'full') =>
-    ipcRenderer.invoke('remote:setDeviceRights', deviceId, rights),
-  setRemoteDeviceProjectRights: (deviceId: string, rights: unknown) => ipcRenderer.invoke('remote:setDeviceProjectRights', deviceId, rights),
-  revokeRemoteDevice: (deviceId: string) => ipcRenderer.invoke('remote:revokeDevice', deviceId),
-  testTelegramNotification: (text?: string) => ipcRenderer.invoke('remote:testTelegramNotification', text),
-  startRemoteTunnel: () => ipcRenderer.invoke('remote:startTunnel'),
-  stopRemoteTunnel: () => ipcRenderer.invoke('remote:stopTunnel'),
+    invoke('remote:setDeviceRights', deviceId, rights),
+  setRemoteDeviceProjectRights: (deviceId: string, rights: unknown) => invoke('remote:setDeviceProjectRights', deviceId, rights),
+  revokeRemoteDevice: (deviceId: string) => invoke('remote:revokeDevice', deviceId),
+  testTelegramNotification: (text?: string) => invoke('remote:testTelegramNotification', text),
+  startRemoteTunnel: () => invoke('remote:startTunnel'),
+  stopRemoteTunnel: () => invoke('remote:stopTunnel'),
   onRemoteControlStatusChanged: (callback: (status: unknown) => void) => {
     const handler = (_event: IpcRendererEvent, status: unknown) => callback(status);
     ipcRenderer.on('remote:statusChanged', handler);
@@ -914,7 +984,7 @@ const api: IElectronAPI = {
   },
 
   // Федерация компьютеров, hub-режим (TASK-66)
-  listFederationPeers: () => ipcRenderer.invoke('federation:listPeers'),
+  listFederationPeers: () => invoke('federation:listPeers'),
   addFederationPeer: (options: {
     hostId: string;
     machineName?: string;
@@ -924,15 +994,15 @@ const api: IElectronAPI = {
     hostKey?: string;
     pin?: string;
     autoConnect?: boolean;
-  }) => ipcRenderer.invoke('federation:addPeer', options),
-  removeFederationPeer: (hostId: string) => ipcRenderer.invoke('federation:removePeer', hostId),
-  connectFederationPeer: (hostId: string) => ipcRenderer.invoke('federation:connectPeer', hostId),
-  disconnectFederationPeer: (hostId: string) => ipcRenderer.invoke('federation:disconnectPeer', hostId),
+  }) => invoke('federation:addPeer', options),
+  removeFederationPeer: (hostId: string) => invoke('federation:removePeer', hostId),
+  connectFederationPeer: (hostId: string) => invoke('federation:connectPeer', hostId),
+  disconnectFederationPeer: (hostId: string) => invoke('federation:disconnectPeer', hostId),
   federationCall: (hostId: string, method: string, params?: Record<string, unknown>) =>
-    ipcRenderer.invoke('federation:call', hostId, method, params),
-  getFederationHosts: () => ipcRenderer.invoke('federation:getHosts'),
+    invoke('federation:call', hostId, method, params),
+  getFederationHosts: () => invoke('federation:getHosts'),
   /** Ссылки `projecthub://` (decision-143 п. 4): забрать очередь и подписаться на сигнал о новых. */
-  takeDeepLinks: (): Promise<string[]> => ipcRenderer.invoke('deeplink:take'),
+  takeDeepLinks: (): Promise<string[]> => invoke('deeplink:take'),
   onDeepLinkAvailable: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('deeplink:available', handler);
@@ -941,7 +1011,7 @@ const api: IElectronAPI = {
     };
   },
   // Дерево флота (TASK-174): сводка этого ПК и событие её изменения
-  getLocalOverview: () => ipcRenderer.invoke('fleet:getLocalOverview'),
+  getLocalOverview: () => invoke('fleet:getLocalOverview'),
   onLocalOverviewChanged: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('overview:changed', handler);
@@ -966,28 +1036,41 @@ const api: IElectronAPI = {
       ipcRenderer.removeListener('federation:event', handler);
     };
   },
+  // Проект другого ПК, открытый в окне (TASK-280): по его корню вызовы и события получают маршрут и префикс.
+  registerRemoteProject: (hostId: string, hostPath: string) => {
+    if (typeof hostId !== 'string' || typeof hostPath !== 'string' || !hostId || !hostPath) return;
+    const roots = remoteRoots.get(hostId) ?? new Set<string>();
+    roots.add(hostPath);
+    remoteRoots.set(hostId, roots);
+  },
+  unregisterRemoteProject: (hostId: string, hostPath: string) => {
+    const roots = remoteRoots.get(hostId);
+    if (!roots) return;
+    roots.delete(hostPath);
+    if (roots.size === 0) remoteRoots.delete(hostId);
+  },
 
   // Единый HITL-контур (TASK-57)
-  listPendingApprovals: (filter?: { projectPath?: string; sessionId?: string }) => ipcRenderer.invoke('hitl:listPending', filter),
+  listPendingApprovals: (filter?: { projectPath?: string; sessionId?: string }) => invoke('hitl:listPending', filter),
   decideApproval: (requestId: string, response: { approved: boolean; text?: string }) =>
-    ipcRenderer.invoke('hitl:decide', requestId, response),
-  listHitlAudit: (query?: unknown) => ipcRenderer.invoke('hitl:listAudit', query),
-  listHitlAuditMonths: () => ipcRenderer.invoke('hitl:auditMonths'),
-  getHitlInfo: () => ipcRenderer.invoke('hitl:auditInfo'),
-  exportHitlAudit: (query?: unknown, format?: 'jsonl' | 'json' | 'csv') => ipcRenderer.invoke('hitl:exportAudit', query, format),
+    invoke('hitl:decide', requestId, response),
+  listHitlAudit: (query?: unknown) => invoke('hitl:listAudit', query),
+  listHitlAuditMonths: () => invoke('hitl:auditMonths'),
+  getHitlInfo: () => invoke('hitl:auditInfo'),
+  exportHitlAudit: (query?: unknown, format?: 'jsonl' | 'json' | 'csv') => invoke('hitl:exportAudit', query, format),
   // Перенос профиля (TASK-224, decision-175)
-  profileExport: (password: string, sections?: string[]) => ipcRenderer.invoke('profile:export', password, sections),
-  profileChooseFile: () => ipcRenderer.invoke('profile:chooseFile'),
-  profilePreview: (filePath: string, password: string) => ipcRenderer.invoke('profile:preview', filePath, password),
-  profileApply: (token: string, sections: string[]) => ipcRenderer.invoke('profile:apply', token, sections),
-  profileCloneProject: (remote: string, name: string) => ipcRenderer.invoke('profile:cloneProject', remote, name),
-  profilePreviewFromHost: (hostId: string, sections: string[]) => ipcRenderer.invoke('profile:previewFromHost', hostId, sections),
-  profilePreviewOnHost: (hostId: string, sections: string[]) => ipcRenderer.invoke('profile:previewOnHost', hostId, sections),
-  profileApplyOnHost: (hostId: string, token: string, sections: string[]) => ipcRenderer.invoke('profile:applyOnHost', hostId, token, sections),
-  profileRelaunch: () => ipcRenderer.invoke('profile:relaunch'),
+  profileExport: (password: string, sections?: string[]) => invoke('profile:export', password, sections),
+  profileChooseFile: () => invoke('profile:chooseFile'),
+  profilePreview: (filePath: string, password: string) => invoke('profile:preview', filePath, password),
+  profileApply: (token: string, sections: string[]) => invoke('profile:apply', token, sections),
+  profileCloneProject: (remote: string, name: string) => invoke('profile:cloneProject', remote, name),
+  profilePreviewFromHost: (hostId: string, sections: string[]) => invoke('profile:previewFromHost', hostId, sections),
+  profilePreviewOnHost: (hostId: string, sections: string[]) => invoke('profile:previewOnHost', hostId, sections),
+  profileApplyOnHost: (hostId: string, token: string, sections: string[]) => invoke('profile:applyOnHost', hostId, token, sections),
+  profileRelaunch: () => invoke('profile:relaunch'),
   // База знаний компании (TASK-223)
-  knowledgeBaseIndex: (projectPath: string) => ipcRenderer.invoke('kb:index', projectPath),
-  knowledgeBaseRead: (projectPath: string, id: string) => ipcRenderer.invoke('kb:read', projectPath, id),
+  knowledgeBaseIndex: (projectPath: string) => invoke('kb:index', projectPath),
+  knowledgeBaseRead: (projectPath: string, id: string) => invoke('kb:read', projectPath, id),
   onBusEvent: (callback: (event: AppBusEvent) => void) => {
     const handler = relay(callback);
     ipcRenderer.on('bus:event', handler);
@@ -997,15 +1080,15 @@ const api: IElectronAPI = {
   },
 
   // Уведомления: трей, ОС, звук, Telegram (TASK-63)
-  getNotificationSettings: () => ipcRenderer.invoke('notifications:getSettings'),
+  getNotificationSettings: () => invoke('notifications:getSettings'),
   updateNotificationSettings: (patch: Partial<NotificationSettings>) =>
-    ipcRenderer.invoke('notifications:updateSettings', patch),
-  testNotification: () => ipcRenderer.invoke('notifications:test'),
-  setHostLanguage: (language: 'en' | 'ru') => ipcRenderer.invoke('notifications:setHostLanguage', language),
-  notificationNavigate: (action: NotificationAction) => ipcRenderer.invoke('notifications:navigate', action),
-  startTelegramBot: () => ipcRenderer.invoke('notifications:startBot'),
-  stopTelegramBot: () => ipcRenderer.invoke('notifications:stopBot'),
-  listServiceProcesses: () => ipcRenderer.invoke('process:listService'),
+    invoke('notifications:updateSettings', patch),
+  testNotification: () => invoke('notifications:test'),
+  setHostLanguage: (language: 'en' | 'ru') => invoke('notifications:setHostLanguage', language),
+  notificationNavigate: (action: NotificationAction) => invoke('notifications:navigate', action),
+  startTelegramBot: () => invoke('notifications:startBot'),
+  stopTelegramBot: () => invoke('notifications:stopBot'),
+  listServiceProcesses: () => invoke('process:listService'),
   onNotificationDelivered: (callback: (delivery: NotificationDelivery) => void) => {
     const handler = (_event: unknown, data: NotificationDelivery) => callback(data);
     ipcRenderer.on('notify:delivered', handler);
@@ -1029,13 +1112,13 @@ const api: IElectronAPI = {
   },
 
   // Диагностика и автообновление (TASK-58)
-  getDiagnosticsInfo: () => ipcRenderer.invoke('diagnostics:getInfo'),
-  collectDiagnosticsArchive: () => ipcRenderer.invoke('diagnostics:collectArchive'),
-  getUpdaterStatus: () => ipcRenderer.invoke('updater:getStatus'),
-  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
-  installUpdateNow: () => ipcRenderer.invoke('updater:installNow'),
-  pickUpdateFile: () => ipcRenderer.invoke('updater:pickFile'),
-  installUpdateFile: () => ipcRenderer.invoke('updater:installFile'),
+  getDiagnosticsInfo: () => invoke('diagnostics:getInfo'),
+  collectDiagnosticsArchive: () => invoke('diagnostics:collectArchive'),
+  getUpdaterStatus: () => invoke('updater:getStatus'),
+  checkForUpdates: () => invoke('updater:check'),
+  installUpdateNow: () => invoke('updater:installNow'),
+  pickUpdateFile: () => invoke('updater:pickFile'),
+  installUpdateFile: () => invoke('updater:installFile'),
   onUpdaterStatusChanged: (callback: (status: UpdaterStatus) => void) => {
     const handler = relay(callback);
     ipcRenderer.on('updater:statusChanged', handler);
@@ -1045,8 +1128,8 @@ const api: IElectronAPI = {
   },
 
   // Редакция сборки и платные модули (TASK-151, decision-123 п. 4): ограничения запуска агента и каналы `ee:*`
-  getEditionInfo: () => ipcRenderer.invoke('edition:info'),
-  checkAgentLaunch: (ctx: unknown) => ipcRenderer.invoke('agents:launchCheck', ctx),
+  getEditionInfo: () => invoke('edition:info'),
+  checkAgentLaunch: (ctx: unknown) => invoke('agents:launchCheck', ctx),
   editionInvoke: (channel: string, ...args: unknown[]) => {
     if (typeof channel !== 'string' || !channel.startsWith('ee:')) return Promise.reject(new Error('A paid module channel must start with ee:'));
     return ipcRenderer.invoke(channel, ...args);

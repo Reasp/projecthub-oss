@@ -336,7 +336,13 @@ class FederationClientService {
    * Выполняет RPC на удалённом хосте. Права проверяет сам хост по токену нашего устройства —
    * hub ничего не обходит, а лишь получает понятную ошибку, если прав не хватает.
    */
-  public async call<T = unknown>(hostId: string, method: string, params: Record<string, unknown> = {}): Promise<T> {
+  public async call<T = unknown>(
+    hostId: string,
+    method: string,
+    params: Record<string, unknown> = {},
+    /** Туннель IPC (TASK-280): `git push`, `worktree add`, ответ API-модели идут дольше обычного RPC. */
+    timeoutMs: number = RPC_TIMEOUT_MS
+  ): Promise<T> {
     await this.ensureLoaded();
     const peer = this.peers.get(hostId);
     if (!peer) throw new AppError('federation.peerNotFound', { hostId });
@@ -353,7 +359,7 @@ class FederationClientService {
       const timer = setTimeout(() => {
         peer.pending.delete(id);
         reject(new AppError('federation.rpcTimeout', { name: peer.credentials.machineName, method }));
-      }, RPC_TIMEOUT_MS);
+      }, timeoutMs);
 
       peer.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
       this.send(peer, { type: 'rpc_req', id, method, params });
@@ -777,6 +783,8 @@ class FederationClientService {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('federation:event', payload);
     }
+    // Поток туннеля IPC (TASK-280: вывод терминала, ответ Studio) — только окну: в шине он был бы шумом на каждый символ.
+    if (event === 'ipc:event') return;
     appEventBus.publish({
       type: 'federation:peerEvent',
       hostId: peer.credentials.hostId,

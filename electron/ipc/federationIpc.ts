@@ -4,6 +4,9 @@ import { remoteControlService } from '../services/remoteControlService.js';
 import type { PeerTransport } from '../services/federationProtocol.js';
 import { deepLinkService } from '../services/deepLinkService.js';
 
+/** Сколько ждать ответа хоста на вызов туннеля IPC. */
+const TUNNEL_TIMEOUT_MS = 15 * 60_000;
+
 /**
  * IPC hub-режима федерации (TASK-66, decision-11 п.4): список удалённых хостов, сопряжение с
  * ними и единый проброс RPC. Рендерер не открывает сокеты сам — всё через main, как и остальной
@@ -52,6 +55,14 @@ export function registerFederationIpc() {
    */
   ipcMain.handle('federation:call', async (_event, hostId: string, method: string, params?: Record<string, unknown>) => {
     return await federationClientService.call(hostId, method, params || {});
+  });
+
+  /**
+   * Вызов IPC проекта другого ПК (TASK-280, decision-194): preload снял с путей префикс `phr://`, хост исполняет свой
+   * обработчик канала и сам проверяет канал, права и пути. Таймаут длиннее обычного RPC: push, клон worktree, ответ модели.
+   */
+  ipcMain.handle('remote:ipcInvoke', async (_event, hostId: string, projectPath: string, channel: string, args: unknown[]) => {
+    return await federationClientService.call(hostId, 'ipc_invoke', { projectPath, channel, args: Array.isArray(args) ? args : [] }, TUNNEL_TIMEOUT_MS);
   });
 
   /** Сводка флота этого ПК для раздела «Компьютеры» (TASK-174, decision-129): без сети, человек за ПК может всё. */

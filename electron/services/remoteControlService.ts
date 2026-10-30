@@ -68,6 +68,9 @@ import { claudeAccountService } from './claudeAccountService.js';
 import { agentFleetService, isActiveSwarmStatus } from './agentFleetService.js';
 import { editionRegistry, type DeviceNotice, type PairingRedemption, type RemoteDeviceRef } from '../extensions/editionRegistry.js';
 import { appendRemoteAudit, auditTarget } from './remoteActionAudit.js';
+import { invokeRegisteredHandler, onWindowEvent } from './remoteIpcTunnel.js';
+import { absolutePathsIn, isTunnelChannel, isTunnelEvent, isTunnelReadChannel, pathOutsideRoots } from './remoteIpcPolicy.js';
+import { collectIds } from '../../src/lib/remoteProjectPath.js';
 import { aiAgentService } from './aiAgentService.js';
 import { actionConfigService, type ActionDefinition } from './actionConfigService.js';
 import { createBacklogTaskFile } from './backlogTaskCreate.js';
@@ -381,6 +384,9 @@ const HOST_WIDE_METHODS = new Set([
   'profile_apply'
 ]);
 
+/** Сколько id объектов туннеля помнить на устройство (TASK-280). */
+const TUNNEL_IDS_MAX = 5000;
+
 /** Проект у этих методов необязателен: без него — сводка по всем проектам, суженная правами устройства. */
 const OPTIONAL_PROJECT_METHODS = new Set(['get_pending_agent_tasks', 'studio_get_usage', 'get_swarms']);
 
@@ -638,6 +644,95 @@ class RemoteControlService {
     // Поток Agents Studio (любой сессии) — сопряжённым телефонам, мимо буфера догона: чанков много, а после
     // разрыва телефон всё равно перечитывает сессию целиком (TASK-140.10, decision-83).
     studioRemoteBridge.onEvent((event, data) => this.broadcastEvent(event, data, { transient: true }));
+
+    // События окна этого ПК — окнам других ПК, открывших его проект туннелем IPC (TASK-280).
+    onWindowEvent((channel, args) => this.forwardTunnelEvent(channel, args));
+  }
+
+  /** Устройства, открывшие проект этого ПК туннелем IPC, и id объектов, к которым они обращались (TASK-280). */
+  private tunnelDevices = new Map<string, Set<string>>();
+
+  /**
+   * Вызов обработчика IPC этого ПК окном другого ПК ([[decision-194]]). Только устройство владельца с правом `full` на
+   * хост и на проект вызова; канал — из списка проектных; все абсолютные пути аргументов — внутри проектов, где у
+   * устройства `full`. Записывающие каналы — в журнал действий (decision-126).
+   */
+  private async invokeTunnel(params: RpcParams, device: RemoteDevice, rights: DeviceRights): Promise<unknown> {
+    const channel = rpcString(params.channel) ?? '';
+    if (!isTunnelChannel(channel)) throw new AppError('remote.ipcChannelNotAllowed', { channel: String(params.channel ?? '').slice(0, 80) });
+    // Участникам общего хоста — прежние методы: роли проекта (терминал, git основного дерева) туннель не различает.
+    if (device.memberId || rights !== 'full') throw new AppError('remote.ipcNeedsOwnerFull');
+    const write = !isTunnelReadChannel(channel);
+    if (write && this.readOnly) throw new AppError('remote.readOnlyMode', { method: channel });
+    const projectPath = rpcString(params.projectPath);
+    if (!projectPath) throw new AppError('remote.noProjectSelected');
+    const owner = owningProject(path.resolve(projectPath), this.projectRoots);
+    if (!owner) throw new ProjectAccessError('remote.projectNoAccess', { method: channel, project: path.basename(projectPath) }, projectPath);
+    if (this.projectAccessOf(device, owner) !== 'full') {
+      throw new ProjectAccessError('remote.projectReadOnly', { method: channel, project: path.basename(owner) }, owner);
+    }
+    const args: unknown[] = Array.isArray(params.args) ? params.args : [];
+    const roots = this.projectRoots.filter((r) => this.projectAccessOf(device, r) === 'full');
+    const outside = pathOutsideRoots(args, roots, undefined, channel);
+    if (outside) throw new AppError('remote.ipcPathOutside', { path: path.basename(outside) });
+
+    const known = this.tunnelDevices.get(device.id) ?? new Set<string>();
+    this.tunnelDevices.set(device.id, known);
+    const remember = (ids: Set<string>) => {
+      for (const id of ids) known.add(id);
+      // Память о чужих id ограничена: старые уходят первыми.
+      for (const id of known) {
+        if (known.size <= TUNNEL_IDS_MAX) break;
+        known.delete(id);
+      }
+    };
+    remember(collectIds(args));
+    const audit = write
+      ? {
+          ts: Date.now(),
+          method: `ipc:${channel}`,
+          deviceId: device.id,
+          ...(device.name ? { deviceName: device.name } : {}),
+          projectPath: owner
+        }
+      : null;
+    try {
+      const result = await invokeRegisteredHandler(channel, args);
+      remember(collectIds(result));
+      if (audit) void appendRemoteAudit({ ...audit, ok: true });
+      return result ?? null;
+    } catch (err) {
+      if (audit) void appendRemoteAudit({ ...audit, ok: false, error: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
+      throw err;
+    }
+  }
+
+  /**
+   * Событие окна — устройствам туннеля, которым оно положено: с путём проекта — тем, у кого `full` в этом проекте; с id
+   * объекта (сессия терминала, ответ Studio) — тем, кто к нему обращался; без того и другого — только устройству
+   * владельца с `full` во всех проектах этого ПК.
+   */
+  private forwardTunnelEvent(channel: string, args: unknown[]): void {
+    if (this.tunnelDevices.size === 0 || !isTunnelEvent(channel)) return;
+    const projects = [
+      ...new Set(
+        absolutePathsIn(args)
+          .map((p) => owningProject(path.resolve(p), this.projectRoots))
+          .filter((p): p is string => Boolean(p))
+      )
+    ];
+    const ids = collectIds(args);
+    const sessionId = /^ai:(?:chunk|complete|error):(.+)$/.exec(channel)?.[1];
+    if (sessionId) ids.add(sessionId);
+    this.broadcastEvent('ipc:event', { channel, args }, { transient: true, audience: (d) => this.tunnelEventReaches(d, projects, ids) });
+  }
+
+  private tunnelEventReaches(device: RemoteDevice, projects: string[], ids: Set<string>): boolean {
+    const known = this.tunnelDevices.get(device.id);
+    if (!known || device.memberId || this.effectiveDeviceRights(device) !== 'full') return false;
+    if (projects.length > 0) return projects.every((p) => this.projectAccessOf(device, p) === 'full');
+    for (const id of ids) if (known.has(id)) return true;
+    return this.projectRoots.length > 0 && this.projectRoots.every((r) => this.projectAccessOf(device, r) === 'full');
   }
 
   /**
@@ -3795,6 +3890,10 @@ class RemoteControlService {
         const project = projects.find((p) => path.resolve(p.path) === selected);
         return { activeProject: project || null };
       }
+
+      // Проект этого ПК в окне другого ПК как локальный (TASK-280, decision-194): свой обработчик IPC по запросу.
+      case 'ipc_invoke':
+        return await this.invokeTunnel(params, device, rights);
 
       // Дерево флота (TASK-174, decision-129): все проекты одним снимком, действия — по правам устройства.
       case 'get_overview':

@@ -116,6 +116,17 @@ export interface ProjectInfo {
   };
   /** Чего не хватает из основы инициализации (decision-78, п. 2): пустой список — основа на месте. */
   foundationMissing?: Array<'git' | 'tasks' | 'docs' | 'rules'>;
+  /**
+   * Проект другого ПК, открытый в окне как локальный (TASK-280): `path` — `phr://<hostId>/<hostPath>`, вызовы идут на
+   * хост туннелем IPC.
+   */
+  remote?: RemoteProjectRef;
+}
+
+export interface RemoteProjectRef {
+  hostId: string;
+  hostPath: string;
+  machineName: string;
 }
 
 export interface TaskCriterion {
@@ -1788,6 +1799,9 @@ export interface IElectronAPI {
   onFederationEvent: (
     callback: (payload: { hostId: string; machineName: string; event: string; data: unknown }) => void
   ) => () => void;
+  /** Проект другого ПК в окне (TASK-280): вызовы с путём `phr://<hostId>/…` и его событиями идут на хост. */
+  registerRemoteProject: (hostId: string, hostPath: string) => void;
+  unregisterRemoteProject: (hostId: string, hostPath: string) => void;
 
   // Единый HITL-контур: очередь, решения по requestId, аудит, шина событий (TASK-57)
   listPendingApprovals: (filter?: { projectPath?: string; sessionId?: string }) => Promise<ApprovalRequest[]>;

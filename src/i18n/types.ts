@@ -101,6 +101,8 @@ export interface TranslationDictionary {
   };
   projectTabs: {
     closeTab: string;
+    /** Подсказка вкладки проекта другого ПК (TASK-280). */
+    remoteTabTooltip: string;
     activeProjectsCount: string;
     closeAll: string;
     switchProject: string;

@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { FolderGit2, Folder, X } from '../common/icons';
+import { FolderGit2, Folder, Monitor, X } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useVoiceState } from '../../hooks/useVoiceState';
@@ -62,7 +62,7 @@ export const ProjectTabs: React.FC = () => {
           const rootPath = isSelected ? workspaceRoot || project.path : project.path;
           const tooltip = [
             t.projectTabs.tabVoiceTitle.replace('{name}', project.name).replace('{number}', String(tabNumber)),
-            rootPath,
+            project.remote ? t.projectTabs.remoteTabTooltip.replace('{host}', project.remote.machineName).replace('{path}', project.remote.hostPath) : rootPath,
             project.hasInfraConfig ? `ProjectTemplate — ${t.header.standardProjectTemplate}` : ''
           ]
             .filter(Boolean)
@@ -94,13 +94,21 @@ export const ProjectTabs: React.FC = () => {
                 </span>
               )}
 
-              {project.hasGit ? (
+              {project.remote ? (
+                <Monitor className={`w-4 h-4 shrink-0 ${isSelected ? 'text-sky-400' : 'text-slate-500'}`} />
+              ) : project.hasGit ? (
                 <FolderGit2 className={`w-4 h-4 shrink-0 ${isSelected ? 'text-indigo-400' : 'text-slate-500'}`} />
               ) : (
                 <Folder className={`w-4 h-4 shrink-0 ${isSelected ? 'text-indigo-400' : 'text-slate-500'}`} />
               )}
 
               <span className={`truncate ${isSelected ? 'font-medium' : ''}`}>{project.name}</span>
+              {/* Проект другого ПК (TASK-280): компьютер рядом с именем, остальное — как у локального */}
+              {project.remote && (
+                <span className="text-[11px] text-sky-300/80 truncate max-w-[110px] shrink-0" data-testid="project-tab-remote">
+                  {project.remote.machineName}
+                </span>
+              )}
               {project.voiceAlias && (
                 <span
                   className="text-[11px] text-slate-500 shrink-0"

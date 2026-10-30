@@ -10,6 +10,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { hostLabelText } from '../../i18n/hostLabels';
 import { appFailureText } from '../../lib/appErrorText';
 import { useDialog } from '../../hooks/useDialog';
+import { toRemotePath } from '../../lib/remoteProjectPath';
 import {
   fleetTotals,
   overviewSessionDetail,
@@ -75,6 +76,7 @@ export const ComputersSection: React.FC = () => {
   const { t, language } = useTranslation();
   const dialog = useDialog();
   const fleet = useFleetStore();
+  const selectedPath = useProjectStore((s) => s.selectedProject?.path);
   const peers = useFederationStore((s) => s.peers);
   const catalog = useFederationStore((s) => s.catalog);
   const openManage = useFederationStore((s) => s.open);
@@ -203,7 +205,13 @@ export const ComputersSection: React.FC = () => {
     // Громкий проект раскрыт по умолчанию, тихий — свёрнут; клик меняет это.
     const loud = p.attention !== 'quiet';
     const open = fleet.openProjects[key] ?? loud;
-    const shown = !host.self && fleet.remoteProject?.hostId === host.hostId && fleet.remoteProject.projectPath === p.path;
+    const remotePath = toRemotePath(host.hostId, p.path);
+    const shown =
+      !host.self &&
+      ((fleet.remoteProject?.hostId === host.hostId && fleet.remoteProject.projectPath === p.path) || selectedPath === remotePath);
+    // С полными правами проект другого ПК открывается вкладкой, как локальный (TASK-280); с урезанными — экран
+    // задач, агентов и документации по RPC (TASK-229): туннель IPC хост даёт только устройству владельца с `full`.
+    const fullAccess = (p.actions ?? actions) === 'full';
     const onProject = () => {
       if (host.self) {
         const info = useProjectStore.getState().projects.find((x) => x.path === p.path);
@@ -214,8 +222,15 @@ export const ComputersSection: React.FC = () => {
         fleet.toggleProject(host.hostId, p.path);
         return;
       }
-      // Проект удалённого ПК открывается в основной области: задачи, агенты, документация (TASK-229).
-      fleet.openRemoteProject({ hostId: host.hostId, machineName: host.machineName || host.hostId, projectPath: p.path, projectName: p.name });
+      const ref = { hostId: host.hostId, machineName: host.machineName || host.hostId, projectPath: p.path, projectName: p.name };
+      if (fullAccess) {
+        fleet.closeRemoteSession();
+        fleet.closeRemoteProject();
+        useProjectStore.getState().openRemoteProject(ref);
+      } else {
+        // Проект удалённого ПК открывается в основной области: задачи, агенты, документация (TASK-229).
+        fleet.openRemoteProject(ref);
+      }
       if (!open) fleet.toggleProject(host.hostId, p.path);
     };
     const onChevron = (e: React.MouseEvent) => {

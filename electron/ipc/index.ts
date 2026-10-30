@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import type { IpcContext } from './types';
 import { installAppErrorEnvelope } from './appErrorIpc';
+import { installIpcRegistry } from '../services/remoteIpcTunnel';
 import { registerProjectsIpc } from './projectsIpc';
 import { registerBacklogIpc } from './backlogIpc';
 import { registerGitIpc } from './gitIpc';
@@ -37,6 +38,8 @@ export type { IpcContext } from './types';
 export function registerAllIpc(ctx: IpcContext) {
   // До первого обработчика: ошибки с кодом уходят в окно с конвертом (decision-165).
   installAppErrorEnvelope(ipcMain);
+  // После конверта: туннель проекта другого ПК зовёт исходные обработчики (TASK-280).
+  installIpcRegistry(ipcMain);
   registerProjectsIpc(ctx);
   registerBacklogIpc(ctx);
   registerGitIpc();

@@ -109,7 +109,9 @@ export const Sidebar: React.FC = () => {
     }
   };
 
-  const filteredProjects = projects.filter((p) => {
+  // Каталог — проекты этого ПК; проекты других ПК — в разделе «Компьютеры» и во вкладках (TASK-280).
+  const catalogProjects = projects.filter((p) => !p.remote);
+  const filteredProjects = catalogProjects.filter((p) => {
     const matchesSearch =
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.path.toLowerCase().includes(searchQuery.toLowerCase());
@@ -190,7 +192,7 @@ export const Sidebar: React.FC = () => {
               </button>
             </div>
             <span className="text-[11px] text-slate-500 tabular-nums shrink-0">
-              {filteredProjects.length}/{projects.length}
+              {filteredProjects.length}/{catalogProjects.length}
             </span>
           </div>
         </div>

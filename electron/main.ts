@@ -22,6 +22,7 @@ import { processManager } from './services/processManager';
 import { ptyService } from './services/ptyService';
 import { gitService } from './services/gitService';
 import { WINDOW_MIN_SIZE, windowStateService } from './services/windowStateService';
+import { tapWindowEvents } from './services/remoteIpcTunnel';
 import { agentFleetService, isActiveAgentStatus, isActiveSwarmStatus } from './services/agentFleetService';
 import { planService } from './services/planService';
 import { automationEngine } from './services/automationService';
@@ -334,6 +335,8 @@ function createWindow() {
 
   windowStateService.trackWindow(win);
   hardenWebContents(win.webContents);
+  // События окна видит и туннель проекта другого ПК (TASK-280): удалённое окно получает поток своих вызовов.
+  tapWindowEvents(win.webContents);
 
   win.webContents.on('console-message', (event) => {
     const { level, message, lineNumber, sourceId } = event;

@@ -57,7 +57,38 @@ import { rendererServiceText } from '../i18n/rendererServiceText';
 import { appErrorText, appFailureText } from '../lib/appErrorText';
 import { fallbackStatusConfig, type BacklogProjectConfig } from '../utils/taskStatus';
 import { buildRenumberMessage } from '../utils/renumberMessage';
+import {
+  REMOTE_PROJECTS_STORAGE_KEY,
+  mergeRemoteDetails,
+  parseRemoteProjects,
+  remoteProjectInfo,
+  serializeRemoteProjects,
+  withRemoteProjects
+} from '../utils/remoteProjects';
 import { useDialogStore } from './useDialogStore';
+
+/** Проекты других ПК, открытые в прошлый раз (TASK-280): маршрут вызовов регистрируется до первого обращения. */
+function loadRemoteProjects(): ProjectInfo[] {
+  if (typeof window === 'undefined') return [];
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(REMOTE_PROJECTS_STORAGE_KEY);
+  } catch {
+    return [];
+  }
+  const list = parseRemoteProjects(raw);
+  for (const p of list) if (p.remote) window.api?.registerRemoteProject?.(p.remote.hostId, p.remote.hostPath);
+  return list;
+}
+
+function saveRemoteProjects(projects: readonly ProjectInfo[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(REMOTE_PROJECTS_STORAGE_KEY, serializeRemoteProjects(projects));
+  } catch (e) {
+    console.error('Failed to save remote projects to localStorage:', e);
+  }
+}
 
 function formatLog(template: string, params?: Record<string, string | number>): string {
   if (!params) return template;
@@ -236,6 +267,8 @@ interface ProjectState {
   setFilterOnlyActive: (filterOnlyActive: boolean) => void;
   activateProject: (project: ProjectInfo) => void;
   deactivateProject: (projectPath: string) => void;
+  /** Проект другого ПК вкладкой, как локальный (TASK-280): `projectPath` — путь на хосте. */
+  openRemoteProject: (p: { hostId: string; machineName: string; projectPath: string; projectName: string }) => void;
   toggleProjectActive: (project: ProjectInfo) => void;
   switchProjectByIndex: (index: number) => void;
   switchToNextProject: () => void;
@@ -652,7 +685,7 @@ const startupLanguage = (): Language => {
 };
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
-  projects: [],
+  projects: loadRemoteProjects(),
   selectedProject: null,
   tasks: [],
   backlogConfig: fallbackStatusConfig(),
@@ -759,6 +792,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
+  openRemoteProject: ({ hostId, machineName, projectPath, projectName }) => {
+    // Маршрут вызовов — до выбора: загрузка проекта сразу идёт на хост (TASK-280).
+    window.api?.registerRemoteProject?.(hostId, projectPath);
+    const info = remoteProjectInfo({ hostId, hostPath: projectPath, machineName }, projectName);
+    const known = get().projects.find((p) => p.path === info.path);
+    const projects = known
+      ? get().projects.map((p) => (p.path === info.path ? { ...p, remote: info.remote } : p))
+      : [...get().projects, info];
+    saveRemoteProjects(projects);
+    set({ projects });
+    get().activateProject(known ? { ...known, remote: info.remote } : info);
+  },
+
   activateProject: (project: ProjectInfo) => {
     const activePaths = get().activeProjectPaths;
     if (!activePaths.includes(project.path)) {
@@ -775,10 +821,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     saveActiveProjects(next);
     // Закрытая вкладка не держит данные в памяти (TASK-38): при повторном открытии они загрузятся заново.
     set((state) => ({ activeProjectPaths: next, projectDataCache: dropProjectCache(state.projectDataCache, projectPath) }));
+    // Проект другого ПК живёт в списке, пока открыт (TASK-280): закрыли вкладку — уходит и он, и маршрут вызовов.
+    const remote = get().projects.find((p) => p.path === projectPath)?.remote;
+    if (remote) {
+      const projects = get().projects.filter((p) => p.path !== projectPath);
+      saveRemoteProjects(projects);
+      set({ projects });
+    }
 
     // Закрытая вкладка больше не нуждается в git-вотчере в main (TASK-34).
     // При повторном выборе проекта getRepoDetails снова поднимет вотчер.
     window.api?.unwatchGit?.(projectPath).catch(() => {});
+    // Маршрут вызовов снимается после последнего вызова к хосту.
+    if (remote) window.api?.unregisterRemoteProject?.(remote.hostId, remote.hostPath);
 
     // If deactivated project was currently active, switch to next available active project
     if (get().selectedProject?.path === projectPath) {
@@ -1330,10 +1385,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         }
         get().fetchProjectAgentStatuses();
 
-        let list = await window.api.listProjects();
-        if (list.length === 0) {
-          list = await window.api.scanProjects();
+        let local = await window.api.listProjects();
+        if (local.length === 0) {
+          local = await window.api.scanProjects();
         }
+        // Открытые проекты других ПК остаются в списке (TASK-280): по ним восстанавливаются вкладка и выбор.
+        const list = withRemoteProjects(local, get().projects);
         set({ projects: list });
 
         if (!get().selectedProject && list.length > 0) {
@@ -1398,7 +1455,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       if (window.api) {
         const discovered = await window.api.scanProjects(options);
-        const list = await window.api.listProjects();
+        const list = withRemoteProjects(await window.api.listProjects(), get().projects);
         set({ projects: list });
         if (!get().selectedProject && list.length > 0) {
           const storedPath = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_PROJECT_KEY) : null;
@@ -1424,7 +1481,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const added = await window.api.addProject(folderPath);
       if (added) {
-        const list = await window.api.listProjects();
+        const list = withRemoteProjects(await window.api.listProjects(), get().projects);
         set({ projects: list });
         get().selectProject(added);
         get().addTerminalLog(formatLog(getDictionary(get().language).terminalLogs.projectAdded, { name: added.name, path: added.path }));
@@ -1439,6 +1496,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   removeProjectFromCatalog: async (projectPath: string) => {
     if (!window.api) return;
+    // Проект другого ПК из реестра того ПК не удаляется — только закрывается здесь (TASK-280).
+    if (get().projects.find((p) => p.path === projectPath)?.remote) {
+      get().deactivateProject(projectPath);
+      return;
+    }
     try {
       const ok = await window.api.removeProject(projectPath);
       if (ok) {
@@ -1476,8 +1538,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   refreshSingleProject: async (projectPath: string) => {
     if (!window.api) return;
     try {
-      const fresh = await window.api.refreshProject(projectPath);
-      if (fresh) {
+      const answer = await window.api.refreshProject(projectPath);
+      if (answer) {
+        // Проект другого ПК сохраняет путь `phr://` и ссылку на хост (TASK-280).
+        const existing = get().projects.find((p) => p.path === projectPath);
+        const fresh = existing ? mergeRemoteDetails(existing, answer) : answer;
         set((state) => ({
           projects: state.projects.map((p) => (p.path === projectPath ? fresh : p)),
           selectedProject:
