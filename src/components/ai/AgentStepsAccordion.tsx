@@ -139,12 +139,12 @@ export const AgentStepsAccordion: React.FC<AgentStepsAccordionProps> = ({
                     <span className="font-semibold text-slate-200 truncate">
                       {tool.name}
                     </span>
-                    {tool.args?.filePath && (
+                    {typeof tool.args?.filePath === 'string' && tool.args.filePath && (
                       <span className="text-indigo-300 text-[11px] truncate max-w-xs">
                         ({tool.args.filePath})
                       </span>
                     )}
-                    {tool.args?.command && (
+                    {typeof tool.args?.command === 'string' && tool.args.command && (
                       <span className="text-amber-300/80 text-[11px] truncate max-w-xs">
                         `{tool.args.command}`
                       </span>

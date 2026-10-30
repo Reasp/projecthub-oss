@@ -324,6 +324,19 @@ export function deriveFederationOwnerId(secret: string): string {
  * Отказ в решении HITL для телефона, push и Telegram: `reason` — код отказа или английская причина `not_owner` для
  * старых клиентов, `reasonKey` — её код, клиент показывает причину на своём языке (decision-165).
  */
+/** Параметры RPC телефона: JSON-объект запроса, поля проверяет каждый метод (TASK-263). */
+type RpcParams = Record<string, unknown>;
+
+/** Строковый параметр RPC; значение другого типа — как отсутствующее. */
+function rpcString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Объект в параметре RPC (`options`); иное — пустой объект. */
+function rpcObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 function hitlRefusal(result: Extract<HitlDecideResult, { ok: false }>) {
   return {
     ok: false as const,
@@ -3584,7 +3597,7 @@ class RemoteControlService {
     const audited = (REMOTE_WRITE_METHODS.has(method) && method !== 'voice_chunk' && method !== 'voice_command' && method !== 'studio_attach') || editionRegistry.remoteMethod(method)?.write === true;
     if (!audited) {
       try {
-        return await this.dispatchRpcUnaudited(method, params, device);
+        return await this.dispatchRpcUnaudited(method, p, device);
       } catch (err) {
         // Отказ по праву на проект пишется и для чтения: попытка заглянуть в закрытый проект — событие (TASK-180).
         if (err instanceof ProjectAccessError) {
@@ -3613,7 +3626,7 @@ class RemoteControlService {
       ...(auditTarget(p) ? { target: auditTarget(p) } : {})
     };
     try {
-      const result = await this.dispatchRpcUnaudited(method, params, device);
+      const result = await this.dispatchRpcUnaudited(method, p, device);
       void appendRemoteAudit({ ...base, ok: true });
       return result;
     } catch (err) {
@@ -3630,7 +3643,7 @@ class RemoteControlService {
   /**
    * Диспетчер RPC методов.
    */
-  private async dispatchRpcUnaudited(method: string, params: any = {}, device: RemoteDevice): Promise<any> {
+  private async dispatchRpcUnaudited(method: string, params: RpcParams, device: RemoteDevice): Promise<unknown> {
     // Проверка прав на модификацию в Read-Only режиме
     const writeMethods = REMOTE_WRITE_METHODS;
     const hitlRightsMethods = new Set(['hitl_decision', 'approve_agent_tasks', 'inbox_dismiss', 'review_task', 'merge_doc_branch', 'close_doc_branch']);
@@ -3683,7 +3696,7 @@ class RemoteControlService {
     }
     const sees = (projectPath: string | undefined) => !projectPath || this.projectAccessOf(device, projectPath) !== 'none';
 
-    const activePath = params.projectPath || this.deviceProject(device.id);
+    const activePath = rpcString(params.projectPath) || this.deviceProject(device.id);
 
     switch (method) {
       case 'get_status': {
@@ -3797,27 +3810,27 @@ class RemoteControlService {
         if (!activePath) throw new Error('No active project specified');
         // Рабочее дерево из удалённого запроса проверяем гардом: клиент не должен
         // запускать процессы в произвольном каталоге (TASK-62).
-        const options = { ...(params.options ?? {}) };
+        const options: Record<string, unknown> = { ...rpcObject(params.options) };
         if (options.workspaceRoot) {
           options.workspaceRoot = await assertWorkspaceRoot(String(options.workspaceRoot));
         }
-        const proc = await processManager.startProcess(activePath, params.command, params.name, options);
+        const proc = await processManager.startProcess(activePath, String(params.command ?? ''), String(params.name ?? ''), options);
         return proc;
       }
 
       case 'stop_process': {
-        const stopped = await processManager.stopProcess(params.processId);
+        const stopped = await processManager.stopProcess(rpcString(params.processId) ?? '');
         return { stopped };
       }
 
       case 'restart_process': {
-        const restarted = await processManager.restartProcess(params.processId);
+        const restarted = await processManager.restartProcess(rpcString(params.processId) ?? '');
         return restarted;
       }
 
       case 'get_process_logs': {
         if (!activePath) return '';
-        return await processManager.tailProjectLog(activePath, params.processName, params.lines || 100);
+        return await processManager.tailProjectLog(activePath, String(params.processName ?? ''), Number(params.lines) || 100);
       }
 
       case 'get_tasks': {
@@ -3879,7 +3892,10 @@ class RemoteControlService {
 
       case 'toggle_task_criterion': {
         if (!params.filePath || params.index === undefined) throw new Error('filePath and index are required');
-        await this.toggleCriterionInFile(await this.assertTaskFile(params.filePath), params.index, params.completed);
+        // `null`, `''`, `false` не становятся нулём — первым критерием (ревью TASK-263).
+        const criterionIndex = typeof params.index === 'number' || typeof params.index === 'string' ? Number(params.index) : NaN;
+        if (!Number.isInteger(criterionIndex) || criterionIndex < 0) throw new Error('filePath and index are required');
+        await this.toggleCriterionInFile(await this.assertTaskFile(params.filePath), criterionIndex, params.completed === true);
         this.broadcastEvent('backlog:changed', { projectPath: activePath });
         return { ok: true };
       }
@@ -3901,7 +3917,7 @@ class RemoteControlService {
       case 'git_commit': {
         if (!activePath || !params.message) throw new Error('message and projectPath are required');
         // Сканер секретов (decision-56 п. 4): с телефона дифф не виден, поэтому «закоммитить всё равно» только из окна.
-        const res = await guardedCommit(activePath, params.message, {
+        const res = await guardedCommit(activePath, String(params.message), {
           stageAll: Boolean(params.stageAll),
           allowOverride: false,
           source: { kind: 'remote', deviceId: device.id, deviceName: device.name, ...(device.memberId ? { memberId: device.memberId } : {}) }
@@ -4480,7 +4496,9 @@ class RemoteControlService {
    * при проверке прав), без символьных ссылок наружу. `node_modules/…/backlog/tasks` и `.worktrees/…` не проходят.
    */
   private async assertTaskFile(raw: unknown): Promise<string> {
-    const filePath = path.resolve(String(raw || ''));
+    // Только строка: права на проект проверены по строковому `filePath` (rpcTargetProject), массив их обошёл бы (ревью TASK-263).
+    if (typeof raw !== 'string' || !raw) throw new AppError('remote.taskFileOutside');
+    const filePath = path.resolve(raw);
     const projects = (await projectRegistry.getProjects()).map((p) => path.resolve(p.path));
     const owner = owningProject(filePath, projects);
     const parts = owner ? path.relative(owner, filePath).split(/[\\/]/) : [];

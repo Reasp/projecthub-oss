@@ -1310,7 +1310,8 @@ export interface IElectronAPI {
   getFileDiff: (projectPath: string, filePath: string, staged?: boolean) => Promise<string>;
   onGitChanged: (callback: (data: { projectPath: string }) => void) => () => void;
   getGitLog: (projectPath: string, maxCount?: number) => Promise<GitCommit[]>;
-  getGitStatus: (projectPath: string) => Promise<any>;
+  /** Через IPC приходит обычный объект: методов `StatusResult` (`isClean`) у него нет. */
+  getGitStatus: (projectPath: string) => Promise<Omit<import('simple-git').StatusResult, 'isClean'> | null>;
 
   // Git Worktrees (TASK-53, TASK-55)
   listWorktrees: (projectPath: string) => Promise<GitWorktreeInfo[]>;
@@ -3090,9 +3091,9 @@ export interface AIProviderConfig {
 export interface AIToolCall {
   id: string;
   name: string;
-  args: Record<string, any>;
+  args: Record<string, unknown>;
   status?: 'pending' | 'accepted' | 'rejected' | 'running' | 'done' | 'error';
-  result?: any;
+  result?: unknown;
   diff?: {
     filePath: string;
     oldContent: string;

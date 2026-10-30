@@ -45,7 +45,7 @@ export const DiffReviewCard: React.FC<DiffReviewCardProps> = ({
           <FileCode className="w-4 h-4 text-indigo-400" />
           <span className="font-semibold text-indigo-300">{diff.filePath}</span>
           <span className="text-[11px] text-slate-500">
-            ({toolCall.args.explanation || t.aiStudio.diffReview.fileModification})
+            ({(typeof toolCall.args.explanation === 'string' && toolCall.args.explanation) || t.aiStudio.diffReview.fileModification})
           </span>
         </div>
 

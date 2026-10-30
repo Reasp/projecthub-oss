@@ -1,6 +1,6 @@
 import type { RemoteEndpoint } from '../utils/remoteEndpoints';
 import type { DeviceProjectRights } from '../utils/projectAccess';
-import type { HitlTextKey } from './electron';
+import type { HitlTextKey, ManagedProcess } from './electron';
 import type { AppErrorKey } from '../lib/appError';
 import type { HitlRiskReasonKey } from '../lib/hitlRiskReason';
 
@@ -248,13 +248,13 @@ export interface PlainPacket {
   type: 'rpc_req' | 'rpc_res' | 'request' | 'response' | 'event' | 'handshake' | 'handshake_ack' | 'ping' | 'pong';
   id?: string;
   method?: string;
-  params?: any;
-  result?: any;
+  params?: unknown;
+  result?: unknown;
   error?: string;
   /** Код ошибки RPC (decision-165): клиент собирает текст по словарю на своём языке, `error` — английский запасной. */
   errorKey?: import('../lib/appError').AppErrorKey;
   event?: string;
-  data?: any;
+  data?: unknown;
   /**
    * Монотонный id события (только для `type:'event'`): клиент запоминает последний увиденный и
    * после переподключения догоняет пропущенное через RPC `get_events_since` (decision-11 п.6).
@@ -964,7 +964,7 @@ export interface RemoteHandshakeAck {
 
 export interface RemoteEventPayloads {
   'process:logChunk': { processId: string; text: string };
-  'process:statusChanged': any;
+  'process:statusChanged': ManagedProcess;
   'ai:chunk': { sessionId: string; text?: string };
   'ai:complete': { sessionId: string; message: unknown };
   /** `errorKind` — вид ошибки провайдера (decision-43), если она классифицирована. */
