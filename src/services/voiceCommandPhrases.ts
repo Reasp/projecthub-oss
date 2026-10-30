@@ -197,6 +197,34 @@ export const CONFIGURABLE_COMMANDS: CommandPhraseDefinition[] = [
     defaultPhrases: ['деплой', 'сделай деплой', 'задеплой', 'deploy'],
     feedbackText: 'Запускаю промпт: Деплой'
   },
+  // Агент активной вкладки (TASK-276)
+  {
+    intent: 'agent_stop',
+    type: 'ai_control',
+    category: 'ai',
+    nameKey: 'agentStop',
+    descKey: 'agentStopDesc',
+    defaultPhrases: ['стоп агент', 'останови агента', 'прерви агента', 'stop agent', 'stop the agent'],
+    feedbackText: 'Останавливаю агента'
+  },
+  {
+    intent: 'agent_read_answer',
+    type: 'ai_control',
+    category: 'ai',
+    nameKey: 'agentReadAnswer',
+    descKey: 'agentReadAnswerDesc',
+    defaultPhrases: ['повтори ответ', 'прочитай ответ', 'что ответил агент', 'repeat answer', 'read answer'],
+    feedbackText: 'Читаю ответ агента'
+  },
+  {
+    intent: 'agent_status',
+    type: 'ai_control',
+    category: 'ai',
+    nameKey: 'agentStatus',
+    descKey: 'agentStatusDesc',
+    defaultPhrases: ['что делает агент', 'статус агента', 'agent status', 'what is the agent doing'],
+    feedbackText: 'Статус агента'
+  },
 
   // ── Согласование действий (Approvals) ──
   {

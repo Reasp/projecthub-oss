@@ -21,6 +21,20 @@ import { isFuzzyDictationStop } from '../../services/dictationStopMatch';
 import { getPromptDictationTarget, interpretPromptDictation } from '../../services/promptDictation';
 import { applyWakeGate, createWakeWindow } from '../../services/wakeWord';
 import { summarizeForSpeech } from '../../services/ttsSummary';
+import {
+  closeAnswerWindow,
+  createAnswerWindow,
+  describeVoiceAgentStatus,
+  isActiveAgentScope,
+  isBareVoiceAnswer,
+  lastAgentAnswer,
+  openAnswerWindow,
+  pickVoiceApprovalTarget,
+  resolveVoiceApproval,
+  type VoiceAgentScope,
+  type VoiceApprovalTarget
+} from '../../services/voiceAgentControl';
+import type { ApprovalRequest } from '../../types/electron';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useHitlStore } from '../../store/useHitlStore';
@@ -38,6 +52,24 @@ import {
   shouldPinResult,
   type VoiceResultCard
 } from '../../utils/voiceResultCard';
+
+/** Активная вкладка Agents Studio активного проекта: к ней относятся голосовые команды агенту (TASK-276). */
+function activeAgentScope(): VoiceAgentScope {
+  const projectPath = useProjectStore.getState().selectedProject?.path;
+  return { projectPath, sessionId: projectPath ? useAIStudioStore.getState().activeSessionId[projectPath] : undefined };
+}
+
+function currentApprovalTarget(): VoiceApprovalTarget | null {
+  const scope = activeAgentScope();
+  const studio = scope.projectPath ? useAIStudioStore.getState().pendingApprovals[scope.projectPath] ?? [] : [];
+  return pickVoiceApprovalTarget(scope, studio, useHitlStore.getState().pending);
+}
+
+/** Голосовое «да»/«нет» несёт, голое ли это слово и обращена ли фраза к приложению — по ним решает политика. */
+function withVoiceAnswer(cmd: ParsedVoiceCommand, answer: { bare: boolean; addressed: boolean }): ParsedVoiceCommand {
+  if (cmd.intent !== 'agent_approve' && cmd.intent !== 'agent_reject') return cmd;
+  return { ...cmd, payload: { ...(cmd.payload ?? {}), answer } };
+}
 
 export const VoiceControlWidget: React.FC = () => {
   const dialog = useDialog();
@@ -67,6 +99,8 @@ export const VoiceControlWidget: React.FC = () => {
   const lastAudioSyncRef = useRef<number>(0);
   /** Окно ожидания команды после ключевого слова (TASK-83). */
   const wakeWindowRef = useRef(createWakeWindow());
+  /** Окно ответа на заданный вслух вопрос агента: в нём голое «да»/«нет» относится к вопросу (TASK-276). */
+  const answerWindowRef = useRef(createAnswerWindow());
   /**
    * Закреплённая карточка результата push-to-talk (TASK-115). Живёт в ref: она нужна только
    * системному оверлею, перерисовывать виджет ради неё незачем. Поколения начинаются со времени
@@ -131,6 +165,31 @@ export const VoiceControlWidget: React.FC = () => {
     voiceService.setLanguage(language === 'ru' ? 'ru' : 'en');
   }, [language]);
 
+  /**
+   * Вопрос агента вслух (TASK-276): пока он звучит и ещё окно после, голое «да»/«нет» относится к нему.
+   * `show` — вывести вопрос и на полосу: так звучит переспрос после «да» вне окна.
+   */
+  const askApproval = useCallback(
+    (request: ApprovalRequest, show: boolean) => {
+      const dict = getDictionary(useProjectStore.getState().language);
+      const text = describeHitlRequest(request, dict.hitl.requestText);
+      const asked = dict.voice.feedback.hitlSpokenPrefix.replace('{title}', text.questionData?.title || text.title);
+      const hint = request.questionData?.options?.length ? dict.voice.feedback.hitlOptionHint : dict.voice.feedback.hitlAnswerHint;
+      const question = /[.!?…]$/u.test(asked) ? `${asked} ${hint}` : `${asked}. ${hint}`;
+      const answerWindow = answerWindowRef.current;
+      openAnswerWindow(answerWindow, request.id, Date.now());
+      if (show) setLastFeedback(question);
+      // Предыдущую реплику гасим: два speak() внахлёст подвешивают первый промис. Окно отсчитывается от конца вопроса.
+      void voiceService
+        .stopSpeaking()
+        .then(() => voiceService.speak(question))
+        .finally(() => {
+          if (answerWindow.requestId === request.id) openAnswerWindow(answerWindow, request.id, Date.now());
+        });
+    },
+    [setLastFeedback]
+  );
+
   const executeCommand = useCallback(async (cmd: ParsedVoiceCommand) => {
     const {
       projects,
@@ -165,10 +224,15 @@ export const VoiceControlWidget: React.FC = () => {
       closeCurrentSession,
       sendMessage,
       pendingApprovals,
-      sendApprovalResponse
+      sendApprovalResponse,
+      activeSessionId,
+      streamingSessions,
+      queuedMessages,
+      abortStream
     } = useAIStudioStore.getState();
 
-    setLastFeedback(cmd.feedbackText);
+    // Ответ на запрос агента показывает итог сам: голое «да» без запроса — обычная речь, полосу не трогаем (TASK-276)
+    if (cmd.intent !== 'agent_approve' && cmd.intent !== 'agent_reject') setLastFeedback(cmd.feedbackText);
 
     // No voiceService.speak(...) here — all routine action feedback is purely visual
     // (TTS is reserved strictly for reading tasks or documents on explicit demand)
@@ -295,37 +359,105 @@ export const VoiceControlWidget: React.FC = () => {
         }
       }
 
-      // D. Human-in-the-Loop: сначала карточка активной сессии Agents Studio, затем общая очередь HITL.
-      // Второе важно: запросы внешних сессий и `computer_action` от MCP-моста в pendingApprovals
-      // Agents Studio не попадают вовсе — голосом они раньше были недоступны (TASK-83 п. 3).
-      else {
-        const studioTop = projectPath ? (pendingApprovals[projectPath] || [])[0] : undefined;
-        const hitlTop = useHitlStore.getState().pending[0];
+      // Агент активной вкладки (TASK-276): стоп хода, повтор ответа, статус вслух.
+      else if (cmd.intent === 'agent_stop' || cmd.intent === 'agent_read_answer' || cmd.intent === 'agent_status') {
+        const fb = getDictionary(language).voice.feedback;
+        const speakLang = language === 'ru' ? 'ru' : 'en';
+        const sessionId = projectPath ? activeSessionId[projectPath] : undefined;
+        const session = projectPath && sessionId ? (sessions[projectPath] || []).find((s) => s.id === sessionId) : undefined;
+        const streaming = Boolean(sessionId && streamingSessions[sessionId]);
+        const say = (text: string, lang?: 'ru' | 'en') => {
+          setLastFeedback(text);
+          void voiceService.stopSpeaking().then(() => voiceService.speak(text, lang));
+        };
 
-        const decide = async (approved: boolean, text?: string): Promise<boolean> => {
-          if (studioTop && projectPath) {
-            await sendApprovalResponse(projectPath, studioTop.id, approved, text);
-            return true;
+        if (cmd.intent === 'agent_stop') {
+          if (sessionId && streaming) {
+            await abortStream(sessionId);
+            setLastFeedback(fb.agentStopped);
+          } else {
+            setLastFeedback(fb.agentNotRunning);
           }
-          if (hitlTop) {
-            await useHitlStore.getState().decide(hitlTop.id, approved, text);
-            return true;
+        } else if (cmd.intent === 'agent_read_answer') {
+          const answer = session ? lastAgentAnswer(session.messages, streaming) : null;
+          const spoken = answer ? summarizeForSpeech(answer) : '';
+          // Ответ агента читается голосом его языка, строка интерфейса — языком интерфейса
+          if (spoken) say(spoken);
+          else say(fb.agentNoAnswer, speakLang);
+        } else {
+          const target = currentApprovalTarget();
+          const pending = target && target.request.sessionId === sessionId ? target.request : undefined;
+          const pendingText = pending ? describeHitlRequest(pending, getDictionary(language).hitl.requestText) : undefined;
+          const status = describeVoiceAgentStatus(
+            {
+              hasSession: Boolean(session),
+              streaming,
+              pendingTitle: pendingText ? pendingText.questionData?.title || pendingText.title : undefined,
+              messages: session?.messages ?? [],
+              queued: sessionId ? (queuedMessages[sessionId]?.length ?? 0) : 0
+            },
+            {
+              noSession: fb.agentStatusNoSession,
+              waiting: fb.agentStatusWaiting,
+              working: fb.agentStatusWorking,
+              workingNoStep: fb.agentStatusWorkingNoStep,
+              idle: fb.agentStatusIdle,
+              idleEmpty: fb.agentStatusIdleEmpty,
+              queued: fb.agentStatusQueued
+            }
+          );
+          say(status, speakLang);
+        }
+        return;
+      }
+
+      // E. Human-in-the-Loop (TASK-276): только запрос активной вкладки или действие на компьютере, поручённое голосом.
+      // Голое «да»/«нет» без обращения одобряет лишь в окне ответа после вопроса вслух, иначе вопрос звучит заново.
+      else {
+        const fb = getDictionary(language).voice.feedback;
+        const target = currentApprovalTarget();
+
+        const decide = async (request: VoiceApprovalTarget, approved: boolean, text?: string): Promise<void> => {
+          closeAnswerWindow(answerWindowRef.current);
+          if (request.via === 'studio' && projectPath) {
+            await sendApprovalResponse(projectPath, request.request.id, approved, text);
+          } else {
+            await useHitlStore.getState().decide(request.request.id, approved, text);
           }
-          return false;
         };
 
         if (cmd.intent === 'agent_approve' || cmd.intent === 'agent_reject') {
-          const handled = await decide(cmd.intent === 'agent_approve');
-          if (!handled) setLastFeedback(t.voice.feedback.hitlNothingPending);
+          const answer = (cmd.payload?.answer ?? {}) as { bare?: boolean; addressed?: boolean };
+          const verdict = resolveVoiceApproval({
+            target: target?.request,
+            bare: answer.bare === true,
+            addressed: answer.addressed === true,
+            now: Date.now(),
+            answerWindow: answerWindowRef.current
+          });
+          if (verdict === 'ignore') return;
+          if (verdict === 'nothing' || !target) {
+            const elsewhere =
+              Object.values(pendingApprovals).some((list) => list.length > 0) || useHitlStore.getState().pending.length > 0;
+            setLastFeedback(elsewhere ? fb.hitlOtherTab : fb.hitlNothingPending);
+            return;
+          }
+          if (verdict === 'reask') {
+            askApproval(target.request, true);
+            return;
+          }
+          const approved = cmd.intent === 'agent_approve';
+          await decide(target, approved);
+          const title = describeHitlRequest(target.request, getDictionary(language).hitl.requestText).title;
+          setLastFeedback((approved ? fb.hitlApproved : fb.hitlRejected).replace('{title}', title));
         } else if (cmd.intent === 'agent_select_option') {
-          const target = studioTop?.questionData ? studioTop : hitlTop?.questionData ? hitlTop : null;
-          const options = target?.questionData?.options || [];
+          const options = target?.request.questionData?.options || [];
           const optIdx = cmd.payload?.optionIndex ?? 0;
           const picked = optIdx === -1 ? options[options.length - 1] : options[optIdx];
-          if (picked) {
-            await decide(true, picked.label);
+          if (target && picked) {
+            await decide(target, true, picked.label);
           } else {
-            setLastFeedback(t.voice.feedback.hitlNothingPending);
+            setLastFeedback(fb.hitlNothingPending);
           }
         }
       }
@@ -564,7 +696,7 @@ export const VoiceControlWidget: React.FC = () => {
       setTranscript('');
       setLastFeedback(null);
     }, 4500);
-  }, [setTimer, setLastFeedback]);
+  }, [setTimer, setLastFeedback, askApproval]);
 
   /**
    * Путь распознанной фразы до команды (TASK-83).
@@ -574,7 +706,7 @@ export const VoiceControlWidget: React.FC = () => {
    * Такой порядок держит привычные команды мгновенными и бесплатными, а модель подключает только
    * к свободной речи.
    */
-  const handleTranscript = useCallback(async (rawText: string, phraseLanguage?: 'ru' | 'en') => {
+  const handleTranscript = useCallback(async (rawText: string, phraseLanguage?: 'ru' | 'en', pushToTalk = false) => {
     const config = voiceService.getConfig();
     const { language: lang } = useProjectStore.getState();
     const dict = getDictionary(lang);
@@ -650,6 +782,16 @@ export const VoiceControlWidget: React.FC = () => {
       }
     }
 
+    // Голое «да»/«нет» (TASK-276) решает политика одобрения, а не ключевое слово: в окне ответа после вопроса вслух
+    // оно принимается и без обращения, вне окна вопрос звучит заново. Запись по клавише — всегда обращение.
+    if (isBareVoiceAnswer(rawText)) {
+      const answer = parseVoiceCommand(rawText, voiceService.getCommandPhrases());
+      if (answer.intent === 'agent_approve' || answer.intent === 'agent_reject') {
+        await executeCommand(withVoiceAnswer(answer, { bare: true, addressed: pushToTalk }));
+        return;
+      }
+    }
+
     const gate = applyWakeGate(
       rawText,
       {
@@ -666,9 +808,11 @@ export const VoiceControlWidget: React.FC = () => {
     }
     if (!gate.accepted || !gate.command) return;
 
+    // Принятая воротами фраза обращена к приложению, если ключевое слово включено (иначе ворота пропускают всё)
+    const addressed = config.wakeWordEnabled === true || pushToTalk;
     const parsed = parseVoiceCommand(gate.command, voiceService.getCommandPhrases());
     if (parsed.type !== 'dictation') {
-      await executeCommand(parsed);
+      await executeCommand(withVoiceAnswer(parsed, { bare: isBareVoiceAnswer(gate.command), addressed }));
       return;
     }
 
@@ -682,13 +826,12 @@ export const VoiceControlWidget: React.FC = () => {
     setLastFeedback(dict.voice.feedback.classifying);
 
     const { projects, activeProjectPaths, selectedProject } = useProjectStore.getState();
-    const { pendingApprovals } = useAIStudioStore.getState();
     const response = await window.api
       .classifyVoiceCommand({
         transcript: gate.command,
         language: transcriptLang,
         projectNames: projects.filter((p) => activeProjectPaths.includes(p.path)).map((p) => p.name),
-        hasPendingApproval: (pendingApprovals[selectedProject?.path || ''] || []).length > 0,
+        hasPendingApproval: currentApprovalTarget() !== null,
         ...(selectedProject?.path ? { projectPath: selectedProject.path } : {})
       })
       .catch(() => null);
@@ -753,7 +896,10 @@ export const VoiceControlWidget: React.FC = () => {
     const title = dict.voice.settingsModal.commandTitles[result.intent] || result.intent;
     // Ответ модели приводится к форме парсера регулярок: вкладка в payload, меню проектов и
     // диктовка — в ветке действий (иначе распознанная команда ничего не делала).
-    await executeCommand(toExecutableVoiceCommand(result, dict.voice.feedback.classified.replace('{command}', title)));
+    // «Да» модель угадала по свободной речи — для политики одобрения это голый ответ
+    await executeCommand(
+      withVoiceAnswer(toExecutableVoiceCommand(result, dict.voice.feedback.classified.replace('{command}', title)), { bare: true, addressed })
+    );
   }, [executeCommand, setLastFeedback]);
 
   // Подписки на voiceService и внешние события создаются один раз при монтировании.
@@ -793,7 +939,7 @@ export const VoiceControlWidget: React.FC = () => {
       syncToOverlay({ transcript: text });
 
       if (isFinal && text.trim()) {
-        const handled = handleTranscript(text.trim(), meta?.language);
+        const handled = handleTranscript(text.trim(), meta?.language, meta?.pushToTalk === true);
         if (cardId !== null) {
           const id = cardId;
           void handled.finally(() => updateResultCard(completeCard(resultCardRef.current, id)));
@@ -848,9 +994,11 @@ export const VoiceControlWidget: React.FC = () => {
     // Озвучка финального ответа агента (TASK-83 п. 3). Стор лишь сообщает, что ответ готов; что
     // именно читать и читать ли вообще — решается здесь, где живут настройки голоса.
     const handleAgentAnswer = (event: Event) => {
-      const detail = (event as CustomEvent<{ text?: string }>).detail;
+      const detail = (event as CustomEvent<{ text?: string; projectPath?: string; sessionId?: string }>).detail;
       const cfg = voiceService.getConfig();
       if (!cfg.speakAgentAnswers || !cfg.ttsEnabled) return;
+      // Читается только ответ вкладки, на которую смотрят: фоновые вкладки и проекты молчат (TASK-276)
+      if (!isActiveAgentScope({ projectPath: detail?.projectPath, sessionId: detail?.sessionId }, activeAgentScope())) return;
       const spoken = summarizeForSpeech(detail?.text || '');
       if (!spoken) return;
       // Предыдущую реплику всегда гасим: два speak() внахлёст подвешивают первый промис.
@@ -858,21 +1006,26 @@ export const VoiceControlWidget: React.FC = () => {
     };
     window.addEventListener('projecthub:agent-answer', handleAgentAnswer);
 
-    // Вопрос агента, вынесенный на подтверждение, проговаривается вслух — ответить можно голосом.
+    // Вопрос агента, вынесенный на подтверждение, проговаривается вслух — ответить можно голосом. Только запрос
+    // активной вкладки (или действие на компьютере): его же и одобрит голос; переход на вкладку с запросом тоже озвучит его (TASK-276).
     let lastSpokenHitlId: string | null = null;
-    const unsubHitl = useHitlStore.subscribe((state) => {
-      const cfg = voiceService.getConfig();
-      const top = state.pending[0];
-      if (!top) {
+    const announceApproval = () => {
+      const target = currentApprovalTarget();
+      if (!target) {
         lastSpokenHitlId = null;
         return;
       }
-      if (!cfg.speakHitlQuestions || !cfg.ttsEnabled || top.id === lastSpokenHitlId) return;
-      lastSpokenHitlId = top.id;
-      const dict = getDictionary(useProjectStore.getState().language);
-      const text = describeHitlRequest(top, dict.hitl.requestText);
-      const title = text.questionData?.title || text.title;
-      void voiceService.speak(dict.voice.feedback.hitlSpokenPrefix.replace('{title}', title));
+      const cfg = voiceService.getConfig();
+      if (!cfg.speakHitlQuestions || !cfg.ttsEnabled || target.request.id === lastSpokenHitlId) return;
+      lastSpokenHitlId = target.request.id;
+      askApproval(target.request, false);
+    };
+    const unsubHitl = useHitlStore.subscribe(announceApproval);
+    const unsubStudioApprovals = useAIStudioStore.subscribe((state, prev) => {
+      if (state.pendingApprovals !== prev.pendingApprovals || state.activeSessionId !== prev.activeSessionId) announceApproval();
+    });
+    const unsubSelectedProject = useProjectStore.subscribe((state, prev) => {
+      if (state.selectedProject?.path !== prev.selectedProject?.path) announceApproval();
     });
 
     // Озвучка сообщает о себе сама (TASK-119): ожидание загрузки голоса, запасной движок, отказ.
@@ -918,12 +1071,14 @@ export const VoiceControlWidget: React.FC = () => {
       unsubPushToTalkState();
       unsubDictation();
       unsubHitl();
+      unsubStudioApprovals();
+      unsubSelectedProject();
       unsubDeviceNotice();
       unsubTtsNotice();
       window.removeEventListener('projecthub:agent-answer', handleAgentAnswer);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleTranscript, setTimer, syncToOverlay, updateResultCard]);
+  }, [handleTranscript, setTimer, syncToOverlay, updateResultCard, askApproval]);
 
   const isHandsFreeActive = voiceService.isListening;
   const isSpeech = voiceState === 'speech_detected' || isSpeakingDetected;

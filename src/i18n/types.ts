@@ -254,6 +254,22 @@ export interface TranslationDictionary {
       computerUseDisabled: string;
       hitlSpokenPrefix: string;
       hitlNothingPending: string;
+      /** Голосовое управление агентом вкладки (TASK-276). */
+      hitlAnswerHint: string;
+      hitlOptionHint: string;
+      hitlOtherTab: string;
+      hitlApproved: string;
+      hitlRejected: string;
+      agentStopped: string;
+      agentNotRunning: string;
+      agentNoAnswer: string;
+      agentStatusNoSession: string;
+      agentStatusWaiting: string;
+      agentStatusWorking: string;
+      agentStatusWorkingNoStep: string;
+      agentStatusIdle: string;
+      agentStatusIdleEmpty: string;
+      agentStatusQueued: string;
       dictationOn: string;
       dictationOff: string;
       dictationTyped: string;

@@ -90,7 +90,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
   // ─────────────────────────────────────────────────────────────────
   // A. Approvals: «принять», «одобрить», «да», «разрешить», «применить diff»
   if (
-    /^(принять|одобрить|одобри|разрешить|разреши|примени|применить|да|согласен|подтвердить|подтверждаю|approve|accept|allow|confirm)( диф| diff)?$/i.test(normalized) ||
+    /^(принять|одобрить|одобри|разрешить|разреши|примени|применить|да|согласен|подтвердить|подтверждаю|approve|accept|allow|confirm|yes|yeah|yep)( диф| diff)?$/i.test(normalized) ||
     normalized.includes('принять diff') ||
     normalized.includes('примени diff') ||
     normalized.includes('одобрить изменения')
@@ -104,7 +104,7 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
 
   // B. Rejections: «отклонить», «нет», «отменить», «запретить», «отклонить diff»
   if (
-    /^(отклонить|отклони|запретить|запрети|отменить|отмена|нет|не надо|reject|deny|cancel)( диф| diff)?$/i.test(normalized) ||
+    /^(отклонить|отклони|запретить|запрети|отменить|отмена|нет|не надо|reject|deny|cancel|no|nope)( диф| diff)?$/i.test(normalized) ||
     normalized.includes('отклонить diff') ||
     normalized.includes('отмени diff')
   ) {
@@ -134,6 +134,37 @@ export function parseVoiceCommand(text: string, customPhrases?: Record<string, s
         feedbackText: `Выбираю вариант ${numIdx + 1}`
       };
     }
+  }
+
+  // D. Агент активной вкладки (TASK-276): стоп хода, повтор ответа, статус. Только вся фраза — «стоп» и «ответ»
+  // в свободной речи остаются модели.
+  if (
+    // Whisper ставит запятую после «стоп»: «Стоп, агент!»
+    /^(?:стоп|останови(?:ть)?|прерви|прервать|отмени|отменить),?\s+(?:агент\p{L}*|ответ|генераци\p{L}*)$/iu.test(normalized) ||
+    /^агент\p{L}*,?\s+(?:стоп|хватит|остановись)$/iu.test(normalized) ||
+    /^(?:stop|cancel|interrupt|abort)(?: the)? (?:agent|answer|generation)$/i.test(normalized)
+  ) {
+    return { type: 'ai_control', intent: 'agent_stop', feedbackText: 'Останавливаю агента' };
+  }
+
+  if (
+    // Глагол — по основе: Whisper слышит «повторяю ответ», «прочитаю ответ».
+    /^(?:повтор|прочита|прочти|озвуч|перечита)\p{L}*\s+(?:(?:последн\p{L}*|его)\s+)?ответ\p{L}*(?:\s+агента)?$/iu.test(normalized) ||
+    /^что (?:ответил|сказал) агент$/iu.test(normalized) ||
+    /^(?:repeat|read)(?: me)?(?: the)?(?: last)? (?:answer|reply|response)$/i.test(normalized) ||
+    /^what did the agent (?:say|answer)$/i.test(normalized)
+  ) {
+    return { type: 'ai_control', intent: 'agent_read_answer', feedbackText: 'Читаю ответ агента' };
+  }
+
+  if (
+    /^(?:что|чем)\s+(?:сейчас\s+)?(?:делает|занят)\s+агент$/iu.test(normalized) ||
+    /^(?:что|как)\s+(?:там\s+)?(?:с\s+)?агент(?:ом)?$/iu.test(normalized) ||
+    /^(?:статус|состояние)\s+агента$/iu.test(normalized) ||
+    /^agent status$/i.test(normalized) ||
+    /^what(?:'s| is) the agent doing$/i.test(normalized)
+  ) {
+    return { type: 'ai_control', intent: 'agent_status', feedbackText: 'Статус агента' };
   }
 
   // ─────────────────────────────────────────────────────────────────

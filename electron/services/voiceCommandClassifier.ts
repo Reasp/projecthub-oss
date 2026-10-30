@@ -113,6 +113,9 @@ export const VOICE_INTENT_CATALOG: VoiceIntentSpec[] = [
   },
   { id: 'agent_approve', type: 'ai_control', description: 'одобрить действие, которое агент вынес на подтверждение' },
   { id: 'agent_reject', type: 'ai_control', description: 'отклонить действие агента' },
+  { id: 'agent_stop', type: 'ai_control', description: 'остановить ход агента в текущем чате («хватит, останови агента»)' },
+  { id: 'agent_read_answer', type: 'ai_control', description: 'прочитать вслух или повторить последний ответ агента' },
+  { id: 'agent_status', type: 'ai_control', description: 'что сейчас делает агент: работает, ждёт решения или свободен' },
   {
     id: 'agent_select_option',
     type: 'ai_control',
@@ -182,6 +185,10 @@ const INTENT_ALIASES: Record<string, string> = {
   prompt: 'send_prompt',
   approve: 'agent_approve',
   reject: 'agent_reject',
+  stop_agent: 'agent_stop',
+  read_answer: 'agent_read_answer',
+  repeat_answer: 'agent_read_answer',
+  agent_output: 'agent_status',
   computer: 'computer_task',
   computer_use: 'computer_task'
 };
