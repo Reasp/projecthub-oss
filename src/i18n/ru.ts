@@ -2469,7 +2469,7 @@ export const ru: TranslationDictionary = {
     mb: 'МБ',
     projectFiles: 'Файлы проекта',
     loadTreeError: 'Не удалось загрузить структуру файлов.',
-    readFileError: 'Не удалось прочитать файл: {file}',
+    readFileError: 'Не удалось прочитать {file}: {error}',
     saveError: 'Ошибка при сохранении: {error}',
     deleteError: 'Ошибка при удалении: {error}',
     createError: 'Ошибка при создании: {error}',

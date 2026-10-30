@@ -2,6 +2,8 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { assertInsideProject, isInsideProject } from './pathGuard';
+import { AppError } from '../../src/lib/appError.js';
+import { withFileErrors } from './fsErrors.js';
 
 export interface FileTreeNode {
   name: string;
@@ -107,43 +109,50 @@ class FileService {
   async readFileContent(projectPath: string, relativePath: string): Promise<string> {
     const safe = this.validateSafePath(projectPath, relativePath);
     if (!existsSync(safe)) {
-      throw new Error(`File not found: ${relativePath}`);
+      throw new AppError('files.notFound', { path: relativePath });
     }
-    return await fs.readFile(safe, 'utf-8');
+    // Ошибки файлов — кодом на языке окна (TASK-259): «доступ запрещён», «занят» и т. п.
+    return await withFileErrors(relativePath, () => fs.readFile(safe, 'utf-8'));
   }
 
   async saveFileContent(projectPath: string, relativePath: string, content: string): Promise<boolean> {
     const safe = this.validateSafePath(projectPath, relativePath);
     const dir = path.dirname(safe);
-    if (!existsSync(dir)) {
-      await fs.mkdir(dir, { recursive: true });
-    }
-    await fs.writeFile(safe, content, 'utf-8');
+    await withFileErrors(relativePath, async () => {
+      if (!existsSync(dir)) {
+        await fs.mkdir(dir, { recursive: true });
+      }
+      await fs.writeFile(safe, content, 'utf-8');
+    });
     return true;
   }
 
   async createFileOrFolder(projectPath: string, relativePath: string, isDirectory: boolean): Promise<boolean> {
     const safe = this.validateSafePath(projectPath, relativePath);
     if (existsSync(safe)) {
-      throw new Error(`Item already exists: ${relativePath}`);
+      throw new AppError('files.exists', { path: relativePath });
     }
 
-    if (isDirectory) {
-      await fs.mkdir(safe, { recursive: true });
-    } else {
-      const dir = path.dirname(safe);
-      if (!existsSync(dir)) {
-        await fs.mkdir(dir, { recursive: true });
+    await withFileErrors(relativePath, async () => {
+      if (isDirectory) {
+        await fs.mkdir(safe, { recursive: true });
+      } else {
+        const dir = path.dirname(safe);
+        if (!existsSync(dir)) {
+          await fs.mkdir(dir, { recursive: true });
+        }
+        // `wx`: файл, появившийся после проверки, не перезаписывается — ошибка «уже есть».
+        await fs.writeFile(safe, '', { encoding: 'utf-8', flag: 'wx' });
       }
-      await fs.writeFile(safe, '', 'utf-8');
-    }
+      // На Windows недопустимые символы (`?`, `<`) и файл на месте папки в пути дают ENOENT/EINVAL — это имя, а не «не найден».
+    }, { ENOENT: 'files.invalidName', EINVAL: 'files.invalidName' });
     return true;
   }
 
   async deleteFileOrFolder(projectPath: string, relativePath: string): Promise<boolean> {
     const safe = this.validateSafePath(projectPath, relativePath);
     if (!existsSync(safe)) return true;
-    await fs.rm(safe, { recursive: true, force: true });
+    await withFileErrors(relativePath, () => fs.rm(safe, { recursive: true, force: true }));
     return true;
   }
 }

@@ -2468,7 +2468,7 @@ export const en: TranslationDictionary = {
     mb: 'MB',
     projectFiles: 'Project Files',
     loadTreeError: 'Failed to load file tree.',
-    readFileError: 'Failed to read file: {file}',
+    readFileError: 'Failed to read {file}: {error}',
     saveError: 'Save error: {error}',
     deleteError: 'Delete error: {error}',
     createError: 'Creation error: {error}',

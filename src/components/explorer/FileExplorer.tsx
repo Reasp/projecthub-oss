@@ -197,7 +197,8 @@ export const FileExplorer: React.FC = () => {
       }
     } catch (e: unknown) {
       console.error('Failed to read file:', e);
-      setErrorMsg(t.explorer.readFileError.replace('{file}', node.name));
+      // Причина — кодом на языке окна (TASK-259); функция замены не разворачивает `$&` из имени файла.
+      setErrorMsg(t.explorer.readFileError.replace('{file}', () => node.name).replace('{error}', () => ipcErrorText(e)));
     }
   };
 
@@ -215,7 +216,7 @@ export const FileExplorer: React.FC = () => {
       setFileDiff(diff);
     } catch (e: unknown) {
       console.error('Failed to save file:', e);
-      setErrorMsg(t.explorer.saveError.replace('{error}', ipcErrorText(e)));
+      setErrorMsg(t.explorer.saveError.replace('{error}', () => ipcErrorText(e)));
     } finally {
       setIsSaving(false);
     }
@@ -252,7 +253,7 @@ export const FileExplorer: React.FC = () => {
         await loadTree();
         if (loadGitRepoDetails) await loadGitRepoDetails(selectedProject);
       } catch (e: unknown) {
-        setErrorMsg(t.explorer.deleteError.replace('{error}', ipcErrorText(e)));
+        setErrorMsg(t.explorer.deleteError.replace('{error}', () => ipcErrorText(e)));
       }
     }
   };
@@ -269,7 +270,7 @@ export const FileExplorer: React.FC = () => {
       setNewItemName('');
       await loadTree();
     } catch (e: unknown) {
-      setErrorMsg(t.explorer.createError.replace('{error}', ipcErrorText(e)));
+      setErrorMsg(t.explorer.createError.replace('{error}', () => ipcErrorText(e)));
     }
   };
 
