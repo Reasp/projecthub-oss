@@ -24,7 +24,10 @@ import {
   History,
   Smartphone,
   Server,
-  RotateCcw
+  RotateCcw,
+  Copy,
+  Check,
+  Download
 } from '../common/icons';
 import { ClaudeLogo } from '../common/BrandLogo';
 import { useAIStudioStore, type AISession } from '../../store/useAIStudioStore';
@@ -114,6 +117,7 @@ export const AIStudioView: React.FC = () => {
     addSessionDir,
     removeSessionDir,
     openRewind,
+    exportConversation,
     promptPrefill,
     clearPromptPrefill,
     removeQueuedMessage,
@@ -130,6 +134,22 @@ export const AIStudioView: React.FC = () => {
   const [aiViewMode, setAiViewMode] = useState<'studio' | 'swarm'>('studio');
   const [isRolesModalOpen, setIsRolesModalOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  // Ответ, только что скопированный кнопкой (TASK-288): галочка на месте значка на пару секунд.
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const copyReset = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copyReset.current) clearTimeout(copyReset.current);
+  }, []);
+  const copyMessage = async (id: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text.trim());
+    } catch {
+      return;
+    }
+    setCopiedMessageId(id);
+    if (copyReset.current) clearTimeout(copyReset.current);
+    copyReset.current = setTimeout(() => setCopiedMessageId(null), 2000);
+  };
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const projectPath = selectedProject?.path || '';
@@ -272,6 +292,9 @@ export const AIStudioView: React.FC = () => {
   // Откат с реплики (TASK-284) — у вкладки Claude Code с разговором CLI, между ходами, не в чужой сессии участника.
   const canRewind = tabGoesToCli && !!currentSession?.claudeCliSessionId && !isStreaming && !currentSession?.memberId && !!currentSessionId;
   const rewindLabel = studioCliText(language).rewindAction;
+  const copyLabel = studioCliText(language).copyAction;
+  const copiedLabel = studioCliText(language).copied;
+  const exportLabel = studioCliText(language).exportAction;
   // Усилие вкладки (TASK-273): своё или общее из настроек; пустое — по умолчанию модели.
   const tabEffort = currentSession?.agent?.reasoningEffort;
   const tabRequestEffort = tabEffort ?? config.reasoningEffort;
@@ -650,6 +673,19 @@ export const AIStudioView: React.FC = () => {
 
           {/* Модель, режим и авто-подтверждение — в нижней строке поля ввода (TASK-169); лимиты — в строке состояния (decision-73) */}
 
+          {/* Экспорт переписки вкладки (TASK-288): то же, что /export */}
+          <button
+            type="button"
+            onClick={() => currentSessionId && void exportConversation(projectPath, currentSessionId)}
+            disabled={!messages.length}
+            title={exportLabel}
+            aria-label={exportLabel}
+            className="ph-icon-button shrink-0 disabled:opacity-40"
+            data-testid="studio-export-conversation"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+
           <button
             onClick={() => clearSession(projectPath, currentSessionId)}
             title={t.aiStudio.clearSession}
@@ -921,6 +957,19 @@ export const AIStudioView: React.FC = () => {
                           data-testid="studio-rewind-message"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {/* Копирование ответа (TASK-288): текст ответа как есть, в Markdown; у ответа, который ещё пишется, — нет */}
+                      {!isUser && msg.content.trim() && !isLiveMsg && (
+                        <button
+                          type="button"
+                          onClick={() => void copyMessage(msg.id, msg.content)}
+                          className="text-slate-500 hover:text-slate-200"
+                          title={copiedMessageId === msg.id ? copiedLabel : copyLabel}
+                          aria-label={copiedMessageId === msg.id ? copiedLabel : copyLabel}
+                          data-testid="studio-copy-reply"
+                        >
+                          {copiedMessageId === msg.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                       )}
                       <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>

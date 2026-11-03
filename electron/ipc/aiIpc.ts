@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type { CreatePtyOptions, AISession } from '../../src/types/electron';
@@ -65,7 +65,8 @@ import {
   saveMemoryFile,
   type CliMemoryDialog
 } from '../services/cliMemoryDialog';
-import { runCliCommandList, runCliRename, runCliStatus } from '../services/cliSessionInfo';
+import { runCliCommandList, runCliExport, runCliRename, runCliStatus } from '../services/cliSessionInfo';
+import { isCliSessionUuid } from '../services/cliControlRequest';
 
 /** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
 function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
@@ -380,6 +381,68 @@ export function registerAiIpc(ctx: IpcContext) {
     console.info(`[aiIpc] session name to Claude Code: ${result.ok ? 'ok' : result.reason}`);
     return result.ok ? { ok: true } : { ok: false, reason: result.reason };
   });
+
+  // `/export` и экспорт из шапки вкладки (TASK-288, decision-209): Markdown переписки собирает рендерер, main только
+  // спрашивает, куда сохранить. У вкладки Claude Code с разговором есть второй тип файла — расшифровка CLI (`.txt`),
+  // её даёт сам CLI запросом `export_conversation`. Последняя выбранная папка запоминается до перезапуска.
+  let lastExportDir: string | undefined;
+  // `app.getPath('documents')` бросает, если у профиля Windows нет папки «Документы» (перенесённая или удалённая
+  // известная папка): тогда домашняя папка, а без неё — только имя файла, диалог откроется в своей последней папке.
+  const defaultExportDir = (): string => {
+    for (const name of ['documents', 'home'] as const) {
+      try {
+        return app.getPath(name);
+      } catch {
+        /* следующая */
+      }
+    }
+    return '';
+  };
+  ipcMain.handle(
+    'ai:exportConversation',
+    async (_event, query?: CliMemoryQuery & { addDirs?: unknown; cliSessionId?: unknown; markdown?: unknown; fileName?: unknown }) => {
+      const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+      const markdown = typeof query?.markdown === 'string' ? query.markdown : '';
+      if (!markdown || markdown.length > 50_000_000) return { ok: false, reason: 'io' };
+      const cliSessionId = isCliSessionUuid(query?.cliSessionId) ? query.cliSessionId : undefined;
+      const rawName = typeof query?.fileName === 'string' ? path.basename(query.fileName) : '';
+      const fileName = /^[^<>:"|?*\\/]{1,160}$/.test(rawName) ? rawName : 'conversation.md';
+      const text = hostText(getHostLanguage()).dialogs;
+      const markdownFilter = { name: text.markdownFilter, extensions: ['md'] };
+      const cliFilter = { name: text.cliTranscriptFilter, extensions: ['txt'] };
+      const wantsTxt = /\.txt$/i.test(fileName) && !!cliSessionId;
+      const dialogOptions = {
+        title: text.exportConversation,
+        defaultPath: path.join(lastExportDir ?? defaultExportDir(), cliSessionId || !/\.txt$/i.test(fileName) ? fileName : fileName.replace(/\.txt$/i, '.md')),
+        filters: cliSessionId ? (wantsTxt ? [cliFilter, markdownFilter] : [markdownFilter, cliFilter]) : [markdownFilter]
+      };
+      const win = ctx.getDialogWindow();
+      const picked = win ? await dialog.showSaveDialog(win, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
+      if (picked.canceled || !picked.filePath) return { ok: false, canceled: true };
+      const target = picked.filePath;
+      lastExportDir = path.dirname(target);
+      let content = markdown;
+      let format: 'markdown' | 'cli' = 'markdown';
+      if (cliSessionId && path.extname(target).toLowerCase() === '.txt') {
+        const scope = await cliMemoryScope({ ...query, projectPath });
+        const result = await runCliExport({ configDir: scope.configDir, cwd: scope.cwd, addDirs: stringList(query?.addDirs), cliSessionId });
+        if (!result.ok) {
+          console.warn(`[aiIpc] /export: ${result.reason}${result.detail ? ` — ${result.detail}` : ''}`);
+          return { ok: false, reason: result.reason };
+        }
+        content = result.text;
+        format = 'cli';
+      }
+      try {
+        await fs.writeFile(target, content, 'utf-8');
+      } catch (err) {
+        console.warn(`[aiIpc] /export: write failed — ${err instanceof Error ? err.message : String(err)}`);
+        return { ok: false, reason: 'io' };
+      }
+      console.info(`[aiIpc] /export: saved (${format})`);
+      return { ok: true, path: target, format };
+    }
+  );
 
   // Streaming & Session Lifecycle
   ipcMain.handle('ai:abortStream', async (_event, sessionId: string) => {

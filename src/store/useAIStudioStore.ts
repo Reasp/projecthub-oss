@@ -26,7 +26,8 @@ import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { isApprovedPlanExit, upsertToolCall } from '../lib/aiToolCalls';
 import { effectiveSessionAgent, keepsClaudeCliSession, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
-import { goesToClaudeCli, studioCliCommand, unavailableCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
+import { goesToClaudeCli, studioCliCommand, studioLocalCommand, unavailableCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
+import { conversationMarkdown, exportFileName, replyCount, replyToCopy } from '../lib/conversationExport';
 import { studioCliText } from '../i18n/studioCliText';
 import { canWriteStudioSession } from '../utils/studioRemote';
 import { getDictionary } from '../i18n';
@@ -152,6 +153,16 @@ interface AIStudioState {
    */
   addSessionDir: (projectPath: string, sessionId: string, dir: string) => Promise<void>;
   removeSessionDir: (projectPath: string, sessionId: string, dir: string) => void;
+  /**
+   * `/copy [N]` (TASK-288): ответ N с конца — в буфер обмена, итог в панели над полем ввода. `null` — после `/copy` не
+   * число, только подсказка. Вкладка любого движка.
+   */
+  copyReply: (projectPath: string, sessionId: string, n: number | null) => Promise<void>;
+  /**
+   * `/export [имя]` и кнопка шапки (TASK-288, decision-209): переписка вкладки в Markdown через системный диалог; у
+   * вкладки Claude Code с разговором — на выбор и расшифровка CLI. Итог — в панели над полем ввода.
+   */
+  exportConversation: (projectPath: string, sessionId: string, fileName?: string) => Promise<void>;
   /** Окно `/rewind` (TASK-284): вкладка и, если окно открыто с реплики ленты, эта реплика. */
   rewindRequest: { projectPath: string; sessionId: string; messageId?: string } | null;
   openRewind: (projectPath: string, sessionId: string, messageId?: string) => void;
@@ -217,7 +228,7 @@ export interface CreateSessionOptions {
 /** Перехваченная слеш-команда Claude Code вкладки (TASK-230). */
 /** Панель над полем ввода (TASK-283): ответ `/btw` или подсказка, почему команда не выполнена. */
 export interface StudioSideQuestion {
-  command: 'btw' | 'fork' | 'rewind' | 'addDir';
+  command: 'btw' | 'fork' | 'rewind' | 'addDir' | 'copy' | 'export';
   /** Канал ответа: у каждого вопроса свой, ответ прежнего вопроса в новый не попадёт. Пустой у подсказки. */
   streamId: string;
   question: string;
@@ -383,6 +394,21 @@ const titleSyncAgain = new Set<string>();
 
 const studioText = () => getDictionary(useProjectStore.getState().language).aiStudio;
 const cliText = () => studioCliText(useProjectStore.getState().language);
+
+/**
+ * Итог `/copy` и `/export` (TASK-288) в панели над полем ввода. Идущий ответ `/btw` не перекрывается: копирование уже
+ * сделано, подсказка о нём не важнее ответа.
+ */
+function setSideNotice(
+  set: (fn: (state: AIStudioState) => Partial<AIStudioState>) => void,
+  get: () => AIStudioState,
+  sessionId: string,
+  command: 'copy' | 'export',
+  notice: string
+): void {
+  if (get().sideQuestions[sessionId]?.status === 'running') return;
+  set((state) => ({ sideQuestions: { ...state.sideQuestions, [sessionId]: { command, streamId: '', question: '', answer: '', status: 'notice', notice } } }));
+}
 
 function createInitialSession(): AISession {
   const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -902,6 +928,71 @@ export const useAIStudioStore = create<AIStudioState>()(
         set((state) => ({ sideQuestions: withoutKey(state.sideQuestions, sessionId) }));
       },
 
+      copyReply: async (projectPath: string, sessionId: string, n: number | null) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session) return;
+        const c = cliText();
+        const messages = session.messages || [];
+        const streaming = !!get().streamingSessions[sessionId];
+        let text: string;
+        if (n === null) text = c.copyUsage;
+        else {
+          const reply = replyToCopy(messages, n, streaming);
+          if (reply === null) text = c.copyNothing(replyCount(messages, streaming));
+          else {
+            try {
+              await navigator.clipboard.writeText(reply);
+              text = c.copyDone(n);
+            } catch {
+              text = c.copyFailed;
+            }
+          }
+        }
+        setSideNotice(set, get, sessionId, 'copy', text);
+      },
+
+      exportConversation: async (projectPath: string, sessionId: string, fileName?: string) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session || !window.api?.exportConversation) return;
+        const c = cliText();
+        const messages = session.messages || [];
+        if (!messages.some((m) => m.content.trim() || m.toolCalls?.length)) {
+          setSideNotice(set, get, sessionId, 'export', c.exportNothing);
+          return;
+        }
+        const requestConfig = sessionRequestConfig(get().config, session.agent);
+        const viaCli = goesToClaudeCli(requestConfig);
+        const engine = viaCli ? 'Claude Code' : requestConfig.provider;
+        const now = new Date();
+        const markdown = conversationMarkdown({
+          title: session.title,
+          messages,
+          labels: c.exportLabels,
+          exportedAt: now,
+          agent: requestConfig.model ? `${engine} · ${requestConfig.model}` : engine
+        });
+        const claudeAccountId = viaCli ? sessionClaudeAccountId(session.agent) : undefined;
+        const cliSessionId = viaCli ? session.claudeCliSessionId : undefined;
+        const result = await window.api
+          .exportConversation({
+            projectPath,
+            markdown,
+            fileName: fileName || exportFileName(session.title, now),
+            ...(cliSessionId
+              ? {
+                  cliSessionId,
+                  // Разговор CLI лежит в каталоге, где начат (TASK-230): `--resume` ищет его там.
+                  cwd: session.claudeCliCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
+                  ...(claudeAccountId ? { claudeAccountId } : {}),
+                  ...(session.claudeCliAddDirs?.length ? { addDirs: [...session.claudeCliAddDirs] } : {})
+                }
+              : {})
+          })
+          .catch(() => ({ ok: false as const, canceled: undefined, reason: 'io' as const }));
+        if (result.ok) setSideNotice(set, get, sessionId, 'export', c.exportDone(result.path, result.format));
+        else if (!result.canceled) setSideNotice(set, get, sessionId, 'export', c.exportFailed(result.reason));
+      },
+
       addSessionDir: async (projectPath: string, sessionId: string, dir: string) => {
         const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
         if (!session || !window.api?.checkAddDir) return;
@@ -1204,6 +1295,16 @@ export const useAIStudioStore = create<AIStudioState>()(
         const requestConfig = opts.config ?? sessionRequestConfig(get().config, currentSession.agent);
         // Интерактивные команды Claude Code в `claude -p` не работают — Studio выполняет их сама (TASK-230). С телефона
         // (`opts.sessionId`) диалога нет: команда уходит в CLI как раньше.
+        // `/copy` и `/export` (TASK-288) — у вкладки любого движка, и во время хода: они только читают ленту.
+        const local = opts.sessionId || opts.fromRemote ? null : studioLocalCommand(text);
+        if (local?.kind === 'copy') {
+          await get().copyReply(projectPath, activeSessionId, local.n);
+          return;
+        }
+        if (local?.kind === 'export') {
+          await get().exportConversation(projectPath, activeSessionId, local.fileName);
+          return;
+        }
         const cli = opts.sessionId || opts.fromRemote ? null : studioCliCommand(text, requestConfig);
         // `/btw` (TASK-283) отвечает и во время хода вкладки, как в CLI: в очередь не встаёт.
         if (cli?.kind === 'btw') {

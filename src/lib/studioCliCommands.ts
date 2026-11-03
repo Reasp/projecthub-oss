@@ -1,6 +1,7 @@
 import type { AIProviderConfig } from '../types/electron';
 import { claudeEngineOf } from './connections';
 import { addDirArgument } from './studioAddDir';
+import { copyArgument, exportArgument } from './conversationExport';
 
 /**
  * Слеш-команды Claude Code, которые Agents Studio выполнить не может (TASK-230). Studio запускает CLI без терминала
@@ -37,6 +38,8 @@ export const STUDIO_COMMANDS = [
   { name: 'rewind', args: '' },
   { name: 'add-dir', args: '[path]' },
   { name: 'memory', args: '' },
+  { name: 'copy', args: '[N]' },
+  { name: 'export', args: '[filename]' },
   { name: 'status', args: '' },
   { name: 'help', args: '' }
 ] as const;
@@ -82,7 +85,6 @@ const TERMINAL_ONLY = new Set([
   'skills',
   'workflows',
   'tasks',
-  'copy',
   'focus',
   'login',
   'logout',
@@ -97,7 +99,6 @@ const TERMINAL_ONLY = new Set([
   'status',
   'help',
   'plugin',
-  'export',
   'exit',
   'bug',
   'feedback',
@@ -118,6 +119,21 @@ const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  */
 export function isTerminalOnlyCommand(name: unknown): name is string {
   return typeof name === 'string' && TERMINAL_ONLY.has(name);
+}
+
+/**
+ * `/copy [N]` и `/export [имя]` (TASK-288, decision-209) Studio выполняет сама у вкладки любого движка: переписка —
+ * её сообщения, а не сессия CLI. `n: null` — после `/copy` не число, Studio подскажет, как писать команду.
+ */
+export type StudioLocalCommand = { kind: 'copy'; n: number | null } | { kind: 'export'; fileName?: string };
+
+export function studioLocalCommand(text: string): StudioLocalCommand | null {
+  const match = /^\/(copy|export)(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  if (!match) return null;
+  const rest = (match[2] ?? '').trim();
+  if (match[1].toLowerCase() === 'copy') return { kind: 'copy', n: copyArgument(rest) };
+  const fileName = exportArgument(rest);
+  return fileName ? { kind: 'export', fileName } : { kind: 'export' };
 }
 
 /** Запрос вкладки уходит в Claude Code CLI (подписка), а не в API или другой провайдер. */

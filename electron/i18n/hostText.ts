@@ -137,6 +137,10 @@ export interface HostText {
     importProfile: string;
     profileFileFilter: string;
     cloneProjectInto: string;
+    /** Экспорт переписки вкладки Agents Studio (TASK-288): заголовок и подписи типов файла. */
+    exportConversation: string;
+    markdownFilter: string;
+    cliTranscriptFilter: string;
   };
   /** Рабочие чаты (TASK-138.4): пробное сообщение в канал и подпись использования подключения. */
   chat: { testTitle: string; testBody: string; usageLabel: string; botNotInChannel: string; workflowChannel: string };
@@ -328,6 +332,9 @@ const en: HostText = {
     exportProfile: 'Export ProjectHub profile',
     importProfile: 'Import ProjectHub profile',
     profileFileFilter: 'ProjectHub profile',
+    exportConversation: 'Export conversation',
+    markdownFilter: 'Markdown',
+    cliTranscriptFilter: 'Claude Code transcript',
     cloneProjectInto: 'Folder to clone the project into'
   },
   chat: { testTitle: 'ProjectHub channel check', testBody: 'If you see this, notifications are delivered to this channel', usageLabel: 'Chat', botNotInChannel: ' (the bot is not in the channel)', workflowChannel: 'Workflow channel' },
@@ -527,6 +534,9 @@ const ru: HostText = {
     exportProfile: 'Экспорт профиля ProjectHub',
     importProfile: 'Импорт профиля ProjectHub',
     profileFileFilter: 'Профиль ProjectHub',
+    exportConversation: 'Экспорт переписки',
+    markdownFilter: 'Markdown',
+    cliTranscriptFilter: 'Расшифровка Claude Code',
     cloneProjectInto: 'Папка, куда клонировать проект'
   },
   chat: { testTitle: 'Проверка канала ProjectHub', testBody: 'Если вы это видите, уведомления в этот канал доставляются', usageLabel: 'Чат', botNotInChannel: ' (бота нет в канале)', workflowChannel: 'Канал из Workflow' },

@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderPlus, GitBranch, Loader2, HelpCircle, RotateCcw, Square, X } from '../common/icons';
+import { Copy, Download, FolderPlus, GitBranch, Loader2, HelpCircle, RotateCcw, Square, X } from '../common/icons';
 import { useProjectStore } from '../../store/useProjectStore';
 import { studioCliText } from '../../i18n/studioCliText';
 import type { StudioSideQuestion } from '../../store/useAIStudioStore';
@@ -8,7 +8,7 @@ import { ProviderErrorCard } from './ProviderErrorCard';
 
 /**
  * Побочный вопрос `/btw` над полем ввода (TASK-283): ответ по разговору вкладки, который в сам разговор не попадает,
- * как в Claude Code. Здесь же — подсказка, если `/btw` без вопроса или `/fork` ответвлять нечего.
+ * как в Claude Code. Здесь же — подсказка, если `/btw` без вопроса или `/fork` ответвлять нечего, и итог `/copy`, `/export`.
  */
 export const SideQuestionPanel: React.FC<{ side: StudioSideQuestion | undefined; onClose: () => void }> = ({ side, onClose }) => {
   const language = useProjectStore((s) => s.language);
@@ -24,10 +24,24 @@ export const SideQuestionPanel: React.FC<{ side: StudioSideQuestion | undefined;
           <RotateCcw className="w-3.5 h-3.5 text-amber-300 shrink-0" />
         ) : side.command === 'addDir' ? (
           <FolderPlus className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+        ) : side.command === 'copy' ? (
+          <Copy className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+        ) : side.command === 'export' ? (
+          <Download className="w-3.5 h-3.5 text-amber-300 shrink-0" />
         ) : (
           <HelpCircle className="w-3.5 h-3.5 text-amber-300 shrink-0" />
         )}
-        <span className="font-medium text-amber-200 shrink-0">{side.command === 'fork' ? '/fork' : side.command === 'rewind' ? c.rewindTitle : side.command === 'addDir' ? '/add-dir' : c.btwTitle}</span>
+        <span className="font-medium text-amber-200 shrink-0">{side.command === 'fork'
+            ? '/fork'
+            : side.command === 'rewind'
+              ? c.rewindTitle
+              : side.command === 'addDir'
+                ? '/add-dir'
+                : side.command === 'copy'
+                  ? '/copy'
+                  : side.command === 'export'
+                    ? '/export'
+                    : c.btwTitle}</span>
         {side.question && <span className="text-slate-300 truncate" title={side.question}>{side.question}</span>}
         <button
           type="button"
@@ -42,7 +56,7 @@ export const SideQuestionPanel: React.FC<{ side: StudioSideQuestion | undefined;
       </div>
       <div className="mt-1.5 max-h-64 overflow-y-auto" data-testid="studio-side-question-answer">
         {side.status === 'notice' ? (
-          <p className="text-slate-300">{side.notice}</p>
+          <p className="text-slate-300 break-words select-text">{side.notice}</p>
         ) : side.status === 'error' ? (
           <ProviderErrorCard error={side.error || ''} info={side.providerError} />
         ) : side.answer ? (

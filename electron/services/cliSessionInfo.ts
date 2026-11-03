@@ -89,6 +89,7 @@ export function parseCliCommands(raw: unknown): CliCommandList | null {
 export const STATUS_REQUEST_ID = 'projecthub-status';
 export const COMMANDS_REQUEST_ID = 'projecthub-commands';
 export const RENAME_REQUEST_ID = 'projecthub-rename';
+export const EXPORT_REQUEST_ID = 'projecthub-export';
 
 interface Scope {
   configDir: string;
@@ -121,6 +122,30 @@ export async function runCliCommandList(opts: Scope): Promise<{ ok: true; list: 
   if (!result.ok) return result;
   const list = parseCliCommands(result.response);
   return list ? { ok: true, list } : { ok: false, reason: 'cli' };
+}
+
+/** Текст расшифровки из ответа `export_conversation`: `{ text, default_filename }`. */
+export function parseCliExport(response: unknown): string | null {
+  const text = response && typeof response === 'object' ? (response as Record<string, unknown>).text : undefined;
+  return typeof text === 'string' && text.trim() ? text : null;
+}
+
+/**
+ * Расшифровка сессии вкладки так, как её сохраняет `/export` терминала Claude Code (TASK-288, decision-209): запрос
+ * `export_conversation` с `--resume <id> --no-session-persistence` — файл сессии не меняется, хода модели нет.
+ */
+export async function runCliExport(opts: Scope & { cliSessionId: string }): Promise<{ ok: true; text: string } | Failure> {
+  if (!isCliSessionUuid(opts.cliSessionId)) return { ok: false, reason: 'cli' };
+  const result = await runCliControlRequest({
+    ...opts,
+    resume: opts.cliSessionId,
+    persist: false,
+    requestId: EXPORT_REQUEST_ID,
+    request: { subtype: 'export_conversation' }
+  });
+  if (!result.ok) return result;
+  const text = parseCliExport(result.response);
+  return text ? { ok: true, text } : { ok: false, reason: 'cli' };
 }
 
 /** Запрос переименования; `session_id` — CLI откажет, если `--resume` привёл в другую сессию. */

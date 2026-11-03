@@ -145,6 +145,33 @@ const en = {
         : 'Claude Code did not return its commands. Update Claude Code and try again.',
   helpNoMatch: 'No commands match.',
   helpVersion: (version: string): string => `Claude Code ${version}`,
+  copyAction: 'Copy reply',
+  copied: 'Copied',
+  copyDone: (n: number): string => (n === 1 ? 'The last reply is copied to the clipboard.' : `Reply ${n} from the end is copied to the clipboard.`),
+  copyNothing: (total: number): string => (total ? `This tab has ${total} replies — pick a number from 1 to ${total}.` : 'No reply to copy yet.'),
+  copyUsage: 'Type the reply number from the end after /copy, for example: /copy 2. Without a number — the last reply.',
+  copyFailed: 'Could not write to the clipboard.',
+  exportAction: 'Export conversation',
+  exportNothing: 'This tab has no messages yet — there is nothing to export.',
+  exportDone: (file: string, format: 'markdown' | 'cli'): string =>
+    format === 'cli' ? `Claude Code transcript saved to ${file}` : `Conversation saved to ${file}`,
+  exportFailed: (reason: 'start' | 'timeout' | 'cli' | 'io'): string =>
+    reason === 'io'
+      ? 'Could not save the file.'
+      : reason === 'start'
+        ? 'Could not start Claude Code for its transcript. Save as Markdown instead.'
+        : reason === 'timeout'
+          ? 'Claude Code did not return the transcript in 30 seconds.'
+          : 'Claude Code did not return the transcript of this tab’s session. Save as Markdown instead.',
+  exportLabels: {
+    user: 'You',
+    assistant: 'Assistant',
+    system: 'System',
+    tools: 'Agent steps ({count})',
+    thinking: 'Thinking',
+    error: 'Error',
+    exported: 'Exported from ProjectHub Agents Studio on {date}'
+  },
   helpCommand: {
     resume: 'Pick a Claude Code session to continue in this tab',
     plan: 'Switch the tab to plan mode; with a task, plan it right away',
@@ -154,6 +181,8 @@ const en = {
     rewind: 'Roll the conversation, and the code if you confirm, back to a message',
     'add-dir': 'Give this tab access to another folder',
     memory: 'View and edit the Claude Code memory files of this tab',
+    copy: 'Copy the last reply, or reply N from the end, to the clipboard',
+    export: 'Save this conversation as Markdown, or as the Claude Code transcript',
     status: 'Show this tab and its Claude Code session',
     help: 'Show this list'
   } as Record<StudioCommandName, string>
@@ -299,6 +328,32 @@ const ru: StudioCliText = {
         : 'Claude Code не вернул список команд. Обновите Claude Code и попробуйте снова.',
   helpNoMatch: 'Таких команд нет.',
   helpVersion: (version) => `Claude Code ${version}`,
+  copyAction: 'Скопировать ответ',
+  copied: 'Скопировано',
+  copyDone: (n) => (n === 1 ? 'Последний ответ скопирован в буфер обмена.' : `Ответ ${n} с конца скопирован в буфер обмена.`),
+  copyNothing: (total) => (total ? `Ответов во вкладке: ${total} — укажите номер от 1 до ${total}.` : 'Копировать пока нечего — ответов нет.'),
+  copyUsage: 'Напишите после /copy номер ответа с конца, например: /copy 2. Без номера — последний ответ.',
+  copyFailed: 'Не удалось записать в буфер обмена.',
+  exportAction: 'Экспорт переписки',
+  exportNothing: 'Во вкладке ещё нет сообщений — экспортировать нечего.',
+  exportDone: (file, format) => (format === 'cli' ? `Расшифровка Claude Code сохранена в ${file}` : `Переписка сохранена в ${file}`),
+  exportFailed: (reason) =>
+    reason === 'io'
+      ? 'Не удалось сохранить файл.'
+      : reason === 'start'
+        ? 'Не удалось запустить Claude Code для расшифровки. Сохраните переписку в Markdown.'
+        : reason === 'timeout'
+          ? 'Claude Code не вернул расшифровку за 30 секунд.'
+          : 'Claude Code не вернул расшифровку сессии этой вкладки. Сохраните переписку в Markdown.',
+  exportLabels: {
+    user: 'Вы',
+    assistant: 'Ассистент',
+    system: 'Система',
+    tools: 'Шаги агента ({count})',
+    thinking: 'Рассуждения',
+    error: 'Ошибка',
+    exported: 'Экспорт из Agents Studio ProjectHub, {date}'
+  },
   helpCommand: {
     resume: 'Выбрать сессию Claude Code и продолжить её в этой вкладке',
     plan: 'Перевести вкладку в режим плана; с задачей — сразу спланировать её',
@@ -308,6 +363,8 @@ const ru: StudioCliText = {
     rewind: 'Откатить разговор, а по подтверждению и код, к реплике',
     'add-dir': 'Дать вкладке доступ к другой папке',
     memory: 'Посмотреть и поправить файлы памяти Claude Code этой вкладки',
+    copy: 'Скопировать в буфер последний ответ или ответ N с конца',
+    export: 'Сохранить переписку в Markdown или расшифровкой Claude Code',
     status: 'Показать эту вкладку и её сессию Claude Code',
     help: 'Показать этот список'
   }

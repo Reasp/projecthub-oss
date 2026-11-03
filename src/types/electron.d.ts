@@ -1431,6 +1431,23 @@ export interface IElectronAPI {
   cliCommands: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[] }) => Promise<
     { ok: true; list: CliCommandList } | { ok: false; reason: 'start' | 'timeout' | 'cli'; detail?: string }
   >;
+  /**
+   * Экспорт переписки вкладки (TASK-288): системный диалог сохранения. Markdown собирает рендерер; у вкладки Claude Code
+   * с `cliSessionId` файл `.txt` — расшифровка самого CLI (`format: 'cli'`).
+   */
+  exportConversation: (query: {
+    projectPath: string;
+    markdown: string;
+    fileName: string;
+    cwd?: string;
+    claudeAccountId?: string;
+    addDirs?: string[];
+    cliSessionId?: string;
+  }) => Promise<
+    | { ok: true; path: string; format: 'markdown' | 'cli' }
+    | { ok: false; canceled: true }
+    | { ok: false; canceled?: undefined; reason: 'start' | 'timeout' | 'cli' | 'io' }
+  >;
   /** Имя сессии CLI вкладки из её заголовка (TASK-287): видно в `/resume` CLI и в терминале. */
   cliRenameSession: (query: {
     projectPath: string;
