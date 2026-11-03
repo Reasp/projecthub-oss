@@ -9,6 +9,7 @@
 
 import type { AIMessage, AIProviderConfig, AISession, AIToolCall, ClaudeUsageData, StudioSessionAgent } from '../types/electron';
 import { AppError } from '../lib/appError';
+import { sessionMode } from '../lib/studioSessionMode';
 import type {
   RemoteStudioMessage,
   RemoteStudioOptions,
@@ -150,6 +151,7 @@ export function studioSessionForPhone(s: AISession, ctx: SummaryContext): Remote
     ...(s.lastSelection ? { lastSelection: s.lastSelection } : {}),
     ...(s.agent ? { agent: selectionOfAgent(s.agent) } : {}),
     ...(s.lastMode ? { lastMode: s.lastMode } : {}),
+    mode: sessionMode(s),
     ...(usage ? { usage } : {})
   };
 }

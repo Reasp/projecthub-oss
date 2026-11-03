@@ -45,6 +45,7 @@ import { ContextAppliedCard } from './ContextAppliedCard';
 import { SessionAgentPicker } from './SessionAgentPicker';
 import { ComposerMenu } from './ComposerMenu';
 import { effectiveSessionAgent, sessionClaudeAccountId, sessionRequestConfig, withSessionEffort } from '../../lib/studioSessionAgent';
+import { sessionMode } from '../../lib/studioSessionMode';
 import { REASONING_EFFORT_OPTIONS } from '../../lib/reasoningEffort';
 import { QueuedMessagesBar } from './QueuedMessagesBar';
 import { SideQuestionPanel } from './SideQuestionPanel';
@@ -81,7 +82,6 @@ export const AIStudioView: React.FC = () => {
     activeSessionId,
     streamingSessions,
     config,
-    mode,
     isSettingsOpen,
     claudeAuth,
     pendingApprovals,
@@ -102,7 +102,7 @@ export const AIStudioView: React.FC = () => {
     claudeLogout,
     saveConfig,
     dismissRateLimitWarning,
-    setMode,
+    setSessionMode,
     setIsSettingsOpen,
     loadSessions,
     createSession,
@@ -291,6 +291,8 @@ export const AIStudioView: React.FC = () => {
     if (wt) setSessionWorktree(projectPath, currentSession.id, { path: wt.path, branch: wt.branch || branch });
   };
 
+  // Режим вкладки (TASK-291): свой у каждой вкладки.
+  const mode = sessionMode(currentSession);
   // Во вкладке Claude Code режим architect — plan mode CLI (TASK-272).
   const tabGoesToCli = goesToClaudeCli(sessionRequestConfig(config, currentSession?.agent));
   // Откат с реплики (TASK-284) — у вкладки Claude Code с разговором CLI, между ходами, не в чужой сессии участника.
@@ -1128,7 +1130,7 @@ export const AIStudioView: React.FC = () => {
                 label: modeLabel(m),
                 icon: modeIcon(m),
                 checked: mode === m,
-                onSelect: () => setMode(m)
+                onSelect: () => currentSessionId && setSessionMode(projectPath, currentSessionId, m)
               }))}
             />
             {/* Усилие рассуждений вкладки (TASK-273); без своего — общее из настроек */}

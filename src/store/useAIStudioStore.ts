@@ -26,6 +26,8 @@ import { useProjectStore } from './useProjectStore';
 import { useClaudeAccountsStore } from './useClaudeAccountsStore';
 import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { isApprovedPlanExit, upsertToolCall } from '../lib/aiToolCalls';
+import { sessionMode, withSessionMode } from '../lib/studioSessionMode';
+import type { StudioMode } from '../types/remote';
 import { effectiveSessionAgent, keepsClaudeCliSession, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
 import { goesToClaudeCli, studioCliCommand, studioLocalCommand, unavailableCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
 import { conversationMarkdown, exportFileName, replyCount, replyToCopy } from '../lib/conversationExport';
@@ -57,7 +59,6 @@ interface AIStudioState {
   /** Отправить первое сообщение очереди сейчас — после остановки или ошибки очередь сама не идёт. */
   sendNextQueued: (projectPath: string, sessionId: string) => void;
   config: AIProviderConfig;
-  mode: 'chat' | 'agent' | 'architect';
   isSettingsOpen: boolean;
   claudeAuth: ClaudeAuthStatus | null;
 
@@ -90,7 +91,8 @@ interface AIStudioState {
   /** Окно входа со встроенным терминалом для аккаунта вкладки или проекта (TASK-152.2, TASK-170). */
   startClaudeLogin: (projectPath?: string, accountId?: string) => Promise<void>;
   claudeLogout: (projectPath?: string) => Promise<void>;
-  setMode: (mode: 'chat' | 'agent' | 'architect') => void;
+  /** Режим вкладки (TASK-291, decision-212): меняется только у неё, другие вкладки остаются в своём. */
+  setSessionMode: (projectPath: string, sessionId: string, mode: StudioMode) => void;
   setIsSettingsOpen: (open: boolean) => void;
   /** Прочитать историю диалогов проекта с диска (один раз на проект); мигрирует старый localStorage. */
   loadSessions: (projectPath: string) => Promise<void>;
@@ -443,7 +445,6 @@ export const useAIStudioStore = create<AIStudioState>()(
       rewindRequest: null,
       promptPrefill: null,
       config: DEFAULT_CONFIG,
-      mode: 'agent',
       isSettingsOpen: false,
       claudeAuth: null,
       pendingApprovals: {},
@@ -572,7 +573,13 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
       },
 
-      setMode: (mode) => set({ mode }),
+      setSessionMode: (projectPath, sessionId, mode) => {
+        set((state) => {
+          const list = state.sessions[projectPath];
+          if (!list?.some((s) => s.id === sessionId)) return state;
+          return { sessions: { ...state.sessions, [projectPath]: list.map((s) => (s.id === sessionId ? withSessionMode(s, mode) : s)) } };
+        });
+      },
       setIsSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
 
       loadSessions: async (projectPath: string) => {
@@ -1361,7 +1368,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           }));
           return;
         }
-        const requestMode = opts.mode ?? get().mode;
+        // Режим вкладки (TASK-291); явный режим запроса (телефон, слияние конфликтов) становится режимом вкладки.
+        const requestMode = opts.mode ?? sessionMode(currentSession);
         const claudeAccountId = requestConfig.provider === 'anthropic' ? sessionClaudeAccountId(currentSession.agent) : undefined;
         // Каталог вкладки (TASK-268, decision-195): её дерево, а не активное дерево приложения. Вкладка без дерева
         // закрепляется за каталогом первого сообщения — после смены активного дерева разговор остаётся в своём.
@@ -1387,7 +1395,7 @@ export const useAIStudioStore = create<AIStudioState>()(
         }
         // `/plan` (TASK-282) — режим architect, то есть plan mode CLI (decision-196); текст после команды уходит уже в нём.
         if (cli?.kind === 'plan') {
-          set({ mode: 'architect' });
+          get().setSessionMode(projectPath, activeSessionId, 'architect');
           if (cli.prompt) await get().sendMessage(projectPath, cli.prompt, { ...opts, mode: 'architect' });
           return;
         }
@@ -1440,7 +1448,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           const pSessions = state.sessions[projectPath] || [];
           const updated = pSessions.map((s) =>
             s.id === activeSessionId
-              ? { ...s, title: sessionTitle, ...(autoTitle ? { autoTitle: undefined } : {}), messages: updatedMessages, lastSelection, lastMode: requestMode, worktree: pinnedWorktree }
+              ? { ...s, title: sessionTitle, ...(autoTitle ? { autoTitle: undefined } : {}), messages: updatedMessages, lastSelection, lastMode: requestMode, mode: requestMode, worktree: pinnedWorktree }
               : s
           );
 
@@ -1515,6 +1523,9 @@ export const useAIStudioStore = create<AIStudioState>()(
 
             msgs[mIdx] = target;
             targetSession.messages = msgs;
+            // План утверждён (ExitPlanMode выполнен): CLI вышел из plan mode — и вкладка выходит из architect (TASK-272).
+            // Режим — свой у вкладки (TASK-291): соседние вкладки в плане остаются в нём.
+            if (isApprovedPlanExit(chunk.toolCall) && sessionMode(targetSession) === 'architect') targetSession.mode = 'agent';
 
             const newSessions = [...pSessions];
             newSessions[sIdx] = targetSession;
@@ -1562,9 +1573,6 @@ export const useAIStudioStore = create<AIStudioState>()(
               };
             }
 
-            // План утверждён (ExitPlanMode выполнен): CLI вышел из plan mode — и вкладка выходит из architect (TASK-272).
-            const planApproved = isApprovedPlanExit(chunk.toolCall) && state.mode === 'architect';
-
             return {
               sessions: {
                 ...state.sessions,
@@ -1574,8 +1582,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               subagents: newSubagents,
               rateLimitWarnings: newRateLimitWarnings,
               liveOutputs: newLiveOutputs,
-              ...(chunk.cliBackground ? { cliBackground: { ...state.cliBackground, [streamId]: chunk.cliBackground } } : {}),
-              ...(planApproved ? { mode: 'agent' as const } : {})
+              ...(chunk.cliBackground ? { cliBackground: { ...state.cliBackground, [streamId]: chunk.cliBackground } } : {})
             };
           });
         });
@@ -1832,8 +1839,8 @@ export const useAIStudioStore = create<AIStudioState>()(
         config: {
           ...state.config,
           apiKey: undefined // Не сохраняем API-ключ в открытом виде в localStorage — защищено через safeStorage (DPAPI)
-        },
-        mode: state.mode
+        }
+        // Режим — поле вкладки в её файле (TASK-291), общего режима больше нет.
       }),
       // Старый блоб (version 0/1) мог содержать sessions — в состояние их не подмешиваем,
       // историю поднимает loadSessions() с диска после миграции.
@@ -1845,7 +1852,8 @@ export const useAIStudioStore = create<AIStudioState>()(
         return persisted;
       },
       merge: (persisted: any, current) => {
-        const { sessions: _legacy, ...rest } = (persisted || {}) as Record<string, unknown>;
+        // `mode` — общий режим до TASK-291: в состояние его не подмешиваем.
+        const { sessions: _legacy, mode: _globalMode, ...rest } = (persisted || {}) as Record<string, unknown>;
         return { ...current, ...rest };
       }
     }

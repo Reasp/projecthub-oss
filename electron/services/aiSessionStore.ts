@@ -153,6 +153,8 @@ export function compactSessionForStorage(session: AISession): AISession {
         }
       : {}),
     ...(session.lastMode === 'agent' || session.lastMode === 'chat' || session.lastMode === 'architect' ? { lastMode: session.lastMode } : {}),
+    // Режим вкладки (TASK-291): вкладка в плане открывается в плане.
+    ...(session.mode === 'agent' || session.mode === 'chat' || session.mode === 'architect' ? { mode: session.mode } : {}),
     // Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code переживают перезапуск.
     ...withAgent(sanitizeSessionAgent(session.agent)),
     // Задача и дерево вкладки (TASK-268, decision-195): каталог агента и `--resume` переживают перезапуск.

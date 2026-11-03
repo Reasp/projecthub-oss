@@ -753,6 +753,8 @@ export interface RemoteStudioSession extends RemoteStudioSessionSummary {
    */
   agent?: StudioModelSelection;
   lastMode?: StudioMode;
+  /** Текущий режим вкладки (TASK-291): с него телефон продолжает сессию. Нет поля — хост старше, тогда `lastMode`. */
+  mode?: StudioMode;
   usage?: RemoteStudioSessionUsage;
 }
 

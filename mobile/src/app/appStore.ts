@@ -744,7 +744,8 @@ export class AppStore {
       loading: false,
       // Агент сессии закреплён за ней (TASK-221); у старой сессии без агента — модель последнего промпта.
       selection: s.agent ?? s.lastSelection ?? this.state.studio.selection,
-      mode: s.lastMode ?? this.state.studio.mode,
+      // Режим вкладки (TASK-291); хост старше — режим последнего промпта.
+      mode: s.mode ?? s.lastMode ?? this.state.studio.mode,
       sessionUsage: s.usage ?? null
     });
     return true;

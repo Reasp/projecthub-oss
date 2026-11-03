@@ -3358,6 +3358,11 @@ export interface AISession {
   /** Модель и режим последнего промпта — для истории и продолжения с телефона. */
   lastSelection?: { provider: string; profileId?: string; model: string };
   lastMode?: 'chat' | 'agent' | 'architect';
+  /**
+   * Режим вкладки (TASK-291, decision-212): меню режима и `/plan` меняют только его, утверждённый план возвращает agent.
+   * Без поля — `sessionMode` из `lib/studioSessionMode`.
+   */
+  mode?: 'chat' | 'agent' | 'architect';
   /** Агент вкладки (TASK-170): провайдер, модель и аккаунт Claude Code; без поля — общий выбор Studio. */
   agent?: StudioSessionAgent;
   /**

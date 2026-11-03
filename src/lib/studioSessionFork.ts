@@ -24,7 +24,9 @@ export function forkedSession(source: AISession, fork: { id: string; title: stri
     // Каталоги `/add-dir` (TASK-285): ответвление продолжает разговор с тем же доступом.
     ...(source.claudeCliAddDirs?.length ? { claudeCliAddDirs: [...source.claudeCliAddDirs] } : {}),
     ...(source.lastSelection ? { lastSelection: { ...source.lastSelection } } : {}),
-    ...(source.lastMode ? { lastMode: source.lastMode } : {})
+    ...(source.lastMode ? { lastMode: source.lastMode } : {}),
+    // Ответвление продолжает в режиме исходной вкладки (TASK-291).
+    ...(source.mode ? { mode: source.mode } : {})
   };
 }
 

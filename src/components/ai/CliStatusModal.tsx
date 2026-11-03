@@ -4,6 +4,7 @@ import { Check, Copy, Info, Loader2, RefreshCw, X } from '../common/icons';
 import { useTranslation } from '../../i18n';
 import { studioCliText } from '../../i18n/studioCliText';
 import { sessionRequestConfig } from '../../lib/studioSessionAgent';
+import { sessionMode } from '../../lib/studioSessionMode';
 import { goesToClaudeCli } from '../../lib/studioCliCommands';
 import { useAIStudioStore } from '../../store/useAIStudioStore';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
@@ -24,7 +25,6 @@ export function CliStatusModal() {
   const clear = useAIStudioStore((s) => s.clearCliCommand);
   const sessions = useAIStudioStore((s) => s.sessions);
   const config = useAIStudioStore((s) => s.config);
-  const mode = useAIStudioStore((s) => s.mode);
   const overview = useClaudeAccountsStore((s) => s.overview);
   const projectAccounts = useClaudeAccountsStore((s) => s.projectAccounts);
   const selectedPath = useProjectStore((s) => s.selectedProject?.path);
@@ -70,6 +70,8 @@ export function CliStatusModal() {
   const session = (sessions[status.projectPath] || []).find((s) => s.id === status.sessionId);
   const requestConfig = sessionRequestConfig(config, session?.agent);
   const effort = requestConfig.reasoningEffort;
+  // Режим вкладки команды (TASK-291), а не соседней.
+  const mode = sessionMode(session);
   const modeText = mode === 'agent' ? t.aiStudio.input.agentMode : mode === 'chat' ? t.aiStudio.input.chatMode : goesToClaudeCli(requestConfig) ? t.aiStudio.input.planMode : t.aiStudio.input.adrMode;
   const accountName = status.claudeAccountId
     ? overview?.accounts.find((a) => a.id === status.claudeAccountId)?.name
