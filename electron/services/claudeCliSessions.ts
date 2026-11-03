@@ -11,12 +11,17 @@ export interface CliSessionSummary {
   id: string;
   /** Время последнего изменения файла сессии, мс. */
   updatedAt: number;
-  /** Первая реплика человека — до 160 символов; пусто, если её не нашлось в начале файла. */
+  /**
+   * Имя сессии CLI (`/rename`, имя вкладки Studio — TASK-287), иначе имя, которое дал CLI, иначе первая реплика
+   * человека — до 160 символов; пусто, если ничего не нашлось.
+   */
   title: string;
 }
 
 const SESSION_FILE_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 const HEAD_BYTES = 256 * 1024;
+/** Имя сессии CLI дописывает в конец файла и повторяет там же при перезаписи метаданных. */
+const NAME_TAIL_BYTES = 128 * 1024;
 const MAX_SESSIONS = 50;
 
 export function isCliSessionId(value: unknown): value is string {
@@ -54,6 +59,43 @@ export function firstUserPrompt(head: string): string {
     return clean.length > 160 ? `${clean.slice(0, 159)}…` : clean;
   }
   return '';
+}
+
+const clip = (text: string): string => (text.length > 160 ? `${text.slice(0, 159)}…` : text);
+
+/**
+ * Имя сессии из конца файла, как его показывает `/resume` CLI: последнее имя, данное человеком (`custom-title`), иначе
+ * последнее имя, которое CLI придумал сам (`ai-title`). Пустая строка — имени нет (или оно стёрто).
+ */
+export function sessionNameFromTail(tail: string): string {
+  let custom: string | undefined;
+  let ai: string | undefined;
+  for (const line of tail.split('\n')) {
+    if (!line.includes('"custom-title"') && !line.includes('"ai-title"')) continue;
+    let entry: { type?: unknown; customTitle?: unknown; aiTitle?: unknown };
+    try {
+      entry = JSON.parse(line) as typeof entry;
+    } catch {
+      continue;
+    }
+    if (entry.type === 'custom-title' && typeof entry.customTitle === 'string') custom = entry.customTitle;
+    else if (entry.type === 'ai-title' && typeof entry.aiTitle === 'string') ai = entry.aiTitle;
+  }
+  return clip((custom || ai || '').replace(/\s+/g, ' ').trim());
+}
+
+/** Начало или конец файла сессии, не больше `bytes`; нет файла — пустая строка. */
+async function readSlice(file: string, part: 'head' | 'tail', bytes: number): Promise<string> {
+  const handle = await fs.open(file, 'r').catch(() => null);
+  if (!handle) return '';
+  try {
+    const start = part === 'head' ? 0 : Math.max(0, (await handle.stat()).size - bytes);
+    const buffer = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, start);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await handle.close();
+  }
 }
 
 /** Длиннее — Claude Code обрезает имя до 200 символов и дописывает `-<хэш пути>`. */
@@ -188,18 +230,9 @@ export async function listCliSessions(configDir: string, cwd: string): Promise<C
   const recent = stats.filter((s): s is { dir: string; name: string; mtime: number } => s !== null).sort((a, b) => b.mtime - a.mtime).slice(0, MAX_SESSIONS);
   return Promise.all(
     recent.map(async ({ dir, name, mtime }) => {
-      let head = '';
-      const handle = await fs.open(path.join(dir, name), 'r').catch(() => null);
-      if (handle) {
-        try {
-          const buffer = Buffer.alloc(HEAD_BYTES);
-          const { bytesRead } = await handle.read(buffer, 0, HEAD_BYTES, 0);
-          head = buffer.subarray(0, bytesRead).toString('utf8');
-        } finally {
-          await handle.close();
-        }
-      }
-      return { id: SESSION_FILE_RE.exec(name)![1], updatedAt: mtime, title: firstUserPrompt(head) };
+      const file = path.join(dir, name);
+      const named = sessionNameFromTail(await readSlice(file, 'tail', NAME_TAIL_BYTES));
+      return { id: SESSION_FILE_RE.exec(name)![1], updatedAt: mtime, title: named || firstUserPrompt(await readSlice(file, 'head', HEAD_BYTES)) };
     })
   );
 }

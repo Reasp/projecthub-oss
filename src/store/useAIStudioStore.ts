@@ -36,6 +36,7 @@ import { clearQueue, enqueueMessage, nextAfterTurn, removeQueuedMessage, type St
 import { forkedSession, insertAfter } from '../lib/studioSessionFork';
 import { feedBeforePoint, rewoundSession } from '../lib/studioRewind';
 import { hasAddDir, MAX_ADD_DIRS, withAddDir, withoutAddDir } from '../lib/studioAddDir';
+import { cliTitleToSync } from '../lib/studioCliTitle';
 
 export type { AISession };
 
@@ -123,6 +124,16 @@ interface AIStudioState {
   clearCliCommand: () => void;
   /** `/memory` (TASK-286): окно файлов памяти Claude Code этой вкладки — её аккаунт, каталог и `/add-dir`. */
   openCliMemory: (projectPath: string, sessionId: string) => void;
+  /**
+   * Окно команды без хода (TASK-286, TASK-287): `/memory`, `/status`, `/help` — для аккаунта, каталога и `/add-dir`
+   * вкладки, а `/status` — и для её сессии CLI.
+   */
+  openCliDialog: (projectPath: string, sessionId: string, kind: 'memory' | 'status' | 'help') => void;
+  /**
+   * Передать заголовок вкладки в Claude Code именем её сессии (TASK-287): только заголовок, заданный человеком, и только
+   * между ходами — идущий ход дописывает тот же файл сессии. Иначе ничего не делает.
+   */
+  syncCliTitle: (projectPath: string, sessionId: string) => void;
   /** Привязать вкладку к сессии Claude Code: следующее сообщение продолжит её через `--resume`. */
   attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string, cwd: string) => void;
   /**
@@ -217,7 +228,7 @@ export interface StudioSideQuestion {
   notice?: string;
 }
 
-export type PendingCliCommand = Extract<StudioCliCommand, { kind: 'resume' | 'terminal' | 'memory' }> & {
+export type PendingCliCommand = Extract<StudioCliCommand, { kind: 'resume' | 'terminal' | 'memory' | 'status' | 'help' }> & {
   projectPath: string;
   sessionId: string;
   claudeAccountId?: string;
@@ -366,6 +377,10 @@ export function tabCliQuery(
 }
 
 /** Словарь Studio на языке интерфейса — для заголовков вкладок по умолчанию (TASK-204). */
+/** Вкладки, чьё имя сейчас уходит в CLI, и те, чей заголовок сменился за это время (TASK-287). */
+const titleSyncs = new Set<string>();
+const titleSyncAgain = new Set<string>();
+
 const studioText = () => getDictionary(useProjectStore.getState().language).aiStudio;
 const cliText = () => studioCliText(useProjectStore.getState().language);
 
@@ -673,13 +688,15 @@ export const useAIStudioStore = create<AIStudioState>()(
       cliCommand: null,
       clearCliCommand: () => set({ cliCommand: null }),
 
-      openCliMemory: (projectPath: string, sessionId: string) => {
+      openCliMemory: (projectPath: string, sessionId: string) => get().openCliDialog(projectPath, sessionId, 'memory'),
+
+      openCliDialog: (projectPath: string, sessionId: string, kind: 'memory' | 'status' | 'help') => {
         const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
         if (!session) return;
         const claudeAccountId = sessionClaudeAccountId(session.agent);
         set({
           cliCommand: {
-            kind: 'memory',
+            kind,
             projectPath,
             sessionId,
             ...(claudeAccountId ? { claudeAccountId } : {}),
@@ -688,6 +705,49 @@ export const useAIStudioStore = create<AIStudioState>()(
             ...(session.claudeCliAddDirs?.length ? { addDirs: [...session.claudeCliAddDirs] } : {})
           }
         });
+      },
+
+      syncCliTitle: (projectPath: string, sessionId: string) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session || get().streamingSessions[sessionId] || !window.api?.cliRenameSession) return;
+        if (!goesToClaudeCli(sessionRequestConfig(get().config, session.agent))) return;
+        const name = cliTitleToSync(session);
+        if (!name || !session.claudeCliSessionId) return;
+        if (titleSyncs.has(sessionId)) {
+          titleSyncAgain.add(sessionId);
+          return;
+        }
+        titleSyncs.add(sessionId);
+        const cliSessionId = session.claudeCliSessionId;
+        const claudeAccountId = sessionClaudeAccountId(session.agent);
+        void window.api
+          .cliRenameSession({
+            projectPath,
+            // Разговор CLI лежит в каталоге, где начат (TASK-230): `--resume` ищет его там.
+            cwd: session.claudeCliCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
+            ...(claudeAccountId ? { claudeAccountId } : {}),
+            ...(session.claudeCliAddDirs?.length ? { addDirs: [...session.claudeCliAddDirs] } : {}),
+            cliSessionId,
+            name
+          })
+          .then((result) => {
+            if (!result.ok) return;
+            set((state) => ({
+              sessions: {
+                ...state.sessions,
+                [projectPath]: (state.sessions[projectPath] || []).map((s) =>
+                  s.id === sessionId && s.claudeCliSessionId === cliSessionId ? { ...s, claudeCliTitle: { sessionId: cliSessionId, title: name } } : s
+                )
+              }
+            }));
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            titleSyncs.delete(sessionId);
+            // Заголовок сменили, пока имя уходило: передать новое. Неудача не повторяется по кругу — до следующего
+            // переименования или конца хода.
+            if (titleSyncAgain.delete(sessionId)) get().syncCliTitle(projectPath, sessionId);
+          });
       },
 
       removeQueuedMessage: (sessionId: string, messageId: string) =>
@@ -705,7 +765,10 @@ export const useAIStudioStore = create<AIStudioState>()(
           sessions: {
             ...state.sessions,
             [projectPath]: (state.sessions[projectPath] || []).map((s) =>
-              s.id === sessionId ? { ...s, claudeCliSessionId: cliSessionId, claudeCliCwd: cwd, claudeCliForkPending: undefined, claudeCliResumeAt: undefined } : s
+              // Продолжаемая сессия CLI сохраняет своё имя: заголовок вкладки ей не передаётся (TASK-287).
+              s.id === sessionId
+                ? { ...s, claudeCliSessionId: cliSessionId, claudeCliCwd: cwd, claudeCliForkPending: undefined, claudeCliResumeAt: undefined, titleByUser: undefined, claudeCliTitle: undefined }
+                : s
             )
           }
         }));
@@ -746,6 +809,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           title: title?.trim() || cliText().forkTitle(source.title),
           now: Date.now()
         });
+        // `/fork <имя>` — имя задал человек: оно уйдёт в CLI, когда ответвление получит свою сессию (TASK-287).
+        if (fork && title?.trim()) fork.titleByUser = true;
         if (!fork) {
           set((state) => ({
             sideQuestions: {
@@ -965,11 +1030,13 @@ export const useAIStudioStore = create<AIStudioState>()(
             sessions: {
               ...state.sessions,
               [projectPath]: projectSessions.map((s) =>
-                s.id === sessionId ? { ...s, title: cleanTitle, autoTitle: undefined } : s
+                s.id === sessionId ? { ...s, title: cleanTitle, autoTitle: undefined, titleByUser: true } : s
               )
             }
           };
         });
+        // Имя сессии в `/resume` CLI и в терминале — заголовок вкладки (TASK-287); во время хода — после него.
+        get().syncCliTitle(projectPath, sessionId);
       },
 
       setSessionTask: (projectPath: string, sessionId: string, taskId: string | undefined) => {
@@ -1084,7 +1151,17 @@ export const useAIStudioStore = create<AIStudioState>()(
 
           const updated = existing.map((s) =>
             s.id === targetSessionId
-              ? { ...s, messages: [], title: studioText().newChat, autoTitle: true, claudeCliSessionId: undefined, claudeCliForkPending: undefined, claudeCliResumeAt: undefined }
+              ? {
+                  ...s,
+                  messages: [],
+                  title: studioText().newChat,
+                  autoTitle: true,
+                  titleByUser: undefined,
+                  claudeCliTitle: undefined,
+                  claudeCliSessionId: undefined,
+                  claudeCliForkPending: undefined,
+                  claudeCliResumeAt: undefined
+                }
               : s
           );
 
@@ -1141,6 +1218,11 @@ export const useAIStudioStore = create<AIStudioState>()(
         // `/memory` (TASK-286) только читает и правит файлы памяти — открывается и во время хода, как в CLI.
         if (cli?.kind === 'memory') {
           get().openCliMemory(projectPath, activeSessionId);
+          return;
+        }
+        // `/status` и `/help` (TASK-287) только показывают сведения — тоже во время хода, без очереди.
+        if (cli?.kind === 'status' || cli?.kind === 'help') {
+          get().openCliDialog(projectPath, activeSessionId, cli.kind);
           return;
         }
         // Занята только эта вкладка (TASK-171): сообщение встаёт в её очередь и уйдёт после хода (TASK-273).
@@ -1261,6 +1343,8 @@ export const useAIStudioStore = create<AIStudioState>()(
             streaming: !!get().streamingSessions[streamId]
           });
           if (next) get().sendNextQueued(projectPath, streamId);
+          // Переименование во время хода и первое имя новой сессии CLI уходят после хода (TASK-287).
+          else get().syncCliTitle(projectPath, streamId);
         };
 
         // Listen to streaming events
@@ -1277,6 +1361,13 @@ export const useAIStudioStore = create<AIStudioState>()(
               // Ответвление получило свою сессию CLI (TASK-283): дальше вкладка продолжает её, а не исходную.
               delete targetSession.claudeCliForkPending;
               delete targetSession.claudeCliResumeAt;
+            }
+            // `/rename` выполнил CLI (TASK-287): заголовок вкладки — его имя, и передавать его обратно не нужно.
+            if (chunk.claudeCliTitle) {
+              targetSession.title = chunk.claudeCliTitle;
+              targetSession.titleByUser = true;
+              delete targetSession.autoTitle;
+              if (targetSession.claudeCliSessionId) targetSession.claudeCliTitle = { sessionId: targetSession.claudeCliSessionId, title: chunk.claudeCliTitle };
             }
 
             const msgs = [...targetSession.messages];

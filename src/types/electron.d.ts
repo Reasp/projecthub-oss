@@ -1423,6 +1423,23 @@ export interface IElectronAPI {
   saveCliMemoryFile: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; file: string; content: string }) => Promise<{ ok: boolean }>;
   /** Папка автопамяти из диалога — в проводнике системы. */
   openCliMemoryFolder: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; dir: string }) => Promise<boolean>;
+  /** `/status` вкладки (TASK-287): строки экрана CLI для её сессии, аккаунта и каталога. */
+  cliStatus: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[]; cliSessionId?: string }) => Promise<
+    { ok: true; status: CliStatus } | { ok: false; reason: 'start' | 'timeout' | 'cli'; detail?: string }
+  >;
+  /** `/help` вкладки (TASK-287): команды, которые CLI выполнит без терминала. */
+  cliCommands: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[] }) => Promise<
+    { ok: true; list: CliCommandList } | { ok: false; reason: 'start' | 'timeout' | 'cli'; detail?: string }
+  >;
+  /** Имя сессии CLI вкладки из её заголовка (TASK-287): видно в `/resume` CLI и в терминале. */
+  cliRenameSession: (query: {
+    projectPath: string;
+    cwd?: string;
+    claudeAccountId?: string;
+    addDirs?: string[];
+    cliSessionId: string;
+    name: string;
+  }) => Promise<{ ok: true } | { ok: false; reason: 'start' | 'timeout' | 'cli' }>;
   /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
   claudeAccounts: {
     overview: () => Promise<ClaudeAccountsOverview>;
@@ -1528,6 +1545,7 @@ export interface IElectronAPI {
       subagent?: SubagentInfo;
       status?: AgentStatusType;
       claudeCliSessionId?: string;
+      claudeCliTitle?: string;
       rateLimitWarning?: RateLimitWarning;
     }) => void
   ) => () => void;
@@ -3253,6 +3271,13 @@ export interface AISession {
   title: string;
   /** Заголовок по умолчанию: первый промпт заменит его своим началом (TASK-204). */
   autoTitle?: boolean;
+  /**
+   * Заголовок задал человек (TASK-287): переименование вкладки, `/fork <имя>`, `/rename` CLI. Такой заголовок уходит
+   * в Claude Code именем сессии; заголовок из первой реплики — нет.
+   */
+  titleByUser?: boolean;
+  /** Какое имя какой сессии CLI уже передано (TASK-287): после смены сессии или заголовка имя уходит снова. */
+  claudeCliTitle?: { sessionId: string; title: string };
   createdAt: number;
   messages: AIMessage[];
   claudeCliSessionId?: string;
@@ -3505,6 +3530,19 @@ export interface CliRewindPoint {
   keepUuid: string | null;
   text: string;
   timestamp: string;
+}
+
+/** Экран `/status` Claude Code (TASK-287, ответ `get_status`; повторяет electron/services/cliSessionInfo.ts). */
+export interface CliStatus {
+  sections: Array<{ title: string; rows: Array<{ label?: string; value: string }> }>;
+  /** Экран показывает сессию вкладки, а не новую. */
+  tabSession: boolean;
+}
+
+/** Команды CLI для `/help` (TASK-287, ответ `initialize`). */
+export interface CliCommandList {
+  commands: Array<{ name: string; description: string; argumentHint: string }>;
+  version?: string;
 }
 
 /** Диалог `/memory` Claude Code (TASK-286, ответ `get_memory_dialog`; повторяет electron/services/cliMemoryDialog.ts). */

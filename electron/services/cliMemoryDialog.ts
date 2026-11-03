@@ -1,7 +1,6 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import treeKill from 'tree-kill';
+import { controlArgs, controlRequestLine, controlResponseFor, runCliControlRequest } from './cliControlRequest';
 
 /**
  * `/memory` во вкладке Agents Studio (TASK-286, decision-207). Терминальный диалог CLI в `claude -p` недоступен, но CLI
@@ -57,7 +56,6 @@ const MAX_ROWS = 300;
 const MAX_TEXT = 500;
 
 export const MEMORY_DIALOG_REQUEST_ID = 'projecthub-memory-dialog';
-const DIALOG_TIMEOUT_MS = 30_000;
 
 const asRecord = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const text = (v: unknown): string => (typeof v === 'string' ? v.slice(0, MAX_TEXT) : '');
@@ -105,7 +103,7 @@ export function parseMemoryDialog(raw: unknown): CliMemoryDialog | null {
 
 /** Строка stdin CLI: запрос диалога `/memory`. */
 export function memoryDialogRequestLine(): string {
-  return `${JSON.stringify({ type: 'control_request', request_id: MEMORY_DIALOG_REQUEST_ID, request: { subtype: 'get_memory_dialog' } })}\n`;
+  return controlRequestLine(MEMORY_DIALOG_REQUEST_ID, { subtype: 'get_memory_dialog' });
 }
 
 /**
@@ -113,24 +111,13 @@ export function memoryDialogRequestLine(): string {
  * (старый CLI не знает запроса) или ответ не разобран.
  */
 export function memoryDialogResponse(line: string): CliMemoryDialog | null | undefined {
-  let event: unknown;
-  try {
-    event = JSON.parse(line);
-  } catch {
-    return undefined;
-  }
-  const ev = asRecord(event);
-  const response = asRecord(ev?.response);
-  if (ev?.type !== 'control_response' || response?.request_id !== MEMORY_DIALOG_REQUEST_ID) return undefined;
-  return response.subtype === 'success' ? parseMemoryDialog(response.response) : null;
+  const answer = controlResponseFor(line, MEMORY_DIALOG_REQUEST_ID);
+  return answer ? parseMemoryDialog(answer.response) : answer;
 }
 
 /** Аргументы CLI; каталоги `/add-dir` вкладки — как у её хода, чтобы CLI искал инструкции там же. */
 export function memoryDialogArgs(addDirs: readonly string[], quote: (v: string) => string): string[] {
-  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'];
-  // Каталог уходит в командную строку оболочки: кавычка или `%` в пути её бы сломали — такой каталог пропускается.
-  for (const dir of addDirs.slice(0, 20)) if (path.isAbsolute(dir) && !/["%\0\r\n]/.test(dir)) args.push('--add-dir', quote(dir));
-  return args;
+  return controlArgs({ addDirs }, quote);
 }
 
 const samePath = (a: string, b: string): boolean => {
@@ -153,59 +140,12 @@ export function memoryDialogFolder(dialog: CliMemoryDialog, dir: string): boolea
   return path.isAbsolute(dir) && dialog.folders.some((f) => samePath(f.path, dir));
 }
 
-const quoteShellArg = (value: string): string => `"${value.replace(/"/g, '\\"')}"`;
-
 /** Диалог `/memory` CLI под аккаунтом вкладки (`CLAUDE_CONFIG_DIR`) в её каталоге. */
-export function runCliMemoryDialog(opts: { configDir: string; cwd: string; addDirs?: readonly string[] }): Promise<CliMemoryDialogResult> {
-  return new Promise((resolve) => {
-    let settled = false;
-    let buffer = '';
-    let stderr = '';
-    const finish = (result: CliMemoryDialogResult) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        child.stdin.end();
-      } catch {
-        /* stdin уже закрыт */
-      }
-      if (child.pid && child.exitCode === null) setTimeout(() => child.exitCode === null && child.pid && treeKill(child.pid), 5_000).unref();
-      resolve(result);
-    };
-    const env: NodeJS.ProcessEnv = { ...process.env, FORCE_COLOR: '0', CLAUDE_CONFIG_DIR: opts.configDir };
-    delete env.ELECTRON_RUN_AS_NODE;
-    const child = spawn('claude', memoryDialogArgs(opts.addDirs ?? [], quoteShellArg), {
-      cwd: opts.cwd,
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env
-    });
-    const timer = setTimeout(() => {
-      if (child.pid) treeKill(child.pid);
-      finish({ ok: false, reason: 'timeout' });
-    }, DIALOG_TIMEOUT_MS);
-    child.stdout.on('data', (d: Buffer) => {
-      buffer += d.toString('utf8');
-      let i: number;
-      while ((i = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, i).trim();
-        buffer = buffer.slice(i + 1);
-        if (!line) continue;
-        const dialog = memoryDialogResponse(line);
-        if (dialog === undefined) continue;
-        finish(dialog ? { ok: true, dialog } : { ok: false, reason: 'cli' });
-      }
-      if (buffer.length > 4_000_000) buffer = '';
-    });
-    child.stderr.on('data', (d: Buffer) => {
-      if (stderr.length < 4000) stderr += d.toString('utf8');
-    });
-    child.stdin.on('error', () => { /* CLI завершился раньше — итог по close */ });
-    child.on('error', (err) => finish({ ok: false, reason: 'start', detail: err.message }));
-    child.on('close', () => finish({ ok: false, reason: 'cli', ...(stderr.trim() ? { detail: stderr.trim().slice(0, 500) } : {}) }));
-    child.stdin.write(memoryDialogRequestLine());
-  });
+export async function runCliMemoryDialog(opts: { configDir: string; cwd: string; addDirs?: readonly string[] }): Promise<CliMemoryDialogResult> {
+  const result = await runCliControlRequest({ ...opts, requestId: MEMORY_DIALOG_REQUEST_ID, request: { subtype: 'get_memory_dialog' } });
+  if (!result.ok) return result;
+  const dialog = parseMemoryDialog(result.response);
+  return dialog ? { ok: true, dialog } : { ok: false, reason: 'cli' };
 }
 
 /** Содержимое файла памяти; отсутствующий файл — пустой текст (диалог разрешает создать CLAUDE.md пользователя и проекта). */

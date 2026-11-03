@@ -208,6 +208,8 @@ export interface ClaudeBridgeMessageChunk {
   approvalRequest?: ApprovalRequest;
   status?: AgentStatusType;
   claudeCliSessionId?: string;
+  /** Имя сессии CLI сменилось в ходе (`/rename`, TASK-287): вкладка берёт его заголовком. */
+  claudeCliTitle?: string;
   rateLimitWarning?: RateLimitWarning;
   /** Токены и стоимость ответа (событие `result` stream-json или usage API-провайдера), TASK-56. */
   usage?: AgentUsage;
@@ -1868,6 +1870,10 @@ class ClaudeBridgeService extends EventEmitter {
               toolCalls[idx] = { ...toolCalls[idx], status: r.isError ? 'error' : 'done', ...(r.text ? { result: clipToolResult(r.text) } : {}) };
               onChunk({ toolCall: toolCalls[idx] });
             }
+          } else if (event.type === 'system' && event.subtype === 'session_title_changed') {
+            // `/rename` выполнил CLI (TASK-287, decision-208): заголовок вкладки — то же имя, что в `/resume` CLI.
+            const title = typeof event.title === 'string' ? event.title.trim().slice(0, 200) : '';
+            if (title && !sideQuestion) onChunk({ claudeCliTitle: title });
           } else if (event.type === 'system') {
             // task_started / task_progress / task_notification подагентов CLI (TASK-272).
             updateSubagent(subagentFromSystemEvent(event));

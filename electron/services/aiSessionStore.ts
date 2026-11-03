@@ -123,6 +123,9 @@ export function compactSessionForStorage(session: AISession): AISession {
     id: session.id,
     title: typeof session.title === 'string' ? session.title.slice(0, 500) : '',
     ...(session.autoTitle === true ? { autoTitle: true } : {}),
+    // Имя сессии CLI из заголовка (TASK-287): после перезапуска вкладка не передаёт то же имя повторно.
+    ...(session.titleByUser === true ? { titleByUser: true } : {}),
+    ...withCliTitle(session.claudeCliTitle),
     createdAt: typeof session.createdAt === 'number' ? session.createdAt : Date.now(),
     messages: Array.isArray(session.messages) ? session.messages.map(compactMessage) : [],
     ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),
@@ -153,6 +156,11 @@ export function compactSessionForStorage(session: AISession): AISession {
     // Владелец сессии на общем хосте (TASK-142.3): без него сессия участника после перезапуска стала бы общей.
     ...(typeof session.memberId === 'string' && /^[a-z0-9][a-z0-9-]{0,31}$/.test(session.memberId) ? { memberId: session.memberId } : {})
   };
+}
+
+function withCliTitle(sent: AISession['claudeCliTitle']): Pick<AISession, 'claudeCliTitle'> {
+  if (!sent || !isCliSessionId(sent.sessionId) || typeof sent.title !== 'string' || !sent.title) return {};
+  return { claudeCliTitle: { sessionId: sent.sessionId, title: sent.title.slice(0, 200) } };
 }
 
 function withAgent(agent: AISession['agent']): Pick<AISession, 'agent'> {

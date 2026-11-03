@@ -473,6 +473,10 @@ const api: IElectronAPI = {
   saveCliMemoryFile: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; file: string; content: string }) =>
     invoke('ai:saveCliMemoryFile', query),
   openCliMemoryFolder: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; dir: string }) => invoke('ai:openCliMemoryFolder', query),
+  cliStatus: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[]; cliSessionId?: string }) => invoke('ai:cliStatus', query),
+  cliCommands: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[] }) => invoke('ai:cliCommands', query),
+  cliRenameSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[]; cliSessionId: string; name: string }) =>
+    invoke('ai:cliRenameSession', query),
   // Профили аккаунтов Claude Code (TASK-152, decision-87)
   claudeAccounts: {
     overview: () => invoke('claudeAccounts:overview'),

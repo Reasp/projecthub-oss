@@ -62,6 +62,8 @@ import { ProviderErrorCard } from './ProviderErrorCard';
 import { SessionHistoryModal } from './SessionHistoryModal';
 import { CliCommandModal } from './CliCommandModal';
 import { CliMemoryModal } from './CliMemoryModal';
+import { CliStatusModal } from './CliStatusModal';
+import { CliHelpModal } from './CliHelpModal';
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf, sessionWorktreeState, worktreeLabel } from '../../lib/studioWorktree';
 
 export const AIStudioView: React.FC = () => {
@@ -1123,6 +1125,9 @@ export const AIStudioView: React.FC = () => {
       {/* Слеш-команды Claude Code, которые Studio выполняет сама (TASK-230). */}
       <CliCommandModal />
       <CliMemoryModal />
+      {/* `/status` и `/help` вкладки Claude Code (TASK-287) */}
+      <CliStatusModal />
+      <CliHelpModal />
       {/* `/rewind` вкладки Claude Code (TASK-284) */}
       <CliRewindModal />
     </div>

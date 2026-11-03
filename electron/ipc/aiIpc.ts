@@ -65,6 +65,7 @@ import {
   saveMemoryFile,
   type CliMemoryDialog
 } from '../services/cliMemoryDialog';
+import { runCliCommandList, runCliRename, runCliStatus } from '../services/cliSessionInfo';
 
 /** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
 function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
@@ -349,6 +350,35 @@ export function registerAiIpc(ctx: IpcContext) {
     // Папки автопамяти может ещё не быть — CLI создаёт её при первой записи; терминальный диалог тоже открывает её сразу.
     await fs.mkdir(path.resolve(dir), { recursive: true }).catch(() => undefined);
     return (await shell.openPath(path.resolve(dir))) === '';
+  });
+
+  // `/status`, `/help` и имя сессии CLI вкладки (TASK-287, decision-208): данные даёт CLI под аккаунтом вкладки, без хода.
+  const stringList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((d): d is string => typeof d === 'string') : []);
+  const cliId = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+  ipcMain.handle('ai:cliStatus', async (_event, query?: CliMemoryQuery & { addDirs?: unknown; cliSessionId?: unknown }) => {
+    const scope = await cliMemoryScope(query);
+    const result = await runCliStatus({ configDir: scope.configDir, cwd: scope.cwd, addDirs: stringList(query?.addDirs), cliSessionId: cliId(query?.cliSessionId) });
+    if (!result.ok) console.warn(`[aiIpc] /status: ${result.reason}${result.detail ? ` — ${result.detail}` : ''}`);
+    return result;
+  });
+  ipcMain.handle('ai:cliCommands', async (_event, query?: CliMemoryQuery & { addDirs?: unknown }) => {
+    const scope = await cliMemoryScope(query);
+    const result = await runCliCommandList({ configDir: scope.configDir, cwd: scope.cwd, addDirs: stringList(query?.addDirs) });
+    if (!result.ok) console.warn(`[aiIpc] /help: ${result.reason}${result.detail ? ` — ${result.detail}` : ''}`);
+    return result;
+  });
+  ipcMain.handle('ai:cliRenameSession', async (_event, query?: CliMemoryQuery & { addDirs?: unknown; cliSessionId?: unknown; name?: unknown }) => {
+    const scope = await cliMemoryScope(query);
+    const result = await runCliRename({
+      configDir: scope.configDir,
+      cwd: scope.cwd,
+      addDirs: stringList(query?.addDirs),
+      cliSessionId: cliId(query?.cliSessionId) ?? '',
+      name: typeof query?.name === 'string' ? query.name : ''
+    });
+    // Имя сессии в лог не пишется — это текст пользователя.
+    console.info(`[aiIpc] session name to Claude Code: ${result.ok ? 'ok' : result.reason}`);
+    return result.ok ? { ok: true } : { ok: false, reason: result.reason };
   });
 
   // Streaming & Session Lifecycle

@@ -2,6 +2,7 @@
  * Тексты диалога слеш-команд Claude Code в Agents Studio (TASK-230), en и ru. Свой словарь окна, без общего.
  */
 import type { Language } from './types';
+import type { StudioCommandName } from '../lib/studioCliCommands';
 
 const en = {
   resumeTitle: 'Resume a Claude Code session',
@@ -102,7 +103,60 @@ const en = {
         : 'Could not read the file.',
   memoryUnsaved: 'Discard unsaved changes in this file?',
   memoryRefresh: 'Refresh',
-  memoryOpenFolder: 'Open folder'
+  memoryOpenFolder: 'Open folder',
+  statusTitle: 'Session status',
+  statusHint: 'This tab and its Claude Code session. The Claude Code part is what /status shows in the terminal.',
+  statusTab: 'Agents Studio tab',
+  statusTabTitle: 'Tab',
+  statusSession: 'Claude Code session',
+  statusNoSession: 'not started yet: the first message starts it',
+  statusCopy: 'Copy session ID',
+  statusCopied: 'Copied',
+  statusFolder: 'Folder',
+  statusAddDirs: 'Added folders',
+  statusAccount: 'Account',
+  statusAccountDefault: 'default for this project',
+  statusModel: 'Model',
+  statusModelDefault: 'model default',
+  statusEffort: 'Reasoning effort',
+  statusMode: 'Mode',
+  statusLoading: 'Asking Claude Code for its status…',
+  statusFailed: (reason: 'start' | 'timeout' | 'cli'): string =>
+    reason === 'start'
+      ? 'Could not start Claude Code. Check that it is installed.'
+      : reason === 'timeout'
+        ? 'Claude Code did not answer in 30 seconds.'
+        : 'Claude Code did not return its status. Update Claude Code and try again.',
+  statusNewSession: 'Claude Code did not find this tab’s conversation for this account and folder, so it shows a new session.',
+  statusCliSection: (title: string): string => (title ? `Claude Code · ${title}` : 'Claude Code'),
+  helpTitle: 'Commands',
+  helpHint: 'Slash commands of this Claude Code tab and who runs each of them. Click a command to put it into the message.',
+  helpFilter: 'Filter commands',
+  helpStudio: 'Agents Studio runs',
+  helpCli: 'Claude Code runs',
+  helpTerminal: 'Need a terminal',
+  helpTerminalHint: 'Agents Studio continues the conversation in a ProjectHub terminal and runs the command there.',
+  helpCliLoading: 'Asking Claude Code for its commands…',
+  helpCliFailed: (reason: 'start' | 'timeout' | 'cli'): string =>
+    reason === 'start'
+      ? 'Could not start Claude Code. Check that it is installed.'
+      : reason === 'timeout'
+        ? 'Claude Code did not answer in 30 seconds.'
+        : 'Claude Code did not return its commands. Update Claude Code and try again.',
+  helpNoMatch: 'No commands match.',
+  helpVersion: (version: string): string => `Claude Code ${version}`,
+  helpCommand: {
+    resume: 'Pick a Claude Code session to continue in this tab',
+    plan: 'Switch the tab to plan mode; with a task, plan it right away',
+    fork: 'Open a copy of this conversation in a new tab',
+    branch: 'Same as /fork',
+    btw: 'Ask a side question; the answer does not go into the conversation',
+    rewind: 'Roll the conversation, and the code if you confirm, back to a message',
+    'add-dir': 'Give this tab access to another folder',
+    memory: 'View and edit the Claude Code memory files of this tab',
+    status: 'Show this tab and its Claude Code session',
+    help: 'Show this list'
+  } as Record<StudioCommandName, string>
 };
 
 export type StudioCliText = typeof en;
@@ -203,7 +257,60 @@ const ru: StudioCliText = {
         : 'Не удалось прочитать файл.',
   memoryUnsaved: 'Отменить несохранённые изменения в этом файле?',
   memoryRefresh: 'Обновить',
-  memoryOpenFolder: 'Открыть папку'
+  memoryOpenFolder: 'Открыть папку',
+  statusTitle: 'Состояние сессии',
+  statusHint: 'Эта вкладка и её сессия Claude Code. Часть Claude Code — то же, что /status показывает в терминале.',
+  statusTab: 'Вкладка Agents Studio',
+  statusTabTitle: 'Вкладка',
+  statusSession: 'Сессия Claude Code',
+  statusNoSession: 'ещё не начата: её начнёт первое сообщение',
+  statusCopy: 'Скопировать id сессии',
+  statusCopied: 'Скопировано',
+  statusFolder: 'Папка',
+  statusAddDirs: 'Добавленные папки',
+  statusAccount: 'Аккаунт',
+  statusAccountDefault: 'по умолчанию для проекта',
+  statusModel: 'Модель',
+  statusModelDefault: 'по умолчанию модели',
+  statusEffort: 'Усилие рассуждений',
+  statusMode: 'Режим',
+  statusLoading: 'Запрашиваю у Claude Code состояние…',
+  statusFailed: (reason) =>
+    reason === 'start'
+      ? 'Не удалось запустить Claude Code. Проверьте, что он установлен.'
+      : reason === 'timeout'
+        ? 'Claude Code не ответил за 30 секунд.'
+        : 'Claude Code не вернул состояние. Обновите Claude Code и попробуйте снова.',
+  statusNewSession: 'Claude Code не нашёл разговор этой вкладки для этого аккаунта и папки и показывает новую сессию.',
+  statusCliSection: (title) => (title ? `Claude Code · ${title}` : 'Claude Code'),
+  helpTitle: 'Команды',
+  helpHint: 'Слеш-команды этой вкладки Claude Code и кто их выполняет. Щелчок по команде вставит её в сообщение.',
+  helpFilter: 'Найти команду',
+  helpStudio: 'Выполняет Agents Studio',
+  helpCli: 'Выполняет Claude Code',
+  helpTerminal: 'Нужен терминал',
+  helpTerminalHint: 'Agents Studio продолжит разговор в терминале ProjectHub и выполнит команду там.',
+  helpCliLoading: 'Запрашиваю у Claude Code список команд…',
+  helpCliFailed: (reason) =>
+    reason === 'start'
+      ? 'Не удалось запустить Claude Code. Проверьте, что он установлен.'
+      : reason === 'timeout'
+        ? 'Claude Code не ответил за 30 секунд.'
+        : 'Claude Code не вернул список команд. Обновите Claude Code и попробуйте снова.',
+  helpNoMatch: 'Таких команд нет.',
+  helpVersion: (version) => `Claude Code ${version}`,
+  helpCommand: {
+    resume: 'Выбрать сессию Claude Code и продолжить её в этой вкладке',
+    plan: 'Перевести вкладку в режим плана; с задачей — сразу спланировать её',
+    fork: 'Открыть копию этого разговора в новой вкладке',
+    branch: 'То же, что /fork',
+    btw: 'Задать побочный вопрос; ответ не попадёт в разговор',
+    rewind: 'Откатить разговор, а по подтверждению и код, к реплике',
+    'add-dir': 'Дать вкладке доступ к другой папке',
+    memory: 'Посмотреть и поправить файлы памяти Claude Code этой вкладки',
+    status: 'Показать эту вкладку и её сессию Claude Code',
+    help: 'Показать этот список'
+  }
 };
 
 export const STUDIO_CLI_TEXT: Record<Language, StudioCliText> = { en, ru };

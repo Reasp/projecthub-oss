@@ -39,7 +39,7 @@ export function CliCommandModal() {
   }, [command, t.appErrors]);
 
   useEffect(() => {
-    if (!command || command.kind === 'memory' || command.projectPath !== selectedPath) return;
+    if (!command || (command.kind !== 'resume' && command.kind !== 'terminal') || command.projectPath !== selectedPath) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') clear();
     };
@@ -48,8 +48,8 @@ export function CliCommandModal() {
   }, [command, clear, selectedPath]);
 
   // Диалог принадлежит вкладке своего проекта: в Studio другого проекта он не висит поверх.
-  // `/memory` (TASK-286) — своё окно, CliMemoryModal.
-  if (!command || command.kind === 'memory' || command.projectPath !== selectedPath) return null;
+  // `/memory` (TASK-286), `/status` и `/help` (TASK-287) — свои окна: CliMemoryModal, CliStatusModal, CliHelpModal.
+  if (!command || (command.kind !== 'resume' && command.kind !== 'terminal') || command.projectPath !== selectedPath) return null;
 
   const openTerminal = async () => {
     await createPty(command.projectPath, 'claude', undefined, command.workspaceRoot, undefined, {

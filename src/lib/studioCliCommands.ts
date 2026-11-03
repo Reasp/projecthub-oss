@@ -8,7 +8,8 @@ import { addDirArgument } from './studioAddDir';
  * выбора в интерактивном списке, `/remote-control` и настройки — живой процесс с терминалом. Studio перехватывает их
  * до отправки: `/resume` — свой выбор сессии, `/plan` — plan mode вкладки (TASK-282), `/fork` и `/btw` — ответвление
  * разговора (TASK-283), `/rewind` — откат к реплике (TASK-284), `/add-dir` — каталог вкладки (TASK-285), `/memory` — файлы
- * памяти CLI (TASK-286), остальное — продолжение разговора в терминале ProjectHub.
+ * памяти CLI (TASK-286), `/status` и `/help` — свои окна по данным CLI (TASK-287), остальное — продолжение разговора в
+ * терминале ProjectHub.
  */
 
 export type StudioCliCommand =
@@ -19,7 +20,46 @@ export type StudioCliCommand =
   | { kind: 'btw'; question: string }
   | { kind: 'rewind' }
   | { kind: 'memory' }
+  | { kind: 'status' }
+  | { kind: 'help' }
   | { kind: 'terminal'; command: string };
+
+/**
+ * Команды, которые выполняет сама Studio, — для `/help` (TASK-287). Порядок — порядок в окне; `args` — подсказка
+ * аргументов в синтаксисе CLI. Описания — в словаре `studioCliText` по имени команды.
+ */
+export const STUDIO_COMMANDS = [
+  { name: 'resume', args: '[session id]' },
+  { name: 'plan', args: '[task]' },
+  { name: 'fork', args: '[name]' },
+  { name: 'branch', args: '[name]' },
+  { name: 'btw', args: '<question>' },
+  { name: 'rewind', args: '' },
+  { name: 'add-dir', args: '[path]' },
+  { name: 'memory', args: '' },
+  { name: 'status', args: '' },
+  { name: 'help', args: '' }
+] as const;
+
+export type StudioCommandName = (typeof STUDIO_COMMANDS)[number]['name'];
+
+const STUDIO_COMMAND_NAMES = new Set<string>(STUDIO_COMMANDS.map((c) => c.name));
+
+/** `/config key=value` CLI выполняет без терминала: в `/help` команда в группе CLI, с подсказкой аргумента. */
+const CLI_WITH_ARGS = new Set(['config']);
+
+/** Команды, которые Studio продолжает в терминале, — без тех, что она выполняет сама (`/status`, `/help`). */
+export function terminalCommandNames(): string[] {
+  return [...TERMINAL_ONLY].filter((name) => !STUDIO_COMMAND_NAMES.has(name) && !CLI_WITH_ARGS.has(name)).sort();
+}
+
+/**
+ * Команды CLI для `/help`: то, что CLI выполнит без терминала, без команд Studio и терминальных (их CLI тоже может
+ * перечислить в ответе `initialize`) — каждая команда в окне ровно в одной группе.
+ */
+export function cliOnlyCommands<T extends { name: string }>(commands: readonly T[]): T[] {
+  return commands.filter((c) => !STUDIO_COMMAND_NAMES.has(c.name) && (!TERMINAL_ONLY.has(c.name) || CLI_WITH_ARGS.has(c.name)));
+}
 
 /**
  * Встроенные команды CLI, которым нужен интерактивный терминал. Список сверен с Claude Code 2.1.314 (TASK-282):
@@ -107,6 +147,9 @@ export function studioCliCommand(text: string, config: Pick<AIProviderConfig, 'p
   if (name === 'add-dir') return { kind: 'addDir', path: addDirArgument(rest) };
   // `/memory` (TASK-286) — файлы памяти CLI вкладки во встроенном редакторе; аргументов у команды нет.
   if (name === 'memory') return { kind: 'memory' };
+  // `/status` и `/help` (TASK-287) — окна Studio: экран `/status` CLI для сессии вкладки и список команд.
+  if (name === 'status') return { kind: 'status' };
+  if (name === 'help') return { kind: 'help' };
   // `/config key=value` CLI выполняет и без терминала, без аргументов — открывает экран настроек.
   if (name === 'config' && rest) return null;
   return TERMINAL_ONLY.has(name) ? { kind: 'terminal', command: name } : null;
