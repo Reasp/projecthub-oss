@@ -1549,6 +1549,13 @@ export interface IElectronAPI {
   cliBackgroundTaskOutput: (sessionId: string, taskId: string) => Promise<{ output: string; truncated: boolean; totalBytes: number } | null>;
   /** Останавливает фоновую задачу идущего хода Claude Code (TASK-290). */
   stopCliBackgroundTask: (sessionId: string, taskId: string) => Promise<boolean>;
+  /**
+   * Реплика во время хода Claude Code (TASK-298): сразу в stdin процесса вкладки, модель увидит её на ближайшей границе
+   * шага. `false` — хода нет, сообщение ждёт в очереди вкладки.
+   */
+  cliSendDuringTurn: (sessionId: string, message: { id: string; text: string; attachments?: PromptAttachment[] }) => Promise<boolean>;
+  /** Снимает отправленную во время хода реплику, которую модель ещё не взяла (TASK-298). */
+  cliCancelDuringTurn: (sessionId: string, messageId: string) => Promise<boolean>;
   /** Полная очистка сессии в main: одобрения, процессы, resume-id Claude CLI, подагенты (TASK-33). */
   clearAISession: (sessionId: string) => Promise<boolean>;
   applyAIDiff: (projectPath: string, relativePath: string, newContent: string) => Promise<boolean>;
@@ -1585,6 +1592,8 @@ export interface IElectronAPI {
       claudeCliTitle?: string;
       rateLimitWarning?: RateLimitWarning;
       cliBackground?: CliBackgroundSnapshot;
+      /** Реплика, отправленная во время хода Claude Code, дошла до модели (TASK-298). */
+      cliUserDelivered?: { id: string };
     }) => void
   ) => () => void;
   onAIComplete: (sessionId: string, callback: (message: AIMessage) => void) => () => void;

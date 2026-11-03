@@ -560,6 +560,8 @@ const api: IElectronAPI = {
   abortAIStream: (sessionId: string) => invoke('ai:abortStream', sessionId),
   cliBackgroundTaskOutput: (sessionId: string, taskId: string) => invoke('ai:cliBackgroundTaskOutput', { sessionId, taskId }),
   stopCliBackgroundTask: (sessionId: string, taskId: string) => invoke('ai:stopCliBackgroundTask', { sessionId, taskId }),
+  cliSendDuringTurn: (sessionId: string, message: { id: string; text: string; attachments?: unknown[] }) => invoke('ai:cliSendDuringTurn', { sessionId, message }),
+  cliCancelDuringTurn: (sessionId: string, messageId: string) => invoke('ai:cliCancelDuringTurn', { sessionId, messageId }),
   clearAISession: (sessionId: string) => invoke('ai:clearSession', sessionId),
   applyAIDiff: (projectPath: string, relativePath: string, newContent: string) =>
     invoke('ai:applyDiff', projectPath, relativePath, newContent),

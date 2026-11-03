@@ -2036,7 +2036,12 @@ export const en: TranslationDictionary = {
       hintPaused: 'Paused after a stop or an error.',
       sendNext: 'Send next',
       clear: 'Clear queue',
-      remove: 'Remove from queue'
+      remove: 'Remove from queue',
+      sentDuringTurn: 'Sent',
+      sentDuringTurnHint: 'Claude Code already has this message: the model reads it after the current step, and it appears in the conversation then.',
+      withdraw: 'Withdraw before the model reads it',
+      sentTitle: 'Sent ({count})',
+      sentHint: 'Claude Code reads them after the current step.'
     },
     steps: {
       title: 'Agent Steps & Tool Calls',

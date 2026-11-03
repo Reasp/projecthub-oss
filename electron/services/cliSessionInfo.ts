@@ -154,9 +154,18 @@ export function renameRequest(cliSessionId: string, name: string): Record<string
 }
 
 /** Имя сессии CLI вкладки: CLI дописывает его в файл сессии, `/resume` и терминал показывают его вместо первой реплики. */
-export async function runCliRename(opts: Scope & { cliSessionId: string; name: string }): Promise<{ ok: true } | Failure> {
+export async function runCliRename(
+  opts: Scope & { cliSessionId: string; name: string },
+  /**
+   * Живой процесс вкладки с этой сессией (TASK-298): имя уходит запросом в него, а не вторым процессом с `--resume` той же
+   * сессии. `null` — такого процесса нет.
+   */
+  viaLive?: (request: Record<string, unknown>) => Promise<boolean | null>
+): Promise<{ ok: true } | Failure> {
   const name = cliSessionName(opts.name);
   if (!isCliSessionUuid(opts.cliSessionId) || !name) return { ok: false, reason: 'cli' };
+  const live = viaLive ? await viaLive(renameRequest(opts.cliSessionId, name)) : null;
+  if (live !== null) return live ? { ok: true } : { ok: false, reason: 'cli' };
   const result = await runCliControlRequest({ ...opts, resume: opts.cliSessionId, requestId: RENAME_REQUEST_ID, request: renameRequest(opts.cliSessionId, name) });
   return result.ok ? { ok: true } : result;
 }

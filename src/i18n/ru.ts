@@ -2037,7 +2037,12 @@ export const ru: TranslationDictionary = {
       hintPaused: 'Пауза после остановки или ошибки.',
       sendNext: 'Отправить следующее',
       clear: 'Очистить очередь',
-      remove: 'Убрать из очереди'
+      remove: 'Убрать из очереди',
+      sentDuringTurn: 'Отправлено',
+      sentDuringTurnHint: 'Сообщение уже у Claude Code: модель прочтёт его после текущего шага, тогда оно и появится в ленте.',
+      withdraw: 'Отозвать, пока модель не прочла',
+      sentTitle: 'Отправлено ({count})',
+      sentHint: 'Claude Code прочтёт после текущего шага.'
     },
     steps: {
       title: 'Шаги агента и вызовы инструментов',

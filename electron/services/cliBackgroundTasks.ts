@@ -175,6 +175,11 @@ export class CliBackgroundTasks {
     return this.live.size > 0;
   }
 
+  /** Живые задачи: прерывание хода останавливает их (TASK-298). */
+  liveIds(): string[] {
+    return [...this.live];
+  }
+
   /** Задача хода, которую ещё можно остановить. */
   isRunning(taskId: string): boolean {
     return this.tasks.get(taskId)?.status === 'running';

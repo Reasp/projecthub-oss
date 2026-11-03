@@ -1913,6 +1913,14 @@ export interface TranslationDictionary {
       sendNext: string;
       clear: string;
       remove: string;
+      /** Реплика уже у Claude Code, модель увидит её на ближайшем шаге (TASK-298). */
+      sentDuringTurn: string;
+      sentDuringTurnHint: string;
+      /** Заголовок и подсказка панели, когда все её сообщения уже у Claude Code. */
+      sentTitle: string;
+      sentHint: string;
+      /** Снять отданную реплику, пока модель её не взяла. */
+      withdraw: string;
     };
     steps: {
       title: string;

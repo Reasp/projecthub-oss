@@ -25,6 +25,7 @@ import { loadDoneLoopSettings } from '../services/doneLoopService';
 import { planService, type ConflictResolution, type GeneratePlanOptions } from '../services/planService';
 import { assertRegisteredProject } from '../services/projectPathGuard';
 import { attachmentAbsPath, attachmentPreviewDataUrl, isSafeToOpenAttachment, saveStudioAttachment, workDirInProject } from '../services/studioPromptAttachments';
+import { sanitizePromptAttachments } from '../../src/lib/promptAttachments';
 import type { RunJudgeOptions } from '../services/arenaJudgeService';
 import { loadArenaConfig, saveArenaConfig } from '../services/arenaConfig';
 import { deleteAgentResult, listAgentResults, pruneAgentResults, restoreAgentResult } from '../services/agentResultStore';
@@ -414,13 +415,18 @@ export function registerAiIpc(ctx: IpcContext) {
   });
   ipcMain.handle('ai:cliRenameSession', async (_event, query?: CliMemoryQuery & { addDirs?: unknown; cliSessionId?: unknown; name?: unknown }) => {
     const scope = await cliMemoryScope(query);
-    const result = await runCliRename({
-      configDir: scope.configDir,
-      cwd: scope.cwd,
-      addDirs: stringList(query?.addDirs),
-      cliSessionId: cliId(query?.cliSessionId) ?? '',
-      name: typeof query?.name === 'string' ? query.name : ''
-    });
+    const cliSessionId = cliId(query?.cliSessionId) ?? '';
+    const result = await runCliRename(
+      {
+        configDir: scope.configDir,
+        cwd: scope.cwd,
+        addDirs: stringList(query?.addDirs),
+        cliSessionId,
+        name: typeof query?.name === 'string' ? query.name : ''
+      },
+      // Вкладка держит процесс этой сессии (TASK-298) — имя уходит в него.
+      (request) => claudeBridgeService.requestLiveCli(cliSessionId, scope.configDir, request)
+    );
     // Имя сессии в лог не пишется — это текст пользователя.
     console.info(`[aiIpc] session name to Claude Code: ${result.ok ? 'ok' : result.reason}`);
     return result.ok ? { ok: true } : { ok: false, reason: result.reason };
@@ -503,6 +509,20 @@ export function registerAiIpc(ctx: IpcContext) {
   ipcMain.handle('ai:stopCliBackgroundTask', async (_event, query?: { sessionId?: unknown; taskId?: unknown }) => {
     if (typeof query?.sessionId !== 'string') return false;
     return claudeBridgeService.stopCliBackgroundTask(query.sessionId, query.taskId);
+  });
+
+  // Реплика во время хода Claude Code (TASK-298, decision-215): в stdin живого процесса вкладки и снятие её до модели.
+  ipcMain.handle('ai:cliSendDuringTurn', async (_event, query?: { sessionId?: unknown; message?: { id?: unknown; text?: unknown; attachments?: unknown } }) => {
+    const message = query?.message;
+    if (typeof query?.sessionId !== 'string' || typeof message?.id !== 'string' || typeof message.text !== 'string') return false;
+    if (message.id.length > 200 || message.text.length > 200_000) return false;
+    const attachments = sanitizePromptAttachments(message.attachments);
+    if (!message.text.trim() && attachments.length === 0) return false;
+    return claudeBridgeService.injectCliMessage(query.sessionId, { id: message.id, text: message.text, attachments });
+  });
+  ipcMain.handle('ai:cliCancelDuringTurn', async (_event, query?: { sessionId?: unknown; messageId?: unknown }) => {
+    if (typeof query?.sessionId !== 'string' || typeof query.messageId !== 'string') return false;
+    return claudeBridgeService.cancelCliMessage(query.sessionId, query.messageId);
   });
 
   ipcMain.handle('ai:clearSession', async (_event, sessionId: string) => {

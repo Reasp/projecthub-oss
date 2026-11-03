@@ -36,7 +36,17 @@ import { canWriteStudioSession } from '../utils/studioRemote';
 import { getDictionary } from '../i18n';
 import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib/studioSessionTitle';
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf } from '../lib/studioWorktree';
-import { clearQueue, enqueueMessage, nextAfterTurn, removeQueuedMessage, type StudioQueues } from '../lib/studioMessageQueue';
+import {
+  clearQueue,
+  clearUnsent,
+  enqueueMessage,
+  markSentDuringTurn,
+  messagesWithDelivered,
+  nextAfterTurn,
+  removeQueuedMessage,
+  returnUndelivered,
+  type StudioQueues
+} from '../lib/studioMessageQueue';
 import { forkedSession, insertAfter } from '../lib/studioSessionFork';
 import { feedBeforeMessage, feedBeforePoint, matchRewindPoints, pointsBeforePending, rewoundSession } from '../lib/studioRewind';
 import { hasAddDir, MAX_ADD_DIRS, withAddDir, withoutAddDir } from '../lib/studioAddDir';
@@ -799,9 +809,25 @@ export const useAIStudioStore = create<AIStudioState>()(
           });
       },
 
-      removeQueuedMessage: (sessionId: string, messageId: string) =>
-        set((state) => ({ queuedMessages: removeQueuedMessage(state.queuedMessages, sessionId, messageId) })),
-      clearQueuedMessages: (sessionId: string) => set((state) => ({ queuedMessages: clearQueue(state.queuedMessages, sessionId) })),
+      removeQueuedMessage: (sessionId: string, messageId: string) => {
+        const item = get().queuedMessages[sessionId]?.find((m) => m.id === messageId);
+        if (!item?.sentDuringTurn) {
+          set((state) => ({ queuedMessages: removeQueuedMessage(state.queuedMessages, sessionId, messageId) }));
+          return;
+        }
+        // Отданное Claude Code во время хода снимается запросом (TASK-298): модель могла уже взять его — тогда оно
+        // остаётся и встанет в ленту на своё место.
+        void window.api?.cliCancelDuringTurn?.(sessionId, messageId)
+          .then((cancelled) => {
+            if (cancelled) set((state) => ({ queuedMessages: removeQueuedMessage(state.queuedMessages, sessionId, messageId) }));
+          })
+          .catch(() => { /* хода уже нет — сообщение вернётся в очередь после него */ });
+      },
+      clearQueuedMessages: (sessionId: string) => {
+        const sent = (get().queuedMessages[sessionId] ?? []).filter((m) => m.sentDuringTurn);
+        set((state) => ({ queuedMessages: clearUnsent(state.queuedMessages, sessionId) }));
+        for (const m of sent) get().removeQueuedMessage(sessionId, m.id);
+      },
       sendNextQueued: (projectPath: string, sessionId: string) => {
         const next = get().queuedMessages[sessionId]?.[0];
         if (!next || get().streamingSessions[sessionId]) return;
@@ -1396,15 +1422,25 @@ export const useAIStudioStore = create<AIStudioState>()(
         if (get().streamingSessions[activeSessionId]) {
           const queueKey = activeSessionId;
           const { queuedSessionId: _queued, ...queuedOpts } = opts;
+          const queuedId = `q-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           set((state) => ({
             queuedMessages: enqueueMessage(state.queuedMessages, queueKey, {
-              id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              id: queuedId,
               text: text.trim(),
               opts: queuedOpts,
               queuedAt: Date.now(),
               ...(attachments.length > 0 ? { attachmentNames: attachments.map((a) => a.name) } : {})
             })
           }));
+          // Claude Code берёт реплику и посреди хода, как терминал (TASK-298, decision-215): она сразу уходит в stdin
+          // процесса вкладки и встанет в ленту, когда модель её увидит. Команды со `/` ждут конца хода, как в CLI.
+          const queued = get().queuedMessages[queueKey]?.some((m) => m.id === queuedId);
+          if (queued && goesToClaudeCli(requestConfig) && !text.trim().startsWith('/') && window.api?.cliSendDuringTurn) {
+            const sent = await window.api
+              .cliSendDuringTurn(queueKey, { id: queuedId, text: text.trim(), ...(attachments.length > 0 ? { attachments } : {}) })
+              .catch(() => false);
+            if (sent) set((state) => ({ queuedMessages: markSentDuringTurn(state.queuedMessages, queueKey, queuedId) }));
+          }
           return;
         }
         // Режим вкладки (TASK-291); явный режим запроса (телефон, слияние конфликтов) становится режимом вкладки.
@@ -1467,7 +1503,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           ...(attachments.length > 0 ? { attachments } : {})
         };
 
-        const assistantMsgId = `asst-${Date.now() + 1}`;
+        // Сообщение ответа, в которое идёт поток; реплика во время хода начинает новое (TASK-298).
+        let assistantMsgId = `asst-${Date.now() + 1}`;
         const initialAssistantMsg: AIMessage = {
           id: assistantMsgId,
           role: 'assistant',
@@ -1513,6 +1550,8 @@ export const useAIStudioStore = create<AIStudioState>()(
         // Конец хода (TASK-273): сам закончившийся ход отправляет следующее сообщение очереди; остановка и ошибка — нет.
         const afterTurn = (ended: 'complete' | 'error') => {
           const aborted = abortedTurns.delete(streamId);
+          // Отданные ходу реплики, не дошедшие до модели (остановка, ошибка), снова ждут в очереди (TASK-298).
+          set((state) => ({ queuedMessages: returnUndelivered(state.queuedMessages, streamId) }));
           const next = nextAfterTurn(get().queuedMessages[streamId], {
             ended: aborted ? 'aborted' : ended,
             streaming: !!get().streamingSessions[streamId]
@@ -1522,8 +1561,44 @@ export const useAIStudioStore = create<AIStudioState>()(
           else get().syncCliTitle(projectPath, streamId);
         };
 
+        // Реплика во время хода дошла до модели (TASK-298): уходит из очереди в ленту после уже напечатанного ответа,
+        // дальше поток идёт в новое сообщение ответа.
+        const deliverDuringTurn = (queuedId: string) => {
+          const item = get().queuedMessages[streamId]?.find((m) => m.id === queuedId);
+          const nextId = `asst-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          let spliced = false;
+          set((state) => {
+            const queuedMessages = removeQueuedMessage(state.queuedMessages, streamId, queuedId);
+            const pSessions = state.sessions[projectPath] || [];
+            const sIdx = pSessions.findIndex((s) => s.id === activeSessionId);
+            if (!item || sIdx === -1) return { queuedMessages };
+            const now = new Date().toISOString();
+            const delivered = sanitizePromptAttachments(item.opts.attachments);
+            const msgs = messagesWithDelivered<AIMessage>(
+              pSessions[sIdx].messages || [],
+              assistantMsgId,
+              { id: `msg-${Date.now()}`, role: 'user', content: item.text, timestamp: now, ...(delivered.length > 0 ? { attachments: delivered } : {}) },
+              { id: nextId, role: 'assistant', content: '', thought: '', toolCalls: [], timestamp: now }
+            );
+            if (!msgs) return { queuedMessages };
+            spliced = true;
+            const newSessions = [...pSessions];
+            newSessions[sIdx] = { ...pSessions[sIdx], messages: msgs };
+            return {
+              queuedMessages,
+              sessions: { ...state.sessions, [projectPath]: newSessions },
+              liveOutputs: withoutKey(state.liveOutputs, streamId)
+            };
+          });
+          if (spliced) assistantMsgId = nextId;
+        };
+
         // Listen to streaming events
         const unsubChunk = window.api.onAIChunk(streamId, (chunk) => {
+          if (chunk.cliUserDelivered) {
+            deliverDuringTurn(chunk.cliUserDelivered.id);
+            return;
+          }
           set((state) => {
             const pSessions = state.sessions[projectPath] || [];
             const sIdx = pSessions.findIndex((s) => s.id === activeSessionId);

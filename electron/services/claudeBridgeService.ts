@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import treeKill from 'tree-kill';
 import {
   aiAgentService,
@@ -63,9 +64,23 @@ import { sandboxMcpConfig, SANDBOX_MCP_CONFIG_FILE, SANDBOX_MCP_CONFIG_PATH } fr
 import { hostPathFromSandbox, sandboxToolInput } from './memberSandbox.js';
 import { readWorktreeFile } from './worktreeFs.js';
 import { errorMessage } from './errorMessage.js';
-import { sanitizePromptAttachments } from '../../src/lib/promptAttachments.js';
-import { cliUserContent, cliUserMessageLine, messagesWithAttachmentPaths } from './studioPromptAttachments.js';
-import { CliBackgroundTasks, isCliTaskId, parseControlResponse, parseTaskOutput, type CliBackgroundSnapshot } from './cliBackgroundTasks.js';
+import { sanitizePromptAttachments, type PromptAttachment } from '../../src/lib/promptAttachments.js';
+import { cliUserContent, messagesWithAttachmentPaths, type CliContentBlock } from './studioPromptAttachments.js';
+import {
+  CLI_INTERRUPT_GRACE_MS,
+  CLI_LIVE_IDLE_MS,
+  CLI_REPLAY_FLAG,
+  CLI_WAKE_GRACE_MS,
+  CliLiveProcess,
+  cliBasePermissionMode,
+  cliLaunchSignature,
+  cliSwitchRequests,
+  cliUserLineWithUuid,
+  commandLifecycle,
+  replayedUserUuid,
+  type CliTurnSink
+} from './cliLiveProcess.js';
+import { CliBackgroundTasks, isCliTaskId, parseTaskOutput, type CliBackgroundSnapshot } from './cliBackgroundTasks.js';
 import {
   applyProjectPolicy,
   applyRolePermissions,
@@ -218,6 +233,8 @@ export interface ClaudeBridgeMessageChunk {
   usage?: AgentUsage;
   /** Фоновые задачи Claude Code в ходе и ждёт ли ход их конца (TASK-290, decision-211). */
   cliBackground?: CliBackgroundSnapshot;
+  /** Реплика, отправленная во время хода, дошла до модели (TASK-298): дальше ответ идёт новым сообщением ленты. */
+  cliUserDelivered?: { id: string };
 }
 
 export interface ClaudeCliAvailability {
@@ -471,7 +488,18 @@ class ClaudeBridgeService extends EventEmitter {
    * Управление идущим ходом Claude Code по sessionId (TASK-290, decision-211): `control_request` в его stdin,
    * пока тот открыт, и фоновые задачи хода.
    */
-  private cliTurnControls = new Map<string, { request: (request: Record<string, unknown>) => Promise<Record<string, unknown>>; tasks: CliBackgroundTasks }>();
+  private cliTurns = new Map<
+    string,
+    {
+      request: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      tasks: CliBackgroundTasks;
+      interrupt: () => void;
+      inject?: (message: { id: string; text: string; attachments?: PromptAttachment[] }) => Promise<boolean>;
+      cancelInjected: (messageId: string) => Promise<boolean>;
+    }
+  >();
+  /** Живой процесс Claude Code вкладки между ходами (TASK-298, decision-215). */
+  private liveCli = new Map<string, CliLiveProcess>();
   /** Команды агента (executeSubprocess) по sessionId. */
   private sessionSubprocesses = new Map<string, Set<ChildProcess>>();
   /** Остановка команды агента с добиванием переживших потомков (executeSubprocess). */
@@ -1071,7 +1099,7 @@ class ClaudeBridgeService extends EventEmitter {
    * `null` — хода нет, stdin уже закрыт или задача не этого хода.
    */
   public async cliBackgroundTaskOutput(sessionId: string, taskId: unknown): Promise<{ output: string; truncated: boolean; totalBytes: number } | null> {
-    const control = this.cliTurnControls.get(sessionId);
+    const control = this.cliTurns.get(sessionId);
     if (!control || !isCliTaskId(taskId) || !control.tasks.has(taskId)) return null;
     try {
       return parseTaskOutput(await control.request({ subtype: 'get_task_output', task_id: taskId }));
@@ -1083,7 +1111,7 @@ class ClaudeBridgeService extends EventEmitter {
 
   /** Останавливает фоновую задачу идущего хода Claude Code (`stop_task`, TASK-290). */
   public async stopCliBackgroundTask(sessionId: string, taskId: unknown): Promise<boolean> {
-    const control = this.cliTurnControls.get(sessionId);
+    const control = this.cliTurns.get(sessionId);
     if (!control || !isCliTaskId(taskId) || !control.tasks.isRunning(taskId)) return false;
     try {
       await control.request({ subtype: 'stop_task', task_id: taskId });
@@ -1216,6 +1244,8 @@ class ClaudeBridgeService extends EventEmitter {
 
     this.rejectPendingApprovals(sessionId);
     aiAgentService.abortStream(sessionId);
+    // Ход Claude Code — `interrupt` в живой процесс вкладки (TASK-298): процесс и разговор остаются для следующего хода.
+    this.cliTurns.get(sessionId)?.interrupt();
     this.killSessionProcesses(sessionId);
 
     if (projectPath && !this.hasOtherActiveSession(projectPath, sessionId)) {
@@ -1246,6 +1276,8 @@ class ClaudeBridgeService extends EventEmitter {
   /** Полная очистка сессии (закрытие/очистка диалога в UI): процессы, одобрения, CLI-id. */
   public clearSession(sessionId: string): void {
     this.abortSession(sessionId);
+    // Вкладку закрыли или очистили — её процесс Claude Code больше не нужен (TASK-298).
+    this.disposeLiveCli(sessionId);
     this.sessionClaudeCliIds.delete(sessionId);
     this.finishSessionSubagents(sessionId, 'failed');
   }
@@ -1259,6 +1291,10 @@ class ClaudeBridgeService extends EventEmitter {
     for (const sessionId of Array.from(new Set([...this.activeProcesses.keys(), ...this.sessionSubprocesses.keys()]))) {
       this.killSessionProcesses(sessionId);
     }
+    // Живые процессы Claude Code вкладок (TASK-298): при выходе — дерево процессов, без ожидания.
+    for (const proc of Array.from(this.liveCli.values())) proc.kill();
+    this.liveCli.clear();
+    this.cliTurns.clear();
     this.activeSessions.clear();
     this.abortedSessions.clear();
     this.activeSubagents.clear();
@@ -1284,7 +1320,7 @@ class ClaudeBridgeService extends EventEmitter {
     config: AIProviderConfig,
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     meta: CliPermissionMeta = {}
-  ): Promise<{ args: string[]; env: Record<string, string>; cleanup: () => void; secretFiles?: Record<string, string> } | null> {
+  ): Promise<{ args: string[]; env: Record<string, string>; cleanup: () => void; secretFiles?: Record<string, string>; fingerprint?: string } | null> {
     if (!this.cliPermissionBroker) return null;
     let endpoint: CliPermissionEndpoint | null = null;
     try {
@@ -1331,19 +1367,16 @@ class ClaudeBridgeService extends EventEmitter {
       const sseUrl = new URL(endpoint.url);
       sseUrl.searchParams.set(CLI_HITL_QUERY_PARAM, sessionId);
       const mcpConfigPath = path.join(dir, `${safeId}.mcp.json`);
-      await fs.writeFile(
-        mcpConfigPath,
-        JSON.stringify({
-          mcpServers: {
-            [CLI_HITL_MCP_SERVER_NAME]: {
-              type: 'sse',
-              url: sseUrl.toString(),
-              headers: { Authorization: `Bearer ${endpoint.token}` }
-            }
+      const mcpConfigJson = JSON.stringify({
+        mcpServers: {
+          [CLI_HITL_MCP_SERVER_NAME]: {
+            type: 'sse',
+            url: sseUrl.toString(),
+            headers: { Authorization: `Bearer ${endpoint.token}` }
           }
-        }),
-        { encoding: 'utf-8', mode: 0o600 }
-      );
+        }
+      });
+      await fs.writeFile(mcpConfigPath, mcpConfigJson, { encoding: 'utf-8', mode: 0o600 });
       files.push(mcpConfigPath);
 
       const args = [
@@ -1366,7 +1399,8 @@ class ClaudeBridgeService extends EventEmitter {
         this.cliPermissionContexts.delete(sessionId);
         cleanup();
       };
-      return { args, env: { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) }, cleanup: cleanupAll };
+      // Содержимое файлов — в подпись запуска живого процесса вкладки (TASK-298): CLI читает их только при старте.
+      return { args, env: { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) }, cleanup: cleanupAll, fingerprint: `${mcpConfigJson}\n${settings ? JSON.stringify(settings) : ''}` };
     } catch (err) {
       console.error('[ClaudeBridge] Не удалось подготовить файлы HITL для Claude CLI:', err);
       cleanup();
@@ -1375,7 +1409,7 @@ class ClaudeBridgeService extends EventEmitter {
   }
 
   public getActiveProcessCount(): number {
-    let count = this.activeProcesses.size;
+    let count = this.activeProcesses.size + this.liveCli.size;
     for (const subs of this.sessionSubprocesses.values()) count += subs.size;
     return count;
   }
@@ -1628,7 +1662,9 @@ class ClaudeBridgeService extends EventEmitter {
     const existingCliSessionId = req.claudeCliSessionId || (cachedHere ? cached.id : undefined);
     // Побочный вопрос `/btw` (TASK-283): ответвление без записи и без инструментов, id его сессии вкладке не нужен.
     const sideQuestion = req.claudeCliFork === 'side';
-    const cliArgs = ['-p', ...cliResumeArgs(existingCliSessionId, req.claudeCliFork, req.claudeCliResumeAt)];
+    // `--resume` — только при запуске процесса: живой процесс вкладки уже ведёт эту сессию (TASK-298).
+    const resumeArgs = cliResumeArgs(existingCliSessionId, req.claudeCliFork, req.claudeCliResumeAt);
+    const cliArgs = ['-p'];
     if (req.config.model && req.config.model !== 'default') {
       cliArgs.push('--model', req.config.model);
     }
@@ -1722,138 +1758,126 @@ class ClaudeBridgeService extends EventEmitter {
       return;
     }
     // Дельты текста по мере генерации (TASK-273): лента печатает ответ, а не ждёт целого блока.
-    cliArgs.push('--output-format', 'stream-json', '--verbose', CLI_PARTIAL_MESSAGES_FLAG);
+    // Реплики, взятые CLI в работу, повторяются в stdout (TASK-298): так видно, когда сообщение посреди хода дошло до модели.
+    cliArgs.push('--output-format', 'stream-json', '--verbose', CLI_PARTIAL_MESSAGES_FLAG, '--input-format', 'stream-json', CLI_REPLAY_FLAG);
+    const hitlEnv = hitl?.env ?? { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) };
 
-    const cleanupHitl = () => {
+    // Файлы HITL и системного промпта нужны процессу, пока он жив (TASK-298): CLI читает их при старте, а `--settings`
+    // ещё и отслеживает. Без живого процесса вкладки они удаляются вместе с концом хода.
+    const dropTurnFiles = () => {
       this.cliPermissionContexts.delete(sessionId);
-      hitl?.cleanup();
-      removeSystemPromptFile();
+      if (!this.liveCli.has(sessionId)) {
+        hitl?.cleanup();
+        removeSystemPromptFile();
+      }
     };
 
     // Промпт — user-сообщением stream-json (со вложениями — картинки и PDF блоками, прочие файлы путями, TASK-289).
-    // stdin хода остаётся открытым, пока CLI ждёт фоновые задачи: через него уходят `stop_task` и
-    // `get_task_output` (TASK-290, decision-211).
-    let stdinPayload = cliUserMessageLine(lastUserMessage);
+    let promptContent: string | CliContentBlock[] = lastUserMessage;
     if (promptAttachments.length > 0) {
       try {
-        stdinPayload = cliUserMessageLine(await cliUserContent(lastUserMessage, promptAttachments, projectPath, workDir));
+        promptContent = await cliUserContent(lastUserMessage, promptAttachments, projectPath, workDir);
       } catch (err) {
-        cleanupHitl();
+        dropTurnFiles();
         this.failStudioSession(sessionId, projectPath, err, onError);
         return;
       }
     }
-    cliArgs.push('--input-format', 'stream-json');
-    const hitlEnv = hitl?.env ?? { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) };
 
-    let child: ChildProcessWithoutNullStreams;
-    try {
-      child = spawn(
-        'claude',
-        cliArgs,
-        {
-          cwd: workDir,
-          shell: true,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            FORCE_COLOR: '0',
-            CLAUDE_CONFIG_DIR: account.configDir,
-            // Копии файлов перед правками, как в терминале (TASK-284): без них `/rewind` вкладки нечем откатить код.
-            [CLI_FILE_CHECKPOINTING_ENV]: 'true',
-            // Сессия участника общего хоста: коммиты CLI подписаны им, коммиттер — ProjectHub Agent (TASK-142.3).
-            ...launcherGitEnv(editionRegistry.launcherProfile(req.memberId)),
-            // Инструмент разрешений ждёт человека — стандартный таймаут MCP-инструмента слишком мал.
-            ...hitlEnv
+    // Процесс вкладки (TASK-298, decision-215): живой с той же подписью запуска и той же сессией CLI — ход идёт в нём,
+    // модель и plan mode меняются запросами; иначе новый процесс с `--resume`. Побочный вопрос `/btw` — всегда отдельный
+    // процесс на один ответ.
+    const persistent = !sideQuestion;
+    const wantedModel = req.config.model && req.config.model !== 'default' ? req.config.model : null;
+    const wantPlan = req.mode === 'architect';
+    const baseMode = cliBasePermissionMode(cliArgs);
+    const signature = cliLaunchSignature(cliArgs, [
+      account.configDir,
+      path.resolve(workDir),
+      req.memberId,
+      systemAddon.join('\n\n'),
+      hitl?.fingerprint,
+      JSON.stringify(hitlEnv),
+      wantedModel ? 'model' : 'default-model'
+    ]);
+    let proc = persistent
+      ? await this.reusableLiveCli(sessionId, {
+          signature,
+          cliSessionId: existingCliSessionId,
+          fresh: !!req.claudeCliFork || !!req.claudeCliResumeAt,
+          model: wantedModel,
+          plan: wantPlan
+        })
+      : null;
+    const reused = proc !== null;
+    if (!proc) {
+      let child: ChildProcessWithoutNullStreams;
+      try {
+        child = spawn(
+          'claude',
+          [...cliArgs, ...resumeArgs],
+          {
+            cwd: workDir,
+            shell: true,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: {
+              ...process.env,
+              FORCE_COLOR: '0',
+              CLAUDE_CONFIG_DIR: account.configDir,
+              // Копии файлов перед правками, как в терминале (TASK-284): без них `/rewind` вкладки нечем откатить код.
+              [CLI_FILE_CHECKPOINTING_ENV]: 'true',
+              // Сессия участника общего хоста: коммиты CLI подписаны им, коммиттер — ProjectHub Agent (TASK-142.3).
+              ...launcherGitEnv(editionRegistry.launcherProfile(req.memberId)),
+              // Инструмент разрешений ждёт человека — стандартный таймаут MCP-инструмента слишком мал.
+              ...hitlEnv
+            }
           }
-        }
-      );
-    } catch (err: unknown) {
-      cleanupHitl();
-      this.failStudioSession(sessionId, projectPath, new AppError('studio.cliStartFailed', { detail: errorMessage(err) }), onError);
-      return;
+        );
+      } catch (err: unknown) {
+        dropTurnFiles();
+        this.failStudioSession(sessionId, projectPath, new AppError('studio.cliStartFailed', { detail: errorMessage(err) }), onError);
+        return;
+      }
+      const started = new CliLiveProcess(child, {
+        signature,
+        configDir: account.configDir,
+        workDir,
+        model: wantedModel,
+        permissionMode: wantPlan ? 'plan' : baseMode,
+        baseMode,
+        killTree: () => killProcessTree(child)
+      });
+      const removeFiles = () => {
+        hitl?.cleanup();
+        removeSystemPromptFile();
+      };
+      if (persistent) this.registerLiveCli(sessionId, started, removeFiles);
+      else started.onExit(removeFiles);
+      proc = started;
     }
+    const live = proc;
 
-    this.activeProcesses.set(sessionId, child);
     if (hitlWarning) onChunk({ text: hitlWarning });
 
-    // Фоновые задачи хода (TASK-290, decision-211). CLI в `-p` не выходит, пока они живы, и по их концу сам начинает
-    // ещё один ход модели. stdin открыт, пока ход их ждёт: вкладка читает их вывод и останавливает их запросами
-    // `get_task_output`/`stop_task`. Закрывается он после ответа модели, когда живых задач нет, — тогда CLI выходит.
+    // Фоновые задачи хода (TASK-290, decision-211). Пока они живы, ход ждёт их; по их концу CLI сам начинает прогон
+    // модели-пробуждение, и его ответ дописывается в ответ вкладки. Вывод и остановка — запросами в stdin процесса.
     const backgroundTasks = new CliBackgroundTasks();
-    const pendingControls = new Map<string, { resolve: (response: Record<string, unknown>) => void; reject: (err: Error) => void }>();
-    let controlSeq = 0;
-    let stdinOpen = true;
+    // Реплики, отправленные во время хода (TASK-298): uuid строки stdin → id сообщения вкладки.
+    const injected = new Map<string, string>();
+    const promptUuid = randomUUID();
+    // CLI взял промпт хода в работу (`command_lifecycle: started` или его повтор). В живом процессе события до этого —
+    // хвост прошлого прогона (пробуждение после прерванного хода); у нового процесса прошлого нет.
+    let promptStarted = !reused;
     let resultSeen = false;
-    const emitBackground = () => onChunk({ cliBackground: backgroundTasks.snapshot(resultSeen) });
-    const releaseTurnControl = () => {
-      if (this.cliTurnControls.get(sessionId)?.tasks === backgroundTasks) this.cliTurnControls.delete(sessionId);
-    };
-    const closeStdin = () => {
-      if (!stdinOpen) return;
-      stdinOpen = false;
-      releaseTurnControl();
-      try {
-        child.stdin.end();
-      } catch { /* процесс уже вышел */ }
-    };
-    const closeStdinWhenIdle = () => {
-      if (resultSeen && !backgroundTasks.hasLive()) closeStdin();
-    };
-    // Ответы на запросы приходят и после закрытия stdin (уровень задач опустел раньше ответа на `stop_task`):
-    // ожидающие запросы отклоняются только с концом процесса или по таймауту.
-    const rejectPendingControls = () => {
-      for (const p of pendingControls.values()) p.reject(new Error('Claude Code turn ended'));
-      pendingControls.clear();
-    };
-    this.cliTurnControls.set(sessionId, {
-      tasks: backgroundTasks,
-      request: (request) =>
-        new Promise((resolve, reject) => {
-          if (!stdinOpen) {
-            reject(new Error('Claude Code turn input is closed'));
-            return;
-          }
-          const requestId = `ph_${++controlSeq}`;
-          pendingControls.set(requestId, { resolve, reject });
-          setTimeout(() => {
-            if (pendingControls.delete(requestId)) reject(new Error('Claude Code did not answer the control request'));
-          }, CLI_TURN_CONTROL_TIMEOUT_MS).unref?.();
-          try {
-            child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: requestId, request })}\n`, 'utf-8');
-          } catch (err) {
-            pendingControls.delete(requestId);
-            reject(err instanceof Error ? err : new Error(String(err)));
-          }
-        })
-    });
-
-    // Гарантируем, что onComplete/onError для сессии вызываются ровно один раз:
-    // события 'error' и 'close' у ChildProcess могут прийти оба.
+    let interrupting = false;
     let finished = false;
-    let stdinError: string | null = null;
-    const failSession = (err: unknown) => {
-      if (finished) return;
-      finished = true;
-      this.activeProcesses.delete(sessionId);
-      cleanupHitl();
-      this.failStudioSession(sessionId, projectPath, err, onError);
-    };
-
-    // Ошибки на stdio-потоках (например EPIPE, если оболочка или CLI завершились мгновенно)
-    // без обработчика становятся uncaughtException и роняют весь main-процесс.
-    // Для stdin не завершаем сессию сразу: итог решает 'close' (там есть stderr и код выхода).
-    child.stdin.on('error', (err) => {
-      stdinError = err.message;
-      console.warn(`[ClaudeBridge] stdin error for session ${sessionId}:`, err.message);
-    });
-    child.stdout.on('error', (err) => failSession(new AppError('studio.cliOutputReadFailed', { detail: err.message })));
-    child.stderr.on('error', (err) => failSession(new AppError('studio.cliStderrReadFailed', { detail: err.message })));
+    let interruptTimer: ReturnType<typeof setTimeout> | null = null;
+    let wakeTimer: ReturnType<typeof setTimeout> | null = null;
+    const emitBackground = () => onChunk({ cliBackground: backgroundTasks.snapshot(resultSeen) });
 
     let accumulatedText = hitlWarning;
     let accumulatedThought = '';
-    const toolCalls: AIToolCall[] = [];
-    let buffer = '';
+    let toolCalls: AIToolCall[] = [];
     let resultUsage: AgentUsage | undefined;
     // Итог `is_error` (нет входа, ошибка API): ответ показывается в чате, но статус проекта — ошибка (TASK-204).
     let resultError: string | undefined;
@@ -1882,231 +1906,418 @@ class ClaudeBridgeService extends EventEmitter {
       onChunk({ text });
     };
 
-    child.stdout.on('data', async (data: Buffer) => {
-      buffer += data.toString('utf-8');
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('{')) continue;
-
-        try {
-          const event = JSON.parse(trimmed);
-
-          // Ответ на `stop_task`/`get_task_output` вкладки (TASK-290).
-          const control = parseControlResponse(event);
-          if (control) {
-            const pending = pendingControls.get(control.requestId);
-            if (pending) {
-              pendingControls.delete(control.requestId);
-              if (control.ok) pending.resolve(control.response);
-              else pending.reject(new Error(control.error));
-            }
-            continue;
-          }
-          // Фоновые задачи хода (TASK-290): панель вкладки и момент, когда stdin можно закрыть.
-          if (backgroundTasks.apply(event)) emitBackground();
-          if (event.type === 'system' && event.subtype === 'background_tasks_changed') closeStdinWhenIdle();
-
-          if (event.session_id && !sideQuestion) {
-            this.sessionClaudeCliIds.set(sessionId, { id: event.session_id, configDir: account.configDir, workDir });
-            onChunk({ claudeCliSessionId: event.session_id });
-          }
-
-          if (event.type === 'rate_limit_event' || event.rate_limit_info) {
-            const info = event.rate_limit_info || event;
-            // Единственный бесплатный источник окон лимитов для бейджа Usage (TASK-44).
-            claudeUsageService.noteRateLimitEvent(info, account.id);
-            const utilization = info.utilization ?? info.unifiedWindows?.[0]?.utilization;
-            const resetsAt = info.resetsAt || info.reset_at || info.unifiedWindows?.[0]?.resetsAt;
-            const warning: RateLimitWarning = {
-              id: `rl-${Date.now()}`,
-              type: info.status === 'throttled' ? 'throttled' : 'rate_limit',
-              // Английский запасной текст: баннер собирает заголовок и текст по типу и проценту (TASK-205).
-              title: `${info.status === 'throttled' ? 'Claude Code rate limit reached' : 'Approaching the Claude Code rate limit'} — account “${account.name}”`,
-              accountName: account.name,
-              message: info.message || '',
-              utilization: utilization ? Math.round(utilization * 100) : 85,
-              resetsAt: resetsAt ? new Date(resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
-              timestamp: Date.now()
-            };
-            onChunk({ rateLimitWarning: warning });
-          }
-
-          if (event.type === 'stream_event') {
-            // Дельты подагента не показываются: его текст — строка прогресса из целого сообщения (TASK-272).
-            if (!parentToolUseIdOf(event)) emitPiece(partial.onStreamEvent(event));
-          } else if (event.type === 'assistant' && event.message?.content) {
-            // Сообщение подагента (TASK-272): текст — в его строку прогресса, шаги — с parentId, рассуждения не показываются.
-            const parent = parentToolUseIdOf(event);
-            for (const item of event.message.content) {
-              if (parent && item.type === 'text') {
-                updateSubagent(subagentProgressFromText(parent, String(item.text ?? '')));
-              } else if (parent && item.type === 'thinking') {
-                continue;
-              } else if (item.type === 'text') {
-                // В ленту — только то, чего не было в дельтах этого блока (TASK-273).
-                emitPiece(partial.finalPiece(event.message.id, 'text', String(item.text ?? '')));
-
-                // Check text for rate limit warning phrases
-                const lowerText = item.text.toLowerCase();
-                if (lowerText.includes('rate limit') || (lowerText.includes('used ') && lowerText.includes('% of your'))) {
-                  const matchPercent = item.text.match(/(\d+)%/);
-                  const percent = matchPercent ? parseInt(matchPercent[1], 10) : 85;
-                  const warning: RateLimitWarning = {
-                    id: `rl-${Date.now()}`,
-                    type: percent >= 100 ? 'throttled' : 'rate_limit',
-                    title: `${percent >= 100 ? 'Claude Code rate limit reached' : 'Approaching the Claude Code rate limit'} — account “${account.name}”`,
-                    accountName: account.name,
-                    message: item.text,
-                    utilization: percent,
-                    timestamp: Date.now()
-                  };
-                  onChunk({ rateLimitWarning: warning });
-                }
-              } else if (item.type === 'thinking') {
-                emitPiece(partial.finalPiece(event.message.id, 'thinking', String(item.thinking ?? '')));
-              } else if (item.type === 'tool_use') {
-                const tc: AIToolCall = {
-                  id: item.id || `tool-${Date.now()}`,
-                  name: item.name,
-                  args: item.input || {},
-                  ...(parent ? { parentId: parent } : {})
-                };
-                toolCalls.push(tc);
-                // Карточки одобрения здесь больше не создаются: событие tool_use приходит уже
-                // после решения о разрешении. Одобрение запрашивается до выполнения инструмента
-                // через --permission-prompt-tool → handleCliPermissionRequest (TASK-42).
-                onChunk({ toolCall: tc });
-                if (parent) updateSubagent({ toolUseId: parent, progress: String(item.name ?? '') });
-                else updateSubagent(subagentFromToolUse(tc.id, tc.name, tc.args), true);
-              }
-            }
-          } else if (event.type === 'user') {
-            // Результаты инструментов (tool_result) — в аудит HITL по tool_use_id (TASK-57)
-            // и выводом шага в ленту Studio, как под вызовом в терминале (TASK-271).
-            this.noteCliUserEvent(event);
-            const parent = parentToolUseIdOf(event);
-            for (const r of cliToolResults(event)) {
-              // Итог вызова Agent/Task у основного агента — итог подагента (TASK-272).
-              if (!parent) updateSubagent(subagentFromToolResult(r));
-              const idx = toolCalls.findIndex((tc) => tc.id === r.toolUseId);
-              if (idx === -1) continue;
-              toolCalls[idx] = { ...toolCalls[idx], status: r.isError ? 'error' : 'done', ...(r.text ? { result: clipToolResult(r.text) } : {}) };
-              onChunk({ toolCall: toolCalls[idx] });
-            }
-          } else if (event.type === 'system' && event.subtype === 'session_title_changed') {
-            // `/rename` выполнил CLI (TASK-287, decision-208): заголовок вкладки — то же имя, что в `/resume` CLI.
-            const title = typeof event.title === 'string' ? event.title.trim().slice(0, 200) : '';
-            if (title && !sideQuestion) onChunk({ claudeCliTitle: title });
-          } else if (event.type === 'system') {
-            // task_started / task_progress / task_notification подагентов CLI (TASK-272).
-            updateSubagent(subagentFromSystemEvent(event));
-          } else if (event.type === 'result') {
-            if (event.result && typeof event.result === 'string' && !accumulatedText) {
-              accumulatedText = event.result;
-              onChunk({ text: event.result });
-            }
-            // Реальные токены и total_cost_usd ответа — в сообщение Agents Studio (TASK-56).
-            const summary = parseClaudeResultEvent(event);
-            if (summary?.isError) resultError = summary.result?.trim() || summary.subtype || 'error';
-            if (summary && (summary.usage.totalTokens > 0 || typeof summary.usage.costUsd === 'number')) {
-              // Та же таблица цен, что у Swarm и API-пути Agents Studio (decision-42).
-              const priced = priceUsage(summary.usage, summary.usage.model, pricingService.getTable());
-              // Ход после конца фоновой задачи — свой `result` со своей стоимостью (TASK-290): складываются.
-              resultUsage = resultUsage ? addUsage(resultUsage, priced) : priced;
-              onChunk({ usage: resultUsage });
-            }
-            // Модель ответила: без живых фоновых задач ход закончен, с ними — ждёт их (TASK-290).
-            const wasWaiting = resultSeen && backgroundTasks.hasLive();
-            resultSeen = true;
-            if (backgroundTasks.hasLive() !== wasWaiting) emitBackground();
-            closeStdinWhenIdle();
-          }
-        } catch {
-          // Check non-json line for warning
-          if (trimmed.includes('rate limit') || trimmed.includes('429 Too Many')) {
-            const warning: RateLimitWarning = {
-              id: `rl-${Date.now()}`,
-              type: 'rate_limit',
-              title: 'Claude Code rate limit notice',
-              message: trimmed,
-              timestamp: Date.now()
-            };
-            onChunk({ rateLimitWarning: warning });
-          }
-        }
-      }
+    const assistantMessage = (aborted: boolean): AIMessage => ({
+      id: `msg-${Date.now()}`,
+      role: 'assistant',
+      content: aborted ? `${accumulatedText}\n\n${hostText(getHostLanguage()).studio.cancelledByUser}`.trim() : accumulatedText,
+      thought: accumulatedThought,
+      toolCalls: toolCalls.map((tc) => ({
+        ...tc,
+        status: tc.status || 'done'
+      })),
+      timestamp: new Date().toISOString(),
+      ...(resultUsage ? { usage: resultUsage } : {})
     });
 
-    let stderrOutput = '';
-    child.stderr.on('data', (data) => {
-      const chunkStr = data.toString();
-      stderrOutput += chunkStr;
+    // Конец хода: процесс остаётся ждать следующего промпта вкладки (побочный вопрос — закрывается).
+    const endTurn = () => {
+      finished = true;
+      live.detach(sink);
+      if (interruptTimer) clearTimeout(interruptTimer);
+      if (wakeTimer) clearTimeout(wakeTimer);
+      if (this.cliTurns.get(sessionId)?.tasks === backgroundTasks) this.cliTurns.delete(sessionId);
+      this.cliPermissionContexts.delete(sessionId);
+      if (!persistent) live.close();
+      else if (!live.exited) live.scheduleIdleClose(CLI_LIVE_IDLE_MS, () => this.disposeLiveCli(sessionId, live));
+    };
+    const completeTurn = () => {
+      if (finished) return;
+      endTurn();
+      const aborted = this.abortedSessions.has(sessionId);
+      if (aborted) {
+        this.finishSession(sessionId, projectPath, 'aborted', 'Session aborted by the user');
+      } else if (resultError) {
+        this.finishSession(sessionId, projectPath, 'error', resultError);
+      } else {
+        this.finishSession(sessionId, projectPath, 'done', 'Task completed');
+      }
+      onComplete(assistantMessage(aborted));
+    };
+    const failTurn = (err: unknown) => {
+      if (finished) return;
+      endTurn();
+      this.failStudioSession(sessionId, projectPath, err, onError);
+    };
+    // Ход закончен, когда модель ответила, фоновых задач нет и все реплики вкладки дошли до модели; после прерывания —
+    // на итоге прерванного прогона.
+    const maybeComplete = () => {
+      if (finished || wakeTimer) return;
+      if (interrupting ? resultSeen || !promptStarted : resultSeen && !backgroundTasks.hasLive() && injected.size === 0) completeTurn();
+    };
 
-      if (chunkStr.includes('rate limit') || chunkStr.includes('429 Too Many')) {
+    const handleEvent = (raw: Record<string, unknown>, meta: { costUsd?: number }) => {
+      // События stream-json разбираются по полям, как прежде результат JSON.parse.
+      const event: ReturnType<typeof JSON.parse> = raw;
+      // Реплики с uuid: промпт хода и сообщения, отправленные во время хода (TASK-298).
+      const lifecycle = commandLifecycle(event);
+      if (lifecycle) {
+        if (lifecycle.uuid === promptUuid && (lifecycle.state === 'started' || lifecycle.state === 'completed')) promptStarted = true;
+        if (lifecycle.state === 'cancelled' && injected.delete(lifecycle.uuid)) maybeComplete();
+        return;
+      }
+      const replayed = replayedUserUuid(event);
+      if (replayed) {
+        if (replayed === promptUuid) promptStarted = true;
+        const messageId = injected.get(replayed);
+        if (messageId && promptStarted) {
+          // Реплика дошла до модели: ответ до неё — законченное сообщение ленты, после — новое (сводка хода — по новому).
+          injected.delete(replayed);
+          resultSeen = false;
+          accumulatedText = '';
+          accumulatedThought = '';
+          toolCalls = [];
+          onChunk({ cliUserDelivered: { id: messageId } });
+        }
+        // Остальные повторы (промпт хода, вывод локальных команд) в ленту не идут: промпт в ней уже есть.
+        return;
+      }
+      if (!promptStarted) return;
+
+      // Фоновые задачи хода (TASK-290): панель вкладки и момент, когда ход можно закончить.
+      if (backgroundTasks.apply(event)) emitBackground();
+      if (event.type === 'system' && event.subtype === 'init' && resultSeen) {
+        // Новый прогон модели после ответа — пробуждение по концу фоновой задачи: ход ждёт и его итог.
+        resultSeen = false;
+        if (wakeTimer) clearTimeout(wakeTimer);
+        wakeTimer = null;
+        emitBackground();
+      }
+      if (event.type === 'system' && event.subtype === 'background_tasks_changed' && resultSeen && !backgroundTasks.hasLive() && !interrupting) {
+        // Последняя задача кончилась: CLI сейчас начнёт пробуждение (новый `init`). Не начал за паузу — ход закончен.
+        if (wakeTimer) clearTimeout(wakeTimer);
+        wakeTimer = setTimeout(() => {
+          wakeTimer = null;
+          maybeComplete();
+        }, CLI_WAKE_GRACE_MS);
+      }
+
+      if (typeof event.session_id === 'string' && event.session_id && !sideQuestion) {
+        this.sessionClaudeCliIds.set(sessionId, { id: event.session_id, configDir: account.configDir, workDir });
+        onChunk({ claudeCliSessionId: event.session_id });
+      }
+
+      if (event.type === 'rate_limit_event' || event.rate_limit_info) {
+        const info = event.rate_limit_info || event;
+        // Единственный бесплатный источник окон лимитов для бейджа Usage (TASK-44).
+        claudeUsageService.noteRateLimitEvent(info, account.id);
+        const utilization = info.utilization ?? info.unifiedWindows?.[0]?.utilization;
+        const resetsAt = info.resetsAt || info.reset_at || info.unifiedWindows?.[0]?.resetsAt;
         const warning: RateLimitWarning = {
           id: `rl-${Date.now()}`,
-          type: 'rate_limit',
-          title: 'Claude Code rate limit notice',
-          message: chunkStr.trim(),
+          type: info.status === 'throttled' ? 'throttled' : 'rate_limit',
+          // Английский запасной текст: баннер собирает заголовок и текст по типу и проценту (TASK-205).
+          title: `${info.status === 'throttled' ? 'Claude Code rate limit reached' : 'Approaching the Claude Code rate limit'} — account “${account.name}”`,
+          accountName: account.name,
+          message: info.message || '',
+          utilization: utilization ? Math.round(utilization * 100) : 85,
+          resetsAt: resetsAt ? new Date(resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
           timestamp: Date.now()
         };
         onChunk({ rateLimitWarning: warning });
       }
-    });
 
-    child.on('close', (code) => {
-      stdinOpen = false;
-      releaseTurnControl();
-      rejectPendingControls();
-      if (finished) return;
-      finished = true;
-      this.activeProcesses.delete(sessionId);
-      cleanupHitl();
-      const aborted = this.abortedSessions.has(sessionId);
-      if (code === 0 || accumulatedText || aborted) {
-        const completeMsg: AIMessage = {
-          id: `msg-${Date.now()}`,
-          role: 'assistant',
-          content: aborted ? `${accumulatedText}\n\n${hostText(getHostLanguage()).studio.cancelledByUser}`.trim() : accumulatedText,
-          thought: accumulatedThought,
-          toolCalls: toolCalls.map((tc) => ({
-            ...tc,
-            status: tc.status || 'done'
-          })),
-          timestamp: new Date().toISOString(),
-          ...(resultUsage ? { usage: resultUsage } : {})
-        };
-        if (aborted) {
-          this.finishSession(sessionId, projectPath, 'aborted', 'Session aborted by the user');
-        } else if (resultError) {
-          this.finishSession(sessionId, projectPath, 'error', resultError);
-        } else {
-          this.finishSession(sessionId, projectPath, 'done', 'Task completed');
+      if (event.type === 'stream_event') {
+        // Дельты подагента не показываются: его текст — строка прогресса из целого сообщения (TASK-272).
+        if (!parentToolUseIdOf(event)) emitPiece(partial.onStreamEvent(event));
+      } else if (event.type === 'assistant' && event.message?.content) {
+        // Сообщение подагента (TASK-272): текст — в его строку прогресса, шаги — с parentId, рассуждения не показываются.
+        const parent = parentToolUseIdOf(event);
+        for (const item of event.message.content) {
+          if (parent && item.type === 'text') {
+            updateSubagent(subagentProgressFromText(parent, String(item.text ?? '')));
+          } else if (parent && item.type === 'thinking') {
+            continue;
+          } else if (item.type === 'text') {
+            // В ленту — только то, чего не было в дельтах этого блока (TASK-273).
+            emitPiece(partial.finalPiece(event.message.id, 'text', String(item.text ?? '')));
+
+            // Check text for rate limit warning phrases
+            const lowerText = String(item.text ?? '').toLowerCase();
+            if (lowerText.includes('rate limit') || (lowerText.includes('used ') && lowerText.includes('% of your'))) {
+              const matchPercent = String(item.text).match(/(\d+)%/);
+              const percent = matchPercent ? parseInt(matchPercent[1], 10) : 85;
+              const warning: RateLimitWarning = {
+                id: `rl-${Date.now()}`,
+                type: percent >= 100 ? 'throttled' : 'rate_limit',
+                title: `${percent >= 100 ? 'Claude Code rate limit reached' : 'Approaching the Claude Code rate limit'} — account “${account.name}”`,
+                accountName: account.name,
+                message: item.text,
+                utilization: percent,
+                timestamp: Date.now()
+              };
+              onChunk({ rateLimitWarning: warning });
+            }
+          } else if (item.type === 'thinking') {
+            emitPiece(partial.finalPiece(event.message.id, 'thinking', String(item.thinking ?? '')));
+          } else if (item.type === 'tool_use') {
+            const tc: AIToolCall = {
+              id: item.id || `tool-${Date.now()}`,
+              name: item.name,
+              args: item.input || {},
+              ...(parent ? { parentId: parent } : {})
+            };
+            toolCalls.push(tc);
+            // Карточки одобрения здесь больше не создаются: событие tool_use приходит уже
+            // после решения о разрешении. Одобрение запрашивается до выполнения инструмента
+            // через --permission-prompt-tool → handleCliPermissionRequest (TASK-42).
+            onChunk({ toolCall: tc });
+            if (parent) updateSubagent({ toolUseId: parent, progress: String(item.name ?? '') });
+            else updateSubagent(subagentFromToolUse(tc.id, tc.name, tc.args), true);
+          }
         }
-        onComplete(completeMsg);
-      } else {
+      } else if (event.type === 'user') {
+        // Результаты инструментов (tool_result) — в аудит HITL по tool_use_id (TASK-57)
+        // и выводом шага в ленту Studio, как под вызовом в терминале (TASK-271).
+        this.noteCliUserEvent(event);
+        const parent = parentToolUseIdOf(event);
+        for (const r of cliToolResults(event)) {
+          // Итог вызова Agent/Task у основного агента — итог подагента (TASK-272).
+          if (!parent) updateSubagent(subagentFromToolResult(r));
+          const idx = toolCalls.findIndex((tc) => tc.id === r.toolUseId);
+          if (idx === -1) continue;
+          toolCalls[idx] = { ...toolCalls[idx], status: r.isError ? 'error' : 'done', ...(r.text ? { result: clipToolResult(r.text) } : {}) };
+          onChunk({ toolCall: toolCalls[idx] });
+        }
+      } else if (event.type === 'system' && event.subtype === 'session_title_changed') {
+        // `/rename` выполнил CLI (TASK-287, decision-208): заголовок вкладки — то же имя, что в `/resume` CLI.
+        const title = typeof event.title === 'string' ? event.title.trim().slice(0, 200) : '';
+        if (title && !sideQuestion) onChunk({ claudeCliTitle: title });
+      } else if (event.type === 'system') {
+        // task_started / task_progress / task_notification подагентов CLI (TASK-272).
+        updateSubagent(subagentFromSystemEvent(event));
+      } else if (event.type === 'result') {
+        if (event.result && typeof event.result === 'string' && !accumulatedText) {
+          accumulatedText = event.result;
+          onChunk({ text: event.result });
+        }
+        // Реальные токены и стоимость ответа — в сообщение Agents Studio (TASK-56). `total_cost_usd` копится за жизнь
+        // процесса (TASK-298): стоимость этого прогона — разность, её считает CliLiveProcess.
+        const summary = parseClaudeResultEvent({ ...event, total_cost_usd: meta.costUsd });
+        if (summary?.isError && !interrupting) resultError = summary.result?.trim() || summary.subtype || 'error';
+        if (summary && (summary.usage.totalTokens > 0 || typeof summary.usage.costUsd === 'number')) {
+          // Та же таблица цен, что у Swarm и API-пути Agents Studio (decision-42).
+          const priced = priceUsage(summary.usage, summary.usage.model, pricingService.getTable());
+          // Ход после конца фоновой задачи и ответ на реплику во время хода — свои `result`: складываются.
+          resultUsage = resultUsage ? addUsage(resultUsage, priced) : priced;
+          onChunk({ usage: resultUsage });
+        }
+        // Модель ответила: без живых фоновых задач ход закончен, с ними — ждёт их (TASK-290).
+        const wasWaiting = resultSeen && backgroundTasks.hasLive();
+        resultSeen = true;
+        if (backgroundTasks.hasLive() !== wasWaiting) emitBackground();
+        maybeComplete();
+      }
+    };
+
+    const sink: CliTurnSink = {
+      onEvent: (event, meta) => {
+        try {
+          handleEvent(event, meta);
+        } catch (err) {
+          console.warn(`[ClaudeBridge] failed to handle a CLI event for session ${sessionId}:`, err);
+        }
+      },
+      onRawLine: (line) => {
+        // Check non-json line for warning
+        if (line.includes('rate limit') || line.includes('429 Too Many')) {
+          onChunk({
+            rateLimitWarning: { id: `rl-${Date.now()}`, type: 'rate_limit', title: 'Claude Code rate limit notice', message: line, timestamp: Date.now() }
+          });
+        }
+      },
+      onStderr: (text) => {
+        if (text.includes('rate limit') || text.includes('429 Too Many')) {
+          onChunk({
+            rateLimitWarning: { id: `rl-${Date.now()}`, type: 'rate_limit', title: 'Claude Code rate limit notice', message: text.trim(), timestamp: Date.now() }
+          });
+        }
+      },
+      onClose: (code, info) => {
+        if (finished) return;
+        const aborted = this.abortedSessions.has(sessionId);
+        if (code === 0 || accumulatedText || aborted) {
+          completeTurn();
+          return;
+        }
         // Вывод CLI — его собственный текст; без него — причина ProjectHub с кодом.
-        const err = stderrOutput
-          ? stderrOutput
-          : stdinError
-            ? new AppError('studio.cliStdinFailed', { detail: stdinError })
-            : new AppError('studio.cliExitCode', { code: String(code) });
-        this.failStudioSession(sessionId, projectPath, err, onError);
+        failTurn(
+          info.stderr
+            ? info.stderr
+            : info.stdinError
+              ? new AppError('studio.cliStdinFailed', { detail: info.stdinError })
+              : new AppError('studio.cliExitCode', { code: String(code) })
+        );
+      },
+      onFailure: (err) => {
+        failTurn(new AppError('studio.cliOutputReadFailed', { detail: err.message }));
+        live.kill();
+      }
+    };
+
+    // Прерывание хода (Esc, «Стоп», kill-switch): `interrupt` без убийства процесса, фоновые задачи останавливаются,
+    // неотправленные модели реплики снимаются с очереди CLI. Нет итога за паузу — дерево процесса убивается.
+    const quiet = () => { /* процесс мог уже выйти */ };
+    const interrupt = () => {
+      if (finished || interrupting) return;
+      interrupting = true;
+      if (wakeTimer) clearTimeout(wakeTimer);
+      wakeTimer = null;
+      if (!promptStarted) live.request({ subtype: 'cancel_async_message', message_uuid: promptUuid }, CLI_TURN_CONTROL_TIMEOUT_MS).catch(quiet);
+      live.request({ subtype: 'interrupt' }, CLI_TURN_CONTROL_TIMEOUT_MS).catch(quiet);
+      for (const taskId of backgroundTasks.liveIds()) live.request({ subtype: 'stop_task', task_id: taskId }, CLI_TURN_CONTROL_TIMEOUT_MS).catch(quiet);
+      for (const uuid of injected.keys()) live.request({ subtype: 'cancel_async_message', message_uuid: uuid }, CLI_TURN_CONTROL_TIMEOUT_MS).catch(quiet);
+      injected.clear();
+      interruptTimer = setTimeout(() => {
+        if (!finished) live.kill();
+      }, CLI_INTERRUPT_GRACE_MS);
+      maybeComplete();
+    };
+
+    this.cliTurns.set(sessionId, {
+      tasks: backgroundTasks,
+      request: (request) => live.request(request, CLI_TURN_CONTROL_TIMEOUT_MS),
+      interrupt,
+      // Реплика во время хода (TASK-298): сразу в stdin CLI, модель увидит её на ближайшей границе шага.
+      inject: persistent
+        ? async (message) => {
+            if (finished || interrupting) return false;
+            const uuid = randomUUID();
+            let content: string | CliContentBlock[] = message.text;
+            const attachments = sanitizePromptAttachments(message.attachments);
+            if (attachments.length > 0) content = await cliUserContent(message.text, attachments, projectPath, workDir);
+            if (finished || interrupting) return false;
+            injected.set(uuid, message.id);
+            if (!live.write(cliUserLineWithUuid(content, uuid))) {
+              injected.delete(uuid);
+              return false;
+            }
+            return true;
+          }
+        : undefined,
+      // Снять реплику, которую модель ещё не взяла (`cancel_async_message`).
+      cancelInjected: async (messageId) => {
+        const uuid = [...injected].find(([, id]) => id === messageId)?.[0];
+        if (!uuid || finished) return false;
+        const response = await live.request({ subtype: 'cancel_async_message', message_uuid: uuid }, CLI_TURN_CONTROL_TIMEOUT_MS);
+        if (response.cancelled !== true) return false;
+        injected.delete(uuid);
+        maybeComplete();
+        return true;
       }
     });
 
-    child.on('error', (err) => failSession(err.message));
+    live.attach(sink);
+    if (!live.write(cliUserLineWithUuid(promptContent, promptUuid))) {
+      failTurn(new AppError('studio.cliStdinFailed', { detail: 'stdin is closed' }));
+      live.kill();
+    }
+  }
 
-    // Передаём запрос через stdin (без экранирования аргументов оболочки) — только после навешивания всех обработчиков.
-    // stdin закрывает closeStdinWhenIdle: после ответа модели и без живых фоновых задач (TASK-290).
+  /**
+   * Живой процесс вкладки для следующего хода (TASK-298): тот же запуск, та же сессия CLI, ход не идёт. Модель и plan mode
+   * переключаются запросами; не вышло — процесс закрывается, ход запустит новый с `--resume`.
+   */
+  private async reusableLiveCli(
+    sessionId: string,
+    want: { signature: string; cliSessionId?: string; fresh: boolean; model: string | null; plan: boolean }
+  ): Promise<CliLiveProcess | null> {
+    const live = this.liveCli.get(sessionId);
+    if (!live) return null;
+    const fits =
+      !live.exited &&
+      !live.busy &&
+      !want.fresh &&
+      live.signature === want.signature &&
+      !!want.cliSessionId &&
+      live.cliSessionId?.toLowerCase() === want.cliSessionId.toLowerCase();
+    if (!fits) {
+      this.disposeLiveCli(sessionId, live);
+      return null;
+    }
     try {
-      child.stdin.write(stdinPayload, 'utf-8');
-    } catch (err: unknown) {
-      failSession(new AppError('studio.cliStdinFailed', { detail: errorMessage(err) }));
-      killProcessTree(child);
+      for (const request of cliSwitchRequests(live, { model: want.model, plan: want.plan })) {
+        await live.request(request, CLI_TURN_CONTROL_TIMEOUT_MS);
+        if (request.subtype === 'set_model') live.model = want.model;
+        if (request.subtype === 'set_permission_mode') live.permissionMode = String(request.mode);
+      }
+    } catch (err) {
+      console.warn(`[ClaudeBridge] switching the live Claude Code process failed for session ${sessionId}: ${errorMessage(err)}`);
+      this.disposeLiveCli(sessionId, live);
+      return null;
+    }
+    return live.exited ? null : live;
+  }
+
+  /** Процесс становится живым процессом вкладки; прежний закрывается. Файлы запуска удаляет последний процесс вкладки. */
+  private registerLiveCli(sessionId: string, proc: CliLiveProcess, removeFiles: () => void): void {
+    const prev = this.liveCli.get(sessionId);
+    this.liveCli.set(sessionId, proc);
+    if (prev && prev !== proc) prev.kill();
+    proc.onExit(() => {
+      if (this.liveCli.get(sessionId) !== proc) return;
+      this.liveCli.delete(sessionId);
+      removeFiles();
+    });
+  }
+
+  /** Закрывает живой процесс вкладки: простой, смена запуска, закрытие вкладки. Идущий ход прерывается вместе с ним. */
+  private disposeLiveCli(sessionId: string, proc?: CliLiveProcess): void {
+    const live = this.liveCli.get(sessionId);
+    if (!live || (proc && live !== proc)) return;
+    if (live.busy) live.kill();
+    else live.close();
+  }
+
+  /**
+   * Служебный запрос в живой процесс вкладки с этой сессией CLI и аккаунтом, пока в нём нет хода (TASK-298): второй процесс
+   * с `--resume` той же сессии писал бы в её файл параллельно. `null` — такого процесса нет; `false` — CLI отказал.
+   */
+  public async requestLiveCli(cliSessionId: string, configDir: string, request: Record<string, unknown>): Promise<boolean | null> {
+    const id = cliSessionId.toLowerCase();
+    const live = [...this.liveCli.values()].find(
+      (p) => !p.exited && !p.busy && p.cliSessionId?.toLowerCase() === id && sameDir(p.configDir, configDir)
+    );
+    if (!live) return null;
+    try {
+      await live.request(request, CLI_TURN_CONTROL_TIMEOUT_MS);
+      return true;
+    } catch (err) {
+      console.warn(`[ClaudeBridge] control request ${String(request.subtype)} to the live process failed: ${errorMessage(err)}`);
+      return false;
+    }
+  }
+
+  /** Реплика во время хода Claude Code вкладки (TASK-298): `false` — хода нет, сообщение остаётся в очереди вкладки. */
+  public async injectCliMessage(sessionId: string, message: { id: string; text: string; attachments?: PromptAttachment[] }): Promise<boolean> {
+    const turn = this.cliTurns.get(sessionId);
+    if (!turn?.inject) return false;
+    try {
+      return await turn.inject(message);
+    } catch (err) {
+      console.warn(`[ClaudeBridge] sending a message during the turn failed for session ${sessionId}: ${errorMessage(err)}`);
+      return false;
+    }
+  }
+
+  /** Снимает реплику, которую модель ещё не взяла (TASK-298): `false` — она уже у модели или хода нет. */
+  public async cancelCliMessage(sessionId: string, messageId: string): Promise<boolean> {
+    const turn = this.cliTurns.get(sessionId);
+    if (!turn) return false;
+    try {
+      return await turn.cancelInjected(messageId);
+    } catch (err) {
+      console.warn(`[ClaudeBridge] cancel_async_message failed for session ${sessionId}: ${errorMessage(err)}`);
+      return false;
     }
   }
 
