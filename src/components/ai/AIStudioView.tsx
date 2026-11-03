@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   BrainCircuit,
   Bot,
@@ -40,7 +40,7 @@ import { AISettingsModal } from './AISettingsModal';
 import { RolesSettingsModal } from './roles/RolesSettingsModal';
 import { InteractiveApprovalCard } from './InteractiveApprovalCard';
 import { SubagentsPanel } from './SubagentsPanel';
-import { PromptInputArea } from './PromptInputArea';
+import { PromptInputArea, type ComposerCompletion } from './PromptInputArea';
 import { ContextAppliedCard } from './ContextAppliedCard';
 import { SessionAgentPicker } from './SessionAgentPicker';
 import { ComposerMenu } from './ComposerMenu';
@@ -54,6 +54,8 @@ import { BackgroundTasksBar } from './BackgroundTasksBar';
 import { CliRewindModal } from './CliRewindModal';
 import { studioCliText } from '../../i18n/studioCliText';
 import { goesToClaudeCli } from '../../lib/studioCliCommands';
+import { projectPromptHistory } from '../../lib/promptHistory';
+import { windowCliCommandCache } from '../../lib/cliCommandCache';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { RateLimitWarningBanner } from './RateLimitWarningBanner';
 import { AgentStepsAccordion } from './AgentStepsAccordion';
@@ -259,6 +261,25 @@ export const AIStudioView: React.FC = () => {
   useEffect(() => {
     revealSessionTab(currentSessionId);
   }, [revealSessionTab, aiViewMode, currentSessionId, projectSessions.length, tabsOverflow]);
+
+  // История ↑/↓ и автодополнение `@`/`/` поля ввода (TASK-300): файлы каталога вкладки, команды CLI её аккаунта.
+  const getPromptHistory = useCallback(
+    () => projectPromptHistory(useAIStudioStore.getState().sessions[projectPath] || [], currentSessionId),
+    [projectPath, currentSessionId]
+  );
+  const completionCliTab = goesToClaudeCli(sessionRequestConfig(config, currentSession?.agent));
+  const addDirsKey = (currentSession?.claudeCliAddDirs || []).join('\n');
+  const composerCompletion = useMemo<ComposerCompletion | undefined>(() => {
+    if (!projectPath) return undefined;
+    const scope = { cwd: tabWorkDir, ...(sessionAccountId ? { claudeAccountId: sessionAccountId } : {}), addDirs: addDirsKey ? addDirsKey.split('\n') : [] };
+    const commands = windowCliCommandCache(projectPath);
+    return {
+      cliTab: completionCliTab,
+      searchFiles: (query) => window.api.searchFiles({ projectPath, cwd: tabWorkDir, query, limit: 50 }),
+      peekCliCommands: () => commands.peek(scope),
+      loadCliCommands: () => commands.load(scope)
+    };
+  }, [projectPath, tabWorkDir, sessionAccountId, addDirsKey, completionCliTab]);
 
   if (!selectedProject) {
     return (
@@ -1124,6 +1145,8 @@ export const AIStudioView: React.FC = () => {
         canRewind={canRewind}
         onRewind={() => currentSessionId && openRewind(projectPath, currentSessionId)}
         escapeBlocked={projectApprovals.length > 0}
+        getHistory={getPromptHistory}
+        completion={composerCompletion}
         footerStart={
           <>
             {currentSessionId && (

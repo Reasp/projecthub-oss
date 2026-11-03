@@ -60,7 +60,12 @@ export const HotkeysHelpModal: React.FC<Props> = ({ isOpen, onClose }) => {
       note: t.hotkeys.studioNote,
       items: [
         { keys: ['Esc'], description: t.hotkeys.studioStop },
-        { keys: ['Esc', 'Esc'], description: t.hotkeys.studioRewind }
+        { keys: ['Esc', 'Esc'], description: t.hotkeys.studioRewind },
+        // TASK-300
+        { keys: ['↑', '↓'], description: t.hotkeys.studioHistory },
+        { keys: ['@'], description: t.hotkeys.studioMention },
+        { keys: ['/'], description: t.hotkeys.studioSlash },
+        { keys: ['Tab'], description: t.hotkeys.studioComplete }
       ]
     }
   ];

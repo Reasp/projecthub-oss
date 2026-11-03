@@ -1433,6 +1433,15 @@ export interface IElectronAPI {
     { ok: true; list: CliCommandList } | { ok: false; reason: 'start' | 'timeout' | 'cli'; detail?: string }
   >;
   /**
+   * Файлы рабочего каталога вкладки для `@` в поле ввода (TASK-300): пустой запрос или запрос на `/` — содержимое
+   * каталога, иначе нечёткий поиск. Пути через `/` от каталога вкладки, у каталогов — с `/` на конце.
+   */
+  searchFiles: (query: { projectPath: string; cwd?: string; query: string; limit?: number }) => Promise<{
+    ok: boolean;
+    entries: Array<{ path: string; dir: boolean }>;
+    truncated: boolean;
+  }>;
+  /**
    * Экспорт переписки вкладки (TASK-288): системный диалог сохранения. Markdown собирает рендерер; у вкладки Claude Code
    * с `cliSessionId` файл `.txt` — расшифровка самого CLI (`format: 'cli'`).
    */

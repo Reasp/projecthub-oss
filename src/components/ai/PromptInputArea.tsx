@@ -1,6 +1,11 @@
-import React, { useState, useRef, useEffect, memo } from 'react';
-import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, ListPlus, GitCommit, Rocket, Landmark, At, File as FileIcon, Paperclip, X } from '../common/icons';
-import type { BacklogTask, GitRepoDetails } from '../../types/electron';
+import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
+import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, ListPlus, GitCommit, Rocket, Landmark, At, File as FileIcon, Folder, Paperclip, X } from '../common/icons';
+import type { BacklogTask, CliCommandList, GitRepoDetails } from '../../types/electron';
+import { ComposerSuggestions, type ComposerSuggestionItem } from './ComposerSuggestions';
+import { applyCompletion, completionToken, mentionText } from '../../lib/composerCompletion';
+import { HISTORY_START, caretOnFirstLine, caretOnLastLine, historyStep, type HistoryNav } from '../../lib/promptHistory';
+import { slashSuggestions } from '../../lib/studioHelp';
+import { studioCliText } from '../../i18n/studioCliText';
 import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { voiceService, type VoiceState } from '../../services/voiceService';
 import {
@@ -33,6 +38,18 @@ interface PendingAttachment {
   saved?: PromptAttachment;
 }
 
+/** Источники автодополнения поля (TASK-300): файлы каталога вкладки и команды Claude Code. */
+export interface ComposerCompletion {
+  /** Вкладка идёт в Claude Code CLI: в `/` есть команды CLI и терминальные. */
+  cliTab: boolean;
+  searchFiles: (query: string) => Promise<{ entries: Array<{ path: string; dir: boolean }>; truncated: boolean }>;
+  peekCliCommands: () => CliCommandList | null | undefined;
+  loadCliCommands: () => Promise<CliCommandList | null>;
+}
+
+/** Предел файлов в поиске `@` — в подсказке, если проект больше (повторяет `MAX_INDEX_FILES` main). */
+const FILE_INDEX_LIMIT = 50_000;
+
 interface PromptInputAreaProps {
   mode: 'agent' | 'chat' | 'architect';
   isStreaming: boolean;
@@ -55,6 +72,9 @@ interface PromptInputAreaProps {
   onRewind?: () => void;
   /** Esc занят карточкой на ленте вкладки (подтверждение действия агента) — поле его не трогает. */
   escapeBlocked?: boolean;
+  /** Промпты для ↑/↓ от нового к старому (TASK-300); зовётся на нажатие, чтобы не считать историю на каждый кадр. */
+  getHistory?: () => readonly string[];
+  completion?: ComposerCompletion;
 }
 
 export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
@@ -70,9 +90,11 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   onPrefillApplied,
   canRewind = false,
   onRewind,
-  escapeBlocked = false
+  escapeBlocked = false,
+  getHistory,
+  completion
 }) => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [input, setInput] = useState('');
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [promptDictation, setPromptDictation] = useState(voiceService.isPromptDictationActive);
@@ -100,10 +122,36 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   useEffect(() => {
     if (prefillNonce === undefined || prefillText === undefined) return;
     inputRef.current = prefillText;
+    historyNavRef.current = HISTORY_START;
     setInput(prefillText);
     textareaRef.current?.focus();
     onPrefillAppliedRef.current?.();
   }, [prefillNonce, prefillText]);
+
+  // Курсор поля (TASK-300): от него зависит токен `@`/`/`. После подстановки из истории или списка курсор ставится явно.
+  const [caret, setCaret] = useState({ start: 0, end: 0 });
+  const pendingCaretRef = useRef<number | null>(null);
+  const historyNavRef = useRef<HistoryNav>(HISTORY_START);
+  const syncCaret = (el: HTMLTextAreaElement) => {
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    setCaret((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  };
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const pos = pendingCaretRef.current;
+    if (pos !== null) {
+      pendingCaretRef.current = null;
+      el.setSelectionRange(pos, pos);
+    }
+    syncCaret(el);
+  }, [input]);
+  const setInputAt = (text: string, caretPos: number) => {
+    inputRef.current = text;
+    pendingCaretRef.current = caretPos;
+    setInput(text);
+  };
 
   // Распознанная речь сама в поле не попадает (TASK-275): вне диктовки это команды, а не текст промпта.
   useEffect(() => {
@@ -212,6 +260,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
     const files = readyAttachments;
     if (!textToSend && files.length === 0) return false;
     inputRef.current = '';
+    historyNavRef.current = HISTORY_START;
     setInput('');
 
     if (files.length === 0 && (textToSend.toLowerCase() === '/usage' || textToSend.toLowerCase() === '/cost')) {
@@ -315,7 +364,169 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
+  // Автодополнение (TASK-300, decision-214): `/команда` в начале поля и `@путь` после пробела.
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const [fileResult, setFileResult] = useState<{ entries: Array<{ path: string; dir: boolean }>; truncated: boolean } | null>(null);
+  const [cliList, setCliList] = useState<CliCommandList | null | undefined>(undefined);
+  const [cliLoading, setCliLoading] = useState(false);
+
+  const token = completion ? completionToken(input, caret.start, caret.end) : null;
+  const tokenKey = token ? `${token.kind}:${token.start}` : null;
+  const suggestOpen = !!token && focused && tokenKey !== dismissed;
+  const slashOpen = suggestOpen && token?.kind === 'slash';
+  const mentionOpen = suggestOpen && token?.kind === 'mention';
+  const mentionQuery = mentionOpen ? token.query : null;
+
+  useEffect(() => {
+    if (!tokenKey) setDismissed(null);
+  }, [tokenKey]);
+  useEffect(() => {
+    setActive(0);
+  }, [tokenKey, token?.query]);
+
+  useEffect(() => {
+    if (!slashOpen || !completion?.cliTab) return;
+    let alive = true;
+    const known = completion.peekCliCommands();
+    setCliList(known);
+    setCliLoading(true);
+    void completion.loadCliCommands().then((list) => {
+      if (!alive) return;
+      setCliList(list);
+      setCliLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [slashOpen, completion]);
+
+  useEffect(() => {
+    if (mentionQuery === null || !completion) {
+      setFileResult(null);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(
+      () => {
+        completion
+          .searchFiles(mentionQuery)
+          .then((result) => alive && setFileResult(result))
+          .catch(() => alive && setFileResult({ entries: [], truncated: false }));
+      },
+      mentionQuery ? 80 : 0
+    );
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [mentionQuery, completion]);
+
+  const cliText = studioCliText(language);
+  const groupLabel = { studio: t.aiStudio.input.suggestGroupStudio, cli: t.aiStudio.input.suggestGroupCli, terminal: t.aiStudio.input.suggestGroupTerminal };
+  const slashItems =
+    slashOpen && token
+      ? slashSuggestions({
+          cliTab: !!completion?.cliTab,
+          studioDescription: (name) => cliText.helpCommand[name],
+          cliCommands: cliList?.commands ?? [],
+          query: token.query
+        })
+      : [];
+  const fileEntries = mentionOpen ? fileResult?.entries ?? [] : [];
+  const suggestionItems: ComposerSuggestionItem[] = slashOpen
+    ? slashItems.map((s) => ({
+        key: `${s.group}:${s.name}`,
+        label: `/${s.name}`,
+        hint: s.argumentHint,
+        detail: s.description,
+        badge: groupLabel[s.group]
+      }))
+    : fileEntries.map((f) => {
+        const trimmed = f.dir ? f.path.slice(0, -1) : f.path;
+        const base = trimmed.slice(trimmed.lastIndexOf('/') + 1) + (f.dir ? '/' : '');
+        return {
+          key: f.path,
+          label: f.path,
+          strong: base,
+          icon: f.dir ? <Folder className="w-3.5 h-3.5 text-amber-300/80" /> : <FileIcon className="w-3.5 h-3.5" />
+        };
+      });
+  let suggestStatus: string | undefined;
+  if (slashOpen) {
+    if (completion?.cliTab && cliLoading && cliList === undefined) suggestStatus = t.aiStudio.input.suggestCliLoading;
+    else if (slashItems.length === 0) suggestStatus = t.aiStudio.input.suggestNoCommands;
+  } else if (mentionOpen) {
+    if (!fileResult) suggestStatus = t.aiStudio.input.suggestSearching;
+    else if (fileEntries.length === 0) suggestStatus = t.aiStudio.input.suggestNoFiles;
+  }
+
+  /**
+   * Подставить пункт списка. Enter у команды без аргументов или у уже набранной целиком сразу отправляет её, как в
+   * терминальном Claude Code; у команды с аргументами — вставляет её с пробелом.
+   */
+  const pickSuggestion = (index: number, how: 'tab' | 'enter' | 'click') => {
+    if (!token) return;
+    if (token.kind === 'slash') {
+      const s = slashItems[index];
+      if (!s) return;
+      const applied = applyCompletion(inputRef.current, token, `/${s.name}`);
+      if (how === 'enter' && (!s.argumentHint || token.query.toLowerCase() === s.name.toLowerCase())) {
+        sendText(applied.text);
+        return;
+      }
+      setInputAt(applied.text, applied.caret);
+    } else {
+      const f = fileEntries[index];
+      if (!f) return;
+      const applied = applyCompletion(inputRef.current, token, mentionText(f.path), f.dir);
+      setInputAt(applied.text, applied.caret);
+    }
+    textareaRef.current?.focus();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Набор через IME (иероглифы, японская раскладка) — клавиши его.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    const mods = e.ctrlKey || e.altKey || e.metaKey;
+    if (suggestOpen && !mods) {
+      const count = suggestionItems.length;
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey && count > 0) {
+        e.preventDefault();
+        setActive((a) => (a + (e.key === 'ArrowDown' ? 1 : -1) + count) % count);
+        return;
+      }
+      if (e.key === 'Tab' && !e.shiftKey && count > 0) {
+        e.preventDefault();
+        pickSuggestion(active, 'tab');
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey && count > 0) {
+        e.preventDefault();
+        pickSuggestion(active, 'enter');
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setDismissed(tokenKey);
+        return;
+      }
+    }
+    // История промптов (TASK-300): ↑ с первой строки, ↓ с последней; набранный черновик возвращается ↓.
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !mods && !e.shiftKey && getHistory) {
+      const el = e.currentTarget;
+      const up = e.key === 'ArrowUp';
+      const atEdge = up ? caretOnFirstLine(input, el.selectionStart, el.selectionEnd) : caretOnLastLine(input, el.selectionStart, el.selectionEnd);
+      const step = atEdge ? historyStep(historyNavRef.current, getHistory(), up ? 'up' : 'down', input) : null;
+      if (step) {
+        e.preventDefault();
+        historyNavRef.current = step.nav;
+        setInputAt(step.text, step.text.length);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -387,6 +598,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
         className={`relative bg-ph-hover border rounded-2xl px-2.5 pt-2 pb-1.5 shadow-inner focus-within:border-indigo-500 transition ${
           dragOver ? 'border-indigo-400 ring-2 ring-indigo-500/30' : 'border-slate-700/80'
         }`}
+        ref={composerRef}
         onDragOver={(e) => {
           if (!hasFiles(e)) return;
           e.preventDefault();
@@ -457,6 +669,23 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
           </div>
         )}
 
+        {suggestOpen && (suggestionItems.length > 0 || suggestStatus) && (
+          <ComposerSuggestions
+            anchor={composerRef.current}
+            heading={slashOpen ? t.aiStudio.input.suggestCommands : t.aiStudio.input.suggestFiles}
+            items={suggestionItems}
+            active={active}
+            {...(suggestStatus ? { status: suggestStatus } : {})}
+            {...(mentionOpen && fileResult?.truncated
+              ? { note: t.aiStudio.input.suggestTruncated.replace('{count}', FILE_INDEX_LIMIT.toLocaleString(language)) }
+              : {})}
+            footer={t.aiStudio.input.suggestHint}
+            onPick={(i) => pickSuggestion(i, 'click')}
+            onHover={setActive}
+            testId={slashOpen ? 'composer-slash-suggestions' : 'composer-file-suggestions'}
+          />
+        )}
+
         {escArmed && (
           <div className="px-1.5 pb-1 text-[11px] text-slate-400" data-testid="composer-esc-hint">
             {t.aiStudio.input.escAgainRewind}
@@ -474,8 +703,18 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
           spellCheck={false}
           data-gramm="false"
           data-enable-grammarly="false"
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            inputRef.current = e.target.value;
+            setInput(e.target.value);
+            syncCaret(e.target);
+          }}
+          onSelect={(e) => syncCaret(e.currentTarget)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onKeyDown={handleKeyDown}
+          aria-autocomplete="list"
+          aria-expanded={suggestOpen}
+          data-testid="composer-input"
           placeholder={
             promptDictation
               ? t.aiStudio.input.promptDictationPlaceholder

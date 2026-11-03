@@ -1890,6 +1890,19 @@ export interface TranslationDictionary {
       attachOpen: string;
       /** Подсказка после первого Esc при пустом поле (TASK-299). */
       escAgainRewind: string;
+      /** Список автодополнения `@` и `/` (TASK-300). */
+      suggestFiles: string;
+      suggestCommands: string;
+      suggestSearching: string;
+      suggestNoFiles: string;
+      suggestNoCommands: string;
+      suggestCliLoading: string;
+      /** `{count}` — предел файлов в поиске. */
+      suggestTruncated: string;
+      suggestHint: string;
+      suggestGroupStudio: string;
+      suggestGroupCli: string;
+      suggestGroupTerminal: string;
       /** «Изменить» у реплики человека (TASK-299). */
       editMessage: string;
     };
@@ -2068,6 +2081,11 @@ export interface TranslationDictionary {
     studioNote: string;
     studioStop: string;
     studioRewind: string;
+    /** TASK-300 */
+    studioHistory: string;
+    studioMention: string;
+    studioSlash: string;
+    studioComplete: string;
   };
   search: {
     placeholder: string;

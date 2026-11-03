@@ -67,6 +67,7 @@ import {
   type CliMemoryDialog
 } from '../services/cliMemoryDialog';
 import { runCliCommandList, runCliExport, runCliRename, runCliStatus } from '../services/cliSessionInfo';
+import { searchProjectFiles } from '../services/projectFileIndex';
 import { isCliSessionUuid } from '../services/cliControlRequest';
 
 /** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
@@ -397,6 +398,19 @@ export function registerAiIpc(ctx: IpcContext) {
     const result = await runCliCommandList({ configDir: scope.configDir, cwd: scope.cwd, addDirs: stringList(query?.addDirs) });
     if (!result.ok) console.warn(`[aiIpc] /help: ${result.reason}${result.detail ? ` — ${result.detail}` : ''}`);
     return result;
+  });
+  // `@` в поле ввода вкладки (TASK-300, decision-214): файлы рабочего каталога вкладки, только имена. Запрос в лог не пишется.
+  ipcMain.handle('ai:searchFiles', async (_event, query?: { projectPath?: unknown; cwd?: unknown; query?: unknown; limit?: unknown }) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    const cwd = workDirInProject(projectPath, query?.cwd);
+    const text = typeof query?.query === 'string' ? query.query.slice(0, 300) : '';
+    const limit = typeof query?.limit === 'number' && Number.isFinite(query.limit) ? query.limit : 50;
+    try {
+      return { ok: true, ...(await searchProjectFiles(cwd, text, limit)) };
+    } catch (err) {
+      console.warn(`[aiIpc] @ files: ${err instanceof Error ? err.message : String(err)}`);
+      return { ok: false, entries: [], truncated: false };
+    }
   });
   ipcMain.handle('ai:cliRenameSession', async (_event, query?: CliMemoryQuery & { addDirs?: unknown; cliSessionId?: unknown; name?: unknown }) => {
     const scope = await cliMemoryScope(query);

@@ -2017,6 +2017,17 @@ export const en: TranslationDictionary = {
       attachTooMany: 'No more than {count} attachments per prompt',
       attachOpen: 'Open {name}',
       escAgainRewind: 'Press Esc again to rewind the conversation',
+      suggestFiles: 'Files',
+      suggestCommands: 'Commands',
+      suggestSearching: 'Searching…',
+      suggestNoFiles: 'No files match',
+      suggestNoCommands: 'No commands match',
+      suggestCliLoading: 'Loading Claude Code commands…',
+      suggestTruncated: 'Large project: only the first {count} files are searched',
+      suggestHint: '↑↓ choose · Tab insert · Enter pick · Esc close',
+      suggestGroupStudio: 'Studio',
+      suggestGroupCli: 'Claude Code',
+      suggestGroupTerminal: 'Terminal',
       editMessage: 'Edit: rewind the conversation to before this message and put it back in the field'
     },
     queue: {
@@ -2207,7 +2218,11 @@ export const en: TranslationDictionary = {
     studio: 'Agents Studio',
     studioNote: 'An open window or menu takes Esc first',
     studioStop: 'Stop the reply of the tab',
-    studioRewind: 'Rewind the conversation (Claude Code, empty field)'
+    studioRewind: 'Rewind the conversation (Claude Code, empty field)',
+    studioHistory: 'Previous and next prompt (cursor on the first or last line)',
+    studioMention: 'Mention a project file',
+    studioSlash: 'Commands (at the start of the field)',
+    studioComplete: 'Insert the chosen suggestion'
   },
   search: {
     placeholder: 'Semantic search across docs, decisions, and tasks...',

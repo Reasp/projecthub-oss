@@ -475,6 +475,7 @@ const api: IElectronAPI = {
   openCliMemoryFolder: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; dir: string }) => invoke('ai:openCliMemoryFolder', query),
   cliStatus: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[]; cliSessionId?: string }) => invoke('ai:cliStatus', query),
   cliCommands: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[] }) => invoke('ai:cliCommands', query),
+  searchFiles: (query: { projectPath: string; cwd?: string; query: string; limit?: number }) => invoke('ai:searchFiles', query),
   exportConversation: (query: { projectPath: string; markdown: string; fileName: string; cwd?: string; claudeAccountId?: string; addDirs?: string[]; cliSessionId?: string }) =>
     invoke('ai:exportConversation', query),
   saveStudioAttachment: (query: { projectPath: string; cwd?: string; name: string; mime: string; data: string }) => invoke('ai:saveAttachment', query),

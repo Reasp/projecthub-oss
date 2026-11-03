@@ -196,7 +196,7 @@ const en = {
     copy: 'Copy the last reply, or reply N from the end, to the clipboard',
     export: 'Save this conversation as Markdown, or as the Claude Code transcript',
     status: 'Show this tab and its Claude Code session',
-    help: 'Show this list'
+    help: 'Show all commands and who runs each of them'
   } as Record<StudioCommandName, string>
 };
 
@@ -390,7 +390,7 @@ const ru: StudioCliText = {
     copy: 'Скопировать в буфер последний ответ или ответ N с конца',
     export: 'Сохранить переписку в Markdown или расшифровкой Claude Code',
     status: 'Показать эту вкладку и её сессию Claude Code',
-    help: 'Показать этот список'
+    help: 'Показать все команды и кто их выполняет'
   }
 };
 

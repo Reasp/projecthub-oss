@@ -2018,6 +2018,17 @@ export const ru: TranslationDictionary = {
       attachTooMany: 'Не больше {count} вложений в промпте',
       attachOpen: 'Открыть {name}',
       escAgainRewind: 'Нажмите Esc ещё раз, чтобы откатить разговор',
+      suggestFiles: 'Файлы',
+      suggestCommands: 'Команды',
+      suggestSearching: 'Ищу…',
+      suggestNoFiles: 'Таких файлов нет',
+      suggestNoCommands: 'Таких команд нет',
+      suggestCliLoading: 'Загружаю команды Claude Code…',
+      suggestTruncated: 'Большой проект: поиск идёт по первым {count} файлам',
+      suggestHint: '↑↓ выбор · Tab вставить · Enter выбрать · Esc закрыть',
+      suggestGroupStudio: 'Studio',
+      suggestGroupCli: 'Claude Code',
+      suggestGroupTerminal: 'Терминал',
       editMessage: 'Изменить: откатить разговор к месту перед репликой и вернуть её в поле ввода'
     },
     queue: {
@@ -2208,7 +2219,11 @@ export const ru: TranslationDictionary = {
     studio: 'Agents Studio',
     studioNote: 'Открытое окно или меню получает Esc первым',
     studioStop: 'Остановить ответ вкладки',
-    studioRewind: 'Откатить разговор (Claude Code, пустое поле)'
+    studioRewind: 'Откатить разговор (Claude Code, пустое поле)',
+    studioHistory: 'Предыдущий и следующий промпт (курсор на первой или последней строке)',
+    studioMention: 'Упомянуть файл проекта',
+    studioSlash: 'Команды (в начале поля)',
+    studioComplete: 'Вставить выбранную подсказку'
   },
   search: {
     placeholder: 'Семантический поиск по докам, решениям и задачам...',
