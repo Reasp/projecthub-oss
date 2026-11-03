@@ -128,6 +128,7 @@ import {
   MonitorIcon,
   NavigationArrowIcon,
   PackageIcon,
+  PaperclipIcon,
   PaperPlaneRightIcon,
   PaperPlaneTiltIcon,
   PauseIcon,
@@ -347,6 +348,7 @@ export const Network = wrap(GraphIcon, 'Network');
 export const OctagonX = wrap(ProhibitIcon, 'OctagonX');
 export const Package = wrap(PackageIcon, 'Package');
 export const PanelLeft = wrap(SidebarSimpleIcon, 'PanelLeft');
+export const Paperclip = wrap(PaperclipIcon, 'Paperclip');
 export const Pause = wrap(PauseIcon, 'Pause');
 export const Pencil = wrap(PencilSimpleIcon, 'Pencil');
 export const Play = wrap(PlayIcon, 'Play');

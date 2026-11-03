@@ -144,10 +144,13 @@ export function messagesForModel(messages: readonly AIMessage[]): AIMessage[] {
 }
 
 /**
- * Что повторить для упавшего ответа: текст предыдущего сообщения пользователя и id обоих сообщений,
+ * Что повторить для упавшего ответа: текст и вложения предыдущего сообщения пользователя и id обоих сообщений,
  * которые убираются из диалога перед повтором. `undefined` — повторять нечего.
  */
-export function retryTarget(messages: readonly AIMessage[], assistantMessageId: string): { userText: string; removeIds: string[] } | undefined {
+export function retryTarget(
+  messages: readonly AIMessage[],
+  assistantMessageId: string
+): { userText: string; attachments: NonNullable<AIMessage['attachments']>; removeIds: string[] } | undefined {
   const idx = messages.findIndex((m) => m.id === assistantMessageId);
   if (idx <= 0) return undefined;
   const failed = messages[idx];
@@ -155,7 +158,9 @@ export function retryTarget(messages: readonly AIMessage[], assistantMessageId: 
   for (let i = idx - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role === 'user') {
-      return m.content.trim() ? { userText: m.content, removeIds: [m.id, failed.id] } : undefined;
+      // Реплика из одних вложений (TASK-289) тоже повторяется — с теми же файлами.
+      const attachments = m.attachments ?? [];
+      return m.content.trim() || attachments.length > 0 ? { userText: m.content, attachments, removeIds: [m.id, failed.id] } : undefined;
     }
     if (m.role === 'assistant') return undefined;
   }

@@ -2009,7 +2009,14 @@ export const ru: TranslationDictionary = {
       queueSend: 'В очередь: уйдёт после текущего ответа (Enter)',
       effortTitle: 'Усилие рассуждений этой вкладки',
       effortInherit: 'Как в настройках ({effort})',
-      effortShort: 'Усилие: {effort}'
+      effortShort: 'Усилие: {effort}',
+      attach: 'Прикрепить картинки или файлы (или вставьте, или перетащите их сюда)',
+      attachDrop: 'Отпустите, чтобы прикрепить файлы',
+      attachRemove: 'Убрать вложение',
+      attachSaving: 'Сохраняется…',
+      attachFailed: 'Не удалось прикрепить {name}: {error}',
+      attachTooMany: 'Не больше {count} вложений в промпте',
+      attachOpen: 'Открыть {name}'
     },
     queue: {
       title: 'В очереди ({count})',

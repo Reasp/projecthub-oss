@@ -104,6 +104,8 @@ export function conversationMarkdown(input: ConversationExportInput): string {
     const parts: string[] = [];
     if (msg.thought?.trim()) parts.push(details(labels.thinking, msg.thought.trim()));
     if (msg.content.trim()) parts.push(msg.content.trim());
+    // Вложения реплики (TASK-289) — путями от корня проекта: файлы лежат в каталоге вложений вкладки.
+    if (msg.attachments?.length) parts.push(msg.attachments.map((at) => `- 📎 \`${at.path}\``).join('\n'));
     const calls = msg.toolCalls ?? [];
     if (calls.length) parts.push(details(labels.tools.replace('{count}', String(calls.length)), calls.map(toolLine).join('\n')));
     if (msg.error?.trim()) parts.push(`> **${labels.error}:** ${msg.error.trim().replace(/\r?\n/g, '\n> ')}`);

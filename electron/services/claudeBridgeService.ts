@@ -63,6 +63,8 @@ import { sandboxMcpConfig, SANDBOX_MCP_CONFIG_FILE, SANDBOX_MCP_CONFIG_PATH } fr
 import { hostPathFromSandbox, sandboxToolInput } from './memberSandbox.js';
 import { readWorktreeFile } from './worktreeFs.js';
 import { errorMessage } from './errorMessage.js';
+import { sanitizePromptAttachments } from '../../src/lib/promptAttachments.js';
+import { cliUserContent, cliUserMessageLine, messagesWithAttachmentPaths } from './studioPromptAttachments.js';
 import {
   applyProjectPolicy,
   applyRolePermissions,
@@ -1462,8 +1464,10 @@ class ClaudeBridgeService extends EventEmitter {
       // Многошаговый tool-loop (TASK-82): инструменты исполняются по ходу ответа модели, их результаты
       // возвращаются модели до финального ответа. Раньше вызовы исполнялись в обработчике чанка, а
       // модель результата не получала.
+      // Вложения реплик (TASK-289): API-провайдер получает их путями от каталога агента и открывает инструментами.
+      const workDir = req.workspaceRoot?.trim() || projectPath;
       await aiAgentService.streamChat(
-        req,
+        { ...req, messages: messagesWithAttachmentPaths(req.messages, projectPath, workDir) },
         onChunk,
         (completedMsg) => {
           this.finishSession(sessionId, projectPath, 'done', 'Task completed');
@@ -1551,8 +1555,11 @@ class ClaudeBridgeService extends EventEmitter {
     const { sessionId, projectPath, messages } = req;
     // cwd агента — активное рабочее дерево (worktree), backlog при этом общий (TASK-62).
     const workDir = req.workspaceRoot?.trim() || projectPath;
-    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
-    if (!lastUserMessage.trim()) {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    const lastUserMessage = lastUser?.content || '';
+    // Вложения реплики (TASK-289, decision-210): с ними промпт уходит user-сообщением stream-json с блоками картинок и PDF.
+    const promptAttachments = req.claudeCliFork === 'side' ? [] : sanitizePromptAttachments(lastUser?.attachments);
+    if (!lastUserMessage.trim() && promptAttachments.length === 0) {
       onComplete({
         id: `msg-${Date.now()}`,
         role: 'assistant',
@@ -1684,6 +1691,19 @@ class ClaudeBridgeService extends EventEmitter {
       hitl?.cleanup();
       removeSystemPromptFile();
     };
+
+    // Промпт в stdin: текстом или, со вложениями, строкой stream-json (картинки и PDF — блоками, прочие файлы — путями).
+    let stdinPayload = lastUserMessage;
+    if (promptAttachments.length > 0) {
+      try {
+        stdinPayload = cliUserMessageLine(await cliUserContent(lastUserMessage, promptAttachments, projectPath, workDir));
+      } catch (err) {
+        cleanupHitl();
+        this.failStudioSession(sessionId, projectPath, err, onError);
+        return;
+      }
+      cliArgs.push('--input-format', 'stream-json');
+    }
     const hitlEnv = hitl?.env ?? { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) };
 
     let child: ChildProcessWithoutNullStreams;
@@ -1966,7 +1986,7 @@ class ClaudeBridgeService extends EventEmitter {
 
     // Передаём запрос через stdin (без экранирования аргументов оболочки) — только после навешивания всех обработчиков.
     try {
-      child.stdin.write(lastUserMessage, 'utf-8');
+      child.stdin.write(stdinPayload, 'utf-8');
       child.stdin.end();
     } catch (err: unknown) {
       failSession(new AppError('studio.cliStdinFailed', { detail: errorMessage(err) }));

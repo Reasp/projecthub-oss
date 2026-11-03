@@ -2008,7 +2008,14 @@ export const en: TranslationDictionary = {
       queueSend: 'Add to queue: sent after the current reply (Enter)',
       effortTitle: 'Reasoning effort for this tab',
       effortInherit: 'As in settings ({effort})',
-      effortShort: 'Effort: {effort}'
+      effortShort: 'Effort: {effort}',
+      attach: 'Attach images or files (or paste, or drop them here)',
+      attachDrop: 'Drop files to attach',
+      attachRemove: 'Remove attachment',
+      attachSaving: 'Saving…',
+      attachFailed: 'Could not attach {name}: {error}',
+      attachTooMany: 'No more than {count} attachments per prompt',
+      attachOpen: 'Open {name}'
     },
     queue: {
       title: 'Queued ({count})',

@@ -38,6 +38,7 @@ import { forkedSession, insertAfter } from '../lib/studioSessionFork';
 import { feedBeforePoint, rewoundSession } from '../lib/studioRewind';
 import { hasAddDir, MAX_ADD_DIRS, withAddDir, withoutAddDir } from '../lib/studioAddDir';
 import { cliTitleToSync } from '../lib/studioCliTitle';
+import { sanitizePromptAttachments, type PromptAttachment } from '../lib/promptAttachments';
 
 export type { AISession };
 
@@ -163,6 +164,8 @@ interface AIStudioState {
    * вкладки Claude Code с разговором — на выбор и расшифровка CLI. Итог — в панели над полем ввода.
    */
   exportConversation: (projectPath: string, sessionId: string, fileName?: string) => Promise<void>;
+  /** Вложение в промпт (TASK-289): файл — в каталог вложений вкладки (её дерево), ответ — ссылка для реплики. */
+  saveAttachment: (projectPath: string, sessionId: string | undefined, payload: { name: string; mime: string; data: string }) => Promise<PromptAttachment>;
   /** Окно `/rewind` (TASK-284): вкладка и, если окно открыто с реплики ленты, эта реплика. */
   rewindRequest: { projectPath: string; sessionId: string; messageId?: string } | null;
   openRewind: (projectPath: string, sessionId: string, messageId?: string) => void;
@@ -266,6 +269,8 @@ export interface SendMessageOptions {
    * по-прежнему перехватываются окном — сообщение было набрано в нём.
    */
   queuedSessionId?: string;
+  /** Вложения реплики (TASK-289): файлы уже в каталоге вложений вкладки. С ними текст не разбирается как слеш-команда. */
+  attachments?: PromptAttachment[];
 }
 
 function releaseSessionInMain(sessionId: string): void {
@@ -956,7 +961,7 @@ export const useAIStudioStore = create<AIStudioState>()(
         if (!session || !window.api?.exportConversation) return;
         const c = cliText();
         const messages = session.messages || [];
-        if (!messages.some((m) => m.content.trim() || m.toolCalls?.length)) {
+        if (!messages.some((m) => m.content.trim() || m.toolCalls?.length || m.attachments?.length)) {
           setSideNotice(set, get, sessionId, 'export', c.exportNothing);
           return;
         }
@@ -991,6 +996,13 @@ export const useAIStudioStore = create<AIStudioState>()(
           .catch(() => ({ ok: false as const, canceled: undefined, reason: 'io' as const }));
         if (result.ok) setSideNotice(set, get, sessionId, 'export', c.exportDone(result.path, result.format));
         else if (!result.canceled) setSideNotice(set, get, sessionId, 'export', c.exportFailed(result.reason));
+      },
+
+      saveAttachment: async (projectPath: string, sessionId: string | undefined, payload: { name: string; mime: string; data: string }) => {
+        const session = sessionId ? (get().sessions[projectPath] || []).find((s) => s.id === sessionId) : undefined;
+        // Тот же каталог, где пойдёт ход вкладки: агент открывает файл по пути от него.
+        const cwd = session ? sessionWorkDir(session, activeWorkRoot(projectPath), projectPath) : activeWorkRoot(projectPath) || projectPath;
+        return window.api.saveStudioAttachment({ projectPath, cwd, ...payload });
       },
 
       addSessionDir: async (projectPath: string, sessionId: string, dir: string) => {
@@ -1277,7 +1289,8 @@ export const useAIStudioStore = create<AIStudioState>()(
       },
 
       sendMessage: async (projectPath: string, text: string, opts: SendMessageOptions = {}) => {
-        if (!text.trim() || !window.api?.streamAIChat) return;
+        const attachments = sanitizePromptAttachments(opts.attachments);
+        if ((!text.trim() && attachments.length === 0) || !window.api?.streamAIChat) return;
 
         let activeSessionId = opts.sessionId || opts.queuedSessionId || get().activeSessionId[projectPath];
         let projectSessions = get().sessions[projectPath] || [];
@@ -1296,7 +1309,9 @@ export const useAIStudioStore = create<AIStudioState>()(
         // Интерактивные команды Claude Code в `claude -p` не работают — Studio выполняет их сама (TASK-230). С телефона
         // (`opts.sessionId`) диалога нет: команда уходит в CLI как раньше.
         // `/copy` и `/export` (TASK-288) — у вкладки любого движка, и во время хода: они только читают ленту.
-        const local = opts.sessionId || opts.fromRemote ? null : studioLocalCommand(text);
+        // Реплика со вложениями — промпт модели, а не команда Studio (TASK-289).
+        const noCommands = !!(opts.sessionId || opts.fromRemote) || attachments.length > 0;
+        const local = noCommands ? null : studioLocalCommand(text);
         if (local?.kind === 'copy') {
           await get().copyReply(projectPath, activeSessionId, local.n);
           return;
@@ -1305,7 +1320,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           await get().exportConversation(projectPath, activeSessionId, local.fileName);
           return;
         }
-        const cli = opts.sessionId || opts.fromRemote ? null : studioCliCommand(text, requestConfig);
+        const cli = noCommands ? null : studioCliCommand(text, requestConfig);
         // `/btw` (TASK-283) отвечает и во время хода вкладки, как в CLI: в очередь не встаёт.
         if (cli?.kind === 'btw') {
           await get().askSideQuestion(projectPath, activeSessionId, cli.question);
@@ -1335,7 +1350,8 @@ export const useAIStudioStore = create<AIStudioState>()(
               id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               text: text.trim(),
               opts: queuedOpts,
-              queuedAt: Date.now()
+              queuedAt: Date.now(),
+              ...(attachments.length > 0 ? { attachmentNames: attachments.map((a) => a.name) } : {})
             })
           }));
           return;
@@ -1395,7 +1411,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           id: `msg-${Date.now()}`,
           role: 'user',
           content: text.trim(),
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          ...(attachments.length > 0 ? { attachments } : {})
         };
 
         const assistantMsgId = `asst-${Date.now() + 1}`;
@@ -1412,7 +1429,7 @@ export const useAIStudioStore = create<AIStudioState>()(
 
         // Заголовок по умолчанию заменяется началом первого промпта (TASK-204).
         const autoTitle = isAutoSessionTitle(currentSession);
-        const sessionTitle = autoTitle ? titleFromPrompt(text) || currentSession.title : currentSession.title;
+        const sessionTitle = autoTitle ? titleFromPrompt(text) || attachments[0]?.name || currentSession.title : currentSession.title;
 
         set((state) => {
           const pSessions = state.sessions[projectPath] || [];
@@ -1712,7 +1729,10 @@ export const useAIStudioStore = create<AIStudioState>()(
             )
           }
         }));
-        await get().sendMessage(projectPath, target.userText, { sessionId: session.id });
+        await get().sendMessage(projectPath, target.userText, {
+          sessionId: session.id,
+          ...(target.attachments.length > 0 ? { attachments: target.attachments } : {})
+        });
       },
 
       acceptDiff: async (projectPath: string, messageId: string, toolId: string, filePath: string, newContent: string) => {

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
-import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, ListPlus, GitCommit, Rocket, Landmark, At } from '../common/icons';
+import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, ListPlus, GitCommit, Rocket, Landmark, At, File as FileIcon, Paperclip, X } from '../common/icons';
 import type { BacklogTask, GitRepoDetails } from '../../types/electron';
-import { useTranslation } from '../../i18n/useTranslation';
+import { ipcErrorText, useTranslation } from '../../i18n/useTranslation';
 import { voiceService, type VoiceState } from '../../services/voiceService';
 import {
   appendDictationChunk,
@@ -11,13 +11,35 @@ import {
 } from '../../services/promptDictation';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { ComposerMenu, type ComposerMenuItem } from './ComposerMenu';
+import { attachmentPayload } from '../../lib/attachmentImage';
+import {
+  PROMPT_ATTACHMENT_MAX_BYTES,
+  PROMPT_ATTACHMENT_MAX_COUNT,
+  formatAttachmentSize,
+  isPreviewableImage,
+  mimeFromName,
+  type PromptAttachment
+} from '../../lib/promptAttachments';
+
+/** Вложение в поле ввода: сохраняется, готово или с ошибкой. */
+interface PendingAttachment {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  /** Превью картинки — object URL исходного файла. */
+  previewUrl?: string;
+  saved?: PromptAttachment;
+}
 
 interface PromptInputAreaProps {
   mode: 'agent' | 'chat' | 'architect';
   isStreaming: boolean;
   tasks: BacklogTask[];
   gitRepoDetails: GitRepoDetails | null;
-  onSend: (text: string) => void;
+  onSend: (text: string, attachments: PromptAttachment[]) => void;
+  /** Сохранить вложение в каталог вложений вкладки (TASK-289); без колбэка поле вложений не принимает. */
+  onSaveAttachment?: (payload: { name: string; mime: string; data: string }) => Promise<PromptAttachment>;
   onAbort: () => void;
   /** Начало нижней строки поля ввода: агент вкладки и режим (TASK-169, TASK-170). */
   footerStart?: React.ReactNode;
@@ -34,6 +56,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   tasks,
   gitRepoDetails,
   onSend,
+  onSaveAttachment,
   onAbort,
   footerStart,
   footerEnd,
@@ -97,19 +120,98 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
     }
   };
 
+  // Вложения (TASK-289): вставка из буфера, перетаскивание и скрепка. Файл сохраняется сразу, отправка ждёт сохранения.
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const canAttach = !!onSaveAttachment;
+  const attachSaving = attachments.some((a) => !a.saved);
+  const readyAttachments = attachments.flatMap((a) => (a.saved ? [a.saved] : []));
+
+  const dropPending = (id: string) => {
+    setAttachments((prev) => {
+      const gone = prev.find((a) => a.id === id);
+      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  };
+
+  const addFiles = (files: File[]) => {
+    if (!onSaveAttachment || files.length === 0) return;
+    const free = PROMPT_ATTACHMENT_MAX_COUNT - attachmentsRef.current.length;
+    if (files.length > free) setAttachError(t.aiStudio.input.attachTooMany.replace('{count}', String(PROMPT_ATTACHMENT_MAX_COUNT)));
+    else setAttachError(null);
+    for (const file of files.slice(0, Math.max(0, free))) {
+      const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const name = file.name || 'file';
+      const mime = file.type || mimeFromName(name);
+      const failed = (error: string) => {
+        dropPending(id);
+        setAttachError(t.aiStudio.input.attachFailed.replace('{name}', name).replace('{error}', error));
+      };
+      // Большая картинка уменьшается перед сохранением, поэтому предел размера — для прочих файлов.
+      if (file.size > PROMPT_ATTACHMENT_MAX_BYTES && !isPreviewableImage(mime)) {
+        setAttachError(
+          t.aiStudio.input.attachFailed.replace('{name}', name).replace('{error}', formatAttachmentSize(file.size))
+        );
+        continue;
+      }
+      const previewUrl = isPreviewableImage(mime) ? URL.createObjectURL(file) : undefined;
+      setAttachments((prev) => [...prev, { id, name, mime, size: file.size, ...(previewUrl ? { previewUrl } : {}) }]);
+      void attachmentPayload(file)
+        .then((payload) => onSaveAttachment({ name: payload.name, mime: payload.mime, data: payload.data }))
+        .then((saved) => {
+          setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, saved, name: saved.name, size: saved.size } : a)));
+        })
+        .catch((err: unknown) => failed(ipcErrorText(err)));
+    }
+  };
+
+  const clearAttachments = () => {
+    for (const a of attachmentsRef.current) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    setAttachments([]);
+    setAttachError(null);
+  };
+
+  useEffect(
+    () => () => {
+      for (const a of attachmentsRef.current) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    },
+    []
+  );
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!canAttach) return;
+    const files = Array.from(e.clipboardData.files);
+    if (files.length === 0) return;
+    // Снимок экрана или скопированный файл; если в буфере есть и текст (Word, браузер), вставляется текст.
+    if (e.clipboardData.getData('text/plain')) return;
+    e.preventDefault();
+    addFiles(files);
+  };
+
+  const hasFiles = (e: React.DragEvent) => canAttach && Array.from(e.dataTransfer.types).includes('Files');
+
   // Во время ответа сообщение не теряется, а встаёт в очередь вкладки (TASK-273).
   const sendText = (text: string): boolean => {
     const textToSend = text.trim();
-    if (!textToSend) return false;
+    // Пока вложение сохраняется, отправка ждёт: иначе промпт ушёл бы без картинки.
+    if (attachSaving) return false;
+    const files = readyAttachments;
+    if (!textToSend && files.length === 0) return false;
     inputRef.current = '';
     setInput('');
 
-    if (textToSend.toLowerCase() === '/usage' || textToSend.toLowerCase() === '/cost') {
+    if (files.length === 0 && (textToSend.toLowerCase() === '/usage' || textToSend.toLowerCase() === '/cost')) {
       window.dispatchEvent(new CustomEvent('projecthub:open-claude-usage'));
       return true;
     }
 
-    onSend(textToSend);
+    clearAttachments();
+    onSend(textToSend, files);
     return true;
   };
 
@@ -181,28 +283,28 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
       label: t.aiStudio.quickActions.nextTask,
       hint: t.aiStudio.quickActions.nextTaskPrompt,
       icon: <ListTodo className="w-3.5 h-3.5 text-indigo-400" />,
-      onSelect: () => onSend(t.aiStudio.quickActions.nextTaskPrompt)
+      onSelect: () => onSend(t.aiStudio.quickActions.nextTaskPrompt, [])
     },
     {
       key: 'commit',
       label: t.aiStudio.quickActions.commit,
       hint: t.aiStudio.quickActions.commitPrompt,
       icon: <GitCommit className="w-3.5 h-3.5 text-emerald-400" />,
-      onSelect: () => onSend(t.aiStudio.quickActions.commitPrompt)
+      onSelect: () => onSend(t.aiStudio.quickActions.commitPrompt, [])
     },
     {
       key: 'deploy',
       label: t.aiStudio.quickActions.deploy,
       hint: t.aiStudio.quickActions.deployPrompt,
       icon: <Rocket className="w-3.5 h-3.5 text-purple-400" />,
-      onSelect: () => onSend(t.aiStudio.quickActions.deployPrompt)
+      onSelect: () => onSend(t.aiStudio.quickActions.deployPrompt, [])
     },
     {
       key: 'adr',
       label: t.aiStudio.promptCards.adrCreate,
       hint: t.aiStudio.promptCards.adrCreateDesc,
       icon: <Landmark className="w-3.5 h-3.5 text-slate-400" />,
-      onSelect: () => onSend(t.aiStudio.promptCards.adrCreatePrompt)
+      onSelect: () => onSend(t.aiStudio.promptCards.adrCreatePrompt, [])
     }
   ];
 
@@ -212,8 +314,82 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
         Поле ввода с нижней строкой (TASK-169): агент вкладки, режим, вставка контекста и быстрые команды —
         слева, авто-подтверждение, микрофон и отправка — справа. Отдельных строк над полем нет.
       */}
-      <div className="bg-ph-hover border border-slate-700/80 rounded-2xl px-2.5 pt-2 pb-1.5 shadow-inner focus-within:border-indigo-500 transition">
+      <div
+        className={`relative bg-ph-hover border rounded-2xl px-2.5 pt-2 pb-1.5 shadow-inner focus-within:border-indigo-500 transition ${
+          dragOver ? 'border-indigo-400 ring-2 ring-indigo-500/30' : 'border-slate-700/80'
+        }`}
+        onDragOver={(e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          if (!dragOver) setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+        }}
+        onDrop={(e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          setDragOver(false);
+          addFiles(Array.from(e.dataTransfer.files));
+        }}
+        data-testid="composer"
+      >
+        {dragOver && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-indigo-950/80 text-xs text-indigo-100 pointer-events-none">
+            <Paperclip className="w-4 h-4 mr-1.5" />
+            {t.aiStudio.input.attachDrop}
+          </div>
+        )}
+
+        {/* Вложения промпта (TASK-289) */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-1 pb-1.5" data-testid="composer-attachments">
+            {attachments.map((a) => (
+              <div
+                key={a.id}
+                className={`group relative flex items-center gap-1.5 rounded-lg border border-slate-600/80 bg-ph-raised text-[11px] text-slate-200 ${
+                  a.previewUrl ? 'p-0.5' : 'px-2 py-1'
+                } ${a.saved ? '' : 'opacity-60'}`}
+                title={a.saved ? `${a.name} · ${formatAttachmentSize(a.size)}` : t.aiStudio.input.attachSaving}
+                data-testid="composer-attachment"
+                data-saved={a.saved ? 'true' : 'false'}
+              >
+                {a.previewUrl ? (
+                  <img src={a.previewUrl} alt={a.name} className="h-12 w-12 rounded-md object-cover" />
+                ) : (
+                  <>
+                    <FileIcon className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                    <span className="max-w-[10rem] truncate">{a.name}</span>
+                    <span className="text-slate-500 shrink-0">{formatAttachmentSize(a.size)}</span>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => dropPending(a.id)}
+                  className={`${
+                    a.previewUrl ? 'absolute -top-1.5 -right-1.5 rounded-full bg-slate-800 border border-slate-600 p-0.5' : ''
+                  } text-slate-400 hover:text-red-300`}
+                  title={t.aiStudio.input.attachRemove}
+                  aria-label={t.aiStudio.input.attachRemove}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {attachError && (
+          <div className="flex items-center gap-1.5 px-1.5 pb-1 text-[11px] text-red-300" data-testid="composer-attach-error">
+            <span className="flex-1 truncate" title={attachError}>{attachError}</span>
+            <button type="button" onClick={() => setAttachError(null)} className="text-slate-500 hover:text-slate-300" aria-label={t.aiStudio.input.attachRemove}>
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
         <textarea
+          onPaste={handlePaste}
           ref={textareaRef}
           rows={1}
           value={input}
@@ -238,6 +414,31 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
         <div className="flex items-center gap-0.5 mt-1 min-w-0">
           <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-x-auto no-scrollbar">
             {footerStart}
+            {canAttach && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-ph-raised transition shrink-0"
+                  title={t.aiStudio.input.attach}
+                  aria-label={t.aiStudio.input.attach}
+                  data-testid="composer-attach"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  data-testid="composer-attach-input"
+                  onChange={(e) => {
+                    addFiles(Array.from(e.target.files ?? []));
+                    e.target.value = '';
+                  }}
+                />
+              </>
+            )}
             <ComposerMenu
               title={t.aiStudio.input.contextTags}
               heading={t.aiStudio.input.contextTags}
@@ -305,10 +506,11 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
 
           {isStreaming ? (
             <>
-              {input.trim() && (
+              {(input.trim() || readyAttachments.length > 0) && (
                 <button
                   type="button"
                   onClick={handleSend}
+                  disabled={attachSaving}
                   className="ph-btn ph-btn-secondary shrink-0"
                   title={t.aiStudio.input.queueSend}
                   data-testid="composer-queue-send"
@@ -330,7 +532,7 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
             <button
               type="button"
               onClick={handleSend}
-              disabled={!input.trim()}
+              disabled={attachSaving || (!input.trim() && readyAttachments.length === 0)}
               className="ph-btn ph-btn-primary disabled:opacity-40 disabled:hover:bg-indigo-600 shrink-0"
               title={`${t.aiStudio.input.send} (Enter)`}
             >

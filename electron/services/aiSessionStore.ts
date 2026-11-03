@@ -5,6 +5,7 @@ import type { AISession, AIMessage, AIToolCall } from '../../src/types/electron'
 import { sanitizeSessionAgent } from '../../src/lib/studioSessionAgent.js';
 import { sanitizeSessionWorktree } from '../../src/lib/studioWorktree.js';
 import { normalizeAddDirs } from '../../src/lib/studioAddDir.js';
+import { sanitizePromptAttachments } from '../../src/lib/promptAttachments.js';
 import { getStatePath } from './appPaths.js';
 import { isCliSessionId } from './claudeCliSessions.js';
 import { stateFields, withVersion } from './stateFiles.js';
@@ -114,6 +115,10 @@ export function compactMessage(msg: AIMessage): AIMessage {
   };
   if (msg.thought) out.thought = truncate(msg.thought, STORAGE_LIMITS.messageText);
   if (msg.toolCalls) out.toolCalls = msg.toolCalls.map(compactToolCall);
+  // Вложения (TASK-289) — только ссылки на файлы каталога вложений, без содержимого.
+  const attachments = msg.role === 'user' ? sanitizePromptAttachments(msg.attachments) : [];
+  if (attachments.length > 0) out.attachments = attachments;
+  else delete out.attachments;
   return out;
 }
 

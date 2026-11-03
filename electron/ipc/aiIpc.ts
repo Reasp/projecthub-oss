@@ -24,6 +24,7 @@ import {
 import { loadDoneLoopSettings } from '../services/doneLoopService';
 import { planService, type ConflictResolution, type GeneratePlanOptions } from '../services/planService';
 import { assertRegisteredProject } from '../services/projectPathGuard';
+import { attachmentAbsPath, attachmentPreviewDataUrl, isSafeToOpenAttachment, saveStudioAttachment, workDirInProject } from '../services/studioPromptAttachments';
 import type { RunJudgeOptions } from '../services/arenaJudgeService';
 import { loadArenaConfig, saveArenaConfig } from '../services/arenaConfig';
 import { deleteAgentResult, listAgentResults, pruneAgentResults, restoreAgentResult } from '../services/agentResultStore';
@@ -304,6 +305,35 @@ export function registerAiIpc(ctx: IpcContext) {
     const rel = path.relative(projectPath, cwd);
     const base = rel.startsWith('..') || path.isAbsolute(rel) ? projectPath : cwd;
     return checkAddDir(typeof query?.dir === 'string' ? query.dir : '', base);
+  });
+
+  // Вложения в промпт (TASK-289, decision-210): файл — в каталог вложений вкладки внутри проекта; превью и открытие —
+  // только файлов этого каталога.
+  ipcMain.handle('ai:saveAttachment', async (_event, query?: { projectPath?: unknown; cwd?: unknown; name?: unknown; mime?: unknown; data?: unknown }) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    const saved = await saveStudioAttachment(projectPath, workDirInProject(projectPath, query?.cwd), {
+      name: query?.name,
+      mime: query?.mime,
+      data: query?.data
+    });
+    console.info(`[aiIpc] attachment saved (${saved.mime || 'unknown type'}, ${saved.size} bytes)`);
+    return saved;
+  });
+  ipcMain.handle('ai:attachmentPreview', async (_event, query?: { projectPath?: unknown; path?: unknown; mime?: unknown }) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    return attachmentPreviewDataUrl(projectPath, query?.path, query?.mime);
+  });
+  ipcMain.handle('ai:openAttachment', async (_event, query?: { projectPath?: unknown; path?: unknown }) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    const abs = attachmentAbsPath(projectPath, query?.path);
+    if (!abs || !existsSync(abs)) return false;
+    // Открываются только картинки, PDF и текст: исполняемый файл (в том числе присланный с телефона) не запускается,
+    // а показывается в папке.
+    if (!isSafeToOpenAttachment(abs)) {
+      shell.showItemInFolder(abs);
+      return true;
+    }
+    return (await shell.openPath(abs)) === '';
   });
 
   // `/memory` (TASK-286, decision-207): строки диалога даёт сам CLI под аккаунтом вкладки. Открыть и сохранить можно

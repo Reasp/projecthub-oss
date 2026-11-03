@@ -1,5 +1,5 @@
 import React from 'react';
-import { ListPlus, Send, Trash2, X } from '../common/icons';
+import { ListPlus, Paperclip, Send, Trash2, X } from '../common/icons';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { QueuedStudioMessage } from '../../lib/studioMessageQueue';
 
@@ -40,6 +40,12 @@ export const QueuedMessagesBar: React.FC<{
           <li key={m.id} className="flex items-center gap-2 rounded-md bg-ph-hover/60 px-2 py-1">
             <span className="text-slate-500 tabular-nums shrink-0">{i + 1}.</span>
             <span className="text-slate-200 truncate flex-1" title={m.text}>{m.text}</span>
+            {m.attachmentNames?.length ? (
+              <span className="flex items-center gap-1 text-slate-400 shrink-0 max-w-[40%] truncate" title={m.attachmentNames.join(', ')}>
+                <Paperclip className="w-3 h-3 shrink-0" />
+                {m.attachmentNames.length === 1 ? m.attachmentNames[0] : String(m.attachmentNames.length)}
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={() => onRemove(m.id)}

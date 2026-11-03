@@ -67,6 +67,7 @@ import { CliCommandModal } from './CliCommandModal';
 import { CliMemoryModal } from './CliMemoryModal';
 import { CliStatusModal } from './CliStatusModal';
 import { CliHelpModal } from './CliHelpModal';
+import { MessageAttachments } from './MessageAttachments';
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf, sessionWorktreeState, worktreeLabel } from '../../lib/studioWorktree';
 
 export const AIStudioView: React.FC = () => {
@@ -124,6 +125,7 @@ export const AIStudioView: React.FC = () => {
     clearQueuedMessages,
     sendNextQueued,
     sendMessage,
+    saveAttachment,
     retryFailedMessage,
     abortStream,
     acceptDiff,
@@ -898,9 +900,14 @@ export const AIStudioView: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Message Bubble */}
+                    {/* Вложения реплики (TASK-289) — над её текстом */}
+                    {isUser && msg.attachments?.length ? (
+                      <MessageAttachments projectPath={projectPath} attachments={msg.attachments} />
+                    ) : null}
+
+                    {/* Message Bubble; реплика из одних вложений — без пустого пузыря */}
                     <div
-                      className={`p-4 rounded-2xl text-xs leading-relaxed ${
+                      className={`p-4 rounded-2xl text-xs leading-relaxed ${isUser && !msg.content && msg.attachments?.length ? 'hidden ' : ''}${
                         isUser
                           ? 'bg-indigo-600 text-white shadow-lg rounded-tr-sm'
                           : 'bg-ph-hover text-slate-200 border border-slate-800/80 shadow-md rounded-tl-sm w-full'
@@ -1083,7 +1090,8 @@ export const AIStudioView: React.FC = () => {
         isStreaming={isStreaming}
         tasks={tasks}
         gitRepoDetails={gitRepoDetails}
-        onSend={(text) => sendMessage(projectPath, text)}
+        onSend={(text, attachments) => sendMessage(projectPath, text, attachments.length ? { attachments } : {})}
+        onSaveAttachment={(payload) => saveAttachment(projectPath, currentSessionId ?? undefined, payload)}
         onAbort={() => currentSessionId && abortStream(currentSessionId)}
         prefill={promptPrefill && promptPrefill.sessionId === currentSessionId ? promptPrefill : null}
         onPrefillApplied={clearPromptPrefill}

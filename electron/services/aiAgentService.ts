@@ -63,6 +63,7 @@ interface OpenAICompatibleTarget {
 
 const ANTHROPIC_MESSAGES_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 import { logger } from './logger.js';
+import type { PromptAttachment } from '../../src/lib/promptAttachments.js';
 import { AppError, type AppErrorKey } from '../../src/lib/appError.js';
 import { buildClaudeCliCompletionCommand, parseClaudeCliCompletionOutput } from './claudeCliCompletion.js';
 import { mainEngineOf, normalizeMainEngineField, type MainEngine } from './modelTarget.js';
@@ -143,6 +144,8 @@ export interface AIMessage {
   /** Ответ завершился ошибкой — пишет renderer (TASK-70.6); в историю для модели такой ответ не идёт. */
   error?: string;
   providerError?: ProviderErrorInfo;
+  /** Вложения реплики человека (TASK-289, decision-210); API-провайдер получает их путями в тексте. */
+  attachments?: PromptAttachment[];
 }
 
 /** Чанк стрима: текст/рассуждение/вызов инструмента, плюс usage ответа по завершении (TASK-56). */

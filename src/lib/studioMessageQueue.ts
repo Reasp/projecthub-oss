@@ -14,14 +14,16 @@ export interface QueuedStudioMessage<Opts = unknown> {
   /** Параметры исходной отправки (режим, конфиг запроса, участник) — без вкладки: она — ключ очереди. */
   opts: Opts;
   queuedAt: number;
+  /** Имена вложений сообщения (TASK-289): сообщение из одних вложений тоже встаёт в очередь. */
+  attachmentNames?: string[];
 }
 
 export type StudioQueues<Opts = unknown> = Record<string, QueuedStudioMessage<Opts>[]>;
 
-/** Очереди с новым сообщением в конце; та же ссылка, если текст пуст или очередь полна. */
+/** Очереди с новым сообщением в конце; та же ссылка, если нет ни текста, ни вложений, или очередь полна. */
 export function enqueueMessage<Opts>(queues: StudioQueues<Opts>, sessionId: string, message: QueuedStudioMessage<Opts>): StudioQueues<Opts> {
   const current = queues[sessionId] ?? [];
-  if (!message.text.trim() || current.length >= STUDIO_QUEUE_MAX) return queues;
+  if ((!message.text.trim() && !message.attachmentNames?.length) || current.length >= STUDIO_QUEUE_MAX) return queues;
   return { ...queues, [sessionId]: [...current, message] };
 }
 

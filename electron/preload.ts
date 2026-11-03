@@ -477,6 +477,9 @@ const api: IElectronAPI = {
   cliCommands: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[] }) => invoke('ai:cliCommands', query),
   exportConversation: (query: { projectPath: string; markdown: string; fileName: string; cwd?: string; claudeAccountId?: string; addDirs?: string[]; cliSessionId?: string }) =>
     invoke('ai:exportConversation', query),
+  saveStudioAttachment: (query: { projectPath: string; cwd?: string; name: string; mime: string; data: string }) => invoke('ai:saveAttachment', query),
+  studioAttachmentPreview: (query: { projectPath: string; path: string; mime?: string }) => invoke('ai:attachmentPreview', query),
+  openStudioAttachment: (query: { projectPath: string; path: string }) => invoke('ai:openAttachment', query),
   cliRenameSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[]; cliSessionId: string; name: string }) =>
     invoke('ai:cliRenameSession', query),
   // Профили аккаунтов Claude Code (TASK-152, decision-87)

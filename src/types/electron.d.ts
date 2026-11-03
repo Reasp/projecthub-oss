@@ -847,6 +847,7 @@ import type { ConflictFileContent, ConflictResolution, FinishMergeResult, MergeA
 export type { BaseSyncResult as PullBaseResult } from '../../electron/services/baseSync';
 import type { BaseSyncResult as PullBaseResult } from '../../electron/services/baseSync';
 import type { ProfileSectionId } from '../lib/profileSections';
+import type { PromptAttachment } from '../lib/promptAttachments';
 import type { ProfilePreview } from '../../electron/services/profileService';
 
 export interface PullRequest {
@@ -1448,6 +1449,12 @@ export interface IElectronAPI {
     | { ok: false; canceled: true }
     | { ok: false; canceled?: undefined; reason: 'start' | 'timeout' | 'cli' | 'io' }
   >;
+  /** Вложение в промпт (TASK-289): файл — в каталог вложений вкладки, ответ — ссылка для реплики. */
+  saveStudioAttachment: (query: { projectPath: string; cwd?: string; name: string; mime: string; data: string }) => Promise<PromptAttachment>;
+  /** Превью картинки-вложения data URL; `null` — не картинка или файла нет. */
+  studioAttachmentPreview: (query: { projectPath: string; path: string; mime?: string }) => Promise<string | null>;
+  /** Открыть вложение системной программой (картинка, PDF, текст) или показать в папке. */
+  openStudioAttachment: (query: { projectPath: string; path: string }) => Promise<boolean>;
   /** Имя сессии CLI вкладки из её заголовка (TASK-287): видно в `/resume` CLI и в терминале. */
   cliRenameSession: (query: {
     projectPath: string;
@@ -3202,6 +3209,8 @@ export interface AIMessage {
   error?: string;
   /** Снимок ошибки провайдера (decision-43) — локализованные заголовок и совет, кнопка «Повторить». */
   providerError?: ProviderErrorInfo;
+  /** Вложения реплики человека (TASK-289, decision-210): ссылки на файлы каталога вложений вкладки. */
+  attachments?: PromptAttachment[];
 }
 
 /** Зеркало `electron/services/providerErrors.ts` (decision-43). */

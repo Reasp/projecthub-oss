@@ -1877,6 +1877,17 @@ export interface TranslationDictionary {
       effortTitle: string;
       effortInherit: string;
       effortShort: string;
+      /** Вложения в промпт (TASK-289). */
+      attach: string;
+      attachDrop: string;
+      attachRemove: string;
+      attachSaving: string;
+      /** `{name}`, `{error}`. */
+      attachFailed: string;
+      /** `{count}`. */
+      attachTooMany: string;
+      /** `{name}`. */
+      attachOpen: string;
     };
     queue: {
       title: string;
