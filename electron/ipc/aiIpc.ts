@@ -481,6 +481,16 @@ export function registerAiIpc(ctx: IpcContext) {
     return true;
   });
 
+  // Фоновые задачи идущего хода Claude Code (TASK-290, decision-211): вывод и остановка запросами в stdin хода.
+  ipcMain.handle('ai:cliBackgroundTaskOutput', async (_event, query?: { sessionId?: unknown; taskId?: unknown }) => {
+    if (typeof query?.sessionId !== 'string') return null;
+    return claudeBridgeService.cliBackgroundTaskOutput(query.sessionId, query.taskId);
+  });
+  ipcMain.handle('ai:stopCliBackgroundTask', async (_event, query?: { sessionId?: unknown; taskId?: unknown }) => {
+    if (typeof query?.sessionId !== 'string') return false;
+    return claudeBridgeService.stopCliBackgroundTask(query.sessionId, query.taskId);
+  });
+
   ipcMain.handle('ai:clearSession', async (_event, sessionId: string) => {
     if (typeof sessionId !== 'string' || !sessionId) return false;
     claudeBridgeService.clearSession(sessionId);

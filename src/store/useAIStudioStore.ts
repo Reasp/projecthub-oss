@@ -16,6 +16,7 @@ import type {
   RateLimitWarning,
   AutoApproveRules,
   CliRewindPoint,
+  CliBackgroundSnapshot,
   ContextPartKey,
   ProviderErrorInfo,
   StudioSessionAgent,
@@ -65,6 +66,8 @@ interface AIStudioState {
   subagents: Record<string, SubagentInfo[]>; // projectPath -> active subagents (вкладка фильтрует по parentSessionId)
   rateLimitWarnings: Record<string, RateLimitWarning | null>; // sessionId -> active warning
   liveOutputs: Record<string, string>; // sessionId -> console output string
+  /** Фоновые задачи Claude Code идущего хода вкладки (TASK-290): sessionId → снимок. */
+  cliBackground: Record<string, CliBackgroundSnapshot>;
   isSubagentsPanelOpen: boolean;
   isActivitySidebarOpen: boolean;
   setIsSubagentsPanelOpen: (open: boolean) => void;
@@ -286,7 +289,7 @@ export function withoutKey<T>(record: Record<string, T>, key: string): Record<st
   return rest;
 }
 
-type SessionScopedFields = 'streamingSessions' | 'liveOutputs' | 'rateLimitWarnings' | 'pendingApprovals' | 'queuedMessages' | 'sideQuestions';
+type SessionScopedFields = 'streamingSessions' | 'liveOutputs' | 'cliBackground' | 'rateLimitWarnings' | 'pendingApprovals' | 'queuedMessages' | 'sideQuestions';
 
 /**
  * Сброс стрима, живого вывода, предупреждения о лимитах, очереди, побочного вопроса и ожидающих одобрений
@@ -301,6 +304,7 @@ function sessionResetPatch(
   const patch: Partial<Pick<AIStudioState, SessionScopedFields>> = {
     streamingSessions: withoutKey(state.streamingSessions, sessionId),
     liveOutputs: withoutKey(state.liveOutputs, sessionId),
+    cliBackground: withoutKey(state.cliBackground, sessionId),
     rateLimitWarnings: withoutKey(state.rateLimitWarnings, sessionId),
     queuedMessages: clearQueue(state.queuedMessages, sessionId),
     sideQuestions: withoutKey(state.sideQuestions, sessionId)
@@ -446,6 +450,7 @@ export const useAIStudioStore = create<AIStudioState>()(
       subagents: {},
       rateLimitWarnings: {},
       liveOutputs: {},
+      cliBackground: {},
       isSubagentsPanelOpen: false,
       isActivitySidebarOpen: false,
 
@@ -1446,12 +1451,17 @@ export const useAIStudioStore = create<AIStudioState>()(
             },
             streamingSessions: { ...state.streamingSessions, [activeSessionId]: true },
             // Вывод прошлого ответа этой вкладки не смешивается с новым.
-            liveOutputs: withoutKey(state.liveOutputs, activeSessionId)
+            liveOutputs: withoutKey(state.liveOutputs, activeSessionId),
+            cliBackground: withoutKey(state.cliBackground, activeSessionId)
           };
         });
 
         const streamId = activeSessionId;
-        const streamEnded = (state: AIStudioState) => ({ streamingSessions: withoutKey(state.streamingSessions, streamId) });
+        // Ход кончился — процесс CLI вышел, его фоновые задачи тоже (TASK-290).
+        const streamEnded = (state: AIStudioState) => ({
+          streamingSessions: withoutKey(state.streamingSessions, streamId),
+          cliBackground: withoutKey(state.cliBackground, streamId)
+        });
         abortedTurns.delete(streamId);
         // Конец хода (TASK-273): сам закончившийся ход отправляет следующее сообщение очереди; остановка и ошибка — нет.
         const afterTurn = (ended: 'complete' | 'error') => {
@@ -1564,6 +1574,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               subagents: newSubagents,
               rateLimitWarnings: newRateLimitWarnings,
               liveOutputs: newLiveOutputs,
+              ...(chunk.cliBackground ? { cliBackground: { ...state.cliBackground, [streamId]: chunk.cliBackground } } : {}),
               ...(planApproved ? { mode: 'agent' as const } : {})
             };
           });

@@ -120,8 +120,11 @@ export async function cliUserContent(text: string, attachments: readonly PromptA
   return body ? [{ type: 'text', text: body }, ...blocks] : blocks;
 }
 
-/** Строка stdin для `claude -p --input-format stream-json`: одно user-сообщение. */
-export function cliUserMessageLine(content: readonly CliContentBlock[]): string {
+/**
+ * Строка stdin для `claude -p --input-format stream-json`: одно user-сообщение. Промпт без вложений — строкой
+ * (TASK-290): так CLI узнаёт в нём слеш-команду, как в текстовом stdin.
+ */
+export function cliUserMessageLine(content: string | readonly CliContentBlock[]): string {
   return `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`;
 }
 

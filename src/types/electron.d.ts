@@ -1536,6 +1536,10 @@ export interface IElectronAPI {
     contextParts?: Partial<Record<ContextPartKey, boolean>>
   ) => Promise<AgentContextPreview>;
   abortAIStream: (sessionId: string) => Promise<boolean>;
+  /** Хвост вывода фоновой задачи идущего хода Claude Code (TASK-290); `null` — хода или задачи нет. */
+  cliBackgroundTaskOutput: (sessionId: string, taskId: string) => Promise<{ output: string; truncated: boolean; totalBytes: number } | null>;
+  /** Останавливает фоновую задачу идущего хода Claude Code (TASK-290). */
+  stopCliBackgroundTask: (sessionId: string, taskId: string) => Promise<boolean>;
   /** Полная очистка сессии в main: одобрения, процессы, resume-id Claude CLI, подагенты (TASK-33). */
   clearAISession: (sessionId: string) => Promise<boolean>;
   applyAIDiff: (projectPath: string, relativePath: string, newContent: string) => Promise<boolean>;
@@ -1571,6 +1575,7 @@ export interface IElectronAPI {
       claudeCliSessionId?: string;
       claudeCliTitle?: string;
       rateLimitWarning?: RateLimitWarning;
+      cliBackground?: CliBackgroundSnapshot;
     }) => void
   ) => () => void;
   onAIComplete: (sessionId: string, callback: (message: AIMessage) => void) => () => void;
@@ -2099,6 +2104,23 @@ export interface SubagentInfo {
   output?: string;
   startedAt: number;
   completedAt?: number;
+}
+
+/** Фоновая задача Claude Code в ходе вкладки (TASK-290, decision-211): `electron/services/cliBackgroundTasks.ts`. */
+export interface CliBackgroundTask {
+  taskId: string;
+  kind: 'shell' | 'agent' | 'mcp' | 'workflow' | 'other';
+  description: string;
+  status: 'running' | 'completed' | 'failed' | 'stopped';
+  startedAt: number;
+  endedAt?: number;
+  summary?: string;
+}
+
+/** Фоновые задачи хода и ждёт ли ход их после ответа модели. */
+export interface CliBackgroundSnapshot {
+  tasks: CliBackgroundTask[];
+  waiting: boolean;
 }
 
 export interface ClaudeModelOption {

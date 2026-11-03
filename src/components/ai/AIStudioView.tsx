@@ -49,6 +49,7 @@ import { REASONING_EFFORT_OPTIONS } from '../../lib/reasoningEffort';
 import { QueuedMessagesBar } from './QueuedMessagesBar';
 import { SideQuestionPanel } from './SideQuestionPanel';
 import { AddDirsBar } from './AddDirsBar';
+import { BackgroundTasksBar } from './BackgroundTasksBar';
 import { CliRewindModal } from './CliRewindModal';
 import { studioCliText } from '../../i18n/studioCliText';
 import { goesToClaudeCli } from '../../lib/studioCliCommands';
@@ -87,6 +88,7 @@ export const AIStudioView: React.FC = () => {
     subagents,
     rateLimitWarnings,
     liveOutputs,
+    cliBackground,
     isSubagentsPanelOpen,
     isActivitySidebarOpen,
     setIsSubagentsPanelOpen,
@@ -1066,6 +1068,11 @@ export const AIStudioView: React.FC = () => {
           onRemove={(dir) => removeSessionDir(projectPath, currentSessionId, dir)}
           onAdd={() => void addSessionDir(projectPath, currentSessionId, '')}
         />
+      )}
+
+      {/* Фоновые задачи Claude Code идущего хода (TASK-290): вывод и остановка */}
+      {!currentSession?.memberId && currentSessionId && (
+        <BackgroundTasksBar sessionId={currentSessionId} snapshot={cliBackground[currentSessionId]} />
       )}
 
       {/* Побочный вопрос `/btw` и подсказки `/fork` (TASK-283) — вне разговора вкладки */}

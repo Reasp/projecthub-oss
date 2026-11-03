@@ -15,7 +15,7 @@ import { AppError, appErrorKeyOf, type AppErrorKey } from '../../src/lib/appErro
 import { CHILD_CLOSE_GRACE_MS, superviseChildExit } from './processSweep.js';
 import { claudeUsageService } from './claudeUsageService.js';
 import { claudeAccountService, defaultClaudeAccountDir } from './claudeAccountService.js';
-import { parseClaudeResultEvent, priceUsage, type AgentUsage } from './agentCost.js';
+import { addUsage, parseClaudeResultEvent, priceUsage, type AgentUsage } from './agentCost.js';
 import {
   applySubagentUpdate,
   CLI_EXIT_PLAN_TOOL,
@@ -65,6 +65,7 @@ import { readWorktreeFile } from './worktreeFs.js';
 import { errorMessage } from './errorMessage.js';
 import { sanitizePromptAttachments } from '../../src/lib/promptAttachments.js';
 import { cliUserContent, cliUserMessageLine, messagesWithAttachmentPaths } from './studioPromptAttachments.js';
+import { CliBackgroundTasks, isCliTaskId, parseControlResponse, parseTaskOutput, type CliBackgroundSnapshot } from './cliBackgroundTasks.js';
 import {
   applyProjectPolicy,
   applyRolePermissions,
@@ -215,6 +216,8 @@ export interface ClaudeBridgeMessageChunk {
   rateLimitWarning?: RateLimitWarning;
   /** Токены и стоимость ответа (событие `result` stream-json или usage API-провайдера), TASK-56. */
   usage?: AgentUsage;
+  /** Фоновые задачи Claude Code в ходе и ждёт ли ход их конца (TASK-290, decision-211). */
+  cliBackground?: CliBackgroundSnapshot;
 }
 
 export interface ClaudeCliAvailability {
@@ -230,6 +233,8 @@ export interface ClaudeCliAvailability {
 const CLAUDE_CLI_RECHECK_MS = 30_000;
 /** Таймаут ответа `claude --version`. */
 const CLAUDE_CLI_CHECK_TIMEOUT_MS = 10_000;
+/** Таймаут ответа CLI на `control_request` идущего хода (`stop_task`, `get_task_output`, TASK-290). */
+const CLI_TURN_CONTROL_TIMEOUT_MS = 10_000;
 /** Таймаут команды агента по умолчанию (TASK-33, аудит 1.4); переопределяется `autoApproveRules.commandTimeoutSec`. */
 export const SUBPROCESS_DEFAULT_TIMEOUT_MS = 5 * 60_000;
 /** Лимит накопленного вывода команды агента: хранится только «хвост» этого размера. */
@@ -462,6 +467,11 @@ class ClaudeBridgeService extends EventEmitter {
   private activeSubagents = new Map<string, SubagentInfo[]>();
   /** Процессы Claude CLI по sessionId. */
   private activeProcesses = new Map<string, ChildProcess>();
+  /**
+   * Управление идущим ходом Claude Code по sessionId (TASK-290, decision-211): `control_request` в его stdin,
+   * пока тот открыт, и фоновые задачи хода.
+   */
+  private cliTurnControls = new Map<string, { request: (request: Record<string, unknown>) => Promise<Record<string, unknown>>; tasks: CliBackgroundTasks }>();
   /** Команды агента (executeSubprocess) по sessionId. */
   private sessionSubprocesses = new Map<string, Set<ChildProcess>>();
   /** Остановка команды агента с добиванием переживших потомков (executeSubprocess). */
@@ -1054,6 +1064,34 @@ class ClaudeBridgeService extends EventEmitter {
     }
     this.activeSubagents.set(subagent.projectPath, existing);
     this.emit('subagentUpdated', subagent);
+  }
+
+  /**
+   * Хвост вывода фоновой задачи идущего хода Claude Code (`get_task_output`, последние 8 КиБ; TASK-290).
+   * `null` — хода нет, stdin уже закрыт или задача не этого хода.
+   */
+  public async cliBackgroundTaskOutput(sessionId: string, taskId: unknown): Promise<{ output: string; truncated: boolean; totalBytes: number } | null> {
+    const control = this.cliTurnControls.get(sessionId);
+    if (!control || !isCliTaskId(taskId) || !control.tasks.has(taskId)) return null;
+    try {
+      return parseTaskOutput(await control.request({ subtype: 'get_task_output', task_id: taskId }));
+    } catch (err) {
+      console.warn(`[ClaudeBridge] get_task_output failed for session ${sessionId}: ${errorMessage(err)}`);
+      return null;
+    }
+  }
+
+  /** Останавливает фоновую задачу идущего хода Claude Code (`stop_task`, TASK-290). */
+  public async stopCliBackgroundTask(sessionId: string, taskId: unknown): Promise<boolean> {
+    const control = this.cliTurnControls.get(sessionId);
+    if (!control || !isCliTaskId(taskId) || !control.tasks.isRunning(taskId)) return false;
+    try {
+      await control.request({ subtype: 'stop_task', task_id: taskId });
+      return true;
+    } catch (err) {
+      console.warn(`[ClaudeBridge] stop_task failed for session ${sessionId}: ${errorMessage(err)}`);
+      return false;
+    }
   }
 
   public getSubagents(projectPath: string): SubagentInfo[] {
@@ -1692,8 +1730,10 @@ class ClaudeBridgeService extends EventEmitter {
       removeSystemPromptFile();
     };
 
-    // Промпт в stdin: текстом или, со вложениями, строкой stream-json (картинки и PDF — блоками, прочие файлы — путями).
-    let stdinPayload = lastUserMessage;
+    // Промпт — user-сообщением stream-json (со вложениями — картинки и PDF блоками, прочие файлы путями, TASK-289).
+    // stdin хода остаётся открытым, пока CLI ждёт фоновые задачи: через него уходят `stop_task` и
+    // `get_task_output` (TASK-290, decision-211).
+    let stdinPayload = cliUserMessageLine(lastUserMessage);
     if (promptAttachments.length > 0) {
       try {
         stdinPayload = cliUserMessageLine(await cliUserContent(lastUserMessage, promptAttachments, projectPath, workDir));
@@ -1702,8 +1742,8 @@ class ClaudeBridgeService extends EventEmitter {
         this.failStudioSession(sessionId, projectPath, err, onError);
         return;
       }
-      cliArgs.push('--input-format', 'stream-json');
     }
+    cliArgs.push('--input-format', 'stream-json');
     const hitlEnv = hitl?.env ?? { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) };
 
     let child: ChildProcessWithoutNullStreams;
@@ -1736,6 +1776,57 @@ class ClaudeBridgeService extends EventEmitter {
 
     this.activeProcesses.set(sessionId, child);
     if (hitlWarning) onChunk({ text: hitlWarning });
+
+    // Фоновые задачи хода (TASK-290, decision-211). CLI в `-p` не выходит, пока они живы, и по их концу сам начинает
+    // ещё один ход модели. stdin открыт, пока ход их ждёт: вкладка читает их вывод и останавливает их запросами
+    // `get_task_output`/`stop_task`. Закрывается он после ответа модели, когда живых задач нет, — тогда CLI выходит.
+    const backgroundTasks = new CliBackgroundTasks();
+    const pendingControls = new Map<string, { resolve: (response: Record<string, unknown>) => void; reject: (err: Error) => void }>();
+    let controlSeq = 0;
+    let stdinOpen = true;
+    let resultSeen = false;
+    const emitBackground = () => onChunk({ cliBackground: backgroundTasks.snapshot(resultSeen) });
+    const releaseTurnControl = () => {
+      if (this.cliTurnControls.get(sessionId)?.tasks === backgroundTasks) this.cliTurnControls.delete(sessionId);
+    };
+    const closeStdin = () => {
+      if (!stdinOpen) return;
+      stdinOpen = false;
+      releaseTurnControl();
+      try {
+        child.stdin.end();
+      } catch { /* процесс уже вышел */ }
+    };
+    const closeStdinWhenIdle = () => {
+      if (resultSeen && !backgroundTasks.hasLive()) closeStdin();
+    };
+    // Ответы на запросы приходят и после закрытия stdin (уровень задач опустел раньше ответа на `stop_task`):
+    // ожидающие запросы отклоняются только с концом процесса или по таймауту.
+    const rejectPendingControls = () => {
+      for (const p of pendingControls.values()) p.reject(new Error('Claude Code turn ended'));
+      pendingControls.clear();
+    };
+    this.cliTurnControls.set(sessionId, {
+      tasks: backgroundTasks,
+      request: (request) =>
+        new Promise((resolve, reject) => {
+          if (!stdinOpen) {
+            reject(new Error('Claude Code turn input is closed'));
+            return;
+          }
+          const requestId = `ph_${++controlSeq}`;
+          pendingControls.set(requestId, { resolve, reject });
+          setTimeout(() => {
+            if (pendingControls.delete(requestId)) reject(new Error('Claude Code did not answer the control request'));
+          }, CLI_TURN_CONTROL_TIMEOUT_MS).unref?.();
+          try {
+            child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: requestId, request })}\n`, 'utf-8');
+          } catch (err) {
+            pendingControls.delete(requestId);
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
+        })
+    });
 
     // Гарантируем, что onComplete/onError для сессии вызываются ровно один раз:
     // события 'error' и 'close' у ChildProcess могут прийти оба.
@@ -1802,6 +1893,21 @@ class ClaudeBridgeService extends EventEmitter {
 
         try {
           const event = JSON.parse(trimmed);
+
+          // Ответ на `stop_task`/`get_task_output` вкладки (TASK-290).
+          const control = parseControlResponse(event);
+          if (control) {
+            const pending = pendingControls.get(control.requestId);
+            if (pending) {
+              pendingControls.delete(control.requestId);
+              if (control.ok) pending.resolve(control.response);
+              else pending.reject(new Error(control.error));
+            }
+            continue;
+          }
+          // Фоновые задачи хода (TASK-290): панель вкладки и момент, когда stdin можно закрыть.
+          if (backgroundTasks.apply(event)) emitBackground();
+          if (event.type === 'system' && event.subtype === 'background_tasks_changed') closeStdinWhenIdle();
 
           if (event.session_id && !sideQuestion) {
             this.sessionClaudeCliIds.set(sessionId, { id: event.session_id, configDir: account.configDir, workDir });
@@ -1907,9 +2013,16 @@ class ClaudeBridgeService extends EventEmitter {
             if (summary?.isError) resultError = summary.result?.trim() || summary.subtype || 'error';
             if (summary && (summary.usage.totalTokens > 0 || typeof summary.usage.costUsd === 'number')) {
               // Та же таблица цен, что у Swarm и API-пути Agents Studio (decision-42).
-              resultUsage = priceUsage(summary.usage, summary.usage.model, pricingService.getTable());
+              const priced = priceUsage(summary.usage, summary.usage.model, pricingService.getTable());
+              // Ход после конца фоновой задачи — свой `result` со своей стоимостью (TASK-290): складываются.
+              resultUsage = resultUsage ? addUsage(resultUsage, priced) : priced;
               onChunk({ usage: resultUsage });
             }
+            // Модель ответила: без живых фоновых задач ход закончен, с ними — ждёт их (TASK-290).
+            const wasWaiting = resultSeen && backgroundTasks.hasLive();
+            resultSeen = true;
+            if (backgroundTasks.hasLive() !== wasWaiting) emitBackground();
+            closeStdinWhenIdle();
           }
         } catch {
           // Check non-json line for warning
@@ -1945,6 +2058,9 @@ class ClaudeBridgeService extends EventEmitter {
     });
 
     child.on('close', (code) => {
+      stdinOpen = false;
+      releaseTurnControl();
+      rejectPendingControls();
       if (finished) return;
       finished = true;
       this.activeProcesses.delete(sessionId);
@@ -1985,9 +2101,9 @@ class ClaudeBridgeService extends EventEmitter {
     child.on('error', (err) => failSession(err.message));
 
     // Передаём запрос через stdin (без экранирования аргументов оболочки) — только после навешивания всех обработчиков.
+    // stdin закрывает closeStdinWhenIdle: после ответа модели и без живых фоновых задач (TASK-290).
     try {
       child.stdin.write(stdinPayload, 'utf-8');
-      child.stdin.end();
     } catch (err: unknown) {
       failSession(new AppError('studio.cliStdinFailed', { detail: errorMessage(err) }));
       killProcessTree(child);
