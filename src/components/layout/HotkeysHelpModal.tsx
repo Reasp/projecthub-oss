@@ -52,6 +52,16 @@ export const HotkeysHelpModal: React.FC<Props> = ({ isOpen, onClose }) => {
         { keys: ['?'], description: t.hotkeys.openHelp },
         { keys: ['Esc'], description: t.hotkeys.closeModal }
       ]
+    },
+    {
+      // Как в терминальном Claude Code (TASK-299)
+      title: t.hotkeys.studio,
+      icon: Keyboard,
+      note: t.hotkeys.studioNote,
+      items: [
+        { keys: ['Esc'], description: t.hotkeys.studioStop },
+        { keys: ['Esc', 'Esc'], description: t.hotkeys.studioRewind }
+      ]
     }
   ];
 

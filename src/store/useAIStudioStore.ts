@@ -38,7 +38,7 @@ import { isAutoSessionTitle, localizeLegacyTitle, titleFromPrompt } from '../lib
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf } from '../lib/studioWorktree';
 import { clearQueue, enqueueMessage, nextAfterTurn, removeQueuedMessage, type StudioQueues } from '../lib/studioMessageQueue';
 import { forkedSession, insertAfter } from '../lib/studioSessionFork';
-import { feedBeforePoint, rewoundSession } from '../lib/studioRewind';
+import { feedBeforeMessage, feedBeforePoint, matchRewindPoints, pointsBeforePending, rewoundSession } from '../lib/studioRewind';
 import { hasAddDir, MAX_ADD_DIRS, withAddDir, withoutAddDir } from '../lib/studioAddDir';
 import { cliTitleToSync } from '../lib/studioCliTitle';
 import { sanitizePromptAttachments, type PromptAttachment } from '../lib/promptAttachments';
@@ -180,6 +180,12 @@ interface AIStudioState {
   rewindConversation: (projectPath: string, sessionId: string, point: CliRewindPoint, messageId?: string, filesRestored?: number) => Promise<void>;
   /** Откат файлов к состоянию перед репликой (`--rewind-files`); итог — в панели над полем ввода. */
   rewindFiles: (projectPath: string, sessionId: string, point: CliRewindPoint, fileCount: number) => Promise<boolean>;
+  /**
+   * «Изменить» у реплики (TASK-299): разговор откатывается к месту перед ней, текст — в поле ввода. У вкладки с разговором
+   * Claude Code (`viaCli`) — откат разговора CLI; если откат затронул бы файлы, открывается окно отката (TASK-284).
+   * У прочих движков обрезается лента.
+   */
+  editMessage: (projectPath: string, sessionId: string, messageId: string, viaCli: boolean) => Promise<void>;
   /** Текст для поля ввода вкладки: откат возвращает реплику (TASK-284); `nonce` различает повтор того же текста. */
   promptPrefill: { sessionId: string; text: string; nonce: number } | null;
   /** Поле приняло текст — повторный показ поля его не подставит. */
@@ -1134,6 +1140,39 @@ export const useAIStudioStore = create<AIStudioState>()(
           }
         }));
         return result.ok;
+      },
+
+      editMessage: async (projectPath: string, sessionId: string, messageId: string, viaCli: boolean) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session || get().streamingSessions[sessionId]) return;
+        const query = viaCli ? tabCliQuery(projectPath, session) : null;
+        if (query && window.api?.cliRewindPoints) {
+          const all = await window.api.cliRewindPoints(query).catch(() => null);
+          const points = all ? pointsBeforePending(all, session) : [];
+          const matches = matchRewindPoints(session.messages, points);
+          const point = points.find((p) => matches.get(p.uuid) === messageId);
+          if (point) {
+            const files = await window.api.cliRewindPreview({ ...query, promptUuid: point.uuid }).catch(() => []);
+            // Файлы откатываются только явной кнопкой окна отката со списком (decision-205).
+            if (files.length === 0) {
+              await get().rewindConversation(projectPath, sessionId, point, messageId);
+              return;
+            }
+          }
+          // Откат затронет файлы или реплики нет среди точек CLI — выбор в окне отката.
+          get().openRewind(projectPath, sessionId, messageId);
+          return;
+        }
+        const cut = feedBeforeMessage(session.messages, messageId);
+        if (!cut) return;
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => (s.id === sessionId ? { ...s, messages: cut.messages } : s))
+          },
+          promptPrefill: { sessionId, text: cut.text, nonce: Date.now() }
+        }));
+        void sessionPersister.flushNow();
       },
 
       renameSession: (projectPath: string, sessionId: string, newTitle: string) => {

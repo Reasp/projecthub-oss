@@ -4,7 +4,7 @@ import { RotateCcw, X } from '../common/icons';
 import { useTranslation } from '../../i18n';
 import { studioCliText } from '../../i18n/studioCliText';
 import { appErrorText } from '../../lib/appErrorText';
-import { matchRewindPoints } from '../../lib/studioRewind';
+import { matchRewindPoints, pointsBeforePending } from '../../lib/studioRewind';
 import { tabCliQuery, useAIStudioStore } from '../../store/useAIStudioStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import type { CliRewindFile, CliRewindPoint } from '../../types/electron';
@@ -51,8 +51,7 @@ export function CliRewindModal() {
       .cliRewindPoints(query)
       .then((list) => {
         if (!alive) return;
-        const cut = pendingResumeAt ? list.findIndex((p) => p.keepUuid === pendingResumeAt) : -1;
-        setPoints(cut >= 0 ? list.slice(0, cut) : list);
+        setPoints(pointsBeforePending(list, { claudeCliForkPending: !!pendingResumeAt, claudeCliResumeAt: pendingResumeAt }));
       })
       .catch((err) => alive && setError(appErrorText(err, t.appErrors)));
     return () => {

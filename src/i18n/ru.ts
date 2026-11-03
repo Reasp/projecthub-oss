@@ -2016,7 +2016,9 @@ export const ru: TranslationDictionary = {
       attachSaving: 'Сохраняется…',
       attachFailed: 'Не удалось прикрепить {name}: {error}',
       attachTooMany: 'Не больше {count} вложений в промпте',
-      attachOpen: 'Открыть {name}'
+      attachOpen: 'Открыть {name}',
+      escAgainRewind: 'Нажмите Esc ещё раз, чтобы откатить разговор',
+      editMessage: 'Изменить: откатить разговор к месту перед репликой и вернуть её в поле ввода'
     },
     queue: {
       title: 'В очереди ({count})',
@@ -2202,7 +2204,11 @@ export const ru: TranslationDictionary = {
     toggleTerminal: 'Встроенный мульти-терминал',
     toggleSidebar: 'Скрыть/показать меню проектов',
     openHelp: 'Справка по горячим клавишам',
-    closeModal: 'Закрыть активное модальное окно'
+    closeModal: 'Закрыть активное модальное окно',
+    studio: 'Agents Studio',
+    studioNote: 'Открытое окно или меню получает Esc первым',
+    studioStop: 'Остановить ответ вкладки',
+    studioRewind: 'Откатить разговор (Claude Code, пустое поле)'
   },
   search: {
     placeholder: 'Семантический поиск по докам, решениям и задачам...',

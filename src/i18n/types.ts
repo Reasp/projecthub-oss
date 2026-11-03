@@ -1888,6 +1888,10 @@ export interface TranslationDictionary {
       attachTooMany: string;
       /** `{name}`. */
       attachOpen: string;
+      /** Подсказка после первого Esc при пустом поле (TASK-299). */
+      escAgainRewind: string;
+      /** «Изменить» у реплики человека (TASK-299). */
+      editMessage: string;
     };
     queue: {
       title: string;
@@ -2059,6 +2063,11 @@ export interface TranslationDictionary {
     toggleSidebar: string;
     openHelp: string;
     closeModal: string;
+    /** Клавиши Agents Studio (TASK-299). */
+    studio: string;
+    studioNote: string;
+    studioStop: string;
+    studioRewind: string;
   };
   search: {
     placeholder: string;

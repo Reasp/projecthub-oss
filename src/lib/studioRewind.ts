@@ -41,6 +41,23 @@ export function rewoundSession(session: AISession, point: CliRewindPoint, messag
   return { ...rest, messages, claudeCliForkPending: true, claudeCliResumeAt: point.keepUuid };
 }
 
+/** Точки отката откаченной, но ещё не продолженной вкладки: дальше точки отката разговора уже нет. */
+export function pointsBeforePending(points: CliRewindPoint[], session: Pick<AISession, 'claudeCliForkPending' | 'claudeCliResumeAt'>): CliRewindPoint[] {
+  const pendingAt = session.claudeCliForkPending ? session.claudeCliResumeAt : undefined;
+  const cut = pendingAt ? points.findIndex((p) => p.keepUuid === pendingAt) : -1;
+  return cut >= 0 ? points.slice(0, cut) : points;
+}
+
+/**
+ * «Изменить» у реплики вкладки без разговора Claude Code (TASK-299): разговор — сама лента, она обрезается до реплики,
+ * текст реплики возвращается в поле ввода. `null` — реплики человека с таким id нет.
+ */
+export function feedBeforeMessage(messages: readonly AIMessage[], messageId: string): { messages: AIMessage[]; text: string } | null {
+  const index = messages.findIndex((m) => m.id === messageId);
+  if (index < 0 || messages[index].role !== 'user') return null;
+  return { messages: messages.slice(0, index), text: messages[index].content };
+}
+
 /** Лента из файла сессии CLI до реплики точки (без неё). */
 export function feedBeforePoint(history: readonly AIMessage[], point: CliRewindPoint): AIMessage[] | undefined {
   const index = history.findIndex((m) => m.id === `cli-${point.uuid}`);

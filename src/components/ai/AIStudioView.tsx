@@ -120,6 +120,7 @@ export const AIStudioView: React.FC = () => {
     addSessionDir,
     removeSessionDir,
     openRewind,
+    editMessage,
     exportConversation,
     promptPrefill,
     clearPromptPrefill,
@@ -297,7 +298,10 @@ export const AIStudioView: React.FC = () => {
   const tabGoesToCli = goesToClaudeCli(sessionRequestConfig(config, currentSession?.agent));
   // Откат с реплики (TASK-284) — у вкладки Claude Code с разговором CLI, между ходами, не в чужой сессии участника.
   const canRewind = tabGoesToCli && !!currentSession?.claudeCliSessionId && !isStreaming && !currentSession?.memberId && !!currentSessionId;
-  const rewindLabel = studioCliText(language).rewindAction;
+  const rewindLabel = `${studioCliText(language).rewindAction} (Esc Esc)`;
+  // «Изменить» реплику (TASK-299) — у вкладки любого движка, между ходами.
+  const canEditMessage = !isStreaming && !currentSession?.memberId && !!currentSessionId;
+  const editLabel = t.aiStudio.input.editMessage;
   const copyLabel = studioCliText(language).copyAction;
   const copiedLabel = studioCliText(language).copied;
   const exportLabel = studioCliText(language).exportAction;
@@ -353,7 +357,7 @@ export const AIStudioView: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-ph-panel overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-ph-panel overflow-hidden" data-studio-root>
       {/* 1. Multi-Session Tabs Bar (VS Code Extension Style) */}
       {/* @container: на узкой панели подписи правых кнопок прячутся, место отдаётся вкладкам (TASK-217) */}
       <div className="@container bg-ph-chrome border-b border-ph-line flex items-center justify-between gap-2 px-2 h-10 shrink-0 select-none relative z-30">
@@ -970,6 +974,19 @@ export const AIStudioView: React.FC = () => {
                           <RotateCcw className="w-3.5 h-3.5" />
                         </button>
                       )}
+                      {/* Правка прошлого промпта (TASK-299): откат разговора к месту перед репликой, текст — в поле */}
+                      {isUser && canEditMessage && (
+                        <button
+                          type="button"
+                          onClick={() => void editMessage(projectPath, currentSessionId, msg.id, canRewind)}
+                          className="text-slate-500 hover:text-slate-200"
+                          title={editLabel}
+                          aria-label={editLabel}
+                          data-testid="studio-edit-message"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       {/* Копирование ответа (TASK-288): текст ответа как есть, в Markdown; у ответа, который ещё пишется, — нет */}
                       {!isUser && msg.content.trim() && !isLiveMsg && (
                         <button
@@ -1104,6 +1121,9 @@ export const AIStudioView: React.FC = () => {
         onAbort={() => currentSessionId && abortStream(currentSessionId)}
         prefill={promptPrefill && promptPrefill.sessionId === currentSessionId ? promptPrefill : null}
         onPrefillApplied={clearPromptPrefill}
+        canRewind={canRewind}
+        onRewind={() => currentSessionId && openRewind(projectPath, currentSessionId)}
+        escapeBlocked={projectApprovals.length > 0}
         footerStart={
           <>
             {currentSessionId && (

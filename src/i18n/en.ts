@@ -2015,7 +2015,9 @@ export const en: TranslationDictionary = {
       attachSaving: 'Saving…',
       attachFailed: 'Could not attach {name}: {error}',
       attachTooMany: 'No more than {count} attachments per prompt',
-      attachOpen: 'Open {name}'
+      attachOpen: 'Open {name}',
+      escAgainRewind: 'Press Esc again to rewind the conversation',
+      editMessage: 'Edit: rewind the conversation to before this message and put it back in the field'
     },
     queue: {
       title: 'Queued ({count})',
@@ -2201,7 +2203,11 @@ export const en: TranslationDictionary = {
     toggleTerminal: 'Toggle Embedded Terminal',
     toggleSidebar: 'Toggle project menu',
     openHelp: 'Show Keyboard Shortcuts Help',
-    closeModal: 'Close Active Modal / Overlay'
+    closeModal: 'Close Active Modal / Overlay',
+    studio: 'Agents Studio',
+    studioNote: 'An open window or menu takes Esc first',
+    studioStop: 'Stop the reply of the tab',
+    studioRewind: 'Rewind the conversation (Claude Code, empty field)'
   },
   search: {
     placeholder: 'Semantic search across docs, decisions, and tasks...',

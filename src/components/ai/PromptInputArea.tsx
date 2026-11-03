@@ -20,6 +20,7 @@ import {
   mimeFromName,
   type PromptAttachment
 } from '../../lib/promptAttachments';
+import { STUDIO_ESC_DOUBLE_MS, hasEscOverlay, isPlainEscape, studioEscAction } from '../../lib/studioEscape';
 
 /** Вложение в поле ввода: сохраняется, готово или с ошибкой. */
 interface PendingAttachment {
@@ -49,6 +50,11 @@ interface PromptInputAreaProps {
   prefill?: { text: string; nonce: number } | null;
   /** Поле приняло `prefill`. */
   onPrefillApplied?: () => void;
+  /** Во вкладке есть разговор Claude Code для отката: Esc Esc при пустом поле открывает окно отката (TASK-299). */
+  canRewind?: boolean;
+  onRewind?: () => void;
+  /** Esc занят карточкой на ленте вкладки (подтверждение действия агента) — поле его не трогает. */
+  escapeBlocked?: boolean;
 }
 
 export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
@@ -61,7 +67,10 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   footerStart,
   footerEnd,
   prefill,
-  onPrefillApplied
+  onPrefillApplied,
+  canRewind = false,
+  onRewind,
+  escapeBlocked = false
 }) => {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
@@ -246,6 +255,66 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
     };
   }, []);
 
+  // Esc как в терминальном Claude Code (TASK-299): во время хода — прервать, Esc Esc при пустом поле — откат.
+  // Слушатель на window в фазе захвата: он видит окна и меню ещё открытыми, до того как их Esc их закроет.
+  const [escArmed, setEscArmed] = useState(false);
+  const escArmedAtRef = useRef<number | null>(null);
+  const escStateRef = useRef({ isStreaming, canRewind, escapeBlocked, promptDictation, onAbort, onRewind });
+  useEffect(() => {
+    escStateRef.current = { isStreaming, canRewind, escapeBlocked, promptDictation, onAbort, onRewind };
+  });
+  useEffect(() => {
+    if (!escArmed) return;
+    const timer = setTimeout(() => {
+      escArmedAtRef.current = null;
+      setEscArmed(false);
+    }, STUDIO_ESC_DOUBLE_MS);
+    return () => clearTimeout(timer);
+  }, [escArmed]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isPlainEscape(e)) return;
+      const field = textareaRef.current;
+      // Studio скрыта (другой раздел) — поле не видно, Esc не его.
+      if (!field || field.offsetParent === null) return;
+      const s = escStateRef.current;
+      if (s.escapeBlocked || s.promptDictation || hasEscOverlay(document)) return;
+      // Esc из другого поля ввода (переименование вкладки и т.п.) или вне Studio принадлежит ему.
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target && target !== field && target !== document.body) {
+        const root = field.closest('[data-studio-root]');
+        if (!root?.contains(target)) return;
+        if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      }
+      const action = studioEscAction({
+        streaming: s.isStreaming,
+        inputEmpty: !inputRef.current.trim() && attachmentsRef.current.length === 0,
+        canRewind: s.canRewind && !!s.onRewind,
+        armedAt: escArmedAtRef.current,
+        now: Date.now()
+      });
+      if (action === 'none') return;
+      e.preventDefault();
+      if (action === 'abort') {
+        escArmedAtRef.current = null;
+        setEscArmed(false);
+        s.onAbort();
+      } else if (action === 'arm') {
+        escArmedAtRef.current = Date.now();
+        setEscArmed(true);
+      } else {
+        escArmedAtRef.current = null;
+        setEscArmed(false);
+        // Окно отката монтируется синхронно и вешает свой Esc на window: открытое в этом же событии, оно получило бы
+        // этот Esc в фазе всплытия и сразу закрылось.
+        const open = s.onRewind;
+        setTimeout(() => open?.(), 0);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -388,6 +457,12 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
           </div>
         )}
 
+        {escArmed && (
+          <div className="px-1.5 pb-1 text-[11px] text-slate-400" data-testid="composer-esc-hint">
+            {t.aiStudio.input.escAgainRewind}
+          </div>
+        )}
+
         <textarea
           onPaste={handlePaste}
           ref={textareaRef}
@@ -522,7 +597,8 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
                 type="button"
                 onClick={onAbort}
                 className="ph-btn ph-btn-danger shrink-0"
-                title={t.aiStudio.input.stop}
+                title={`${t.aiStudio.input.stop} (Esc)`}
+                data-testid="composer-stop"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
                 <span>{t.aiStudio.input.stop}</span>
