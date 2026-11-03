@@ -121,6 +121,8 @@ interface AIStudioState {
    */
   cliCommand: PendingCliCommand | null;
   clearCliCommand: () => void;
+  /** `/memory` (TASK-286): окно файлов памяти Claude Code этой вкладки — её аккаунт, каталог и `/add-dir`. */
+  openCliMemory: (projectPath: string, sessionId: string) => void;
   /** Привязать вкладку к сессии Claude Code: следующее сообщение продолжит её через `--resume`. */
   attachCliSession: (projectPath: string, sessionId: string, cliSessionId: string, cwd: string) => void;
   /**
@@ -215,7 +217,7 @@ export interface StudioSideQuestion {
   notice?: string;
 }
 
-export type PendingCliCommand = Extract<StudioCliCommand, { kind: 'resume' | 'terminal' }> & {
+export type PendingCliCommand = Extract<StudioCliCommand, { kind: 'resume' | 'terminal' | 'memory' }> & {
   projectPath: string;
   sessionId: string;
   claudeAccountId?: string;
@@ -223,6 +225,8 @@ export type PendingCliCommand = Extract<StudioCliCommand, { kind: 'resume' | 'te
   cliSessionId?: string;
   /** Рабочее дерево вкладки: каталог сессий CLI и терминала. */
   workspaceRoot: string;
+  /** Каталоги `/add-dir` вкладки — `/memory` ищет инструкции и в них, как ход CLI. */
+  addDirs?: string[];
 };
 
 export interface SendMessageOptions {
@@ -668,6 +672,23 @@ export const useAIStudioStore = create<AIStudioState>()(
 
       cliCommand: null,
       clearCliCommand: () => set({ cliCommand: null }),
+
+      openCliMemory: (projectPath: string, sessionId: string) => {
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session) return;
+        const claudeAccountId = sessionClaudeAccountId(session.agent);
+        set({
+          cliCommand: {
+            kind: 'memory',
+            projectPath,
+            sessionId,
+            ...(claudeAccountId ? { claudeAccountId } : {}),
+            ...(session.claudeCliSessionId ? { cliSessionId: session.claudeCliSessionId } : {}),
+            workspaceRoot: sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
+            ...(session.claudeCliAddDirs?.length ? { addDirs: [...session.claudeCliAddDirs] } : {})
+          }
+        });
+      },
 
       removeQueuedMessage: (sessionId: string, messageId: string) =>
         set((state) => ({ queuedMessages: removeQueuedMessage(state.queuedMessages, sessionId, messageId) })),
@@ -1115,6 +1136,11 @@ export const useAIStudioStore = create<AIStudioState>()(
         // `/add-dir` (TASK-285) меняет только следующие ходы — ждать конца текущего незачем.
         if (cli?.kind === 'addDir') {
           await get().addSessionDir(projectPath, activeSessionId, cli.path);
+          return;
+        }
+        // `/memory` (TASK-286) только читает и правит файлы памяти — открывается и во время хода, как в CLI.
+        if (cli?.kind === 'memory') {
+          get().openCliMemory(projectPath, activeSessionId);
           return;
         }
         // Занята только эта вкладка (TASK-171): сообщение встаёт в её очередь и уйдёт после хода (TASK-273).

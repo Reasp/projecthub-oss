@@ -1412,6 +1412,17 @@ export interface IElectronAPI {
   checkAddDir: (query: { projectPath: string; cwd?: string; dir: string }) => Promise<
     { ok: true; path: string } | { ok: false; reason: 'empty' | 'notFound' | 'notDirectory' | 'insideWorkDir' }
   >;
+  /** Строки диалога `/memory` CLI вкладки (TASK-286): файлы инструкций, папки и записи автопамяти. */
+  cliMemoryDialog: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[] }) => Promise<
+    { ok: true; dialog: CliMemoryDialog } | { ok: false; reason: 'start' | 'timeout' | 'cli'; detail?: string }
+  >;
+  /** Файл из последнего диалога `/memory`; отсутствующий — пустой текст и `exists: false`. */
+  readCliMemoryFile: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; file: string }) => Promise<
+    { ok: true; content: string; exists: boolean } | { ok: false; reason: 'denied' | 'tooLarge' | 'io' }
+  >;
+  saveCliMemoryFile: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; file: string; content: string }) => Promise<{ ok: boolean }>;
+  /** Папка автопамяти из диалога — в проводнике системы. */
+  openCliMemoryFolder: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; dir: string }) => Promise<boolean>;
   /** Профили аккаунтов Claude Code (TASK-152, decision-87). */
   claudeAccounts: {
     overview: () => Promise<ClaudeAccountsOverview>;
@@ -3494,6 +3505,14 @@ export interface CliRewindPoint {
   keepUuid: string | null;
   text: string;
   timestamp: string;
+}
+
+/** Диалог `/memory` Claude Code (TASK-286, ответ `get_memory_dialog`; повторяет electron/services/cliMemoryDialog.ts). */
+export interface CliMemoryDialog {
+  files: { kind: 'user' | 'project' | 'project-alt' | 'local' | 'other'; path: string; label: string; description: string; exists: boolean }[];
+  folders: { kind: 'auto' | 'team' | 'agent'; path: string; label: string; description: string }[];
+  memories: { name: string; path: string; description: string | null; type: 'user' | 'feedback' | 'project' | 'reference' | null; modifiedMs: number }[];
+  autoMemory?: { enabled: boolean; status: string };
 }
 
 /** Файл, который изменит откат: вернётся к прежнему, удалится или вернётся удалённый. */

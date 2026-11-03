@@ -60,7 +60,49 @@ const en = {
           : `Directory ${dir} was not found.`,
   addDirHint: 'Claude Code in this tab runs with --add-dir for these directories. Reading is allowed; changes need your approval.',
   addDirRemove: (dir: string) => `Remove ${dir}`,
-  addDirMore: 'Add directory'
+  addDirMore: 'Add directory',
+  memoryTitle: 'Claude Code memory',
+  memoryHint: 'Instruction files and saved memories that Claude Code loads in this tab, for its account and folder. Changes apply from the next message.',
+  memoryLoading: 'Asking Claude Code for its memory files…',
+  memoryFailed: (reason: 'start' | 'timeout' | 'cli'): string =>
+    reason === 'start'
+      ? 'Could not start Claude Code.'
+      : reason === 'timeout'
+        ? 'Claude Code did not answer in time.'
+        : 'Claude Code did not return its memory files. Update Claude Code and try again.',
+  memoryFiles: 'Instruction files',
+  memorySaved: 'Saved memories',
+  memoryFolders: 'Folders',
+  memoryNoSaved: 'No saved memories yet.',
+  memoryIndex: 'Index of saved memories',
+  memoryAuto: (enabled: boolean): string => (enabled ? 'Auto-memory: on' : 'Auto-memory: off'),
+  memoryFileKind: {
+    user: 'User instructions',
+    project: 'Project instructions',
+    'project-alt': 'Project instructions (.claude)',
+    local: 'Local instructions',
+    other: ''
+  } as Record<'user' | 'project' | 'project-alt' | 'local' | 'other', string>,
+  memoryFolderKind: { auto: 'Auto-memory folder', team: 'Team memory folder', agent: '' } as Record<'auto' | 'team' | 'agent', string>,
+  memoryType: { user: 'user', feedback: 'feedback', project: 'project', reference: 'reference' } as Record<
+    'user' | 'feedback' | 'project' | 'reference',
+    string
+  >,
+  memoryNotCreated: 'not created',
+  memoryCreateHint: 'The file does not exist yet. Saving creates it.',
+  memorySelect: 'Select a file to view and edit it.',
+  memorySave: 'Save',
+  memorySavedOk: 'Saved',
+  memorySaveFailed: 'Could not save the file.',
+  memoryReadFailed: (reason: 'denied' | 'tooLarge' | 'io'): string =>
+    reason === 'denied'
+      ? 'This file is no longer in the Claude Code memory list. Refresh the list.'
+      : reason === 'tooLarge'
+        ? 'The file is too large to edit here (over 2 MB).'
+        : 'Could not read the file.',
+  memoryUnsaved: 'Discard unsaved changes in this file?',
+  memoryRefresh: 'Refresh',
+  memoryOpenFolder: 'Open folder'
 };
 
 export type StudioCliText = typeof en;
@@ -122,7 +164,46 @@ const ru: StudioCliText = {
           : `Каталог ${dir} не найден.`,
   addDirHint: 'Claude Code этой вкладки запускается с --add-dir для этих каталогов. Чтение разрешено, изменения — с вашего одобрения.',
   addDirRemove: (dir) => `Убрать ${dir}`,
-  addDirMore: 'Добавить каталог'
+  addDirMore: 'Добавить каталог',
+  memoryTitle: 'Память Claude Code',
+  memoryHint: 'Файлы инструкций и сохранённая память, которые Claude Code загружает в этой вкладке — для её аккаунта и каталога. Изменения действуют со следующего сообщения.',
+  memoryLoading: 'Запрашиваю у Claude Code файлы памяти…',
+  memoryFailed: (reason) =>
+    reason === 'start'
+      ? 'Не удалось запустить Claude Code.'
+      : reason === 'timeout'
+        ? 'Claude Code не ответил вовремя.'
+        : 'Claude Code не вернул файлы памяти. Обновите Claude Code и повторите.',
+  memoryFiles: 'Файлы инструкций',
+  memorySaved: 'Сохранённая память',
+  memoryFolders: 'Папки',
+  memoryNoSaved: 'Сохранённой памяти пока нет.',
+  memoryIndex: 'Указатель сохранённой памяти',
+  memoryAuto: (enabled) => (enabled ? 'Автопамять: включена' : 'Автопамять: выключена'),
+  memoryFileKind: {
+    user: 'Инструкции пользователя',
+    project: 'Инструкции проекта',
+    'project-alt': 'Инструкции проекта (.claude)',
+    local: 'Локальные инструкции',
+    other: ''
+  },
+  memoryFolderKind: { auto: 'Папка автопамяти', team: 'Папка командной памяти', agent: '' },
+  memoryType: { user: 'пользователь', feedback: 'отзыв', project: 'проект', reference: 'ссылка' },
+  memoryNotCreated: 'не создан',
+  memoryCreateHint: 'Файла пока нет. Сохранение создаст его.',
+  memorySelect: 'Выберите файл, чтобы посмотреть и изменить его.',
+  memorySave: 'Сохранить',
+  memorySavedOk: 'Сохранено',
+  memorySaveFailed: 'Не удалось сохранить файл.',
+  memoryReadFailed: (reason) =>
+    reason === 'denied'
+      ? 'Этого файла больше нет в списке памяти Claude Code. Обновите список.'
+      : reason === 'tooLarge'
+        ? 'Файл слишком большой для правки здесь (больше 2 МБ).'
+        : 'Не удалось прочитать файл.',
+  memoryUnsaved: 'Отменить несохранённые изменения в этом файле?',
+  memoryRefresh: 'Обновить',
+  memoryOpenFolder: 'Открыть папку'
 };
 
 export const STUDIO_CLI_TEXT: Record<Language, StudioCliText> = { en, ru };

@@ -57,6 +57,14 @@ import { claudeAccountService } from '../services/claudeAccountService';
 import { isCliSessionId, listCliSessions, readCliSessionMessages, readCliSessionTail } from '../services/claudeCliSessions';
 import { cliRewindPoints, cliRewindPreview, runCliRewindFiles } from '../services/claudeCliRewind';
 import { checkAddDir } from '../services/cliAddDir';
+import {
+  memoryDialogFile,
+  memoryDialogFolder,
+  readMemoryFile,
+  runCliMemoryDialog,
+  saveMemoryFile,
+  type CliMemoryDialog
+} from '../services/cliMemoryDialog';
 
 /** Запрос Agents Studio как запуск агента для ограничений (decision-124): движок, модель, задача. */
 function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
@@ -294,6 +302,53 @@ export function registerAiIpc(ctx: IpcContext) {
     const rel = path.relative(projectPath, cwd);
     const base = rel.startsWith('..') || path.isAbsolute(rel) ? projectPath : cwd;
     return checkAddDir(typeof query?.dir === 'string' ? query.dir : '', base);
+  });
+
+  // `/memory` (TASK-286, decision-207): строки диалога даёт сам CLI под аккаунтом вкладки. Открыть и сохранить можно
+  // только файл из последнего ответа CLI для этого аккаунта и каталога — путь из рендерера сам по себе ничего не открывает.
+  type CliMemoryQuery = { projectPath?: unknown; cwd?: unknown; claudeAccountId?: unknown };
+  const memoryDialogs = new Map<string, CliMemoryDialog>();
+  const cliMemoryScope = async (query?: CliMemoryQuery) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    const cwd = typeof query?.cwd === 'string' && query.cwd.trim() ? path.resolve(query.cwd) : projectPath;
+    const rel = path.relative(projectPath, cwd);
+    const workDir = rel.startsWith('..') || path.isAbsolute(rel) ? projectPath : cwd;
+    const slotAccountId = typeof query?.claudeAccountId === 'string' && query.claudeAccountId ? query.claudeAccountId : undefined;
+    const { account } = await claudeAccountService.resolve({ projectPath, ...(slotAccountId ? { slotAccountId } : {}) });
+    return { configDir: account.configDir, cwd: workDir, key: `${account.configDir}\n${workDir}` };
+  };
+  ipcMain.handle('ai:cliMemoryDialog', async (_event, query?: CliMemoryQuery & { addDirs?: unknown }) => {
+    const scope = await cliMemoryScope(query);
+    const addDirs = Array.isArray(query?.addDirs) ? query.addDirs.filter((d): d is string => typeof d === 'string') : [];
+    const result = await runCliMemoryDialog({ configDir: scope.configDir, cwd: scope.cwd, addDirs });
+    if (result.ok) memoryDialogs.set(scope.key, result.dialog);
+    else console.warn(`[aiIpc] /memory: ${result.reason}${result.detail ? ` — ${result.detail}` : ''}`);
+    return result;
+  });
+  ipcMain.handle('ai:readCliMemoryFile', async (_event, query?: CliMemoryQuery & { file?: unknown }) => {
+    const scope = await cliMemoryScope(query);
+    const dialog = memoryDialogs.get(scope.key);
+    const file = typeof query?.file === 'string' ? query.file : '';
+    if (!dialog || !memoryDialogFile(dialog, file)) return { ok: false, reason: 'denied' };
+    return readMemoryFile(path.resolve(file));
+  });
+  ipcMain.handle('ai:saveCliMemoryFile', async (_event, query?: CliMemoryQuery & { file?: unknown; content?: unknown }) => {
+    const scope = await cliMemoryScope(query);
+    const dialog = memoryDialogs.get(scope.key);
+    const file = typeof query?.file === 'string' ? query.file : '';
+    if (!dialog || !memoryDialogFile(dialog, file) || typeof query?.content !== 'string') return { ok: false };
+    const result = await saveMemoryFile(path.resolve(file), query.content);
+    console.info(`[aiIpc] /memory: saved ${result.ok ? 'ok' : 'failed'}`);
+    return result;
+  });
+  ipcMain.handle('ai:openCliMemoryFolder', async (_event, query?: CliMemoryQuery & { dir?: unknown }) => {
+    const scope = await cliMemoryScope(query);
+    const dialog = memoryDialogs.get(scope.key);
+    const dir = typeof query?.dir === 'string' ? query.dir : '';
+    if (!dialog || !memoryDialogFolder(dialog, dir)) return false;
+    // Папки автопамяти может ещё не быть — CLI создаёт её при первой записи; терминальный диалог тоже открывает её сразу.
+    await fs.mkdir(path.resolve(dir), { recursive: true }).catch(() => undefined);
+    return (await shell.openPath(path.resolve(dir))) === '';
   });
 
   // Streaming & Session Lifecycle

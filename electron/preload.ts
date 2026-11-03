@@ -467,6 +467,12 @@ const api: IElectronAPI = {
     invoke('ai:cliRewindFiles', query),
   // `/add-dir` в Agents Studio (TASK-285)
   checkAddDir: (query: { projectPath: string; cwd?: string; dir: string }) => invoke('ai:checkAddDir', query),
+  // `/memory` в Agents Studio (TASK-286)
+  cliMemoryDialog: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; addDirs?: string[] }) => invoke('ai:cliMemoryDialog', query),
+  readCliMemoryFile: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; file: string }) => invoke('ai:readCliMemoryFile', query),
+  saveCliMemoryFile: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; file: string; content: string }) =>
+    invoke('ai:saveCliMemoryFile', query),
+  openCliMemoryFolder: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; dir: string }) => invoke('ai:openCliMemoryFolder', query),
   // Профили аккаунтов Claude Code (TASK-152, decision-87)
   claudeAccounts: {
     overview: () => invoke('claudeAccounts:overview'),

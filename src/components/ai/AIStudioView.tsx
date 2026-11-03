@@ -61,6 +61,7 @@ import { SwarmArenaView } from './swarm/SwarmArenaView';
 import { ProviderErrorCard } from './ProviderErrorCard';
 import { SessionHistoryModal } from './SessionHistoryModal';
 import { CliCommandModal } from './CliCommandModal';
+import { CliMemoryModal } from './CliMemoryModal';
 import { sameWorkPath, sessionWorkDir, sessionWorktreeOf, sessionWorktreeState, worktreeLabel } from '../../lib/studioWorktree';
 
 export const AIStudioView: React.FC = () => {
@@ -1121,6 +1122,7 @@ export const AIStudioView: React.FC = () => {
       {isHistoryOpen && <SessionHistoryModal projectPath={projectPath} onClose={() => setIsHistoryOpen(false)} />}
       {/* Слеш-команды Claude Code, которые Studio выполняет сама (TASK-230). */}
       <CliCommandModal />
+      <CliMemoryModal />
       {/* `/rewind` вкладки Claude Code (TASK-284) */}
       <CliRewindModal />
     </div>
