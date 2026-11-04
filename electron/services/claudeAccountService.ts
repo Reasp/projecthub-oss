@@ -37,6 +37,7 @@ import {
   type EngineAccountResolution,
   type OtherCliAccountEngine
 } from './claudeAccounts.js';
+import { cliProjectKeys, prepareClaudeConfig, type ClaudeConfigChange } from './claudeConfigPrep.js';
 
 /**
  * Аккаунты Claude Code (TASK-152, decision-87): профили в `<userData>/claude-accounts.json`, привязка
@@ -412,6 +413,42 @@ class ClaudeAccountService {
   invalidateAuth(id?: string): void {
     if (id) this.authCache.delete(id);
     else this.authCache.clear();
+  }
+
+  /**
+   * Подготовка каталога аккаунта к интерактивному `claude` в терминале ProjectHub (TASK-292, decision-216): первичная
+   * настройка CLI отмечена пройденной, папка запуска и корень её проекта — доверенными. Только для каталогов ProjectHub
+   * (по умолчанию и `managed`) и только для папок проектов из реестра; внешний каталог человека не трогается.
+   * Нет `.claude.json` (CLI в каталоге ещё не запускался) или он не разбирается — ничего не пишется.
+   */
+  async prepareInteractiveLaunch(account: ClaudeAccountProfile, cwd: string): Promise<ClaudeConfigChange[]> {
+    if (account.kind === 'external' && account.id !== DEFAULT_CLAUDE_ACCOUNT_ID) return [];
+    const owner = await this.owningEntry(cwd);
+    if (!owner) return [];
+    const trustKeys = [...new Set([...cliProjectKeys(cwd), ...cliProjectKeys(owner.path)])];
+    const file = path.join(account.configDir, '.claude.json');
+    let raw: string;
+    try {
+      raw = await fs.readFile(file, 'utf-8');
+    } catch {
+      return [];
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      console.warn(`[ClaudeAccounts] .claude.json профиля «${account.name}» не разбирается — подготовка к терминалу пропущена.`);
+      return [];
+    }
+    const prepared = prepareClaudeConfig(parsed, trustKeys);
+    if (!prepared || prepared.changes.length === 0) return [];
+    // Как CLI: целиком во временный файл и rename. CLI пишет конфиг, перечитывая файл под своей блокировкой, — правка
+    // не теряется, если параллельно работает `claude -p` того же аккаунта.
+    const tmp = `${file}.projecthub-${process.pid}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(prepared.next, null, 2), 'utf-8');
+    await fs.rename(tmp, file);
+    console.log(`[ClaudeAccounts] Профиль «${account.name}» подготовлен к терминалу: ${prepared.changes.map((c) => (c === 'onboarding' ? c : 'trust')).join(', ')}.`);
+    return prepared.changes;
   }
 
   /**

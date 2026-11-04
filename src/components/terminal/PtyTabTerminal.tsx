@@ -2,7 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import type { PtySession } from '../../types/electron';
+import type { PtyOutputSnapshot, PtySession } from '../../types/electron';
+import { ptyChunksAfter, type PtyLiveChunk } from '../../lib/ptyReplay';
 import { useTimers } from '../../hooks/useTimeoutState';
 
 interface PtyTabTerminalProps {
@@ -14,6 +15,12 @@ export const PtyTabTerminal: React.FC<PtyTabTerminalProps> = ({ session, isActiv
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  /** Накопленный вывод сессии уже записан — дальше живой поток идёт прямо в xterm. */
+  const replayedRef = useRef(false);
+  const isActiveRef = useRef(isActive);
+  useEffect(() => {
+    isActiveRef.current = isActive;
+  }, [isActive]);
   // Отложенный refit/focus: таймер снимается при размонтировании вкладки (TASK-50)
   const { setTimer } = useTimers();
 
@@ -57,12 +64,11 @@ export const PtyTabTerminal: React.FC<PtyTabTerminalProps> = ({ session, isActiv
     term.loadAddon(fitAddon);
 
     term.open(containerRef.current);
-    try {
-      fitAddon.fit();
-    } catch (e) {}
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
+    replayedRef.current = false;
+    let disposed = false;
 
     // Hook up interactive input
     const onDataDisposable = term.onData((data) => {
@@ -71,19 +77,52 @@ export const PtyTabTerminal: React.FC<PtyTabTerminalProps> = ({ session, isActiv
       }
     });
 
-    // Hook up incoming PTY data stream
+    // Живой поток подключается до запроса накопленного вывода: чанки, пришедшие во время запроса, откладываются и
+    // дописываются только своей частью после снимка (TASK-292, decision-216).
+    const pending: PtyLiveChunk[] = [];
     let cleanupPtyData: (() => void) | null = null;
     if (window.api?.onPtyData) {
-      cleanupPtyData = window.api.onPtyData(({ sessionId, data }) => {
-        if (sessionId === session.id) {
-          term.write(data);
-        }
+      cleanupPtyData = window.api.onPtyData(({ sessionId, data, end }) => {
+        if (sessionId !== session.id) return;
+        if (replayedRef.current) term.write(data);
+        else pending.push({ data, end });
       });
+    }
+
+    const fitToPanel = () => {
+      try {
+        fitAddon.fit();
+        window.api?.resizePty?.(session.id, term.cols, term.rows);
+      } catch (e) {}
+    };
+
+    // Накопленный вывод пишется в размере pty, в котором его рисовал CLI; потом терминал подгоняется под панель — если
+    // размер другой, CLI получает resize и перерисовывает экран целиком.
+    const replay = (snapshot: PtyOutputSnapshot | null) => {
+      if (disposed) return;
+      if (snapshot) {
+        if (snapshot.cols > 0 && snapshot.rows > 0) term.resize(snapshot.cols, snapshot.rows);
+        term.write(snapshot.data + ptyChunksAfter(pending, snapshot.end));
+      } else {
+        term.write(ptyChunksAfter(pending, -1));
+      }
+      pending.length = 0;
+      replayedRef.current = true;
+      term.write('', () => {
+        if (disposed) return;
+        fitToPanel();
+        if (isActiveRef.current) term.focus();
+      });
+    };
+    if (window.api?.getPtyOutput) {
+      window.api.getPtyOutput(session.id).then(replay, () => replay(null));
+    } else {
+      replay(null);
     }
 
     // Window / Panel resize listener
     const handleResize = () => {
-      if (!fitAddonRef.current || !xtermRef.current) return;
+      if (!fitAddonRef.current || !xtermRef.current || !replayedRef.current) return;
       try {
         fitAddonRef.current.fit();
         if (window.api?.resizePty) {
@@ -95,6 +134,7 @@ export const PtyTabTerminal: React.FC<PtyTabTerminalProps> = ({ session, isActiv
     window.addEventListener('resize', handleResize);
 
     return () => {
+      disposed = true;
       window.removeEventListener('resize', handleResize);
       onDataDisposable.dispose();
       if (cleanupPtyData) cleanupPtyData();
@@ -106,7 +146,8 @@ export const PtyTabTerminal: React.FC<PtyTabTerminalProps> = ({ session, isActiv
 
   // When tab becomes active, refit and focus
   useEffect(() => {
-    if (isActive && fitAddonRef.current && xtermRef.current) {
+    // До повтора накопленного вывода размер не трогается: подгонку делает сам повтор.
+    if (isActive && fitAddonRef.current && xtermRef.current && replayedRef.current) {
       setTimer(() => {
         try {
           fitAddonRef.current?.fit();

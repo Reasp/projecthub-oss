@@ -5,14 +5,15 @@ import { existsSync } from 'node:fs';
 import { BrowserWindow } from 'electron';
 import { AppError } from '../../src/lib/appError.js';
 import { claudeAccountService } from './claudeAccountService.js';
-import { accountEngine, cliAccountEnv, type CliAccountEngine } from './claudeAccounts.js';
+import { accountEngine, cliAccountEnv, type ClaudeAccountProfile, type CliAccountEngine } from './claudeAccounts.js';
 import {
   DEFAULT_PTY_EXIT_TTL_MS,
   PTY_EXIT_TTL_ENV,
   isPtyExitCleanupEnabled,
   resolvePtyExitTtlMs
 } from './ptyExitTtl.js';
-import type { PtySession, CreatePtyOptions } from '../../src/types/electron';
+import type { PtySession, CreatePtyOptions, PtyOutputSnapshot } from '../../src/types/electron';
+import { appendPtyOutput } from './ptyOutputBuffer.js';
 import { getHostLanguage } from './hostLanguage.js';
 import { isCliSessionId } from './claudeCliSessions.js';
 import { isTerminalOnlyCommand } from '../../src/lib/studioCliCommands.js';
@@ -25,6 +26,12 @@ const LOGIN_COMMAND: Record<CliAccountEngine, string> = { 'claude-cli': 'claude 
 interface ActivePty {
   info: PtySession;
   ptyProcess: pty.IPty;
+  /** Последний вывод сессии для окна, открывшего терминал позже (TASK-292). */
+  output: string;
+  /** Сколько символов сессия вывела всего — позиция конца `output`. */
+  outputEnd: number;
+  cols: number;
+  rows: number;
   /** Таймер автоудаления завершившейся сессии (TASK-50). */
   cleanupTimer?: NodeJS.Timeout;
 }
@@ -53,10 +60,10 @@ class PtyService {
     this.exitedTtlMs = resolvePtyExitTtlMs(ttlMs ?? DEFAULT_PTY_EXIT_TTL_MS);
   }
 
-  private broadcastData(sessionId: string, data: string) {
+  private broadcastData(sessionId: string, data: string, end: number) {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
-        win.webContents.send('pty:data', { sessionId, data });
+        win.webContents.send('pty:data', { sessionId, data, end });
       }
     }
   }
@@ -176,6 +183,7 @@ class PtyService {
     // Codex CLI и Gemini CLI в терминале проекта — под аккаунтами проекта, если они привязаны (decision-163).
     let accountEnv: Record<string, string>;
     let account: { id: string; name: string };
+    let claudeProfile: ClaudeAccountProfile | undefined;
     if (loginAccount && loginEngine !== 'claude-cli') {
       account = loginAccount;
       accountEnv = cliAccountEnv(loginEngine, loginAccount);
@@ -184,6 +192,7 @@ class PtyService {
       const slotAccountId = options.type === 'claude' && options.claudeAccountId ? options.claudeAccountId : undefined;
       const claudeAccount = loginAccount ?? (await claudeAccountService.resolve({ projectPath: options.projectPath, ...(slotAccountId ? { slotAccountId } : {}) })).account;
       account = claudeAccount;
+      claudeProfile = claudeAccount;
       accountEnv = { CLAUDE_CONFIG_DIR: claudeAccount.configDir };
       if (!loginAccount) {
         try {
@@ -207,6 +216,14 @@ class PtyService {
     const effectiveTarget = options.cwd && existsSync(options.cwd) ? options.cwd : options.projectPath;
     const cwd = existsSync(effectiveTarget) ? effectiveTarget : os.homedir();
 
+    // Интерактивный Claude Code в папке проекта: без первичной настройки CLI и диалога доверия (TASK-292, decision-216).
+    // Сбой подготовки запуск не ломает — CLI тогда просто покажет свои экраны.
+    if (options.type === 'claude' && claudeProfile) {
+      await claudeAccountService.prepareInteractiveLaunch(claudeProfile, cwd).catch((err: unknown) => {
+        console.warn('[PtyService] Не удалось подготовить каталог аккаунта Claude Code:', (err as Error)?.message);
+      });
+    }
+
     const ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
       cols,
@@ -229,8 +246,11 @@ class PtyService {
       status: 'running'
     };
 
+    const active: ActivePty = { info, ptyProcess, output: '', outputEnd: 0, cols, rows };
     ptyProcess.onData((data: string) => {
-      this.broadcastData(sessionId, data);
+      active.output = appendPtyOutput(active.output, data);
+      active.outputEnd += data.length;
+      this.broadcastData(sessionId, data, active.outputEnd);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
@@ -243,9 +263,16 @@ class PtyService {
       this.scheduleCleanup(sessionId);
     });
 
-    this.sessions.set(sessionId, { info, ptyProcess });
+    this.sessions.set(sessionId, active);
 
     return info;
+  }
+
+  /** Накопленный вывод сессии и размер терминала — для окна, которое подключается к уже идущей сессии (TASK-292). */
+  getOutput(sessionId: string): PtyOutputSnapshot | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return { data: session.output, end: session.outputEnd, cols: session.cols, rows: session.rows };
   }
 
   write(sessionId: string, data: string): boolean {
@@ -268,7 +295,9 @@ class PtyService {
       return false;
     }
     try {
-      session.ptyProcess.resize(Math.max(10, cols), Math.max(5, rows));
+      session.cols = Math.max(10, cols);
+      session.rows = Math.max(5, rows);
+      session.ptyProcess.resize(session.cols, session.rows);
       return true;
     } catch (err) {
       console.error(`[PtyService] Error resizing session ${sessionId}:`, err);

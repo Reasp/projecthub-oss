@@ -411,7 +411,8 @@ const api: IElectronAPI = {
     invoke('pty:resize', sessionId, cols, rows),
   killPty: (sessionId: string) => invoke('pty:kill', sessionId),
   listPtySessions: () => invoke('pty:list'),
-  onPtyData: (callback: (data: { sessionId: string; data: string }) => void) => {
+  getPtyOutput: (sessionId: string) => invoke('pty:getOutput', sessionId),
+  onPtyData: (callback: (data: { sessionId: string; data: string; end?: number }) => void) => {
     const handler = relay(callback);
     ipcRenderer.on('pty:data', handler);
     return () => {

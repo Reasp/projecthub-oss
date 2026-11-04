@@ -1364,7 +1364,8 @@ export interface IElectronAPI {
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<boolean>;
   killPty: (sessionId: string) => Promise<boolean>;
   listPtySessions: () => Promise<PtySession[]>;
-  onPtyData: (callback: (data: { sessionId: string; data: string }) => void) => () => void;
+  getPtyOutput?: (sessionId: string) => Promise<PtyOutputSnapshot | null>;
+  onPtyData: (callback: (data: { sessionId: string; data: string; end?: number }) => void) => () => void;
   onPtyExit: (callback: (data: { sessionId: string; exitCode: number }) => void) => () => void;
   /** Завершившаяся PTY-сессия удалена автоматически по TTL (TASK-50). */
   onPtyRemoved: (callback: (data: { sessionId: string; title: string; reason: 'ttl' }) => void) => () => void;
@@ -3577,6 +3578,15 @@ export interface CreatePtyOptions {
   resumeSessionId?: string;
   /** Встроенная команда, которую CLI выполнит при старте (`claude … /remote-control`); только из списка команд терминала. */
   startCommand?: string;
+}
+
+/** Накопленный вывод сессии терминала (TASK-292): повтор для окна, подключившегося позже первого вывода. */
+export interface PtyOutputSnapshot {
+  data: string;
+  /** Сколько символов сессия вывела всего; живые чанки `pty:data` несут ту же позицию в `end`. */
+  end: number;
+  cols: number;
+  rows: number;
 }
 
 /** Сессия Claude Code рабочей папки (TASK-230, `/resume` в Studio). */

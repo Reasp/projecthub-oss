@@ -110,6 +110,7 @@ export const TUNNEL_CHANNELS: ReadonlySet<string> = new Set([
   'actions:getConfig',
   'actions:saveConfig',
   'pty:create',
+  'pty:getOutput',
   'pty:kill',
   'pty:list',
   'pty:resize',

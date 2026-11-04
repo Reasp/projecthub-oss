@@ -129,6 +129,10 @@ export function registerAiIpc(ctx: IpcContext) {
     return ptyService.listSessions();
   });
 
+  ipcMain.handle('pty:getOutput', async (_event, sessionId: string) => {
+    return ptyService.getOutput(String(sessionId ?? ''));
+  });
+
   // AI Config & Auth
   ipcMain.handle('ai:getConfig', async () => {
     return await aiAgentService.getConfig();
