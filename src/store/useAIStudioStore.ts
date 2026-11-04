@@ -79,6 +79,10 @@ interface AIStudioState {
   liveOutputs: Record<string, string>; // sessionId -> console output string
   /** Фоновые задачи Claude Code идущего хода вкладки (TASK-290): sessionId → снимок. */
   cliBackground: Record<string, CliBackgroundSnapshot>;
+  /** Подсказка следующего промпта Claude Code (TASK-294): sessionId → текст; уходит с отправкой реплики. */
+  promptSuggestions: Record<string, string>;
+  /** Подсказку прислал CLI или её использовали (`null`). */
+  setPromptSuggestion: (sessionId: string, suggestion: string | null) => void;
   isSubagentsPanelOpen: boolean;
   isActivitySidebarOpen: boolean;
   setIsSubagentsPanelOpen: (open: boolean) => void;
@@ -307,7 +311,15 @@ export function withoutKey<T>(record: Record<string, T>, key: string): Record<st
   return rest;
 }
 
-type SessionScopedFields = 'streamingSessions' | 'liveOutputs' | 'cliBackground' | 'rateLimitWarnings' | 'pendingApprovals' | 'queuedMessages' | 'sideQuestions';
+type SessionScopedFields =
+  | 'streamingSessions'
+  | 'liveOutputs'
+  | 'cliBackground'
+  | 'rateLimitWarnings'
+  | 'pendingApprovals'
+  | 'queuedMessages'
+  | 'sideQuestions'
+  | 'promptSuggestions';
 
 /**
  * Сброс стрима, живого вывода, предупреждения о лимитах, очереди, побочного вопроса и ожидающих одобрений
@@ -325,7 +337,8 @@ function sessionResetPatch(
     cliBackground: withoutKey(state.cliBackground, sessionId),
     rateLimitWarnings: withoutKey(state.rateLimitWarnings, sessionId),
     queuedMessages: clearQueue(state.queuedMessages, sessionId),
-    sideQuestions: withoutKey(state.sideQuestions, sessionId)
+    sideQuestions: withoutKey(state.sideQuestions, sessionId),
+    promptSuggestions: withoutKey(state.promptSuggestions, sessionId)
   };
   const current = state.pendingApprovals[projectPath] || [];
   if (current.some((r) => r.sessionId === sessionId)) {
@@ -468,8 +481,20 @@ export const useAIStudioStore = create<AIStudioState>()(
       rateLimitWarnings: {},
       liveOutputs: {},
       cliBackground: {},
+      promptSuggestions: {},
       isSubagentsPanelOpen: false,
       isActivitySidebarOpen: false,
+
+      setPromptSuggestion: (sessionId, suggestion) => {
+        set((state) =>
+          suggestion
+            ? // Вкладка уже в новом ходе: подсказка прошлого устарела.
+              state.promptSuggestions[sessionId] === suggestion || state.streamingSessions[sessionId]
+              ? state
+              : { promptSuggestions: { ...state.promptSuggestions, [sessionId]: suggestion } }
+            : { promptSuggestions: withoutKey(state.promptSuggestions, sessionId) }
+        );
+      },
 
       setIsSubagentsPanelOpen: (isSubagentsPanelOpen) => set({ isSubagentsPanelOpen }),
       setIsActivitySidebarOpen: (isActivitySidebarOpen) => set({ isActivitySidebarOpen }),
@@ -1536,7 +1561,9 @@ export const useAIStudioStore = create<AIStudioState>()(
             streamingSessions: { ...state.streamingSessions, [activeSessionId]: true },
             // Вывод прошлого ответа этой вкладки не смешивается с новым.
             liveOutputs: withoutKey(state.liveOutputs, activeSessionId),
-            cliBackground: withoutKey(state.cliBackground, activeSessionId)
+            cliBackground: withoutKey(state.cliBackground, activeSessionId),
+            // Подсказка относилась к прошлому ходу (TASK-294).
+            promptSuggestions: withoutKey(state.promptSuggestions, activeSessionId)
           };
         });
 

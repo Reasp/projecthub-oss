@@ -91,6 +91,7 @@ export const AIStudioView: React.FC = () => {
     rateLimitWarnings,
     liveOutputs,
     cliBackground,
+    promptSuggestions,
     isSubagentsPanelOpen,
     isActivitySidebarOpen,
     setIsSubagentsPanelOpen,
@@ -1147,6 +1148,7 @@ export const AIStudioView: React.FC = () => {
         escapeBlocked={projectApprovals.length > 0}
         getHistory={getPromptHistory}
         completion={composerCompletion}
+        promptSuggestion={currentSessionId ? promptSuggestions[currentSessionId] : null}
         footerStart={
           <>
             {currentSessionId && (

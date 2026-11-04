@@ -114,6 +114,8 @@ export interface AIProviderConfig {
   reasoningEffort?: ReasoningEffort;
   autoApprove?: boolean;
   autoApproveRules?: AutoApproveRules;
+  /** Claude Code присылает подсказку следующего промпта после хода (TASK-294, decision-217); по умолчанию выключено. */
+  claudePromptSuggestions?: boolean;
 }
 
 export interface AIToolCall {

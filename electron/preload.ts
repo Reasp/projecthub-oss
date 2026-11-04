@@ -687,6 +687,14 @@ const api: IElectronAPI = {
       ipcRenderer.removeListener(channel, handler);
     };
   },
+  // Подсказка следующего промпта Claude Code (TASK-294): приходит после конца хода, поэтому общим каналом, а не потоком хода.
+  onAIPromptSuggestion: (callback: Parameters<IElectronAPI['onAIPromptSuggestion']>[0]) => {
+    const handler = relay(callback);
+    ipcRenderer.on('ai:promptSuggestion', handler);
+    return () => {
+      ipcRenderer.removeListener('ai:promptSuggestion', handler);
+    };
+  },
   onAIComplete: (sessionId: string, callback: (message: AIMessage) => void) => {
     const channel = `ai:complete:${sessionId}`;
     const handler = relay(callback);

@@ -69,6 +69,7 @@ import { cliUserContent, messagesWithAttachmentPaths, type CliContentBlock } fro
 import {
   CLI_INTERRUPT_GRACE_MS,
   CLI_LIVE_IDLE_MS,
+  CLI_PROMPT_SUGGESTIONS_ARGS,
   CLI_REPLAY_FLAG,
   CLI_WAKE_GRACE_MS,
   CliLiveProcess,
@@ -1518,7 +1519,9 @@ class ClaudeBridgeService extends EventEmitter {
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
     /** `info` — снимок ошибки провайдера API-пути (decision-43); у Claude CLI его нет. */
-    onError: (err: string, info?: ProviderErrorInfo) => void
+    onError: (err: string, info?: ProviderErrorInfo) => void,
+    /** Подсказка следующего промпта Claude Code (TASK-294): приходит после `onComplete`. */
+    onPromptSuggestion?: (text: string) => void
   ): Promise<void> {
     const { sessionId, projectPath } = req;
 
@@ -1528,7 +1531,7 @@ class ClaudeBridgeService extends EventEmitter {
     this.setProjectStatus(projectPath, 'running', { code: 'analyzing' });
 
     if (useCli) {
-      return this.runClaudeCliTask(req, onChunk, onComplete, onError);
+      return this.runClaudeCliTask(req, onChunk, onComplete, onError, onPromptSuggestion);
     }
 
     const toolContext = this.studioToolContext(req, onChunk);
@@ -1622,7 +1625,8 @@ class ClaudeBridgeService extends EventEmitter {
     },
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
-    onError: (err: string, info?: ProviderErrorInfo) => void
+    onError: (err: string, info?: ProviderErrorInfo) => void,
+    onPromptSuggestion?: (text: string) => void
   ): Promise<void> {
     const { sessionId, projectPath, messages } = req;
     // cwd агента — активное рабочее дерево (worktree), backlog при этом общий (TASK-62).
@@ -1760,6 +1764,10 @@ class ClaudeBridgeService extends EventEmitter {
     // Дельты текста по мере генерации (TASK-273): лента печатает ответ, а не ждёт целого блока.
     // Реплики, взятые CLI в работу, повторяются в stdout (TASK-298): так видно, когда сообщение посреди хода дошло до модели.
     cliArgs.push('--output-format', 'stream-json', '--verbose', CLI_PARTIAL_MESSAGES_FLAG, '--input-format', 'stream-json', CLI_REPLAY_FLAG);
+    // Подсказка следующего промпта (TASK-294, decision-217) — по настройке Studio: каждая стоит заявки к модели.
+    // Флаг входит в подпись запуска: включение и выключение перезапускают процесс вкладки с `--resume`.
+    const promptSuggestions = !sideQuestion && req.config.claudePromptSuggestions === true;
+    if (promptSuggestions) cliArgs.push(...CLI_PROMPT_SUGGESTIONS_ARGS);
     const hitlEnv = hitl?.env ?? { MCP_TOOL_TIMEOUT: String(CLI_MCP_TOOL_TIMEOUT_MS) };
 
     // Файлы HITL и системного промпта нужны процессу, пока он жив (TASK-298): CLI читает их при старте, а `--settings`
@@ -1856,6 +1864,8 @@ class ClaudeBridgeService extends EventEmitter {
       proc = started;
     }
     const live = proc;
+    // Подсказка приходит после конца хода — в окно, начавшее этот ход.
+    live.setSuggestionListener(promptSuggestions && onPromptSuggestion ? onPromptSuggestion : null);
 
     if (hitlWarning) onChunk({ text: hitlWarning });
 

@@ -2018,6 +2018,7 @@ export const ru: TranslationDictionary = {
       attachTooMany: 'Не больше {count} вложений в промпте',
       attachOpen: 'Открыть {name}',
       escAgainRewind: 'Нажмите Esc ещё раз, чтобы откатить разговор',
+      promptSuggestionTitle: 'Подсказка следующего промпта от Claude Code: Tab или клик вставляет её в поле',
       suggestFiles: 'Файлы',
       suggestCommands: 'Команды',
       suggestSearching: 'Ищу…',
@@ -2162,6 +2163,9 @@ export const ru: TranslationDictionary = {
       thinkingBudget: 'Thinking Budget (токены)',
       thinkingBudgetHint:
         '0 — режим модели по умолчанию. Больше 0 — включить рассуждения: на моделях с adaptive thinking (Opus/Sonnet 4.6 и новее) бюджет не применяется, модель сама решает, сколько думать; на Haiku 4.5 и Claude 4.5 он задаёт budget_tokens (не меньше 1024).',
+      promptSuggestions: 'Claude Code: подсказывать следующий промпт',
+      promptSuggestionsHint:
+        'После каждого хода Claude Code предсказывает ваш следующий промпт и показывает его под полем ввода (Tab вставляет). Каждая подсказка — ещё один запрос к модели вкладки в счёт лимитов подписки: он читает весь разговор из кэша (как один шаг хода) и пишет несколько слов — на коротком ходе это примерно на треть больше чтения кэша. Платится и тогда, когда Claude Code отбрасывает подсказку. В plan mode и у самого лимита подсказки нет. Включение и выключение перезапускает процесс Claude Code вкладки на следующем ходе.',
       temperatureHint:
         'Не отправляется моделям, которые её не принимают (Opus 4.7 и новее, Sonnet 5, Fable, Mythos), и в запросах с включёнными рассуждениями.',
       modelDefault: 'по умолчанию модели',

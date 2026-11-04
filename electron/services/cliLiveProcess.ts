@@ -23,6 +23,20 @@ export const CLI_WAKE_GRACE_MS = 3_000;
 /** CLI повторяет в stdout реплику, которую взял в работу: так видно, когда сообщение посреди хода дошло до модели. */
 export const CLI_REPLAY_FLAG = '--replay-user-messages';
 
+/**
+ * Подсказка следующего промпта (TASK-294, decision-217): после хода CLI отдельным запросом к той же модели предсказывает
+ * реплику человека и присылает событие `prompt_suggestion` — уже после `result`, когда ход вкладки закончен.
+ */
+export const CLI_PROMPT_SUGGESTIONS_ARGS: readonly string[] = ['--prompt-suggestions', 'true'];
+
+/** Текст подсказки из события `prompt_suggestion`; пустая — `null`. */
+export function promptSuggestionOf(event: unknown): string | null {
+  const e = asRecord(event);
+  if (e?.type !== 'prompt_suggestion' || typeof e.suggestion !== 'string') return null;
+  const text = e.suggestion.trim();
+  return text ? text : null;
+}
+
 /** Флаги, значения которых процесс меняет запросами, а не перезапуском. */
 const SWITCHABLE_FLAGS = new Set(['--model', '--permission-mode']);
 
@@ -157,6 +171,7 @@ export class CliLiveProcess {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private killTimer: ReturnType<typeof setTimeout> | null = null;
   private exitListeners: (() => void)[] = [];
+  private suggestionListener: ((text: string) => void) | null = null;
 
   constructor(child: CliChildLike, opts: CliLiveProcessOptions) {
     this.child = child;
@@ -214,6 +229,14 @@ export class CliLiveProcess {
   /** Ход кончился; процесс остаётся ждать следующего. */
   detach(sink: CliTurnSink): void {
     if (this.sink === sink) this.sink = null;
+  }
+
+  /**
+   * Получатель подсказки следующего промпта (TASK-294). Подсказка приходит после конца хода; пока идёт следующий ход,
+   * она устарела и отбрасывается. Ходу событие не передаётся.
+   */
+  setSuggestionListener(fn: ((text: string) => void) | null): void {
+    this.suggestionListener = fn;
   }
 
   /** Пишет строку в stdin; `false` — процесс уже не принимает ввод. */
@@ -350,6 +373,17 @@ export class CliLiveProcess {
         this.timers.clearTimeout(pending.timer);
         if (control.ok) pending.resolve(control.response);
         else pending.reject(new Error(control.error));
+      }
+      return;
+    }
+    if (event.type === 'prompt_suggestion') {
+      const text = promptSuggestionOf(event);
+      if (text && !this.busy) {
+        try {
+          this.suggestionListener?.(text);
+        } catch (err) {
+          console.warn('[cliLiveProcess] prompt suggestion listener failed:', err);
+        }
       }
       return;
     }

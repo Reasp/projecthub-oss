@@ -2017,6 +2017,7 @@ export const en: TranslationDictionary = {
       attachTooMany: 'No more than {count} attachments per prompt',
       attachOpen: 'Open {name}',
       escAgainRewind: 'Press Esc again to rewind the conversation',
+      promptSuggestionTitle: 'Suggested next prompt from Claude Code: Tab or click to insert it',
       suggestFiles: 'Files',
       suggestCommands: 'Commands',
       suggestSearching: 'Searching…',
@@ -2161,6 +2162,9 @@ export const en: TranslationDictionary = {
       thinkingBudget: 'Thinking Budget (tokens)',
       thinkingBudgetHint:
         '0 uses the model default. Above 0 turns reasoning on: models with adaptive thinking (Opus/Sonnet 4.6 and newer) ignore the budget and decide how much to think; on Haiku 4.5 and Claude 4.5 it sets budget_tokens (minimum 1024).',
+      promptSuggestions: 'Claude Code: suggest the next prompt',
+      promptSuggestionsHint:
+        'After each turn Claude Code predicts your next prompt and shows it under the input field (Tab inserts it). Each suggestion is one more request to the tab\'s model that counts toward your plan limits: it reads the whole conversation from the cache (as much as one step of a turn) and writes only a few words — measured on a short turn, about a third more cached reading. It is paid even when Claude Code discards the suggestion. Not generated in plan mode or when the limit is close. Turning it on or off restarts the tab\'s Claude Code process on its next turn.',
       temperatureHint:
         'Not sent to models that reject it (Opus 4.7 and newer, Sonnet 5, Fable, Mythos) or in requests with reasoning enabled.',
       modelDefault: 'model default',

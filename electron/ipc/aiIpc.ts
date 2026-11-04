@@ -651,7 +651,9 @@ export function registerAiIpc(ctx: IpcContext) {
           studioLiveRuns.finish(req.sessionId);
           send(`ai:error:${req.sessionId}`, err, info);
           phone?.streamEnded(req.projectPath, req.sessionId, info?.message || err, info?.messageKey);
-        }
+        },
+        // Подсказка следующего промпта Claude Code (TASK-294) — после конца хода, окну, которое его начало.
+        (suggestion) => send('ai:promptSuggestion', { sessionId: req.sessionId, suggestion })
       );
     } catch (err: any) {
       // Ошибка ProjectHub с кодом без снимка провайдера — снимком «unknown» с кодом: карточка покажет её на языке окна.

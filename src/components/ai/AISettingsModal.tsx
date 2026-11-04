@@ -413,6 +413,24 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   </div>
                 )}
               </div>
+
+              {/* Подсказка следующего промпта Claude Code (TASK-294, decision-217): по умолчанию выключена — стоит запроса к модели */}
+              <label className="flex items-start gap-3 p-4 rounded-xl bg-ph-hover/60 border border-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.claudePromptSuggestions === true}
+                  onChange={(e) => setForm({ ...form, claudePromptSuggestions: e.target.checked })}
+                  className="mt-0.5 accent-indigo-500"
+                  data-testid="settings-prompt-suggestions"
+                />
+                <span className="space-y-1">
+                  <span className="font-medium text-slate-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    {t.aiStudio.settingsModal.promptSuggestions}
+                  </span>
+                  <span className="block text-[11px] text-slate-400 leading-relaxed">{t.aiStudio.settingsModal.promptSuggestionsHint}</span>
+                </span>
+              </label>
             </div>
           )}
 

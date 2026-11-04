@@ -220,6 +220,12 @@ export const App: React.FC = () => {
     });
   }, []);
 
+  // Подсказка следующего промпта Claude Code (TASK-294): main шлёт её окну, которое начало ход, — и главному, и окну проекта.
+  useEffect(() => {
+    if (!window.api?.onAIPromptSuggestion) return;
+    return window.api.onAIPromptSuggestion(({ sessionId, suggestion }) => useAIStudioStore.getState().setPromptSuggestion(sessionId, suggestion));
+  }, []);
+
   // Handle remote actions from external MCP clients (Claude Code, Cursor, Antigravity)
   useEffect(() => {
     if (isProjectWindow || !window.api?.onRemoteAction) return;

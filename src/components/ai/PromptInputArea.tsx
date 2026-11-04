@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
-import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, ListPlus, GitCommit, Rocket, Landmark, At, File as FileIcon, Folder, Paperclip, X } from '../common/icons';
+import { Send, Square, CheckSquare, GitBranch, BookOpen, Mic, Radio, Zap, ListTodo, ListPlus, GitCommit, Rocket, Landmark, At, File as FileIcon, Folder, Paperclip, Sparkles, X } from '../common/icons';
+import { acceptsPromptSuggestion, promptSuggestionShown } from '../../lib/promptSuggestion';
 import type { BacklogTask, CliCommandList, GitRepoDetails } from '../../types/electron';
 import { ComposerSuggestions, type ComposerSuggestionItem } from './ComposerSuggestions';
 import { applyCompletion, completionToken, mentionText } from '../../lib/composerCompletion';
@@ -75,6 +76,8 @@ interface PromptInputAreaProps {
   /** Промпты для ↑/↓ от нового к старому (TASK-300); зовётся на нажатие, чтобы не считать историю на каждый кадр. */
   getHistory?: () => readonly string[];
   completion?: ComposerCompletion;
+  /** Подсказка следующего промпта Claude Code (TASK-294): видна под пустым полем, вставляется по Tab или клику. */
+  promptSuggestion?: string | null;
 }
 
 export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
@@ -92,7 +95,8 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
   onRewind,
   escapeBlocked = false,
   getHistory,
-  completion
+  completion,
+  promptSuggestion
 }) => {
   const { t, language } = useTranslation();
   const [input, setInput] = useState('');
@@ -487,9 +491,23 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
     textareaRef.current?.focus();
   };
 
+  // Подсказка следующего промпта (TASK-294): только под пустым полем — набранный текст важнее.
+  const suggestionShown = promptSuggestionShown({ suggestion: promptSuggestion, input, isStreaming, completionOpen: suggestOpen });
+  const acceptPromptSuggestion = () => {
+    if (!promptSuggestion) return;
+    historyNavRef.current = HISTORY_START;
+    setInputAt(promptSuggestion, promptSuggestion.length);
+    textareaRef.current?.focus();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Набор через IME (иероглифы, японская раскладка) — клавиши его.
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (acceptsPromptSuggestion(e, suggestionShown)) {
+      e.preventDefault();
+      acceptPromptSuggestion();
+      return;
+    }
     const mods = e.ctrlKey || e.altKey || e.metaKey;
     if (suggestOpen && !mods) {
       const count = suggestionItems.length;
@@ -724,6 +742,20 @@ export const PromptInputArea: React.FC<PromptInputAreaProps> = memo(({
           }
           className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none resize-none font-sans px-1.5 py-1 leading-relaxed max-h-44"
         />
+
+        {suggestionShown && promptSuggestion && (
+          <button
+            type="button"
+            onClick={acceptPromptSuggestion}
+            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left text-[11px] text-slate-400 hover:bg-ph-raised hover:text-slate-200 transition"
+            title={t.aiStudio.input.promptSuggestionTitle}
+            data-testid="composer-prompt-suggestion"
+          >
+            <Sparkles className="w-3 h-3 shrink-0 text-indigo-400" />
+            <span className="min-w-0 flex-1 truncate">{promptSuggestion}</span>
+            <kbd className="shrink-0 rounded border border-slate-600 px-1 font-mono text-[10px] text-slate-400">Tab</kbd>
+          </button>
+        )}
 
         <div className="flex items-center gap-0.5 mt-1 min-w-0">
           <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-x-auto no-scrollbar">

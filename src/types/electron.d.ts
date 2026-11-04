@@ -1599,6 +1599,8 @@ export interface IElectronAPI {
   ) => () => void;
   onAIComplete: (sessionId: string, callback: (message: AIMessage) => void) => () => void;
   onAIError: (sessionId: string, callback: (error: string, info?: ProviderErrorInfo) => void) => () => void;
+  /** Подсказка следующего промпта Claude Code (TASK-294): приходит после конца хода вкладки. */
+  onAIPromptSuggestion: (callback: (payload: { sessionId: string; suggestion: string }) => void) => () => void;
 
   // Multi-Agent Swarm & Fleet Orchestration (TASK-54)
   startSwarmFanOut: (options: StartFanOutOptions) => Promise<SwarmSession>;
@@ -3217,6 +3219,8 @@ export interface AIProviderConfig {
   reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'max';
   autoApprove?: boolean;
   autoApproveRules?: AutoApproveRules;
+  /** Claude Code присылает подсказку следующего промпта после хода (TASK-294, decision-217); по умолчанию выключено. */
+  claudePromptSuggestions?: boolean;
 }
 
 export interface AIToolCall {

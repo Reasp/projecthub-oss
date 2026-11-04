@@ -1890,6 +1890,8 @@ export interface TranslationDictionary {
       attachOpen: string;
       /** Подсказка после первого Esc при пустом поле (TASK-299). */
       escAgainRewind: string;
+      /** Подсказка следующего промпта под полем (TASK-294). */
+      promptSuggestionTitle: string;
       /** Список автодополнения `@` и `/` (TASK-300). */
       suggestFiles: string;
       suggestCommands: string;
@@ -2025,6 +2027,9 @@ export interface TranslationDictionary {
       temperature: string;
       thinkingBudget: string;
       thinkingBudgetHint: string;
+      /** Подсказка следующего промпта Claude Code (TASK-294). */
+      promptSuggestions: string;
+      promptSuggestionsHint: string;
       temperatureHint: string;
       modelDefault: string;
       resetToModelDefault: string;
