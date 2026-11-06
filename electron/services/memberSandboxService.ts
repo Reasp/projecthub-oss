@@ -9,9 +9,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { AppError } from '../../src/lib/appError.js';
-import { MemberGateway, type GatewayModelUpstream, type GatewayUpstreams } from './memberGateway.js';
+import { MemberGateway, type GatewayHookUpstream, type GatewayModelUpstream, type GatewayUpstreams } from './memberGateway.js';
 import { CLI_HITL_PERMISSION_TOOL } from './claudeBridgeService.js';
+import { sameAgentHookScript } from './agentEngineHooks.js';
 import {
+  agentHookProbeArgs,
+  SANDBOX_AGENT_HOOK_PATH,
   GATEWAY_CONTAINER,
   GATEWAY_NETWORK,
   GATEWAY_SOCKET_NAME,
@@ -140,6 +143,8 @@ class MemberSandboxService {
   private readonly prepared = new Map<string, Promise<void>>();
   /** Свойства среды контейнеров по `runtime` (`runtimeTraits`). */
   private readonly traits = new Map<MemberSandboxSettings['runtime'], Promise<RuntimeTraits | undefined>>();
+  /** Образы (`<среда>|<id>`), чей скрипт хука сверен со скриптом приложения (`assertAgentHookImage`). */
+  private readonly hookImages = new Set<string>();
 
   /** Встроенный MCP-сервер HITL: шлюз подставляет его токен вместо токена участника. */
   setMcpUpstream(mcp: NonNullable<GatewayUpstreams['mcp']>): void {
@@ -324,6 +329,35 @@ class MemberSandboxService {
 
   revoke(token: string): void {
     this.gateway?.revoke(token);
+  }
+
+  /** Маршрут хуков шлюза для запуска Codex CLI / Gemini CLI с хуками (TASK-308): токен запуска движка за токеном участника. */
+  attachAgentHook(token: string, hook: GatewayHookUpstream): void {
+    if (!this.gateway?.attachHook(token, hook)) throw new AppError('swarm.sandboxHitlUnavailable');
+  }
+
+  /**
+   * Скрипт хука в образе участника совпадает со скриптом приложения (TASK-308). Сверка — разовым контейнером без сети,
+   * успешная запоминается по id образа: пересобранный под тем же тегом образ сверяется заново. Нет скрипта или он
+   * другой — `swarm.sandboxAgentHookMissing`: движок без хуков прошёл бы мимо одобрений.
+   */
+  async assertAgentHookImage(settings: MemberSandboxSettings): Promise<void> {
+    const missing = (detail: string) => new AppError('swarm.sandboxAgentHookMissing', { image: settings.image, detail });
+    const args = agentHookProbeArgs(settings.image);
+    if (!args) throw missing('invalid image name');
+    const id = await run(settings.runtime, ['image', 'inspect', '--format', '{{.Id}}', settings.image], { timeout: 30_000, windowsHide: true })
+      .then((r) => r.stdout.trim())
+      .catch((err: unknown) => {
+        throw missing(firstLine(err));
+      });
+    if (this.hookImages.has(`${settings.runtime}|${id}`)) return;
+    const text = await run(settings.runtime, args, { timeout: 120_000, windowsHide: true, maxBuffer: 1024 * 1024 })
+      .then((r) => r.stdout)
+      .catch((err: unknown) => {
+        throw missing(firstLine(err));
+      });
+    if (!sameAgentHookScript(text)) throw missing(`${SANDBOX_AGENT_HOOK_PATH} differs from the script of this ProjectHub version`);
+    this.hookImages.add(`${settings.runtime}|${id}`);
   }
 
   async stop(): Promise<void> {

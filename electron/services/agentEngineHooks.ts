@@ -70,7 +70,7 @@ function finish(out) {
 
 async function main() {
   const raw = await readStdin();
-  let payload = null;
+  let payload;
   try {
     payload = JSON.parse(raw);
   } catch {
@@ -130,16 +130,24 @@ function shellArg(value: string): string {
  * Аргументы `codex exec` с хуками ProjectHub: `PreToolUse`, `PostToolUse`, `SessionStart` переопределениями `-c` и
  * `--dangerously-bypass-hook-trust` (без него Codex их не выполняет). Обход доверия касается и хуков пользователя и
  * доверенного проекта — их Codex выполнил бы и в терминале, после ревью.
+ *
+ * `shell: false` — для запуска без оболочки (`docker run` в контейнере участника, TASK-308): значения без кавычек.
  */
-export function codexAgentHookArgs(command: string, timeoutSec = AGENT_HOOK_TIMEOUT_SEC): string[] {
+export function codexAgentHookArgs(command: string, timeoutSec = AGENT_HOOK_TIMEOUT_SEC, opts: { shell?: boolean } = {}): string[] {
+  const quote = opts.shell === false ? (value: string) => value : shellArg;
   const handler = `{type='command',command='${command}',timeout=${Math.round(timeoutSec)}}`;
-  const tool = (event: string) => shellArg(`hooks.${event}=[{matcher='.*',hooks=[${handler}]}]`);
+  const tool = (event: string) => quote(`hooks.${event}=[{matcher='.*',hooks=[${handler}]}]`);
   return [
     '--dangerously-bypass-hook-trust',
     '-c', tool('PreToolUse'),
     '-c', tool('PostToolUse'),
-    '-c', shellArg(`hooks.SessionStart=[{hooks=[${handler}]}]`)
+    '-c', quote(`hooks.SessionStart=[{hooks=[${handler}]}]`)
   ];
+}
+
+/** Нормализация текста скрипта для сверки: git на Windows с `core.autocrlf` отдаёт файл образа с CRLF. */
+export function sameAgentHookScript(text: string): boolean {
+  return text.replace(/\r\n/g, '\n') === AGENT_HOOK_SCRIPT_SOURCE;
 }
 
 const GEMINI_HOOK_EVENTS = ['BeforeTool', 'AfterTool', 'SessionStart'] as const;

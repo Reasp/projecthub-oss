@@ -173,6 +173,21 @@ export const SANDBOX_PROMPT_FILE = 'system-prompt.md';
 export type SandboxEngine = 'claude-cli' | 'codex-cli' | 'gemini-cli';
 
 /**
+ * Скрипт хука ProjectHub в образе участника (TASK-308): `deploy/member-sandbox/agent-hook.mjs`. Корень контейнера только
+ * на чтение — агент его не подменит, в отличие от файла в `/tmp` или в томе HOME.
+ */
+export const SANDBOX_AGENT_HOOK_PATH = '/opt/projecthub/agent-hook.mjs';
+
+/**
+ * Разовый контейнер, печатающий скрипт хука из образа (TASK-308): без сети, без монтирования, без привилегий. Его
+ * текст сверяется со скриптом приложения — образ старой сборки не запустит движок с хуками другой версии.
+ */
+export function agentHookProbeArgs(image: string): string[] | null {
+  if (!/^[a-z0-9][a-z0-9._/:@-]{0,254}$/i.test(image)) return null;
+  return ['run', '--rm', '--network=none', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only', '--entrypoint=cat', image, SANDBOX_AGENT_HOOK_PATH];
+}
+
+/**
  * Codex CLI в контейнере (TASK-246): своя песочница Codex (Landlock, seccomp) внутри контейнера без привилегий не
  * поднимается — границей служит контейнер, Codex получает `danger-full-access`. Роль без записи файлов
  * (`--sandbox read-only`) становится worktree, смонтированным только на чтение.
@@ -197,7 +212,7 @@ export function codexContainerArgs(args: string[]): { args: string[]; readOnlyWo
  * хоста, `CLAUDE_CONFIG_DIR`, `CODEX_HOME` в контейнер не передаются.
  * - Claude CLI: `ANTHROPIC_BASE_URL` и `ANTHROPIC_AUTH_TOKEN`.
  * - Codex CLI: провайдер `projecthub` через `-c` (OpenAI Responses API шлюза), токен — в `PROJECTHUB_GATEWAY_TOKEN`.
- * - Gemini CLI: `GOOGLE_GEMINI_BASE_URL` и `GEMINI_API_KEY`.
+ * - Gemini CLI: `GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_KEY` и `GEMINI_CLI_AUTH_OVERRIDE=gemini-api-key`.
  */
 export function engineSandboxCommand(engine: SandboxEngine, cliArgs: string[], token: string): { command: string[]; env: Record<string, string>; readOnlyWorktree: boolean } {
   const model = `${GATEWAY_URL}/model`;
@@ -213,7 +228,13 @@ export function engineSandboxCommand(engine: SandboxEngine, cliArgs: string[], t
     return { command: ['codex', ...provider, ...codex.args], env: { [GATEWAY_TOKEN_ENV]: token }, readOnlyWorktree: codex.readOnlyWorktree };
   }
   if (engine === 'gemini-cli') {
-    return { command: ['gemini', ...cliArgs], env: { GOOGLE_GEMINI_BASE_URL: model, GEMINI_API_KEY: token }, readOnlyWorktree: false };
+    // С `GOOGLE_GEMINI_BASE_URL` Gemini без выбранного способа входа берёт `gateway` и в headless-режиме выходит с
+    // «Invalid auth method selected» (gemini 0.67, TASK-308). В свежем HOME контейнера выбора нет — задаём ключ API.
+    return {
+      command: ['gemini', ...cliArgs],
+      env: { GOOGLE_GEMINI_BASE_URL: model, GEMINI_API_KEY: token, GEMINI_CLI_AUTH_OVERRIDE: 'gemini-api-key' },
+      readOnlyWorktree: false
+    };
   }
   return { command: ['claude', ...cliArgs], env: { ANTHROPIC_BASE_URL: model, ANTHROPIC_AUTH_TOKEN: token }, readOnlyWorktree: false };
 }

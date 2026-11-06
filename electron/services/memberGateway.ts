@@ -14,6 +14,9 @@
  * - `POST /mcp/message?sessionId=…` → только привязанная к токену сессия MCP и только вызовы разрешённых инструментов
  *   (запрос разрешения и память проекта): остальные инструменты сервера (процессы, одобрение чужих запросов,
  *   управление компьютером) из контейнера недоступны.
+ * - `POST /api/hooks/event` → маршрут хуков ProjectHub на хосте с токеном запуска Codex CLI / Gemini CLI (`ph_ahook_`,
+ *   TASK-308): скрипт хука в контейнере предъявляет токен участника, шлюз подставляет токен запуска, выданный этому
+ *   токену. Тело — JSON-объект, уходит пересобранным; других заголовков хост не получает.
  * Решения по запросу — чистые функции; сервер только проксирует потоком.
  */
 import crypto from 'node:crypto';
@@ -29,8 +32,19 @@ export interface GatewayGrant {
   hitlSessionId?: string;
   /** Сессии MCP (`sessionId` транспорта SSE), открытые этим токеном. */
   mcpSessions?: Set<string>;
+  /** Маршрут хуков хоста и токен запуска движка (TASK-308): есть только у запуска Codex CLI / Gemini CLI с хуками. */
+  hook?: GatewayHookUpstream;
   expiresAt: number;
 }
+
+/** Адрес сервера ProjectHub с маршрутом хуков (`http://127.0.0.1:<порт>`) и токен запуска `ph_ahook_…`. */
+export interface GatewayHookUpstream {
+  baseUrl: string;
+  token: string;
+}
+
+/** Маршрут хуков: тот же путь, что у сервера ProjectHub, — скрипт хука один на хосте и в контейнере. */
+export const GATEWAY_HOOK_ROUTE = '/api/hooks/event';
 
 export interface GatewayMcpUpstream {
   baseUrl: string;
@@ -57,7 +71,7 @@ export interface GatewayUpstreams {
   mcp?: GatewayMcpUpstream;
 }
 
-export type GatewayKind = 'model' | 'mcpSse' | 'mcpMessage';
+export type GatewayKind = 'model' | 'mcpSse' | 'mcpMessage' | 'hook';
 
 export type GatewayRoute =
   | { ok: true; memberId: string; kind: GatewayKind; target: URL; headers: Record<string, string>; grant: GatewayGrant }
@@ -175,6 +189,21 @@ export function resolveGatewayRoute(
     return { ok: true, memberId: grant.memberId, kind: 'model', grant, target, headers: { ...allowed, ...lower(model.headers ?? {}), ...auth } };
   }
 
+  if (url.pathname === GATEWAY_HOOK_ROUTE) {
+    if (method !== 'POST') return { ok: false, status: 405, code: 'method' };
+    // Токен участника без запуска с хуками (Claude CLI, команда) — маршрута для него нет.
+    if (!grant.hook) return { ok: false, status: 503, code: 'notConfigured' };
+    // Заголовки контейнера хосту не нужны: только тип тела и токен запуска.
+    return {
+      ok: true,
+      memberId: grant.memberId,
+      kind: 'hook',
+      grant,
+      target: joinUrl(grant.hook.baseUrl, GATEWAY_HOOK_ROUTE, ''),
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${grant.hook.token}` }
+    };
+  }
+
   const mcp = upstreams.mcp;
   const ssePath = mcp?.ssePath ?? '/sse';
   const messagePath = mcp?.messagePath ?? '/message';
@@ -254,6 +283,21 @@ export interface GatewayRequestLog {
 
 /** Тело сообщения MCP больше этого — не HITL. */
 const MAX_MCP_BODY = 1024 * 1024;
+/** Тело события хука: вход записи файла может содержать файл целиком (как лимит маршрута хоста). */
+export const MAX_HOOK_BODY = 8 * 1024 * 1024;
+
+/**
+ * Тело события хука из контейнера: только JSON-объект, хосту уходит пересобранным (как сообщение MCP — исходные байты
+ * в другой кодировке значили бы для сервера другое). `null` — не JSON-объект.
+ */
+export function filterHookBody(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? JSON.stringify(parsed) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Сервер шлюза. До контейнера его доводит пересыльщик во внутренней сети. */
 export class MemberGateway {
@@ -288,6 +332,17 @@ export class MemberGateway {
 
   revoke(token: string): void {
     this.grants.delete(token);
+  }
+
+  /**
+   * Маршрут хуков для запуска Codex CLI / Gemini CLI (TASK-308): токен участника получает токен запуска движка. `false` —
+   * токена участника уже нет (агент остановлен).
+   */
+  attachHook(token: string, hook: GatewayHookUpstream): boolean {
+    const grant = this.grants.get(token);
+    if (!grant) return false;
+    grant.hook = { ...hook };
+    return true;
   }
 
   async start(host = '127.0.0.1', port = 0): Promise<{ host: string; port: number }> {
@@ -341,6 +396,23 @@ export class MemberGateway {
   private handle(req: http.IncomingMessage, res: http.ServerResponse): void {
     const route = resolveGatewayRoute({ url: req.url ?? '/', method: req.method, headers: req.headers }, this.grants, this.upstreams(), Date.now());
     if (!route.ok) return this.deny(res, route.status, route.code);
+    if (route.kind === 'hook') {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let tooLarge = false;
+      req.on('data', (c: Buffer) => {
+        size += c.length;
+        if (size > MAX_HOOK_BODY) tooLarge = true;
+        else chunks.push(c);
+      });
+      req.on('end', () => {
+        if (tooLarge) return this.deny(res, 413, 'tooLarge');
+        const filtered = filterHookBody(Buffer.concat(chunks).toString('utf8'));
+        if (filtered === null) return this.deny(res, 400, 'badBody');
+        this.forward(route, 'POST', res, Buffer.from(filtered, 'utf8'));
+      });
+      return;
+    }
     if (route.kind === 'mcpMessage') {
       // Тело читается целиком: вызов инструмента проверяется до передачи серверу.
       const chunks: Buffer[] = [];

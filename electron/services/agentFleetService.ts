@@ -21,7 +21,7 @@ import { CLAUDE_ACCOUNT_SOURCE_LABEL, cliAccountEnv, type OtherCliAccountEngine 
 import { claudeBridgeService, CLI_HITL_MCP_SERVER_NAME, CLI_HITL_QUERY_PARAM, CLI_MCP_TOOL_TIMEOUT_MS, type CliPermissionMeta } from './claudeBridgeService.js';
 import { memberSandboxService, sandboxSettingsOf, type MemberSandboxTarget } from './memberSandboxService.js';
 import { readWorktreeFile, writeWorktreeFile } from './worktreeFs.js';
-import { sandboxedCliRun, SANDBOX_PROMPT_FILE, type SandboxEngine } from './memberSandboxLauncher.js';
+import { GATEWAY_URL, sandboxedCliRun, SANDBOX_AGENT_HOOK_PATH, SANDBOX_PROMPT_FILE, type SandboxEngine } from './memberSandboxLauncher.js';
 import { SANDBOX_SECRET_DIR, type SandboxPlan } from './memberSandbox.js';
 import { studioLiveRuns } from './studioLiveRuns.js';
 import { hitlService } from './hitlService.js';
@@ -187,16 +187,22 @@ interface MemberSandboxLaunch {
   image: string;
   target: MemberSandboxTarget;
   hitl: NonNullable<CliPermissionMeta['sandbox']>;
-  run(cliArgs: string[], extraEnv: Record<string, string>, secretFiles?: Record<string, string>): SandboxPlan;
+  /** `readOnlyPaths` — ещё пути worktree только на чтение для этого запуска (настройки хуков Gemini, TASK-308). */
+  run(cliArgs: string[], extraEnv: Record<string, string>, secretFiles?: Record<string, string>, readOnlyPaths?: string[]): SandboxPlan;
   release(): void;
 }
 
-/** Хуки ProjectHub одного запуска Codex CLI / Gemini CLI на хосте (TASK-261): см. `prepareEngineHooks`. */
+/**
+ * Хуки ProjectHub одного запуска Codex CLI / Gemini CLI (TASK-261) — на хосте или в контейнере участника через его шлюз
+ * (TASK-308): см. `prepareEngineHooks`.
+ */
 interface EngineHookRun {
   /** Аргументы CLI с хуками (Codex — `-c hooks…`; Gemini — пусто, хуки в `.gemini/settings.json`). */
   args: string[];
-  /** Адрес и токен запуска для скрипта хука. */
+  /** Адрес и токен запуска для скрипта хука (в контейнере — шлюз и токен участника). */
   env: Record<string, string>;
+  /** Пути worktree, которые контейнер видит только на чтение: `.gemini/settings.json` с нашими хуками. */
+  readOnlyPaths?: string[];
   /** Пришло ли от запуска хоть одно событие хука. */
   handshake(): boolean;
   /** Отзыв токена, снятие сессии разрешений и хуков Gemini. Повторный вызов ничего не делает. */
@@ -2756,13 +2762,25 @@ export class AgentFleetService extends EventEmitter {
   }
 
   /**
-   * HITL Codex CLI / Gemini CLI на хосте (TASK-261, decision-226): сессия разрешений агента, как у Claude CLI, и хуки
-   * движка с токеном этого запуска. Решения по вызовам — `agentHookService` → `handleCliPermissionRequest`.
+   * HITL Codex CLI / Gemini CLI (TASK-261, decision-226): сессия разрешений агента, как у Claude CLI, и хуки движка с
+   * токеном этого запуска. Решения по вызовам — `agentHookService` → `handleCliPermissionRequest`.
    * `null` — встроенный сервер недоступен, а запуск без HITL разрешён (авто-одобрение, человек нажал запуск, агент
    * владельца): так работали эти движки до TASK-261, с записью в аудит. Иначе — отказ.
+   *
+   * В контейнере участника (TASK-308): скрипт хука — из образа (сверяется со скриптом приложения), адрес — шлюз
+   * участника, токен — токен участника; шлюз подставляет токен запуска. Пути контейнера (`/workspace/…`) политика видит
+   * путями worktree (`meta.sandbox`). `.gemini/settings.json` с хуками контейнер видит только на чтение.
    */
-  private async prepareEngineHooks(session: SwarmSession, agentState: AgentSlotState, targetPath: string, engine: 'codex-cli' | 'gemini-cli'): Promise<EngineHookRun | null> {
+  private async prepareEngineHooks(
+    session: SwarmSession,
+    agentState: AgentSlotState,
+    targetPath: string,
+    engine: 'codex-cli' | 'gemini-cli',
+    sandbox?: MemberSandboxLaunch
+  ): Promise<EngineHookRun | null> {
     const cli = engine === 'codex-cli' ? 'Codex CLI' : 'Gemini CLI';
+    // Образ без нашего скрипта хука — отказ до сессии разрешений: движок в нём прошёл бы мимо одобрений.
+    if (sandbox) await memberSandboxService.assertAgentHookImage(sandbox.target.settings);
     let globalConfig: AIProviderConfig;
     try {
       globalConfig = await aiAgentService.getConfig();
@@ -2770,7 +2788,7 @@ export class AgentFleetService extends EventEmitter {
       globalConfig = { provider: 'anthropic', model: 'default' };
     }
     const sessionId = this.hitlSessionId(agentState);
-    const meta = await this.cliPermissionMeta(session, agentState, targetPath, engine);
+    const meta = await this.cliPermissionMeta(session, agentState, targetPath, engine, sandbox?.hitl);
     const hitl = await claudeBridgeService.prepareCliPermissions(sessionId, targetPath, globalConfig, this.hitlChunkLogger(session, agentState), meta);
     const baseUrl = hitl ? (await import('./mcpServerService.js')).mcpServerService.getHookBaseUrl() : null;
     if (!hitl || !baseUrl) {
@@ -2782,7 +2800,10 @@ export class AgentFleetService extends EventEmitter {
       if (profile && !profile.trusted) throw new AppError('swarm.hitlUnavailable');
       if (!effective.autoApprove) throw new AppError('swarm.hitlUnavailable');
       const reason = `The built-in MCP server is unavailable, auto-approve is on: ${cli} runs without ProjectHub hooks`;
-      hitlService.recordFallback({ sessionId, projectPath: session.projectPath, ...meta, reason });
+      // Токен участника из `meta.sandbox` в событие запасного пути (шина, окна, телефон) не уходит.
+      const auditMeta = { ...meta };
+      delete auditMeta.sandbox;
+      hitlService.recordFallback({ sessionId, projectPath: session.projectPath, ...auditMeta, reason });
       this.log(session, agentState, `[HITL] ⚠️ ${reason}. The role deny lists do not apply.`);
       return null;
     }
@@ -2790,7 +2811,7 @@ export class AgentFleetService extends EventEmitter {
     const hookEngine = engine === 'codex-cli' ? 'codex' : 'gemini';
     let scriptPath: string;
     try {
-      scriptPath = await ensureAgentHookScript(path.join(getUserDataDir(), 'agent-hooks'));
+      scriptPath = sandbox ? SANDBOX_AGENT_HOOK_PATH : await ensureAgentHookScript(path.join(getUserDataDir(), 'agent-hooks'));
     } catch (err) {
       hitl.cleanup();
       throw new AppError('swarm.engineHooksUnavailable', { cli, reason: errorMessage(err) });
@@ -2801,6 +2822,16 @@ export class AgentFleetService extends EventEmitter {
       throw new AppError('swarm.engineHooksUnavailable', { cli, reason: `the path ${scriptPath} contains shell characters` });
     }
     const handle = agentHookService.grant(sessionId, hookEngine);
+    if (sandbox) {
+      try {
+        // Токен запуска остаётся на хосте: контейнер предъявляет шлюзу токен участника.
+        memberSandboxService.attachAgentHook(sandbox.hitl.gatewayToken, { baseUrl, token: handle.token });
+      } catch (err) {
+        handle.revoke();
+        hitl.cleanup();
+        throw err;
+      }
+    }
     let releaseGemini: (() => Promise<void>) | null = null;
     if (hookEngine === 'gemini') {
       try {
@@ -2811,16 +2842,19 @@ export class AgentFleetService extends EventEmitter {
         throw err instanceof AppError ? err : new AppError('swarm.engineHooksUnavailable', { cli, reason: errorMessage(err) });
       }
     }
-    this.log(session, agentState, `[HITL] ${cli}: tool calls go through ProjectHub hooks (policy, approvals, audit).`);
+    this.log(session, agentState, `[HITL] ${cli}: tool calls go through ProjectHub hooks (policy, approvals, audit)${sandbox ? ' via the member gateway' : ''}.`);
     let cleaned = false;
     return {
-      args: hookEngine === 'codex' ? codexAgentHookArgs(command) : [],
+      // `docker run` без оболочки: значения `-c` без кавычек.
+      args: hookEngine === 'codex' ? codexAgentHookArgs(command, undefined, { shell: !sandbox }) : [],
       env: {
-        [AGENT_HOOK_URL_ENV]: baseUrl,
-        [AGENT_HOOK_TOKEN_ENV]: handle.token,
+        [AGENT_HOOK_URL_ENV]: sandbox ? GATEWAY_URL : baseUrl,
+        [AGENT_HOOK_TOKEN_ENV]: sandbox ? sandbox.hitl.gatewayToken : handle.token,
         // Gemini читает настройки рабочего каталога только в доверенной папке; `--skip-trust` ставит доверие слишком поздно.
         ...(hookEngine === 'gemini' ? { GEMINI_CLI_TRUST_WORKSPACE: 'true' } : {})
       },
+      // Агент в контейнере не снимет наши хуки из настроек Gemini, пока он работает.
+      ...(sandbox && hookEngine === 'gemini' ? { readOnlyPaths: ['.gemini/settings.json'] } : {}),
       handshake: handle.handshake,
       cleanup: async () => {
         if (cleaned) return;
@@ -2830,17 +2864,6 @@ export class AgentFleetService extends EventEmitter {
         await releaseGemini?.().catch((err) => this.log(session, agentState, `[HITL] ⚠️ Could not remove the hooks from .gemini/settings.json: ${errorMessage(err)}`));
       }
     };
-  }
-
-  /**
-   * Codex CLI и Gemini CLI в контейнере участника пока без хуков ProjectHub (TASK-261): участнику без доверия они
-   * недоступны — без HITL ему работать нельзя (decision-84). Доверенный участник в контейнере работает как раньше.
-   */
-  private assertSandboxEngineHitl(session: SwarmSession, engine: 'codex-cli' | 'gemini-cli'): void {
-    const profile = editionRegistry.launcherProfile(session.memberId);
-    if (profile?.sandbox && !profile.trusted) {
-      throw new AppError('swarm.sandboxEngineNoHitl', { cli: engine === 'codex-cli' ? 'Codex CLI' : 'Gemini CLI' });
-    }
   }
 
   /**
@@ -2887,8 +2910,16 @@ export class AgentFleetService extends EventEmitter {
         onEndpoint: (e: { url: string; token: string }) =>
           memberSandboxService.setMcpUpstream({ baseUrl: new URL(e.url).origin, token: e.token, sessionParam: CLI_HITL_QUERY_PARAM, ssePath: new URL(e.url).pathname, messagePath: '/message' })
       },
-      run: (cliArgs: string[], extraEnv: Record<string, string>, secretFiles?: Record<string, string>) =>
-        sandboxedCliRun({ ...target, engine, token, cliArgs, extraEnv, ...(secretFiles ? { secretFiles } : {}) }),
+      run: (cliArgs: string[], extraEnv: Record<string, string>, secretFiles?: Record<string, string>, readOnlyPaths?: string[]) =>
+        sandboxedCliRun({
+          ...target,
+          engine,
+          token,
+          cliArgs,
+          extraEnv,
+          ...(secretFiles ? { secretFiles } : {}),
+          ...(readOnlyPaths?.length ? { readOnlyPaths: [...target.readOnlyPaths, ...readOnlyPaths] } : {})
+        }),
       release: () => memberSandboxService.revoke(token)
     };
   }
@@ -2900,9 +2931,10 @@ export class AgentFleetService extends EventEmitter {
     agentState: AgentSlotState,
     cliArgs: string[],
     env: Record<string, string>,
-    files?: Record<string, string>
+    files?: Record<string, string>,
+    readOnlyPaths?: string[]
   ): ChildProcess {
-    const plan = sandbox.run(cliArgs, env, files);
+    const plan = sandbox.run(cliArgs, env, files, readOnlyPaths);
     if (!plan.ok) throw new AppError('swarm.sandboxPlanInvalid', { reason: plan.reason });
     this.log(session, agentState, `[Swarm] Member container: ${sandbox.runtime} (${sandbox.image})`);
     // Подписки и ключи хоста (CLAUDE_CONFIG_DIR, аккаунты Codex и Gemini) в контейнер не передаются: модель — через шлюз.
@@ -3662,7 +3694,6 @@ export class AgentFleetService extends EventEmitter {
     role?: RoleDefinition
   ): Promise<void> {
     // Изолированный участник (TASK-246): Codex CLI в его контейнере, модель — через шлюз хоста (OpenAI Responses API).
-    this.assertSandboxEngineHitl(session, 'codex-cli');
     const sandbox = await this.prepareMemberSandbox(session, undefined, 'codex-cli');
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'codex.cmd' : 'codex';
@@ -3679,15 +3710,25 @@ export class AgentFleetService extends EventEmitter {
     });
     if (invocation.effortNote) this.log(session, agentState, `[Swarm] ℹ️ ${invocation.effortNote}`);
     const fullPrompt = invocation.promptPrefix ? `${invocation.promptPrefix}\n\n${prompt}` : prompt;
-    // HITL через хуки Codex (TASK-261): на хосте; в контейнере — только доверенный участник, без хуков.
-    const hooks = sandbox ? null : await this.prepareEngineHooks(session, agentState, targetPath, 'codex-cli');
+    // HITL через хуки Codex (TASK-261): на хосте и в контейнере участника — через его шлюз (TASK-308).
+    let hooks: EngineHookRun | null;
+    try {
+      hooks = await this.prepareEngineHooks(session, agentState, targetPath, 'codex-cli', sandbox ?? undefined);
+    } catch (err) {
+      sandbox?.release();
+      throw err;
+    }
 
     return new Promise((resolve, reject) => {
       let child: ChildProcess;
       const startedAt = Date.now();
       try {
         child = sandbox
-          ? this.spawnSandboxed(sandbox, session, agentState, invocation.args, { FORCE_COLOR: '0', ...this.memberGitEnv(session) })
+          ? this.spawnSandboxed(sandbox, session, agentState, [...invocation.args, ...(hooks?.args ?? [])], {
+              FORCE_COLOR: '0',
+              ...this.memberGitEnv(session),
+              ...(hooks?.env ?? {})
+            })
           : spawn(cmd, [...invocation.args, ...(hooks?.args ?? [])], {
               cwd: targetPath,
               shell: true,
@@ -3697,6 +3738,7 @@ export class AgentFleetService extends EventEmitter {
       } catch (e: unknown) {
         if (sandbox) {
           sandbox.release();
+          void hooks?.cleanup();
           return reject(e instanceof AppError ? e : new AppError('swarm.sandboxPlanInvalid', { reason: errorMessage(e) }));
         }
         void hooks?.cleanup();
@@ -3827,15 +3869,20 @@ export class AgentFleetService extends EventEmitter {
     role?: RoleDefinition
   ): Promise<void> {
     // Изолированный участник (TASK-246): Gemini CLI в его контейнере, модель — через шлюз хоста (Gemini API).
-    this.assertSandboxEngineHitl(session, 'gemini-cli');
     const sandbox = await this.prepareMemberSandbox(session, undefined, 'gemini-cli');
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'gemini.cmd' : 'gemini';
     const accountEnv = await this.engineAccountEnv(session, agentState, 'gemini-cli');
     const effective = await this.resolveEffectivePermissions(agentState, targetPath);
     const extraSystemPrompt = await this.buildExtraSystemPrompt(session, agentState, targetPath);
-    // HITL через хуки Gemini (TASK-261): на хосте; в контейнере — только доверенный участник, без хуков.
-    const hooks = sandbox ? null : await this.prepareEngineHooks(session, agentState, targetPath, 'gemini-cli');
+    // HITL через хуки Gemini (TASK-261): на хосте и в контейнере участника — через его шлюз (TASK-308).
+    let hooks: EngineHookRun | null;
+    try {
+      hooks = await this.prepareEngineHooks(session, agentState, targetPath, 'gemini-cli', sandbox ?? undefined);
+    } catch (err) {
+      sandbox?.release();
+      throw err;
+    }
     const invocation = buildEngineInvocation({
       engine: 'gemini-cli',
       role,
@@ -3855,7 +3902,15 @@ export class AgentFleetService extends EventEmitter {
       const startedAt = Date.now();
       try {
         child = sandbox
-          ? this.spawnSandboxed(sandbox, session, agentState, invocation.args, { FORCE_COLOR: '0', ...trustEnv, ...this.memberGitEnv(session) })
+          ? this.spawnSandboxed(
+              sandbox,
+              session,
+              agentState,
+              invocation.args,
+              { FORCE_COLOR: '0', ...trustEnv, ...this.memberGitEnv(session), ...(hooks?.env ?? {}) },
+              undefined,
+              hooks?.readOnlyPaths
+            )
           : spawn(cmd, invocation.args, {
               cwd: targetPath,
               shell: true,
@@ -3865,6 +3920,7 @@ export class AgentFleetService extends EventEmitter {
       } catch (e: unknown) {
         if (sandbox) {
           sandbox.release();
+          void hooks?.cleanup();
           return reject(e instanceof AppError ? e : new AppError('swarm.sandboxPlanInvalid', { reason: errorMessage(e) }));
         }
         void (hooks ? hooks.cleanup() : Promise.resolve()).finally(() => {
