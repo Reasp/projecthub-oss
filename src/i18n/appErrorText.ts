@@ -778,6 +778,11 @@ const EN = {
   'studio.cliStderrReadFailed': 'Could not read Claude CLI stderr: {detail}',
   'studio.cliStdinFailed': 'Could not pass the request to Claude CLI: {detail}',
   'studio.cliExitCode': 'Claude Code exited with code {code}',
+  // Разговор вкладки занят фоновой сессией CLI (TASK-301, decision-219).
+  'studio.cliSessionInBackground':
+    'This conversation is open in a Claude Code background session ({id}), so the tab cannot continue it. Stop the background session and continue here, or continue in a copy of the conversation.',
+  'studio.cliBackgroundStopFailed': 'Could not stop the Claude Code background session: {detail}',
+  'studio.cliBackgroundStillRunning': 'The Claude Code background session {id} is still running after `claude stop`.',
   // Ограничения запуска агента (decision-123, decision-124).
   'edition.launchCheckFailed': 'The pre-launch check failed: {detail}',
   'edition.launchBlocked': 'The launch is blocked by limits',
@@ -1764,6 +1769,10 @@ export const appErrorTextRu: AppErrorLabels = {
   'studio.cliStderrReadFailed': 'Ошибка чтения stderr Claude CLI: {detail}',
   'studio.cliStdinFailed': 'Не удалось передать запрос в Claude CLI: {detail}',
   'studio.cliExitCode': 'Claude Code завершился с кодом {code}',
+  'studio.cliSessionInBackground':
+    'Этот разговор открыт в фоновой сессии Claude Code ({id}), поэтому вкладка не может его продолжить. Остановите фоновую сессию и продолжите здесь или продолжите в копии разговора.',
+  'studio.cliBackgroundStopFailed': 'Не удалось остановить фоновую сессию Claude Code: {detail}',
+  'studio.cliBackgroundStillRunning': 'Фоновая сессия Claude Code {id} всё ещё работает после `claude stop`.',
   'edition.launchCheckFailed': 'Проверка перед запуском не удалась: {detail}',
   'edition.launchBlocked': 'Запуск запрещён ограничениями',
   'license.badFormat': 'Это не файл лицензии ProjectHub',

@@ -1946,6 +1946,14 @@ export const en: TranslationDictionary = {
     welcomeDesc: 'Chat about this project with Claude, OpenRouter, DeepSeek or a local Ollama model.',
     thinkingProcess: 'Thinking Process',
     generating: 'Generating response...',
+    backgroundSession: {
+      title: 'The conversation is busy in a background session',
+      stopAndContinue: 'Stop it and continue here',
+      stopAndContinueHint: 'Runs `claude stop` for the background session under the tab account, adds its replies to the feed and resends your prompt',
+      continueCopy: 'Continue in a copy',
+      continueCopyHint: 'The tab continues in a copy of the conversation (--fork-session); the background session keeps running',
+      working: 'Stopping the background session…'
+    },
     selectModelTitle: 'Select active Claude Code model',
     singleAgentStudio: 'Single Agent (Studio)',
     chatVoiceTooltip: '{title} — Say: "Chat {num}" or "Session {num}"',

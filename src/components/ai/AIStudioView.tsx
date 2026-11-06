@@ -66,6 +66,8 @@ import { MarkdownViewer } from '../common/MarkdownViewer';
 import { VoiceBadge } from '../voice/VoiceBadge';
 import { SwarmArenaView } from './swarm/SwarmArenaView';
 import { ProviderErrorCard } from './ProviderErrorCard';
+import { CliBackgroundSessionCard } from './CliBackgroundSessionCard';
+import { backgroundHoldOf } from '../../lib/studioBackgroundSession';
 import { SessionHistoryModal } from './SessionHistoryModal';
 import { CliCommandModal } from './CliCommandModal';
 import { CliMemoryModal } from './CliMemoryModal';
@@ -133,6 +135,7 @@ export const AIStudioView: React.FC = () => {
     sendMessage,
     saveAttachment,
     retryFailedMessage,
+    continueAfterBackgroundSession,
     abortStream,
     acceptDiff,
     rejectDiff
@@ -972,7 +975,15 @@ export const AIStudioView: React.FC = () => {
                       )}
 
                       {/* Ошибка ответа (TASK-70.6): локализованная карточка и повтор — чат остаётся рабочим */}
-                      {!isUser && msg.error && (
+                      {/* Разговор занят фоновой сессией CLI (TASK-301): остановить её или продолжить копией */}
+                      {!isUser && msg.error && msg.providerError && backgroundHoldOf(msg) !== null ? (
+                        <CliBackgroundSessionCard
+                          error={msg.error}
+                          info={msg.providerError}
+                          onAction={(action) => continueAfterBackgroundSession(projectPath, msg.id, action)}
+                          disabled={isStreaming}
+                        />
+                      ) : !isUser && msg.error && (
                         <ProviderErrorCard
                           error={msg.error}
                           info={msg.providerError}

@@ -1404,6 +1404,13 @@ export interface IElectronAPI {
   listCliSessions: (query: { projectPath: string; cwd?: string; claudeAccountId?: string }) => Promise<CliSessionSummary[]>;
   /** Переписка сессии Claude Code — в ленту вкладки после `/resume` (TASK-282): текст реплик, без инструментов. */
   readCliSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => Promise<CliTranscriptMessage[]>;
+  /**
+   * Останавливает фоновую сессию CLI (`claude --bg`), которая держит разговор вкладки (TASK-301): `claude stop` под
+   * аккаунтом вкладки. `stopped: null` — фоновой сессии уже нет.
+   */
+  stopCliBackgroundSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => Promise<
+    { ok: true; stopped: string | null } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }
+  >;
   /** Реплики человека текущего разговора CLI — точки `/rewind` (TASK-284). */
   cliRewindPoints: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => Promise<CliRewindPoint[]>;
   /** Файлы, которые изменит откат к реплике: сравнение с копиями CLI. */

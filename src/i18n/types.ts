@@ -1814,6 +1814,15 @@ export interface TranslationDictionary {
     welcomeDesc: string;
     thinkingProcess: string;
     generating: string;
+    /** Разговор вкладки занят фоновой сессией Claude Code (TASK-301). */
+    backgroundSession: {
+      title: string;
+      stopAndContinue: string;
+      stopAndContinueHint: string;
+      continueCopy: string;
+      continueCopyHint: string;
+      working: string;
+    };
     selectModelTitle: string;
     singleAgentStudio: string;
     chatVoiceTooltip: string;

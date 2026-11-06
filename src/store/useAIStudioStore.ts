@@ -48,6 +48,8 @@ import {
   type StudioQueues
 } from '../lib/studioMessageQueue';
 import { forkedSession, insertAfter } from '../lib/studioSessionFork';
+import { withBackgroundReplies } from '../lib/studioBackgroundSession';
+import { ipcErrorText, ipcFailureText } from '../i18n/useTranslation';
 import { feedBeforeMessage, feedBeforePoint, matchRewindPoints, pointsBeforePending, rewoundSession } from '../lib/studioRewind';
 import { hasAddDir, MAX_ADD_DIRS, withAddDir, withoutAddDir } from '../lib/studioAddDir';
 import { cliTitleToSync } from '../lib/studioCliTitle';
@@ -209,6 +211,12 @@ interface AIStudioState {
    * из диалога, и сообщение отправляется заново — с текущими настройками провайдера и модели.
    */
   retryFailedMessage: (projectPath: string, assistantMessageId: string) => Promise<void>;
+  /**
+   * Разговор вкладки занят фоновой сессией CLI (TASK-301): `stop` — остановить её под аккаунтом вкладки, `fork` — следующий
+   * ход в копии разговора (`--fork-session`). Реплики фоновой сессии встают в ленту, затем ход повторяется. Ошибка
+   * остановки — текстом на языке окна, ход тогда не повторяется.
+   */
+  continueAfterBackgroundSession: (projectPath: string, assistantMessageId: string, action: 'stop' | 'fork') => Promise<string | null>;
   /** Останавливает ответ одной сессии; ответы других вкладок идут дальше (TASK-171). */
   abortStream: (sessionId: string) => Promise<void>;
   acceptDiff: (projectPath: string, messageId: string, toolId: string, filePath: string, newContent: string) => Promise<void>;
@@ -1892,6 +1900,36 @@ export const useAIStudioStore = create<AIStudioState>()(
           sessionId: session.id,
           ...(target.attachments.length > 0 ? { attachments: target.attachments } : {})
         });
+      },
+
+      continueAfterBackgroundSession: async (projectPath: string, assistantMessageId: string, action: 'stop' | 'fork') => {
+        const sessionId = get().activeSessionId[projectPath];
+        const session = (get().sessions[projectPath] || []).find((s) => s.id === sessionId);
+        if (!session || get().streamingSessions[session.id]) return null;
+        const query = tabCliQuery(projectPath, session);
+        if (query && action === 'stop' && window.api?.stopCliBackgroundSession) {
+          try {
+            const res = await window.api.stopCliBackgroundSession(query);
+            if (!res.ok) return ipcFailureText(res);
+          } catch (err) {
+            return ipcErrorText(err);
+          }
+        }
+        // Реплики фоновой сессии — в ленту перед повтором: после остановки файл сессии полон, копия разговора их тоже несёт.
+        const history = query && window.api?.readCliSession ? await window.api.readCliSession(query).catch(() => []) : [];
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [projectPath]: (state.sessions[projectPath] || []).map((s) => {
+              if (s.id !== session.id) return s;
+              const messages = withBackgroundReplies(s.messages || [], assistantMessageId, history);
+              // Копия: первый ход уйдёт с `--fork-session`, разговор вкладки получит id копии; фоновая сессия цела.
+              return action === 'fork' && s.claudeCliSessionId ? { ...s, messages, claudeCliForkPending: true } : { ...s, messages };
+            })
+          }
+        }));
+        await get().retryFailedMessage(projectPath, assistantMessageId);
+        return null;
       },
 
       acceptDiff: async (projectPath: string, messageId: string, toolId: string, filePath: string, newContent: string) => {

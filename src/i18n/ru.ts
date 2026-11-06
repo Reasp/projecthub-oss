@@ -1946,6 +1946,14 @@ export const ru: TranslationDictionary = {
     welcomeDesc: 'Чат о проекте с Claude, OpenRouter, DeepSeek или локальной моделью Ollama.',
     thinkingProcess: 'Ход рассуждений (Thinking Process)',
     generating: 'Генерация ответа...',
+    backgroundSession: {
+      title: 'Разговор занят фоновой сессией',
+      stopAndContinue: 'Остановить и продолжить здесь',
+      stopAndContinueHint: 'Выполняет `claude stop` для фоновой сессии под аккаунтом вкладки, добавляет её реплики в ленту и отправляет ваш промпт заново',
+      continueCopy: 'Продолжить в копии',
+      continueCopyHint: 'Вкладка продолжит копию разговора (--fork-session); фоновая сессия продолжит работать',
+      working: 'Останавливаю фоновую сессию…'
+    },
     selectModelTitle: 'Выбор активной модели Claude Code',
     singleAgentStudio: 'Одиночный агент (Студия)',
     chatVoiceTooltip: '{title} — Скажите: «Чат {num}» или «Сессия {num}»',

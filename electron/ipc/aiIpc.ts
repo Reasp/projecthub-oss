@@ -59,6 +59,7 @@ import { claudeAccountService } from '../services/claudeAccountService';
 import { isCliSessionId, listCliSessions, readCliSessionMessages, readCliSessionTail } from '../services/claudeCliSessions';
 import { cliRewindPoints, cliRewindPreview, runCliRewindFiles } from '../services/claudeCliRewind';
 import { checkAddDir } from '../services/cliAddDir';
+import { stopCliBackgroundSession } from '../services/cliBackgroundSession';
 import {
   memoryDialogFile,
   memoryDialogFolder,
@@ -269,6 +270,18 @@ export function registerAiIpc(ctx: IpcContext) {
     const slotAccountId = typeof query?.claudeAccountId === 'string' && query.claudeAccountId ? query.claudeAccountId : undefined;
     const { account } = await claudeAccountService.resolve({ projectPath, ...(slotAccountId ? { slotAccountId } : {}) });
     return readCliSessionMessages(account.configDir, cwd, query.cliSessionId);
+  });
+
+  // Разговор вкладки занят фоновой сессией CLI (TASK-301, decision-219): остановить её под аккаунтом вкладки.
+  ipcMain.handle('ai:stopCliBackgroundSession', async (_event, query?: { projectPath?: unknown; cwd?: unknown; claudeAccountId?: unknown; cliSessionId?: unknown }) => {
+    const projectPath = await assertRegisteredProject(String(query?.projectPath ?? ''));
+    const cwd = workDirInProject(projectPath, query?.cwd);
+    if (!isCliSessionId(query?.cliSessionId)) return { ok: false, error: 'invalid session id' };
+    const slotAccountId = typeof query?.claudeAccountId === 'string' && query.claudeAccountId ? query.claudeAccountId : undefined;
+    const { account } = await claudeAccountService.resolve({ projectPath, ...(slotAccountId ? { slotAccountId } : {}) });
+    const result = await stopCliBackgroundSession({ configDir: account.configDir, cwd, cliSessionId: query.cliSessionId });
+    console.info(`[aiIpc] background CLI session: ${result.ok ? `stopped ${result.stopped ?? 'none'}` : result.error.message}`);
+    return result.ok ? { ok: true, stopped: result.stopped } : { ok: false, error: result.error.message, errorKey: result.error.appErrorKey };
   });
 
   // `/rewind` (TASK-284, decision-205): точки отката, предпросмотр файлов и откат файлов — те же проверки, что у списка.

@@ -56,6 +56,7 @@ import { createStudioToolCallbacks, type AgentStatusKey } from './studioToolAdap
 import { claudeCliEffortArgs, normalizeReasoningEffort } from './reasoningEffort.js';
 import { CLI_FILE_CHECKPOINTING_ENV } from './claudeCliRewind.js';
 import { usableAddDirs } from './cliAddDir.js';
+import { cliBackgroundHoldInText, cliBackgroundHoldOf } from './cliBackgroundSession.js';
 import { usesClaudeCli } from './modelTarget.js';
 import { getHostLanguage } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
@@ -2106,6 +2107,13 @@ class ClaudeBridgeService extends EventEmitter {
         // task_started / task_progress / task_notification подагентов CLI (TASK-272).
         updateSubagent(subagentFromSystemEvent(event));
       } else if (event.type === 'result') {
+        // Разговор держит фоновая сессия CLI (TASK-301, decision-219): карточка с действиями вместо строки CLI.
+        const heldBy = cliBackgroundHoldOf(event);
+        if (heldBy !== null && !interrupting) {
+          failTurn(new AppError('studio.cliSessionInBackground', { id: heldBy || '?' }));
+          live.kill();
+          return;
+        }
         if (event.result && typeof event.result === 'string' && !accumulatedText) {
           accumulatedText = event.result;
           onChunk({ text: event.result });
@@ -2157,6 +2165,11 @@ class ClaudeBridgeService extends EventEmitter {
         const aborted = this.abortedSessions.has(sessionId);
         if (code === 0 || accumulatedText || aborted) {
           completeTurn();
+          return;
+        }
+        const heldBy = cliBackgroundHoldInText(info.stderr);
+        if (heldBy !== null) {
+          failTurn(new AppError('studio.cliSessionInBackground', { id: heldBy }));
           return;
         }
         // Вывод CLI — его собственный текст; без него — причина ProjectHub с кодом.
