@@ -119,6 +119,7 @@ const EN = {
   'processes.stopFailed': 'Could not stop process {name}',
   'processes.invalidId': 'Invalid process id: {id}',
   'processes.notInRegistry': 'Process {name} not found in the env-tools registry',
+  'processes.invalidLogName': 'Invalid process name for reading the log: {name}',
   'processes.noFreePort': 'No free port in the range {from}–{to}',
   // Графы кода и документации, индексация GitNexus (TASK-167, TASK-176).
   'graph.portPickFailed': 'Could not pick a port for gitnexus serve',
@@ -1159,6 +1160,7 @@ export const appErrorTextRu: AppErrorLabels = {
   'processes.stopFailed': 'Не удалось остановить процесс {name}',
   'processes.invalidId': 'Некорректный идентификатор процесса: {id}',
   'processes.notInRegistry': 'Процесс {name} не найден в реестре env-tools',
+  'processes.invalidLogName': 'Недопустимое имя процесса для чтения лога: {name}',
   'processes.noFreePort': 'Не найден свободный порт в диапазоне {from}–{to}',
   'graph.portPickFailed': 'Не удалось выбрать порт для gitnexus serve',
   'graph.httpError': 'GitNexus ответил {status} на {path}',

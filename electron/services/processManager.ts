@@ -10,6 +10,7 @@ import { appEventBus } from './eventBus.js';
 import { isPidAlive, type EnvEntryStatus } from './envRegistryIdentity';
 import { envToolsEntryStatuses } from './processSweep';
 import { envStateDir } from './envStateDir';
+import { processLogFile } from './processLogPath';
 import { humanShellEnv } from './exeLookupGuard';
 import {
   findFreePort,
@@ -1016,7 +1017,9 @@ class HubProcessManager {
       return active.logBuffer.slice(-lines).join('');
     }
 
-    const logFile = path.join(envStateDir(projectPath), 'logs', `${processName}.log`);
+    // Имя приходит из RPC телефона и рендерера: путь лога — только внутри каталога логов (TASK-264).
+    const logFile = processLogFile(path.join(envStateDir(projectPath), 'logs'), processName);
+    if (!logFile) throw new AppError('processes.invalidLogName', { name: String(processName) });
     if (existsSync(logFile)) {
       try {
         let content = await fs.readFile(logFile, 'utf-8');
