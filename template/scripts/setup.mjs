@@ -96,8 +96,9 @@ export function buildDesiredMcpServers(prefix, features) {
     desired['backlog'] = { command: 'npx', args: ['--yes', 'backlog.md', 'mcp', 'start'] };
   }
   if (features.includes('gitnexus')) {
-    // GitNexus — отдельно устанавливаемый глобальный CLI (npm i -g gitnexus), не скрипт репозитория.
-    desired['gitnexus'] = { command: 'gitnexus', args: ['mcp'] };
+    // GitNexus — отдельно устанавливаемый глобальный CLI (npm i -g gitnexus). Запуск через обёртку: на Windows она
+    // дописывает в PATH OpenSSL из Git for Windows, без него MCP ищет без BM25 (TASK-306, decision-223).
+    desired['gitnexus'] = { command: 'node', args: [`${prefix}scripts/gitnexus/gitnexus.mjs`, 'mcp'] };
   }
   if (features.includes('lightrag')) {
     desired['docs-graph'] = { command: 'node', args: [`${prefix}scripts/lightrag/lightrag-server.mjs`] };

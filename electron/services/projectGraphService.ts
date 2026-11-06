@@ -7,6 +7,7 @@
  * Граф документации читается из GraphML LightRAG напрямую — без Python и без Ollama.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { gitnexusProcessEnv } from './gitnexusRuntime';
 import { existsSync, promises as fs } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -88,7 +89,8 @@ class GitNexusServer {
     const port = await freePort();
     const args = ['serve', '--port', String(port), '--host', '127.0.0.1'];
     // gitnexus на Windows — npm-обёртка gitnexus.cmd, её запускает только оболочка; аргументы — константы и число.
-    const child = spawn('gitnexus', args, { shell: process.platform === 'win32', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // PATH с OpenSSL: без него serve отвечает на поиск без BM25 (TASK-306).
+    const child = spawn('gitnexus', args, { shell: process.platform === 'win32', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: gitnexusProcessEnv() });
     this.child = child;
 
     let output = '';

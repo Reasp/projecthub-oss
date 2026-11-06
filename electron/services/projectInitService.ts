@@ -62,6 +62,7 @@ import { processManager } from './processManager';
 import { buildIndexItem, type InitIndexView } from './initCodeIndex';
 import type { IndexProfileId } from './codeIndexProfiles';
 import { detectIndexProfiles, GITNEXUS_IGNORE_FILE } from './codeIndexService';
+import { gitnexusEnvOverrides, isGitnexusCommand } from './gitnexusRuntime';
 
 export interface InitRequest {
   targetDir: string;
@@ -545,6 +546,8 @@ export async function applyInit(request: InitApplyRequest, onEvent: (event: Init
     onEvent({ type: 'command-start', id, run: item.detail, cwd });
     const result = await processManager.runOnce(item.detail, {
       cwd,
+      // gitnexus analyze из шаблона — с OpenSSL в PATH, иначе граф соберётся без FTS (TASK-306).
+      ...(isGitnexusCommand(item.detail) ? { env: gitnexusEnvOverrides() } : {}),
       timeoutMs: COMMAND_TIMEOUT_MS,
       onOutput: (text) => onEvent({ type: 'command-output', id, text })
     });

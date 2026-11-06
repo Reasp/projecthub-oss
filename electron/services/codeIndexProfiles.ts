@@ -267,9 +267,13 @@ export const INDEX_GROUPS: readonly IndexGroup[] = [
     profile: 'node',
     kind: 'vendor',
     label: { ru: 'Вендоренные библиотеки', en: 'Vendored libraries' },
-    description: { ru: 'web_modules, public/lib, static/vendor.', en: 'web_modules, public/lib, static/vendor.' },
+    description: {
+      ru: 'web_modules и static/vendor. public/lib не исключается: там часто свой код фронтенда — если библиотеки вендоренные, добавьте строку в свои шаблоны.',
+      en: 'web_modules and static/vendor. public/lib is not excluded: it often holds the project’s own frontend code — if your libraries are vendored there, add it to your own patterns.'
+    },
     default: true,
-    patterns: ['web_modules/', 'public/lib/', 'static/vendor/']
+    // Без public/lib/ (TASK-305): имя каталога lib — не признак вендоринга, в WorldSim там свой код фронтенда.
+    patterns: ['web_modules/', 'static/vendor/']
   },
   // ── Python ─────────────────────────────────────────────────────────────────────────────
   {

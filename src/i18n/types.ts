@@ -1292,6 +1292,10 @@ export interface TranslationDictionary {
     indexNow: string;
     noIndex: string;
     rulesChanged: string;
+    /** Индекс без полнотекстового поиска: GitNexus не загрузил FTS-расширение (TASK-306). */
+    ftsMissing: string;
+    ftsMissingReindex: string;
+    ftsMissingNoOpenssl: string;
     broken: string;
     profiles: string;
     suggested: string;

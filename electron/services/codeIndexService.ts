@@ -26,6 +26,7 @@ import {
   type IndexProfileId
 } from './codeIndexProfiles';
 import { findMarketplacePlugins, scanIndexScope, type IndexScanResult } from './codeIndexScan';
+import { gitnexusEnvOverrides, gitnexusFtsLoadable, parseFtsStatus, type FtsStatus } from './gitnexusRuntime';
 import type { ManagedProcess } from '../../src/types/electron';
 import { processManager } from './processManager';
 import { projectGraphService } from './projectGraphService';
@@ -47,7 +48,13 @@ export interface CodeIndexState {
   context: IndexContext;
   /** Строки пользователя вне блока (без пустых и комментариев). */
   userLines: string[];
-  index: { indexedAt: string | null; files: number | null; rulesChanged: boolean } | null;
+  /**
+   * `fts` — `capabilities.fts.status` из meta (TASK-306): `unavailable` — индекс без полнотекстового поиска,
+   * `null` — GitNexus не сообщил.
+   */
+  index: { indexedAt: string | null; files: number | null; rulesChanged: boolean; fts: FtsStatus | null } | null;
+  /** FTS-расширение загрузится у процессов gitnexus ProjectHub; `false` — на Windows не найден OpenSSL 3. */
+  ftsLoadable: boolean;
   catalog: { profiles: readonly IndexProfile[]; groups: readonly IndexGroup[] };
 }
 
@@ -82,6 +89,7 @@ async function readIndexMeta(root: string): Promise<CodeIndexState['index']> {
   if (text === null) return null;
   try {
     const meta = JSON.parse(text) as { indexedAt?: unknown; stats?: { files?: unknown } };
+    const fts = parseFtsStatus(text);
     const indexedAt = typeof meta.indexedAt === 'string' ? meta.indexedAt : null;
     const at = indexedAt ? Date.parse(indexedAt) : NaN;
     const rulesAt = Math.max(await mtimeMs(path.join(root, GITNEXUS_IGNORE_FILE)), await mtimeMs(path.join(root, '.gitignore')));
@@ -90,10 +98,11 @@ async function readIndexMeta(root: string): Promise<CodeIndexState['index']> {
       files: typeof meta.stats?.files === 'number' ? meta.stats.files : null,
       // Правила новее индекса — полная пересборка (decision-131 п. 9): инкрементальный проход убирает файлы,
       // но оставляет в графе папки исключённых каталогов.
-      rulesChanged: Number.isFinite(at) && rulesAt > at
+      rulesChanged: Number.isFinite(at) && rulesAt > at,
+      fts
     };
   } catch {
-    return { indexedAt: null, files: null, rulesChanged: false };
+    return { indexedAt: null, files: null, rulesChanged: false, fts: null };
   }
 }
 
@@ -116,6 +125,7 @@ export async function getCodeIndexState(root: string): Promise<CodeIndexState> {
     context: detected.context,
     userLines: userPatternLines(parsed.userText),
     index: await readIndexMeta(root),
+    ftsLoadable: gitnexusFtsLoadable(),
     catalog: { profiles: INDEX_PROFILES, groups: INDEX_GROUPS }
   };
 }
@@ -153,10 +163,13 @@ export async function saveCodeIndexSettings(root: string, rawSettings: unknown, 
 /**
  * Переиндексация в фоне через processManager: процесс виден на вкладке процессов, дубль по имени не запустится.
  * Правила новее индекса — полная пересборка (`--force`), иначе в графе останутся папки исключённых каталогов.
+ * Индекс без полнотекстового поиска — тоже полная: инкрементальный проход FTS-индексы не достраивает (TASK-306).
  * `gitnexus serve` вкладки графа держит базу индекса — гасим его до analyze, вкладка поднимет сервер заново.
+ * В PATH процесса дописывается OpenSSL для FTS-расширения LadybugDB (decision-223).
  */
 export async function reindexCodeGraph(root: string, force: boolean): Promise<ManagedProcess> {
-  const full = force || Boolean((await readIndexMeta(root))?.rulesChanged);
+  const meta = await readIndexMeta(root);
+  const full = force || Boolean(meta?.rulesChanged) || meta?.fts === 'unavailable';
   projectGraphService.shutdown();
-  return processManager.startProcess(root, gitnexusAnalyzeCommand(full), GITNEXUS_ANALYZE_PROCESS);
+  return processManager.startProcess(root, gitnexusAnalyzeCommand(full), GITNEXUS_ANALYZE_PROCESS, { env: gitnexusEnvOverrides() });
 }

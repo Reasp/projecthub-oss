@@ -196,6 +196,14 @@ export const CodeIndexSettingsModal: React.FC<CodeIndexSettingsModalProps> = ({ 
                     : ci.noIndex}
                 </div>
                 {index?.rulesChanged && <div className="text-amber-300">{ci.rulesChanged}</div>}
+                {index?.fts === 'unavailable' && (
+                  <div className="text-amber-300 flex gap-1.5" data-testid="code-index-fts-missing">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                    <span>
+                      {ci.ftsMissing} {state.ftsLoadable ? ci.ftsMissingReindex : ci.ftsMissingNoOpenssl}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {state.broken && (

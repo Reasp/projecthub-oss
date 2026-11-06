@@ -11,6 +11,7 @@
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { resolveNodeCli } from './npmCmdShim';
+import { gitnexusProcessEnv } from './gitnexusRuntime';
 
 const TIMEOUT_MS = 8000;
 /** Больше файлов в контекст не берём: каждый — отдельный запуск CLI. */
@@ -68,10 +69,10 @@ export function parseCypherTable(output: string | null): string | null {
 
 function runGitNexus(args: string[], cwd: string, timeoutMs = TIMEOUT_MS): Promise<string | null> {
   // На Windows gitnexus — npm-обёртка .cmd: запускаем её JS-точку входа через node, без оболочки, — пути файлов
-  // из references задачи не разбирает cmd.exe (TASK-168).
+  // из references задачи не разбирает cmd.exe (TASK-168). Окружение — с OpenSSL для FTS-расширения (TASK-306).
   const cli = resolveNodeCli('gitnexus');
   return new Promise((resolve) => {
-    execFile(cli.command, [...cli.prefixArgs, ...args], { cwd, timeout: timeoutMs, windowsHide: true }, (error, stdout) => {
+    execFile(cli.command, [...cli.prefixArgs, ...args], { cwd, timeout: timeoutMs, windowsHide: true, env: gitnexusProcessEnv() }, (error, stdout) => {
       if (error) {
         resolve(null);
         return;

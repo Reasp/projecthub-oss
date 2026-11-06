@@ -11,6 +11,7 @@
   "files": [
     { "path": "scripts/lightrag/**", "when": "lightrag" },
     { "path": "scripts/computer-use/**", "when": "computerUse" },
+    { "path": "scripts/gitnexus/**", "when": "gitnexus" },
     { "path": "scripts/**" },
     { "path": "package.json" },
     { "path": "package-lock.json" },
@@ -62,7 +63,7 @@
         "en": "gitnexus MCP: calls, dependencies and impact analysis. Requires the gitnexus CLI installed globally."
       },
       "default": true,
-      "mcp": { "gitnexus": { "command": "gitnexus", "args": ["mcp"] } }
+      "mcp": { "gitnexus": { "command": "node", "args": ["{infra}scripts/gitnexus/gitnexus.mjs", "mcp"] } }
     },
     {
       "id": "bootstrap",
