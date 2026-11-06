@@ -355,6 +355,8 @@ export type AppBusEvent =
       agentId?: string;
       agentName?: string;
       role?: string;
+      /** Имя профиля аккаунта Claude Code, как в аудите (decision-87 п. 14). */
+      claudeAccount?: string;
       reason: string;
       at: number;
     }

@@ -417,8 +417,23 @@ export class HitlService extends EventEmitter {
     });
   }
 
-  /** Запуск агента без HITL (`--dangerously-skip-permissions`) — обязательно в аудит и в шину. */
-  public recordFallback(info: HitlFallbackInfo): void {
+  /**
+   * Запуск агента без HITL (`--dangerously-skip-permissions`) — обязательно в аудит и в шину.
+   * Вызывающие передают сюда `...meta` запуска (токен шлюза участника, пути, права роли): событие собирается
+   * только из полей {@link HitlFallbackInfo}, остальное в шину, окна и на телефон не уходит (TASK-309).
+   */
+  public recordFallback(input: HitlFallbackInfo): void {
+    const info: HitlFallbackInfo = {
+      sessionId: input.sessionId,
+      projectPath: input.projectPath,
+      origin: input.origin,
+      engine: input.engine,
+      ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
+      ...(input.agentName !== undefined ? { agentName: input.agentName } : {}),
+      ...(input.role !== undefined ? { role: input.role } : {}),
+      ...(input.claudeAccount ? { claudeAccount: input.claudeAccount } : {}),
+      reason: input.reason
+    };
     const at = this.now();
     const entry: HitlAuditEntry = {
       ts: new Date(at).toISOString(),

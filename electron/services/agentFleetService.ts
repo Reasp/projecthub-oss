@@ -2800,10 +2800,8 @@ export class AgentFleetService extends EventEmitter {
       if (profile && !profile.trusted) throw new AppError('swarm.hitlUnavailable');
       if (!effective.autoApprove) throw new AppError('swarm.hitlUnavailable');
       const reason = `The built-in MCP server is unavailable, auto-approve is on: ${cli} runs without ProjectHub hooks`;
-      // Токен участника из `meta.sandbox` в событие запасного пути (шина, окна, телефон) не уходит.
-      const auditMeta = { ...meta };
-      delete auditMeta.sandbox;
-      hitlService.recordFallback({ sessionId, projectPath: session.projectPath, ...auditMeta, reason });
+      // `recordFallback` берёт из `meta` только поля события: токен участника из `meta.sandbox` в шину не уходит (TASK-309).
+      hitlService.recordFallback({ sessionId, projectPath: session.projectPath, ...meta, reason });
       this.log(session, agentState, `[HITL] ⚠️ ${reason}. The role deny lists do not apply.`);
       return null;
     }
