@@ -20,8 +20,74 @@ export interface SandboxLimits {
 
 export const DEFAULT_SANDBOX_LIMITS: SandboxLimits = { cpus: 2, memoryMb: 4096, pids: 512 };
 
+/**
+ * Свойства среды контейнеров, от которых зависят пользователь процесса, монтирование и схема шлюза (TASK-265,
+ * [[decision-225]]). Нет сведений — поведение как раньше: Podman rootless (`keep-id`), Docker с root, без SELinux.
+ */
+export interface RuntimeTraits {
+  /** Демон в ВМ (Docker Desktop, в том числе for Linux): unix-сокет хоста через общий каталог в контейнер не проходит. */
+  vm: boolean;
+  /** Rootless: у Podman — `--userns=keep-id`; у Docker пользователи контейнера отображаются на чужие uid хоста. */
+  rootless: boolean;
+  /** SELinux включён: каталогу хоста нужна метка контейнера (`:z` / `relabel=shared`), иначе доступа нет. */
+  selinux: boolean;
+}
+
+/**
+ * `docker info --format '{{json .}}'` или `podman info --format json` → свойства среды. Неразборчивый ответ — `null`
+ * (свойства неизвестны).
+ */
+export function parseRuntimeInfo(runtime: SandboxRuntime, json: string): RuntimeTraits | null {
+  let info: unknown;
+  try {
+    info = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!info || typeof info !== 'object') return null;
+  const obj = info as Record<string, unknown>;
+  if (runtime === 'docker') {
+    const os = typeof obj.OperatingSystem === 'string' ? obj.OperatingSystem : '';
+    const options = Array.isArray(obj.SecurityOptions) ? obj.SecurityOptions.filter((o): o is string => typeof o === 'string') : [];
+    const has = (name: string) => options.some((o) => o.split(',').some((part) => part.trim() === `name=${name}`));
+    return { vm: /docker desktop/i.test(os), rootless: has('rootless'), selinux: has('selinux') };
+  }
+  const host = (obj.host ?? {}) as Record<string, unknown>;
+  const security = (host.security ?? {}) as Record<string, unknown>;
+  const remote = typeof host.serviceIsRemote === 'boolean' ? host.serviceIsRemote : false;
+  return { vm: remote, rootless: security.rootless !== false, selinux: security.selinuxEnabled === true };
+}
+
+/**
+ * Пользователь процесса контейнера, от которого пишутся файлы worktree. Podman rootless — `keep-id` (uid хоста внутри
+ * тот же); Podman с root (`keep-id` там не работает) и Docker — `--user` пользователя хоста.
+ */
+export function containerUserArgs(runtime: SandboxRuntime, traits: RuntimeTraits | undefined, user: { uid: number; gid: number }): string[] {
+  if (runtime === 'podman' && (traits?.rootless ?? true)) return ['--userns=keep-id'];
+  return [`--user=${user.uid}:${user.gid}`];
+}
+
+/**
+ * Монтирование каталога или файла хоста. С SELinux — с меткой контейнера: у Podman `relabel=shared` в `--mount`, у
+ * Docker `--mount` меток не знает — `--volume … :z`. Путь проверен вызывающим: без `,`, `=`, перевода строки, а для
+ * `--volume` и без `:`.
+ */
+export function bindMountArg(
+  runtime: SandboxRuntime,
+  traits: RuntimeTraits | undefined,
+  source: string,
+  target: string,
+  readonly: boolean
+): string {
+  if (traits?.selinux && runtime === 'docker') return `--volume=${source}:${target}:${readonly ? 'ro,' : ''}z`;
+  const relabel = traits?.selinux ? ',relabel=shared' : '';
+  return `--mount=type=bind,source=${source},target=${target}${readonly ? ',readonly' : ''}${relabel}`;
+}
+
 export interface SandboxRequest {
   runtime: SandboxRuntime;
+  /** Свойства среды (`parseRuntimeInfo`); нет — как раньше. */
+  traits?: RuntimeTraits;
   image: string;
   memberId: string;
   /** Корень проекта на хосте (после `realpath`). */
@@ -170,6 +236,8 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(req.memberId)) return { ok: false, reason: 'memberInvalid' };
   // Запятая и `=` в пути разорвали бы `--mount=type=bind,source=…` на лишние параметры.
   if (/[,=\n]/.test(req.worktree)) return { ok: false, reason: 'pathInvalid' };
+  // `--volume` (Docker с SELinux) делит значение по `:`.
+  if (req.traits?.selinux && req.runtime === 'docker' && path.resolve(req.worktree).includes(':')) return { ok: false, reason: 'pathInvalid' };
   if (!isWorktreeOf(req.worktree, req.projectRoot)) return { ok: false, reason: 'worktreeOutsideProject' };
   if (req.command.length === 0) return { ok: false, reason: 'emptyCommand' };
   if (req.network !== undefined && !/^[a-z0-9][a-z0-9_.-]{0,63}$/i.test(req.network)) return { ok: false, reason: 'networkInvalid' };
@@ -192,7 +260,7 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
 
   if (req.homeVolume !== undefined && !/^[a-z0-9][a-z0-9_.-]{0,127}$/i.test(req.homeVolume)) return { ok: false, reason: 'volumeInvalid' };
   const readOnly = req.readOnlyPaths ?? [];
-  if (readOnly.some((p) => !p || /[,=\n\\]/.test(p) || p.startsWith('/') || p.split('/').some((s) => s === '' || s === '.' || s === '..'))) {
+  if (readOnly.some((p) => !p || /[,=\n\\:]/.test(p) || p.startsWith('/') || p.split('/').some((s) => s === '' || s === '.' || s === '..'))) {
     return { ok: false, reason: 'pathInvalid' };
   }
   const limits = clampLimits(req.limits);
@@ -213,14 +281,14 @@ export function buildSandboxRun(req: SandboxRequest): SandboxPlan {
     // HOME — в /tmp: кэши CLI и загружаемые бинарники должны запускаться, поэтому `exec`.
     '--tmpfs=/tmp:rw,exec,size=1024m',
     // Podman rootless: пользователь хоста отображается в контейнер (`keep-id`), файлы worktree остаются его.
-    ...(req.runtime === 'podman' ? ['--userns=keep-id'] : [`--user=${user.uid}:${user.gid}`]),
+    ...containerUserArgs(req.runtime, req.traits, user),
     `--cpus=${limits.cpus}`,
     `--memory=${limits.memoryMb}m`,
     `--memory-swap=${limits.memoryMb}m`,
     `--pids-limit=${limits.pids}`,
-    `--mount=type=bind,source=${path.resolve(req.worktree)},target=${SANDBOX_WORKDIR}${req.readOnlyWorktree ? ',readonly' : ''}`,
+    bindMountArg(req.runtime, req.traits, path.resolve(req.worktree), SANDBOX_WORKDIR, req.readOnlyWorktree === true),
     // Поверх worktree и после него: более поздний mount перекрывает путь.
-    ...readOnly.map((p) => `--mount=type=bind,source=${path.join(path.resolve(req.worktree), ...p.split('/'))},target=${SANDBOX_WORKDIR}/${p},readonly`),
+    ...readOnly.map((p) => bindMountArg(req.runtime, req.traits, path.join(path.resolve(req.worktree), ...p.split('/')), `${SANDBOX_WORKDIR}/${p}`, true)),
     ...(req.homeVolume ? [`--mount=type=volume,source=${req.homeVolume},target=${SANDBOX_HOME}`] : []),
     `--workdir=${SANDBOX_WORKDIR}`,
     `--env=HOME=${home}`,

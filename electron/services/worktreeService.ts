@@ -21,6 +21,23 @@ import { normalizeFrontmatter, withUpdatedDate } from './backlogTaskFormat.js';
 import { dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, summarizeRenumber, type PreparedIncoming } from './backlogMerge.js';
 import { reindexDocsInBackground } from './docsReindex.js';
 import { ownTaskIdOfBranch } from './agentWorktree.js';
+import { execGit } from './checkpointGit.js';
+import { addAllWithoutGitlinks, isolatedEnvOf, isolatedSimpleGit } from './isolatedWorktreeGit.js';
+
+/**
+ * simple-git для worktree. Worktree изолированного участника — с настройками окружением `GIT_CONFIG_*`: git хоста не
+ * заходит во вложенные репозитории агента и не выполняет их конфиг (TASK-265).
+ */
+async function worktreeGit(worktreePath: string): Promise<{ git: ReturnType<typeof simpleGit>; isolated: boolean }> {
+  const env = await isolatedEnvOf(execGit, worktreePath);
+  return env ? { git: isolatedSimpleGit(worktreePath, env), isolated: true } : { git: simpleGit(worktreePath), isolated: false };
+}
+
+/** `add -A` (или `add -N .`) worktree; изолированного участника — без новых gitlink (TASK-265). */
+async function stageWorktree(wt: { git: ReturnType<typeof simpleGit>; isolated: boolean }, worktreePath: string, intentToAdd = false): Promise<void> {
+  if (wt.isolated) await addAllWithoutGitlinks((args) => wt.git.raw(args), worktreePath, {}, { intentToAdd });
+  else await wt.git.raw(intentToAdd ? ['add', '-N', '.'] : ['add', '-A']);
+}
 
 /**
  * Снять ссылки верхнего уровня worktree (junction `node_modules` из `linkNodeModules`, symlink) до его удаления:
@@ -322,7 +339,7 @@ export class WorktreeService {
   /** Незакоммиченные файлы дерева, включая untracked (TASK-267). Каталога нет — дерево чистое. */
   async worktreeDirtyState(worktreePath: string): Promise<WorktreeDirtyState> {
     if (!existsSync(worktreePath)) return { path: worktreePath, count: 0, files: [] };
-    const files = parseStatusPorcelainZ(await simpleGit(worktreePath).raw(['status', '--porcelain', '-z', '-uall']));
+    const files = parseStatusPorcelainZ(await (await worktreeGit(worktreePath)).git.raw(['status', '--porcelain', '-z', '-uall']));
     return { path: worktreePath, count: files.length, files: files.slice(0, DIRTY_FILES_SHOWN) };
   }
 
@@ -337,9 +354,10 @@ export class WorktreeService {
    * выполняются как при обычном коммите; отказ хука или нет `user.name` — ошибка с причиной.
    */
   protected async commitWorktreeChanges(worktreePath: string, message: string): Promise<void> {
-    const git = simpleGit(worktreePath);
     try {
-      await git.raw(['add', '-A']);
+      const wt = await worktreeGit(worktreePath);
+      const git = wt.git;
+      await stageWorktree(wt, worktreePath);
       await git.raw(['commit', '-m', message]);
     } catch (err) {
       throw new AppError('git.worktreeCommitFailed', { reason: errorMessage(err) });
@@ -352,10 +370,11 @@ export class WorktreeService {
    * как у результата агента: `stash create` без `user.name` падает. `null` — снимок не получился.
    */
   protected async preserveWorktreeSnapshot(worktreePath: string): Promise<string | null> {
-    const git = simpleGit(worktreePath);
     const who = ['-c', `user.name=${AGENT_COMMITTER.name}`, '-c', `user.email=${AGENT_COMMITTER.email}`];
     try {
-      await git.raw(['add', '-A']);
+      const wt = await worktreeGit(worktreePath);
+      const git = wt.git;
+      await stageWorktree(wt, worktreePath);
       const hash = (await git.raw([...who, 'stash', 'create', `ProjectHub: ${path.basename(worktreePath)} before removal`])).trim();
       if (!/^[0-9a-f]{40,64}$/i.test(hash)) return null;
       const ref = agentResultRef(`worktree-${path.basename(worktreePath)}`, `removed-${Date.now()}`);
@@ -479,13 +498,14 @@ export class WorktreeService {
 
       if (targetWtPath && existsSync(targetWtPath)) {
         try {
-          const wtGit = simpleGit(targetWtPath);
+          const wt = await worktreeGit(targetWtPath);
+          const wtGit = wt.git;
           // `add -N` на файле в конфликте заменяет его unmerged-записи пустой intent-to-add и тихо «разрешает»
           // конфликт: пока в worktree идёт слияние (TASK-139.6), индекс не трогаем.
           const unmerged = await wtGit.raw(['ls-files', '-u']).catch(() => '');
           if (!unmerged.trim()) {
             try {
-              await wtGit.raw(['add', '-N', '.']);
+              await stageWorktree(wt, targetWtPath, true);
             } catch {
               // Игнорируем если нечего добавлять или временные коллизии
             }

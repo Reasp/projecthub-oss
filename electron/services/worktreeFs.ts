@@ -13,6 +13,7 @@
  * На Windows симлинк, созданный в Linux-контейнере на смонтированном каталоге, — точка повторного разбора WSL, которую
  * Win32 не открывает вовсе; проверки выше закрывают и обычные симлинки и junction, созданные на хосте.
  */
+import crypto from 'node:crypto';
 import { constants, lstatSync, type BigIntStats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -111,10 +112,27 @@ export async function readWorktreeFile(root: string, p: string): Promise<string>
   }
 }
 
+/** На Windows целевой файл ненадолго держат антивирус или индексатор: `rename` поверх него повторяется. */
+async function renameRetrying(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException)?.code;
+      if (process.platform !== 'win32' || attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(code ?? '')) throw e;
+      await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+    }
+  }
+}
+
 /**
  * Запись файла под корнем без следования симлинкам: недостающие каталоги создаются по одному с проверкой каждого,
- * существующий файл должен быть обычным файлом без жёстких ссылок; содержимое заменяется только после сверки
- * открытого дескриптора.
+ * существующий файл должен быть обычным файлом. Содержимое пишется во временный файл рядом (`O_CREAT | O_EXCL`,
+ * случайное имя), сверяется его дескриптор, затем временный файл переименовывается на место целевого (TASK-265).
+ * Подменённый в гонке каталог уводит наружу только временный файл со случайным именем — он пустой и удаляется;
+ * файл с именем, которое выбрал агент, вне worktree не создаётся. Переименование заменяет запись каталога, а не
+ * содержимое: жёсткая ссылка на целевой файл со своим содержимым остаётся как была.
  */
 export async function writeWorktreeFile(root: string, p: string, content: string): Promise<void> {
   const base = await realRoot(root);
@@ -135,15 +153,30 @@ export async function writeWorktreeFile(root: string, p: string, content: string
   const abs = path.join(base, rel);
   const before = await fs.lstat(abs).catch((e) => (notFound(e) ? null : Promise.reject(e)));
   if (before && (before.isSymbolicLink() || !before.isFile())) throw new AppError(before.isSymbolicLink() ? 'worktree.symlink' : 'worktree.notFile', { path: rel });
-  const fh = await fs.open(abs, constants.O_WRONLY | constants.O_CREAT | NOFOLLOW | NONBLOCK, 0o666);
+  const tmpRel = path.join(path.dirname(rel), `.projecthub-write-${crypto.randomBytes(8).toString('hex')}.tmp`);
+  const tmpAbs = path.join(base, tmpRel);
+  const fh = await fs.open(tmpAbs, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW | NONBLOCK, 0o666);
+  let renamed = false;
   try {
-    const opened = await verifyOpened(fh, base, rel);
-    // Жёсткая ссылка на файл вне worktree: запись изменила бы и его.
-    if (opened.nlink > 1n) throw new AppError('worktree.symlink', { path: rel });
-    await fh.truncate(0);
-    await fh.write(content, 0, 'utf8');
+    try {
+      const opened = await verifyOpened(fh, base, tmpRel);
+      // Свежий файл с `O_EXCL`: вторая ссылка на него значит, что его успели связать с чужим путём.
+      if (opened.nlink > 1n) throw new AppError('worktree.symlink', { path: rel });
+      await fh.write(content, 0, 'utf8');
+      // Права прежнего файла (исполняемый скрипт остаётся исполняемым).
+      if (before && process.platform !== 'win32') await fh.chmod(Number(before.mode) & 0o777);
+    } finally {
+      await fh.close();
+    }
+    // Каталог могли подменить после сверки: переименование тогда не найдёт временный файл (ENOENT) — запись отменена.
+    const dirNow = await walk(base, path.dirname(rel) === '.' ? '' : path.dirname(rel));
+    if (path.dirname(rel) !== '.' && (!dirNow || !dirNow.isDirectory())) throw new AppError('worktree.symlink', { path: rel });
+    const target = await fs.lstat(abs).catch((e) => (notFound(e) ? null : Promise.reject(e)));
+    if (target && (target.isSymbolicLink() || !target.isFile())) throw new AppError(target.isSymbolicLink() ? 'worktree.symlink' : 'worktree.notFile', { path: rel });
+    await renameRetrying(tmpAbs, abs);
+    renamed = true;
   } finally {
-    await fh.close();
+    if (!renamed) await fs.rm(tmpAbs, { force: true }).catch(() => undefined);
   }
 }
 

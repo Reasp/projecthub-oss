@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { addAllWithoutGitlinks, isolatedEnvOf } from './isolatedWorktreeGit.js';
 
 /**
  * Git-команды чекпоинтов агента (TASK-72, decision-45 п. 1, 4, 5). Чистый модуль без Electron.
@@ -107,8 +108,12 @@ export async function snapshotTree(git: GitRunner, cwd: string, tmpDir: string =
     } catch {
       // Индекса ещё нет (репозиторий без единого `git add`) — git создаст временный с нуля.
     }
-    const env = { GIT_INDEX_FILE: tmpIndex };
-    await git(['add', '-A'], { cwd, env });
+    // Worktree изолированного участника: вложенный репозиторий агента не входит в снимок gitlink-ом, иначе откат к
+    // снимку вернул бы его в индекс, и git хоста выполнил бы его конфиг (TASK-265).
+    const isolated = await isolatedEnvOf(git, cwd);
+    const env = { ...isolated, GIT_INDEX_FILE: tmpIndex };
+    if (isolated) await addAllWithoutGitlinks(git, cwd, env);
+    else await git(['add', '-A'], { cwd, env });
     return (await git(['write-tree'], { cwd, env })).trim();
   } finally {
     await fs.rm(tmpIndex, { force: true }).catch(() => undefined);
@@ -182,18 +187,21 @@ export interface RewindResult {
  * игнорируемые не трогаются, индекс возвращается к родителю.
  */
 export async function rewindWorkTree(git: GitRunner, cwd: string, checkpointCommit: string): Promise<RewindResult> {
-  const commit = (await git(['rev-parse', '--verify', `${checkpointCommit}^{commit}`], { cwd })).trim();
-  const parents = (await git(['rev-list', '--parents', '-n', '1', commit], { cwd })).trim().split(/\s+/).slice(1);
+  // Изолированный участник: git хоста с настройками окружением, без входа во вложенные репозитории (TASK-265).
+  const isolated = await isolatedEnvOf(git, cwd);
+  const opts = isolated ? { cwd, env: isolated } : { cwd };
+  const commit = (await git(['rev-parse', '--verify', `${checkpointCommit}^{commit}`], opts)).trim();
+  const parents = (await git(['rev-list', '--parents', '-n', '1', commit], opts)).trim().split(/\s+/).slice(1);
   const parent = parents[0] ?? null;
 
   if (parent) {
-    await git(['reset', '-q', '--hard', parent], { cwd });
+    await git(['reset', '-q', '--hard', parent], opts);
   }
-  await git(['checkout', commit, '--', '.'], { cwd });
+  await git(['checkout', commit, '--', '.'], opts);
   const deleted = parent
-    ? splitNul(await git(['diff', '--name-only', '-z', '--diff-filter=D', parent, commit], { cwd }))
+    ? splitNul(await git(['diff', '--name-only', '-z', '--diff-filter=D', parent, commit], opts))
     : [];
-  const untracked = splitNul(await git(['ls-files', '--others', '--exclude-standard', '-z'], { cwd }));
+  const untracked = splitNul(await git(['ls-files', '--others', '--exclude-standard', '-z'], opts));
   const toRemove = filesToRemoveAfterCheckout(deleted, untracked);
   const root = path.resolve(cwd);
   const removed: string[] = [];
@@ -210,7 +218,7 @@ export async function rewindWorkTree(git: GitRunner, cwd: string, checkpointComm
     }
   }
   if (parent) {
-    await git(['reset', '-q'], { cwd });
+    await git(['reset', '-q'], opts);
   }
   return { removedFiles: removed, head: parent };
 }

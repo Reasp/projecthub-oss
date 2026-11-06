@@ -16,6 +16,7 @@ import {
   GATEWAY_NETWORK,
   GATEWAY_SOCKET_NAME,
   gatewayNetworkPlan,
+  gatewayScheme,
   memberNetwork,
   memberNetworkPlan,
   parseConfigList,
@@ -29,6 +30,8 @@ import { getUserDataDir } from './appPaths.js';
 import { processManager, type RunOnceResult } from './processManager.js';
 import { editionRegistry, type LauncherProfile } from '../extensions/editionRegistry.js';
 import type { CheckSandboxRunner } from './checkRunner.js';
+import { ISOLATED_WORKTREE_KEY, assertWorktreeGitPointer, isolatedGitConfig } from './isolatedWorktreeGit.js';
+import { parseRuntimeInfo, type RuntimeTraits } from './memberSandbox.js';
 
 const run = promisify(execFile);
 
@@ -61,14 +64,20 @@ export async function sandboxReadOnlyPaths(worktree: string): Promise<string[]> 
  * `config.worktree` этого worktree (лежит в общем `.git`, в контейнер не монтируется). Хуки — пустой каталог хоста
  * (хуки проекта вызывают скрипты дерева, `node scripts/…`), `core.fsmonitor` выключен, команды драйверов слияния и
  * фильтров — с путями от корня проекта хоста, а не от worktree.
+ *
+ * TASK-265 ([[decision-225]]): до записи сверяется указатель `.git` worktree (иначе `config --worktree` писал бы в
+ * чужой каталог git); git хоста не заходит во вложенные репозитории (`diff.ignoreSubmodules=all`, без обхода
+ * подмодулей); маркер `projecthub.isolatedWorktree` — по нему остальной код хоста узнаёт изолированный worktree и
+ * передаёт те же настройки окружением (`isolatedWorktreeGit.ts`).
  */
 export async function hardenMemberWorktreeGit(projectRoot: string, worktree: string, emptyHooksDir: string): Promise<void> {
   const git = (args: string[]) => run('git', args, { timeout: 30_000, windowsHide: true });
+  await assertWorktreeGitPointer(projectRoot, worktree);
   await fs.mkdir(emptyHooksDir, { recursive: true });
   await git(['-C', projectRoot, 'config', 'extensions.worktreeConfig', 'true']);
   const set = (key: string, value: string) => git(['-C', worktree, 'config', '--worktree', key, value]);
-  await set('core.hooksPath', emptyHooksDir);
-  await set('core.fsmonitor', 'false');
+  for (const [key, value] of isolatedGitConfig(emptyHooksDir)) await set(key, value);
+  await set(ISOLATED_WORKTREE_KEY, 'true');
   const drivers = await git(['-C', projectRoot, 'config', '--get-regexp', '^((merge|filter)\\..+\\.(driver|clean|smudge|process)|diff\\..+\\.(textconv|command))$'])
     .then((r) => parseConfigList(r.stdout))
     .catch(() => []);
@@ -95,6 +104,8 @@ export interface MemberSandboxTarget {
   projectRoot: string;
   worktree: string;
   user?: { uid: number; gid: number };
+  /** Свойства среды контейнеров (TASK-265): пользователь процесса и метки монтирования. */
+  traits?: RuntimeTraits;
   readOnlyPaths: string[];
 }
 
@@ -127,6 +138,8 @@ class MemberSandboxService {
   private mcp: GatewayUpstreams['mcp'];
   /** Сеть и пересыльщик готовы для этой среды, образа и адреса шлюза. */
   private readonly prepared = new Map<string, Promise<void>>();
+  /** Свойства среды контейнеров по `runtime` (`runtimeTraits`). */
+  private readonly traits = new Map<MemberSandboxSettings['runtime'], Promise<RuntimeTraits | undefined>>();
 
   /** Встроенный MCP-сервер HITL: шлюз подставляет его токен вместо токена участника. */
   setMcpUpstream(mcp: NonNullable<GatewayUpstreams['mcp']>): void {
@@ -140,6 +153,28 @@ class MemberSandboxService {
     } catch (err) {
       throw new AppError('swarm.sandboxRuntimeUnavailable', { runtime: settings.runtime, detail: firstLine(err) });
     }
+  }
+
+  /**
+   * Свойства среды контейнеров (TASK-265): ВМ, rootless, SELinux. Кэш на среду; ответ `info` неразборчив — `undefined`,
+   * и запуск идёт как раньше. Docker rootless — отказ `swarm.sandboxRootlessDocker`.
+   */
+  async runtimeTraits(settings: MemberSandboxSettings): Promise<RuntimeTraits | undefined> {
+    let probe = this.traits.get(settings.runtime);
+    if (!probe) {
+      const args = settings.runtime === 'docker' ? ['info', '--format', '{{json .}}'] : ['info', '--format', 'json'];
+      probe = run(settings.runtime, args, { timeout: 30_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 })
+        .then((r) => parseRuntimeInfo(settings.runtime, r.stdout) ?? undefined)
+        .catch(() => undefined);
+      this.traits.set(settings.runtime, probe);
+      // Неудачный ответ не кэшируется: среду могли ещё не запустить.
+      void probe.then((t) => {
+        if (!t) this.traits.delete(settings.runtime);
+      });
+    }
+    const traits = await probe;
+    if (gatewayScheme(process.platform, settings.runtime, traits) === 'refuse') throw new AppError('swarm.sandboxRootlessDocker');
+    return traits;
   }
 
   /**
@@ -160,15 +195,18 @@ class MemberSandboxService {
         sandboxToolAllowed
       );
     }
-    // Docker Desktop и Podman machine доводят host.docker.internal / host.containers.internal до loopback хоста. На
-    // Linux у шлюза нет сетевого адреса: unix-сокет в каталоге 0700, пересыльщику — монтированием каталога.
+    // Docker Desktop и Podman machine доводят host.docker.internal / host.containers.internal до loopback хоста. Демон
+    // на самом Linux-хосте: у шлюза нет сетевого адреса — unix-сокет в каталоге 0700, пересыльщику — монтированием
+    // каталога. Схему выбирают свойства среды (TASK-265): Docker Desktop for Linux — тоже ВМ.
+    const traits = await this.runtimeTraits(settings);
+    const unix = gatewayScheme(process.platform, settings.runtime, traits) === 'unix';
     let plan: RuntimeStep[];
     let key: string;
-    if (process.platform === 'linux') {
+    if (unix) {
       const socketDir = await gatewaySocketDir();
       await this.gateway.startSocket(path.join(socketDir, GATEWAY_SOCKET_NAME));
       const user = hostUser();
-      plan = gatewayNetworkPlan({ runtime: settings.runtime, image: settings.image, socketDir, ...(user ? { user } : {}) });
+      plan = gatewayNetworkPlan({ runtime: settings.runtime, image: settings.image, socketDir, ...(user ? { user } : {}), ...(traits ? { traits } : {}) });
       key = `${settings.runtime}|${settings.image}|${socketDir}`;
     } else {
       const { port } = await this.gateway.start('127.0.0.1', 0);
@@ -188,7 +226,7 @@ class MemberSandboxService {
       ready.catch(() => this.prepared.delete(key));
     }
     await ready;
-    if (process.platform === 'linux') await this.assertInternal(settings, GATEWAY_NETWORK);
+    if (unix) await this.assertInternal(settings, GATEWAY_NETWORK);
     // Своя сеть участника; пересыльщик пересоздан — подключить заново (шаг необязательный, если уже подключён).
     await this.runSteps(settings, memberNetworkPlan(memberId));
     await this.assertInternal(settings, memberNetwork(memberId));
@@ -214,7 +252,9 @@ class MemberSandboxService {
     const readOnlyPaths = await sandboxReadOnlyPaths(worktree);
     await hardenMemberWorktreeGit(projectRoot, worktree, path.join(getUserDataDir(), 'member-sandbox', 'empty-hooks'));
     const user = hostUser();
-    return { settings: sandboxSettingsOf(profile.sandbox), memberId: profile.memberId, projectRoot, worktree, ...(user ? { user } : {}), readOnlyPaths };
+    const settings = sandboxSettingsOf(profile.sandbox);
+    const traits = await this.runtimeTraits(settings);
+    return { settings, memberId: profile.memberId, projectRoot, worktree, ...(user ? { user } : {}), ...(traits ? { traits } : {}), readOnlyPaths };
   }
 
   /**

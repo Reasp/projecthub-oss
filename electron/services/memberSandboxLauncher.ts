@@ -10,7 +10,7 @@
  * unix-сокет, и пересыльщик получает его монтированием каталога — сетевого адреса у шлюза нет. Команды агента
  * API-движка и проверки идут в разовом контейнере без сети.
  */
-import { buildSandboxRun, SANDBOX_SECRET_DIR, type SandboxLimits, type SandboxPlan, type SandboxRuntime } from './memberSandbox.js';
+import { bindMountArg, buildSandboxRun, containerUserArgs, SANDBOX_SECRET_DIR, type RuntimeTraits, type SandboxLimits, type SandboxPlan, type SandboxRuntime } from './memberSandbox.js';
 
 export interface MemberSandboxSettings {
   runtime: SandboxRuntime;
@@ -58,12 +58,27 @@ export function memberNetworkPlan(memberId: string): RuntimeStep[] {
 }
 
 /**
+ * Схема связи пересыльщика со шлюзом хоста (TASK-265, [[decision-225]]):
+ * - `tcp` — демон в ВМ (Docker Desktop на любой ОС, Podman machine): unix-сокет хоста через общий каталог ВМ не
+ *   проходит, а `host.docker.internal` / `host.containers.internal` ВМ доводит до loopback хоста;
+ * - `unix` — демон на самом Linux-хосте (Docker с root, Podman rootless и с root): у шлюза нет сетевого адреса;
+ * - `refuse` — Docker rootless: пользователь контейнера отображается на чужой uid хоста, сокет `0700` и worktree ему
+ *   недоступны, а `--user=0:0` дал бы агенту root внутри контейнера.
+ */
+export function gatewayScheme(platform: NodeJS.Platform, runtime: SandboxRuntime, traits: RuntimeTraits | undefined): 'tcp' | 'unix' | 'refuse' {
+  if (runtime === 'docker' && traits?.rootless && !traits.vm) return 'refuse';
+  if (platform !== 'linux') return 'tcp';
+  return traits?.vm ? 'tcp' : 'unix';
+}
+
+/**
  * Подготовка пересыльщика к шлюзу хоста (в сети по умолчанию; к сетям участников его подключает `memberNetworkPlan`).
  * - `hostPort` — Docker Desktop и Podman machine: контейнер достаёт loopback хоста через `host.docker.internal` /
  *   `host.containers.internal`.
  * - `socketDir` — Linux: шлюз слушает unix-сокет в этом каталоге хоста (`0700`), каталог монтируется пересыльщику
  *   только на чтение, процесс пересыльщика — пользователь хоста (иначе сокет ему недоступен). Сетевого адреса у шлюза
  *   нет: ни `0.0.0.0`, ни адреса моста.
+ * Какую схему брать, решает `gatewayScheme` по платформе и свойствам среды.
  */
 export function gatewayNetworkPlan(input: {
   runtime: SandboxRuntime;
@@ -71,10 +86,13 @@ export function gatewayNetworkPlan(input: {
   hostPort?: number;
   socketDir?: string;
   user?: { uid: number; gid: number };
+  /** Свойства среды (TASK-265): Podman с root — `--user` вместо `keep-id`, SELinux — метка на каталоге сокета. */
+  traits?: RuntimeTraits;
 }): RuntimeStep[] {
   const hostName = input.runtime === 'podman' ? 'host.containers.internal' : 'host.docker.internal';
   const unix = input.socketDir !== undefined;
-  if (unix && /[,=\n]/.test(input.socketDir!)) throw new RangeError('socketDir');
+  // `:` — разделитель `--volume` (Docker с SELinux); в каталоге сокета его не бывает.
+  if (unix && /[,=\n:]/.test(input.socketDir!)) throw new RangeError('socketDir');
   const user = input.user && Number.isInteger(input.user.uid) && Number.isInteger(input.user.gid) ? input.user : { uid: 1000, gid: 1000 };
   return [
     { args: ['rm', '-f', GATEWAY_CONTAINER], optional: true },
@@ -89,8 +107,8 @@ export function gatewayNetworkPlan(input: {
         '--restart=unless-stopped',
         ...(unix
           ? [
-              `--mount=type=bind,source=${input.socketDir},target=${GATEWAY_SOCKET_DIR},readonly`,
-              ...(input.runtime === 'podman' ? ['--userns=keep-id'] : [`--user=${user.uid}:${user.gid}`])
+              bindMountArg(input.runtime, input.traits, input.socketDir!, GATEWAY_SOCKET_DIR, true),
+              ...containerUserArgs(input.runtime, input.traits, user)
             ]
           : input.runtime === 'docker'
             ? [`--add-host=${hostName}:host-gateway`]
@@ -206,6 +224,8 @@ interface SandboxTarget {
   projectRoot: string;
   worktree: string;
   user?: { uid: number; gid: number };
+  /** Свойства среды контейнеров (TASK-265). */
+  traits?: RuntimeTraits;
   /** Только на чтение внутри worktree (`.git`, каталог хуков). */
   readOnlyPaths?: string[];
 }
@@ -229,6 +249,7 @@ export function sandboxedCliRun(
     projectRoot: input.projectRoot,
     worktree: input.worktree,
     ...(input.user ? { user: input.user } : {}),
+    ...(input.traits ? { traits: input.traits } : {}),
     ...(input.settings.limits ? { limits: input.settings.limits } : {}),
     network: memberNetwork(input.memberId),
     homeVolume: `ph-member-${input.memberId}-home`,
@@ -254,6 +275,7 @@ export function sandboxedShellRun(input: SandboxTarget & { command: string; env?
     projectRoot: input.projectRoot,
     worktree: input.worktree,
     ...(input.user ? { user: input.user } : {}),
+    ...(input.traits ? { traits: input.traits } : {}),
     ...(input.settings.limits ? { limits: input.settings.limits } : {}),
     ...(input.readOnlyPaths ? { readOnlyPaths: input.readOnlyPaths } : {}),
     interactive: false,

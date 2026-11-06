@@ -5,6 +5,8 @@ import { existsSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import treeKill from 'tree-kill';
 import simpleGit from 'simple-git';
+import { execGit } from './checkpointGit.js';
+import { addAllWithoutGitlinks, isolatedEnvOf, isolatedSimpleGit } from './isolatedWorktreeGit.js';
 import { worktreeService } from './worktreeService.js';
 import { runWorktreeInit, type WorktreeInitResult } from './worktreeInitService.js';
 import { processManager } from './processManager.js';
@@ -1446,12 +1448,13 @@ export class AgentFleetService extends EventEmitter {
         this.log(session, agent, `[Swarm] Result preserved in ${ref} (${tip.slice(0, 7)}) from branch ${agent.worktreeBranch}.`);
         return true;
       }
-      const git = this.getWorktreeGit(agent.worktreePath);
+      const env = session.memberId ? await this.isolatedGitEnvOf(agent.worktreePath) : null;
+      const git = this.getWorktreeGit(agent.worktreePath, env);
       const head = (await git.raw(['rev-parse', 'HEAD']).catch(() => '')).trim();
       const dirty = (await git.raw(['status', '--porcelain'])).trim().length > 0;
       let stashHash = agent.stashHash;
       if (dirty && !stashHash) {
-        await git.raw(['add', '-A']).catch(() => '');
+        await this.stageAgentResult(git, agent.worktreePath, env, agent).catch(() => undefined);
         stashHash = (await git.raw(['stash', 'create', `ProjectHub: result of ${agent.id} before cleanup`]).catch(() => '')).trim() || undefined;
       }
       const keep = resultToKeep({ head, dirty, ...(stashHash ? { stashHash } : {}) });
@@ -4580,8 +4583,40 @@ export class AgentFleetService extends EventEmitter {
     return true;
   }
 
-  protected getWorktreeGit(worktreePath: string) {
-    return simpleGit(worktreePath);
+  /**
+   * Git хоста в worktree агента. `env` — окружение изолированного участника (`isolatedGitEnvOf`), git не заходит во
+   * вложенные репозитории агента и не выполняет их конфиг (TASK-265).
+   */
+  protected getWorktreeGit(worktreePath: string, env?: Record<string, string> | null) {
+    return env ? isolatedSimpleGit(worktreePath, env) : simpleGit(worktreePath);
+  }
+
+  /**
+   * Окружение git хоста для worktree изолированного участника (маркер в `config.worktree`), иначе `null`. Маркер, а не
+   * профиль участника: профиль могли поменять после запуска, а worktree остался с кодом агента.
+   */
+  protected isolatedGitEnvOf(worktreePath: string): Promise<Record<string, string> | null> {
+    return isolatedEnvOf(execGit, worktreePath);
+  }
+
+  /**
+   * `git add -A` результата агента. В worktree изолированного участника — без новых gitlink: вложенный репозиторий,
+   * созданный агентом, не попадает в индекс, и следующий git хоста не выполнит его конфиг (TASK-265).
+   */
+  private async stageAgentResult(
+    git: ReturnType<AgentFleetService['getWorktreeGit']>,
+    worktreePath: string,
+    env: Record<string, string> | null,
+    agentState?: AgentSlotState
+  ): Promise<void> {
+    if (!env) {
+      await git.raw(['add', '-A']);
+      return;
+    }
+    const dropped = await addAllWithoutGitlinks((args) => git.raw(args), worktreePath);
+    if (dropped.length > 0 && agentState) {
+      pushAgentLog(agentState, `[Swarm Git Warning] Nested git repositories are not committed: ${dropped.join(', ')}`);
+    }
   }
 
   protected pathExists(p: string): boolean {
@@ -4605,7 +4640,9 @@ export class AgentFleetService extends EventEmitter {
     agentState.stashHash = undefined;
 
     try {
-      const git = this.getWorktreeGit(targetPath);
+      // Изолированным бывает только участник общего хоста: без `memberId` лишний запуск git не нужен.
+      const env = session.memberId ? await this.isolatedGitEnvOf(targetPath) : null;
+      const git = this.getWorktreeGit(targetPath, env);
       const status = await git.status();
       if (status.isClean()) {
         agentState.commitStatus = 'no_changes';
@@ -4613,7 +4650,12 @@ export class AgentFleetService extends EventEmitter {
       }
 
       // Индексируем все файлы (включая untracked)
-      await git.raw(['add', '-A']);
+      await this.stageAgentResult(git, targetPath, env, agentState);
+      // Изменился только вложенный репозиторий агента — его не коммитим, и коммитить нечего.
+      if (env && !(await git.raw(['diff', '--cached', '--name-only'])).trim()) {
+        agentState.commitStatus = 'no_changes';
+        return;
+      }
 
       const shouldAutoCommit = session.autoCommitAgentResults !== false;
 
