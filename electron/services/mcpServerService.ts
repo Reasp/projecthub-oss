@@ -34,6 +34,7 @@ import { memoryToolDeps } from './memoryToolDeps.js';
 import { automationEngine } from './automationService.js';
 import { automationToolList, automationToolRun } from './automationTools.js';
 import { terminalHookService } from './terminalHookService.js';
+import { agentHookService } from './agentHookService.js';
 import { callProjectTool, projectToolDefinitions, type ProjectToolContext } from './projectAgentTools.js';
 import { projectAgentToolDeps } from './projectAgentToolDeps.js';
 import { TRACKER_TOOL_DEFINITIONS, callTrackerTool } from './trackerSyncTools.js';
@@ -1068,7 +1069,9 @@ class McpServerService {
    */
   private handleTerminalHook(req: IncomingMessage, res: ServerResponse) {
     const presented = this.bearerToken(req);
-    if (!presented || !(this.isAuthorized(req) || terminalHookService.isHookToken(presented))) {
+    // Хук Codex CLI / Gemini CLI агента ProjectHub (TASK-261): токен одного запуска, решение — его сессия разрешений.
+    const agentHook = Boolean(presented && agentHookService.isAgentHookToken(presented));
+    if (!presented || !(agentHook || this.isAuthorized(req) || terminalHookService.isHookToken(presented))) {
       this.sendJson(res, 401, { error: 'Unauthorized: hook token required' });
       return;
     }
@@ -1096,8 +1099,8 @@ class McpServerService {
       res.on('close', () => {
         if (!res.writableEnded) controller.abort();
       });
-      terminalHookService
-        .handle(body, { signal: controller.signal })
+      const handled = agentHook ? agentHookService.handle(presented!, body) : terminalHookService.handle(body, { signal: controller.signal });
+      handled
         .then((out) => {
           if (!res.writableEnded && !res.destroyed) this.sendJson(res, 200, out);
         })

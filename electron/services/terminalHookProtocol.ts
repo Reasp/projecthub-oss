@@ -13,13 +13,25 @@
  *   `conversationId`, `stepIdx`, `workspacePaths`; имени события во входе нет — его передаёт скрипт. PreToolUse:
  *   пустой stdout с кодом 0 — без решения; `{ decision: deny | allow, reason }`. Любой ненулевой код, тайм-аут и даже
  *   `{}` движок считает отказом, поэтому код выхода всегда 0. Stop → `decision: continue`.
+ * - Codex CLI 0.167 (проверено вживую, TASK-261): `SessionStart`, `PreToolUse` и `PostToolUse` работают и в `codex exec`;
+ *   оболочка приходит как `tool_name: "Bash"`, отказ JSON `permissionDecision: deny` блокирует вызов.
+ * - Gemini CLI 0.67 (проверено вживую, TASK-261): события `SessionStart`, `BeforeTool`, `AfterTool`; инструменты
+ *   `run_shell_command`, `write_file`, `replace`, …; отказ — `{ decision: deny, reason }` с кодом 0.
  */
 
-export type HookEngine = 'claude' | 'codex' | 'antigravity';
-export const HOOK_ENGINES: readonly HookEngine[] = ['claude', 'codex', 'antigravity'];
+export type HookEngine = 'claude' | 'codex' | 'antigravity' | 'gemini';
+export const HOOK_ENGINES: readonly HookEngine[] = ['claude', 'codex', 'antigravity', 'gemini'];
 
-export type HookEventName = 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'Stop';
-const HOOK_EVENT_NAMES: readonly HookEventName[] = ['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop'];
+export type HookEventName = 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'Stop' | 'SessionStart';
+const HOOK_EVENT_NAMES: readonly HookEventName[] = ['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'SessionStart'];
+
+/** События Gemini CLI → события протокола. `AfterAgent` — конец хода, аналог Stop. */
+const GEMINI_EVENTS: Record<string, HookEventName> = {
+  BeforeTool: 'PreToolUse',
+  AfterTool: 'PostToolUse',
+  SessionStart: 'SessionStart',
+  AfterAgent: 'Stop'
+};
 
 export interface NormalizedHookEvent {
   engine: HookEngine;
@@ -110,9 +122,47 @@ function parseAntigravityPayload(p: Record<string, unknown>, eventHint: string |
   };
 }
 
+/** Ошибка инструмента Gemini в `tool_response`: поле `error` или ненулевой код выхода оболочки в `returnDisplay`. */
+function geminiResponseFailed(response: unknown): { failed: boolean; detail?: string } {
+  const r = record(response);
+  const error = str(r.error) ?? str(record(r.error).message);
+  if (error) return { failed: true, detail: error.slice(0, 200) };
+  const exit = /exited with code:?\s*(-?\d+)/i.exec(typeof r.returnDisplay === 'string' ? r.returnDisplay : '');
+  if (exit && Number(exit[1]) !== 0) return { failed: true, detail: `exit code ${exit[1]}` };
+  return { failed: false };
+}
+
+/** Вход хука Gemini CLI: события `BeforeTool`/`AfterTool`/`SessionStart`, идентификатора вызова у него нет. */
+function parseGeminiPayload(p: Record<string, unknown>): ParseHookResult {
+  const raw = str(p.hook_event_name);
+  const event = raw ? GEMINI_EVENTS[raw] : undefined;
+  if (!event) return { ok: false, error: `unsupported Gemini CLI hook event: ${raw ?? 'no hook_event_name'}` };
+  const sessionId = str(p.session_id);
+  if (!sessionId) return { ok: false, error: 'the hook input has no session_id' };
+  const toolName = str(p.tool_name);
+  if ((event === 'PreToolUse' || event === 'PostToolUse') && !toolName) return { ok: false, error: `the ${raw} input has no tool_name` };
+  const failure = event === 'PostToolUse' ? geminiResponseFailed(p.tool_response) : { failed: false };
+  return {
+    ok: true,
+    event: {
+      engine: 'gemini',
+      event,
+      sessionId,
+      ...(str(p.cwd) ? { cwd: str(p.cwd) } : {}),
+      ...(toolName ? { toolName } : {}),
+      toolInput: record(p.tool_input),
+      ...(str(p.transcript_path) ? { transcriptPath: str(p.transcript_path) } : {}),
+      stopHookActive: p.stop_hook_active === true,
+      toolFailed: failure.failed,
+      ...(failure.detail ? { errorDetail: failure.detail } : {})
+    }
+  };
+}
+
 export function parseHookPayload(engine: HookEngine, raw: unknown, eventHint?: string): ParseHookResult {
   const p = record(raw);
   if (engine === 'antigravity') return parseAntigravityPayload(p, eventHint);
+  if (engine === 'gemini') return parseGeminiPayload(p);
   const eventName = str(p.hook_event_name);
   if (!eventName || !(HOOK_EVENT_NAMES as readonly string[]).includes(eventName)) {
     return { ok: false, error: `unsupported hook event: ${eventName ?? 'no hook_event_name'}` };
@@ -220,15 +270,51 @@ function antigravityPolicyCall(tool: string, a: Record<string, unknown>): Policy
 }
 
 /**
+ * Инструменты Gemini CLI (geminicli.com/docs/reference/tools, список проверен вживую на 0.67) → форма Claude Code.
+ * Остальные (`write_todos`, `invoke_agent`, `activate_skill`, MCP `mcp_<сервер>_<инструмент>`) — под своим именем.
+ */
+function geminiPolicyCall(tool: string, a: Record<string, unknown>): PolicyToolCall {
+  switch (tool) {
+    case 'run_shell_command':
+      return { tool: 'Bash', input: { command: text(a.command), ...(text(a.dir_path) ? { cwd: text(a.dir_path) } : {}) } };
+    case 'write_file':
+      return { tool: 'Write', input: { file_path: text(a.file_path), content: text(a.content) } };
+    case 'replace':
+      return { tool: 'Edit', input: { file_path: text(a.file_path), old_string: text(a.old_string), new_string: text(a.new_string) } };
+    case 'read_file':
+      return { tool: 'Read', input: { file_path: text(a.file_path) } };
+    case 'read_many_files':
+      return { tool: 'Read', input: { file_path: Array.isArray(a.include) ? a.include.map(String).join(', ') : text(a.include) } };
+    case 'list_directory':
+      return { tool: 'Glob', input: { path: text(a.dir_path ?? a.path) } };
+    case 'glob':
+      return { tool: 'Glob', input: { path: text(a.dir_path ?? a.path), pattern: text(a.pattern) } };
+    case 'grep_search':
+      return { tool: 'Grep', input: { path: text(a.dir_path ?? a.path), pattern: text(a.pattern) } };
+    case 'web_fetch':
+      return { tool: 'WebFetch', input: { url: text(a.url ?? a.prompt) } };
+    case 'google_web_search':
+      return { tool: 'WebSearch', input: { query: text(a.query) } };
+    case 'invoke_agent':
+      return { tool: 'Agent', input: { description: text(a.agent_name ?? a.name ?? a.description) } };
+    case 'ask_user':
+      return { tool: 'AskUserQuestion', input: a };
+    default:
+      return { tool, input: a };
+  }
+}
+
+/**
  * Вызов инструмента движка → вызовы для `evaluateToolRequest`. У Claude Code имена совпадают с политикой. Codex:
  * оболочка (`Bash`, `shell`, `exec_command`) → `Bash`, `apply_patch` → `Edit` на каждый файл патча. Antigravity —
- * `antigravityPolicyCall`.
+ * `antigravityPolicyCall`, Gemini CLI — `geminiPolicyCall`.
  */
 export function policyToolCalls(event: Pick<NormalizedHookEvent, 'engine' | 'toolName' | 'toolInput'>): PolicyToolCall[] {
   const tool = event.toolName ?? '';
   const input = event.toolInput;
   if (event.engine === 'claude') return [{ tool, input }];
   if (event.engine === 'antigravity') return [antigravityPolicyCall(tool, input)];
+  if (event.engine === 'gemini') return [geminiPolicyCall(tool, input)];
   if (tool === 'apply_patch') {
     const patch = commandText(input.command ?? input.patch ?? input.input);
     const paths = patchFilePaths(patch);
@@ -275,8 +361,21 @@ function formatAntigravityResponse(event: HookEventName, verdict: HookVerdict): 
   return NONE;
 }
 
+/**
+ * Ответ Gemini CLI: stdout — только JSON, код 0 (иной код, кроме 2, Gemini считает предупреждением и выполняет вызов).
+ * Продолжение после `AfterAgent` не проверялось — только сообщение в stderr.
+ */
+function formatGeminiResponse(event: HookEventName, verdict: HookVerdict): HookProcessOutput {
+  if (verdict.kind === 'none') return { ...NONE, ...(verdict.message ? { stderr: verdict.message } : {}) };
+  if (event !== 'PreToolUse') return verdict.kind === 'block' ? { ...NONE, stderr: verdict.reason } : NONE;
+  if (verdict.kind === 'deny') return { ...NONE, stdout: JSON.stringify({ decision: 'deny', reason: verdict.reason }) };
+  if (verdict.kind === 'allow') return { ...NONE, stdout: JSON.stringify({ decision: 'allow', reason: verdict.reason || 'Allowed in ProjectHub' }) };
+  return NONE;
+}
+
 export function formatHookResponse(engine: HookEngine, event: HookEventName, verdict: HookVerdict): HookProcessOutput {
   if (engine === 'antigravity') return formatAntigravityResponse(event, verdict);
+  if (engine === 'gemini') return formatGeminiResponse(event, verdict);
   if (verdict.kind === 'none') return { ...NONE, ...(verdict.message ? { stderr: verdict.message } : {}) };
 
   if (event === 'Stop') {

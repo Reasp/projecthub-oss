@@ -9,10 +9,8 @@
  * `--model`, `--allowedTools`/`--disallowedTools` (comma/space-separated), `--max-budget-usd`
  * (только с `--print`); нативного лимита ходов у CLI нет — `maxTurns` для claude-cli
  * реализован на уровне ProjectHub (счётчик `assistant`-событий в `agentFleetService`), а не
- * флагом. Флаги `codex exec`/`gemini` взяты из актуальной публичной документации
- * (developers.openai.com/codex, geminicli.com) — `codex`/`gemini` не установлены на машине
- * разработки, синтаксис не проверен эмпирически (см. `implementationNotes` TASK-60);
- * рекомендуется ручной smoke-test на машине с этими CLI.
+ * флагом. Флаги `codex exec`/`gemini` проверены вживую на codex-cli 0.167 и gemini 0.67 с поддельной
+ * моделью (TASK-261, `tests/unit/agentEngineHooks.process.test.ts` при `PROJECTHUB_LIVE_CLI_DIR`).
  */
 import type { RoleDefinition, RoleEngine, ToolCategory } from './roleTypes.js';
 import { claudeCliEffortArgs, type ReasoningEffort } from './reasoningEffort.js';
@@ -81,6 +79,11 @@ export interface EngineInvocationInput {
    * целиком (`--approval-mode yolo` Gemini), недоступны.
    */
   autonomous?: boolean;
+  /**
+   * Вызовы инструментов проходят через хуки ProjectHub (TASK-261, decision-226): Gemini CLI запускается в `yolo`,
+   * потому что в headless-режиме `default` оболочка и запись убраны из списка инструментов, а решает хук.
+   */
+  engineHooks?: boolean;
 }
 
 export interface EngineInvocation {
@@ -140,16 +143,18 @@ export function buildEngineInvocation(input: EngineInvocationInput): EngineInvoc
   }
 
   if (engine === 'codex-cli') {
+    // `codex exec` не принимает `--ask-for-approval` (codex-cli 0.167, `codex exec --help`): неинтерактивный режим
+    // никого не спрашивает. Запись ограничивает песочница, вызовы — хуки ProjectHub (TASK-261).
     const sandbox = input.allowFileWrite === false ? 'read-only' : 'workspace-write';
-    const approval = autoApprove ? 'never' : 'on-failure';
-    args.push('exec', '--json', '--sandbox', sandbox, '--ask-for-approval', approval);
+    args.push('exec', '--json', '--sandbox', sandbox);
     if (model && model !== 'default') args.push('-m', model);
     return { args, promptPrefix: systemPrompt || undefined, unsupportedFeatures, ...cliEffortIgnored(engine, input.reasoningEffort) };
   }
 
   if (engine === 'gemini-cli') {
-    const approvalMode = autoApprove && !input.autonomous ? 'yolo' : 'default';
-    args.push('--approval-mode', approvalMode, '--output-format', 'json');
+    const approvalMode = input.engineHooks || (autoApprove && !input.autonomous) ? 'yolo' : 'default';
+    // Поток событий: агент виден по ходу работы, а начало инструмента до рукопожатия хука ловится сразу (TASK-261).
+    args.push('--approval-mode', approvalMode, '--output-format', 'stream-json');
     if (model && model !== 'default') args.push('-m', model);
     return { args, promptPrefix: systemPrompt || undefined, unsupportedFeatures, ...cliEffortIgnored(engine, input.reasoningEffort) };
   }

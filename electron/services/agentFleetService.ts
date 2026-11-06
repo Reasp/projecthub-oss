@@ -59,6 +59,9 @@ import {
 } from './modelTiers.js';
 import { modelTierService } from './modelTierService.js';
 import { buildEngineInvocation, apiToolNamesForCategories, extractAppendSystemPrompt } from './roleEngineAdapter.js';
+import { agentHookCommand, codexAgentHookArgs, isCodexToolStart, parseGeminiStreamLine, AGENT_HOOK_TOKEN_ENV, AGENT_HOOK_URL_ENV } from './agentEngineHooks.js';
+import { ensureAgentHookScript, installGeminiWorkspaceHooks } from './agentHookFiles.js';
+import { agentHookService } from './agentHookService.js';
 import { buildAgentContext } from './contextBuilder.js';
 import { MEMORY_TOOL_PREFIX } from './memoryTools.js';
 import { appendSessionNoteToTask, formatSessionNote, resolveNoteStatus, type SessionNoteInput, type SessionNoteStatus } from './taskSessionNote.js';
@@ -186,6 +189,18 @@ interface MemberSandboxLaunch {
   hitl: NonNullable<CliPermissionMeta['sandbox']>;
   run(cliArgs: string[], extraEnv: Record<string, string>, secretFiles?: Record<string, string>): SandboxPlan;
   release(): void;
+}
+
+/** Хуки ProjectHub одного запуска Codex CLI / Gemini CLI на хосте (TASK-261): см. `prepareEngineHooks`. */
+interface EngineHookRun {
+  /** Аргументы CLI с хуками (Codex — `-c hooks…`; Gemini — пусто, хуки в `.gemini/settings.json`). */
+  args: string[];
+  /** Адрес и токен запуска для скрипта хука. */
+  env: Record<string, string>;
+  /** Пришло ли от запуска хоть одно событие хука. */
+  handshake(): boolean;
+  /** Отзыв токена, снятие сессии разрешений и хуков Gemini. Повторный вызов ничего не делает. */
+  cleanup(): Promise<void>;
 }
 
 /** Зависимости отчёта безопасности слота: git основного репозитория, файлы worktree, настройки и registry. */
@@ -2696,6 +2711,139 @@ export class AgentFleetService extends EventEmitter {
   }
 
   /**
+   * Метаданные сессии разрешений агента: источник, роль и её права, worktree, задача, участник. Общие для Claude CLI
+   * (`--permission-prompt-tool`) и хуков Codex CLI / Gemini CLI (TASK-261).
+   */
+  private async cliPermissionMeta(
+    session: SwarmSession,
+    agentState: AgentSlotState,
+    targetPath: string,
+    engine: 'claude-cli' | 'codex-cli' | 'gemini-cli',
+    sandbox?: CliPermissionMeta['sandbox']
+  ) {
+    return {
+      origin: this.hitlOrigin(session),
+      engine,
+      agentId: agentState.id,
+      agentName: agentState.config.name,
+      role: agentState.config.role,
+      ...(agentState.config.roleSlug ? { roleSlug: agentState.config.roleSlug } : {}),
+      // Имя профиля аккаунта CLI — в аудит HITL (decision-87 п. 14).
+      ...(agentState.claudeAccount ? { claudeAccount: agentState.claudeAccount.name } : {}),
+      permissions: agentState.config.permissions,
+      // Агент роя работает в своём worktree — карточки одобрения и диффы берут файлы оттуда (TASK-62).
+      workspaceRoot: targetPath,
+      ...(session.taskId ? { taskId: session.taskId } : {}),
+      ...(session.memberId ? { memberId: session.memberId } : {}),
+      ...(sandbox ? { sandbox } : {}),
+      // Управление компьютером в цикле «до готовности» — только по явному разрешению задачи (TASK-82).
+      doneLoop: session.mode === 'done_loop',
+      taskAllowsComputerUse:
+        session.mode === 'done_loop' && session.taskId
+          ? taskAllowsComputerUse((await findTaskFile(session.projectPath, session.taskId).catch(() => null))?.data.labels)
+          : false
+    };
+  }
+
+  /** Карточка HITL агента — строка в его логе и обновление окна. */
+  private hitlChunkLogger(session: SwarmSession, agentState: AgentSlotState) {
+    return (chunk: { approvalRequest?: { title: string; type: string } }) => {
+      if (chunk.approvalRequest) {
+        this.log(session, agentState, `[HITL] Awaiting a decision (${chunk.approvalRequest.type}): ${chunk.approvalRequest.title}`);
+        this.emitSwarmEvent({ type: 'agent_updated', swarmId: session.id, agentId: agentState.id, session });
+      }
+    };
+  }
+
+  /**
+   * HITL Codex CLI / Gemini CLI на хосте (TASK-261, decision-226): сессия разрешений агента, как у Claude CLI, и хуки
+   * движка с токеном этого запуска. Решения по вызовам — `agentHookService` → `handleCliPermissionRequest`.
+   * `null` — встроенный сервер недоступен, а запуск без HITL разрешён (авто-одобрение, человек нажал запуск, агент
+   * владельца): так работали эти движки до TASK-261, с записью в аудит. Иначе — отказ.
+   */
+  private async prepareEngineHooks(session: SwarmSession, agentState: AgentSlotState, targetPath: string, engine: 'codex-cli' | 'gemini-cli'): Promise<EngineHookRun | null> {
+    const cli = engine === 'codex-cli' ? 'Codex CLI' : 'Gemini CLI';
+    let globalConfig: AIProviderConfig;
+    try {
+      globalConfig = await aiAgentService.getConfig();
+    } catch {
+      globalConfig = { provider: 'anthropic', model: 'default' };
+    }
+    const sessionId = this.hitlSessionId(agentState);
+    const meta = await this.cliPermissionMeta(session, agentState, targetPath, engine);
+    const hitl = await claudeBridgeService.prepareCliPermissions(sessionId, targetPath, globalConfig, this.hitlChunkLogger(session, agentState), meta);
+    const baseUrl = hitl ? (await import('./mcpServerService.js')).mcpServerService.getHookBaseUrl() : null;
+    if (!hitl || !baseUrl) {
+      hitl?.cleanup();
+      const effective = applyProjectPolicy(applyRolePermissions(globalConfig, agentState.config.permissions), targetPath);
+      if (this.isAutonomous(session)) throw new AppError('swarm.hitlUnavailableAutonomous');
+      // Участник без доверия работает только с HITL (decision-84).
+      const profile = editionRegistry.launcherProfile(session.memberId);
+      if (profile && !profile.trusted) throw new AppError('swarm.hitlUnavailable');
+      if (!effective.autoApprove) throw new AppError('swarm.hitlUnavailable');
+      const reason = `The built-in MCP server is unavailable, auto-approve is on: ${cli} runs without ProjectHub hooks`;
+      hitlService.recordFallback({ sessionId, projectPath: session.projectPath, ...meta, reason });
+      this.log(session, agentState, `[HITL] ⚠️ ${reason}. The role deny lists do not apply.`);
+      return null;
+    }
+
+    const hookEngine = engine === 'codex-cli' ? 'codex' : 'gemini';
+    let scriptPath: string;
+    try {
+      scriptPath = await ensureAgentHookScript(path.join(getUserDataDir(), 'agent-hooks'));
+    } catch (err) {
+      hitl.cleanup();
+      throw new AppError('swarm.engineHooksUnavailable', { cli, reason: errorMessage(err) });
+    }
+    const command = agentHookCommand(hookEngine, scriptPath);
+    if (!command) {
+      hitl.cleanup();
+      throw new AppError('swarm.engineHooksUnavailable', { cli, reason: `the path ${scriptPath} contains shell characters` });
+    }
+    const handle = agentHookService.grant(sessionId, hookEngine);
+    let releaseGemini: (() => Promise<void>) | null = null;
+    if (hookEngine === 'gemini') {
+      try {
+        releaseGemini = await installGeminiWorkspaceHooks(targetPath, command);
+      } catch (err) {
+        handle.revoke();
+        hitl.cleanup();
+        throw err instanceof AppError ? err : new AppError('swarm.engineHooksUnavailable', { cli, reason: errorMessage(err) });
+      }
+    }
+    this.log(session, agentState, `[HITL] ${cli}: tool calls go through ProjectHub hooks (policy, approvals, audit).`);
+    let cleaned = false;
+    return {
+      args: hookEngine === 'codex' ? codexAgentHookArgs(command) : [],
+      env: {
+        [AGENT_HOOK_URL_ENV]: baseUrl,
+        [AGENT_HOOK_TOKEN_ENV]: handle.token,
+        // Gemini читает настройки рабочего каталога только в доверенной папке; `--skip-trust` ставит доверие слишком поздно.
+        ...(hookEngine === 'gemini' ? { GEMINI_CLI_TRUST_WORKSPACE: 'true' } : {})
+      },
+      handshake: handle.handshake,
+      cleanup: async () => {
+        if (cleaned) return;
+        cleaned = true;
+        handle.revoke();
+        hitl.cleanup();
+        await releaseGemini?.().catch((err) => this.log(session, agentState, `[HITL] ⚠️ Could not remove the hooks from .gemini/settings.json: ${errorMessage(err)}`));
+      }
+    };
+  }
+
+  /**
+   * Codex CLI и Gemini CLI в контейнере участника пока без хуков ProjectHub (TASK-261): участнику без доверия они
+   * недоступны — без HITL ему работать нельзя (decision-84). Доверенный участник в контейнере работает как раньше.
+   */
+  private assertSandboxEngineHitl(session: SwarmSession, engine: 'codex-cli' | 'gemini-cli'): void {
+    const profile = editionRegistry.launcherProfile(session.memberId);
+    if (profile?.sandbox && !profile.trusted) {
+      throw new AppError('swarm.sandboxEngineNoHitl', { cli: engine === 'codex-cli' ? 'Codex CLI' : 'Gemini CLI' });
+    }
+  }
+
+  /**
    * Готовит HITL для Claude CLI агента Swarm/Handoff (TASK-57, decision-10): тот же
    * `--permission-prompt-tool` и встроенный MCP-сервер, что и в Agents Studio; глобальные правила
    * auto-approve сужаются правами роли слота. Если сервер поднять не удалось:
@@ -2783,34 +2931,8 @@ export class AgentFleetService extends EventEmitter {
     }
     const permissions = agentState.config.permissions;
     const sessionId = this.hitlSessionId(agentState);
-    const meta = {
-      origin: this.hitlOrigin(session),
-      engine: 'claude-cli' as const,
-      agentId: agentState.id,
-      agentName: agentState.config.name,
-      role: agentState.config.role,
-      ...(agentState.config.roleSlug ? { roleSlug: agentState.config.roleSlug } : {}),
-      // Имя профиля аккаунта Claude Code — в аудит HITL (decision-87 п. 14).
-      ...(agentState.claudeAccount ? { claudeAccount: agentState.claudeAccount.name } : {}),
-      permissions,
-      // Агент роя работает в своём worktree — карточки одобрения и диффы берут файлы оттуда (TASK-62).
-      workspaceRoot: targetPath,
-      ...(session.taskId ? { taskId: session.taskId } : {}),
-      ...(session.memberId ? { memberId: session.memberId } : {}),
-      ...(sandbox ? { sandbox } : {}),
-      // Управление компьютером в цикле «до готовности» — только по явному разрешению задачи (TASK-82).
-      doneLoop: session.mode === 'done_loop',
-      taskAllowsComputerUse:
-        session.mode === 'done_loop' && session.taskId
-          ? taskAllowsComputerUse((await findTaskFile(session.projectPath, session.taskId).catch(() => null))?.data.labels)
-          : false
-    };
-    const onChunk = (chunk: { approvalRequest?: { title: string; type: string } }) => {
-      if (chunk.approvalRequest) {
-        this.log(session, agentState, `[HITL] Awaiting a decision (${chunk.approvalRequest.type}): ${chunk.approvalRequest.title}`);
-        this.emitSwarmEvent({ type: 'agent_updated', swarmId: session.id, agentId: agentState.id, session });
-      }
-    };
+    const meta = await this.cliPermissionMeta(session, agentState, targetPath, 'claude-cli', sandbox);
+    const onChunk = this.hitlChunkLogger(session, agentState);
 
     const hitl = await claudeBridgeService.prepareCliPermissions(sessionId, targetPath, globalConfig, onChunk, meta);
     if (hitl) {
@@ -3540,6 +3662,7 @@ export class AgentFleetService extends EventEmitter {
     role?: RoleDefinition
   ): Promise<void> {
     // Изолированный участник (TASK-246): Codex CLI в его контейнере, модель — через шлюз хоста (OpenAI Responses API).
+    this.assertSandboxEngineHitl(session, 'codex-cli');
     const sandbox = await this.prepareMemberSandbox(session, undefined, 'codex-cli');
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'codex.cmd' : 'codex';
@@ -3556,6 +3679,8 @@ export class AgentFleetService extends EventEmitter {
     });
     if (invocation.effortNote) this.log(session, agentState, `[Swarm] ℹ️ ${invocation.effortNote}`);
     const fullPrompt = invocation.promptPrefix ? `${invocation.promptPrefix}\n\n${prompt}` : prompt;
+    // HITL через хуки Codex (TASK-261): на хосте; в контейнере — только доверенный участник, без хуков.
+    const hooks = sandbox ? null : await this.prepareEngineHooks(session, agentState, targetPath, 'codex-cli');
 
     return new Promise((resolve, reject) => {
       let child: ChildProcess;
@@ -3563,17 +3688,18 @@ export class AgentFleetService extends EventEmitter {
       try {
         child = sandbox
           ? this.spawnSandboxed(sandbox, session, agentState, invocation.args, { FORCE_COLOR: '0', ...this.memberGitEnv(session) })
-          : spawn(cmd, invocation.args, {
+          : spawn(cmd, [...invocation.args, ...(hooks?.args ?? [])], {
               cwd: targetPath,
               shell: true,
               stdio: ['pipe', 'pipe', 'pipe'],
-              env: { ...process.env, FORCE_COLOR: '0', ...accountEnv, ...this.memberGitEnv(session) }
+              env: { ...process.env, FORCE_COLOR: '0', ...accountEnv, ...this.memberGitEnv(session), ...(hooks?.env ?? {}) }
             });
       } catch (e: unknown) {
         if (sandbox) {
           sandbox.release();
           return reject(e instanceof AppError ? e : new AppError('swarm.sandboxPlanInvalid', { reason: errorMessage(e) }));
         }
+        void hooks?.cleanup();
         return this.runCliApiFallback(session, agentState, targetPath, prompt, role, new AppError('swarm.cliNotFound', { cli: 'Codex CLI' }))
           .then(resolve)
           .catch(reject);
@@ -3586,12 +3712,17 @@ export class AgentFleetService extends EventEmitter {
       let stderrTail = '';
       let sawOutput = false;
       let stdoutBuffer = '';
+      // Инструмент начался раньше любого события хука — хуки не загрузились, агент останавливается (TASK-261).
+      let hooksMissing = false;
       const finish = (fn: () => void) => {
         if (finished) return;
         finished = true;
         procSet?.delete(child);
         this.untrackAgentProcess(agentState.id, child);
-        fn();
+        void (hooks ? hooks.cleanup() : Promise.resolve()).finally(() => {
+          if (hooksMissing) reject(new AppError('swarm.engineHooksNotLoaded', { cli: 'Codex CLI' }));
+          else fn();
+        });
       };
 
       child.stdout?.on('data', (d: Buffer) => {
@@ -3604,6 +3735,12 @@ export class AgentFleetService extends EventEmitter {
           if (trimmed.startsWith('{')) {
             try {
               const event = JSON.parse(trimmed);
+              if (hooks && !hooksMissing && isCodexToolStart(event) && !hooks.handshake()) {
+                hooksMissing = true;
+                this.log(session, agentState, '[HITL] ⛔ Codex CLI started a tool before the ProjectHub hooks answered — stopping the agent.');
+                stopAgentChild(child);
+                continue;
+              }
               const text = this.extractCliJsonText(event);
               if (text) {
                 sawOutput = true;
@@ -3676,11 +3813,11 @@ export class AgentFleetService extends EventEmitter {
   }
 
   /**
-   * Gemini CLI: неинтерактивный режим, промпт роли — преамбулой через stdin (см. Codex выше).
-   * `--output-format json` в headless-режиме возвращает один JSON-объект по завершении, не поток
-   * (geminicli.com/docs/cli/headless) — парсим весь stdout по закрытии процесса. Флаги из
-   * публичной документации, `gemini` не установлен на машине разработки — не проверено
-   * эмпирически (см. `implementationNotes` TASK-60).
+   * Gemini CLI: неинтерактивный режим, промпт роли — преамбулой через stdin (см. Codex выше). Вывод —
+   * `--output-format stream-json`: ответ модели, вызовы инструментов и итог с расходом токенов по ходу работы.
+   * Headless-режим требует доверенной папки (иначе выход с кодом 55) — `GEMINI_CLI_TRUST_WORKSPACE=true`.
+   * HITL — хуки ProjectHub в `.gemini/settings.json` рабочего каталога (TASK-261, decision-226); формат и
+   * поведение проверены вживую на gemini 0.67 с поддельной моделью.
    */
   private async runGeminiCliAgent(
     session: SwarmSession,
@@ -3690,61 +3827,106 @@ export class AgentFleetService extends EventEmitter {
     role?: RoleDefinition
   ): Promise<void> {
     // Изолированный участник (TASK-246): Gemini CLI в его контейнере, модель — через шлюз хоста (Gemini API).
+    this.assertSandboxEngineHitl(session, 'gemini-cli');
     const sandbox = await this.prepareMemberSandbox(session, undefined, 'gemini-cli');
     const isWin = process.platform === 'win32';
     const cmd = isWin ? 'gemini.cmd' : 'gemini';
     const accountEnv = await this.engineAccountEnv(session, agentState, 'gemini-cli');
     const effective = await this.resolveEffectivePermissions(agentState, targetPath);
+    const extraSystemPrompt = await this.buildExtraSystemPrompt(session, agentState, targetPath);
+    // HITL через хуки Gemini (TASK-261): на хосте; в контейнере — только доверенный участник, без хуков.
+    const hooks = sandbox ? null : await this.prepareEngineHooks(session, agentState, targetPath, 'gemini-cli');
     const invocation = buildEngineInvocation({
       engine: 'gemini-cli',
       role,
-      extraSystemPrompt: await this.buildExtraSystemPrompt(session, agentState, targetPath),
+      extraSystemPrompt,
       model: this.effectiveModel(agentState),
       reasoningEffort: normalizeReasoningEffort(agentState.config.providerConfig?.reasoningEffort),
       autoApprove: effective.autoApprove,
-      autonomous: this.isAutonomous(session)
+      autonomous: this.isAutonomous(session),
+      engineHooks: Boolean(hooks)
     });
     if (invocation.effortNote) this.log(session, agentState, `[Swarm] ℹ️ ${invocation.effortNote}`);
     const fullPrompt = invocation.promptPrefix ? `${invocation.promptPrefix}\n\n${prompt}` : prompt;
+    const trustEnv = { GEMINI_CLI_TRUST_WORKSPACE: 'true' };
 
     return new Promise((resolve, reject) => {
       let child: ChildProcess;
       const startedAt = Date.now();
       try {
         child = sandbox
-          ? this.spawnSandboxed(sandbox, session, agentState, invocation.args, { FORCE_COLOR: '0', ...this.memberGitEnv(session) })
+          ? this.spawnSandboxed(sandbox, session, agentState, invocation.args, { FORCE_COLOR: '0', ...trustEnv, ...this.memberGitEnv(session) })
           : spawn(cmd, invocation.args, {
               cwd: targetPath,
               shell: true,
               stdio: ['pipe', 'pipe', 'pipe'],
-              env: { ...process.env, FORCE_COLOR: '0', ...accountEnv, ...this.memberGitEnv(session) }
+              env: { ...process.env, FORCE_COLOR: '0', ...trustEnv, ...accountEnv, ...this.memberGitEnv(session), ...(hooks?.env ?? {}) }
             });
       } catch (e: unknown) {
         if (sandbox) {
           sandbox.release();
           return reject(e instanceof AppError ? e : new AppError('swarm.sandboxPlanInvalid', { reason: errorMessage(e) }));
         }
-        return this.runCliApiFallback(session, agentState, targetPath, prompt, role, new AppError('swarm.cliNotFound', { cli: 'Gemini CLI' }))
-          .then(resolve)
-          .catch(reject);
+        void (hooks ? hooks.cleanup() : Promise.resolve()).finally(() => {
+          this.runCliApiFallback(session, agentState, targetPath, prompt, role, new AppError('swarm.cliNotFound', { cli: 'Gemini CLI' }))
+            .then(resolve)
+            .catch(reject);
+        });
+        return;
       }
 
       const procSet = this.activeProcesses.get(session.id);
       procSet?.add(child);
       this.trackAgentProcess(agentState.id, child);
       let finished = false;
-      let stdoutAll = '';
+      let stdoutBuffer = '';
       let stderrTail = '';
+      let sawText = false;
+      let usage: AgentUsage | undefined;
+      // Инструмент или начало хода раньше события хука — хуки не загрузились, агент останавливается (TASK-261).
+      let hooksMissing = false;
+      // Хуки сняты из `.gemini/settings.json` до продолжения: коммит результата агента их не захватит.
       const finish = (fn: () => void) => {
         if (finished) return;
         finished = true;
         procSet?.delete(child);
         this.untrackAgentProcess(agentState.id, child);
-        fn();
+        void (hooks ? hooks.cleanup() : Promise.resolve()).finally(() => {
+          if (hooksMissing) reject(new AppError('swarm.engineHooksNotLoaded', { cli: 'Gemini CLI' }));
+          else fn();
+        });
+      };
+      const handleLine = (line: string) => {
+        if (!line.trim()) return;
+        const event = parseGeminiStreamLine(line);
+        if (!event) {
+          // Не JSON — как обычный текст (так же у Codex): CLI без потока событий отвечает текстом.
+          sawText = true;
+          this.appendOutput(session, agentState, `${line.trimEnd()}\n`);
+          return;
+        }
+        if (hooks && !hooksMissing && (event.kind === 'init' || event.kind === 'tool') && !hooks.handshake()) {
+          hooksMissing = true;
+          this.log(session, agentState, '[HITL] ⛔ Gemini CLI started without the ProjectHub hooks (hooks are off in its settings or not loaded) — stopping the agent.');
+          stopAgentChild(child);
+          return;
+        }
+        if (event.kind === 'text') {
+          sawText = true;
+          this.appendOutput(session, agentState, event.text);
+        } else if (event.kind === 'tool') {
+          this.log(session, agentState, `[Gemini] tool: ${event.name}`);
+        } else if (event.kind === 'result') {
+          if (event.usage) usage = event.usage;
+          if (!event.ok) this.log(session, agentState, `[Gemini] ⚠️ ${event.error ?? 'the run ended with an error'}`);
+        }
       };
 
       child.stdout?.on('data', (d: Buffer) => {
-        stdoutAll += d.toString('utf-8');
+        stdoutBuffer += d.toString('utf-8');
+        const lines = stdoutBuffer.split('\n');
+        stdoutBuffer = lines.pop() || '';
+        for (const line of lines) handleLine(line);
       });
       child.stderr?.on('data', (d: Buffer) => {
         const text = d.toString('utf-8');
@@ -3771,20 +3953,11 @@ export class AgentFleetService extends EventEmitter {
             resolve();
             return;
           }
-          const trimmed = stdoutAll.trim();
-          let text = trimmed;
-          if (trimmed.startsWith('{')) {
-            try {
-              const parsed = JSON.parse(trimmed);
-              text = this.extractCliJsonText(parsed) || trimmed;
-            } catch {
-              /* оставляем как есть */
-            }
-          }
-          if (code === 0 || text.length > 0) {
-            if (text) this.appendOutput(session, agentState, text);
+          if (stdoutBuffer.trim()) handleLine(stdoutBuffer);
+          stdoutBuffer = '';
+          if (code === 0 || sawText) {
             agentState.finalOutput = agentState.liveOutput;
-            const parsedUsage = parseCliUsageText(`${text.slice(-4000)}\n${stderrTail}`);
+            const parsedUsage = usage ?? parseCliUsageText(`${agentState.liveOutput.slice(-4000)}\n${stderrTail}`);
             if (parsedUsage) {
               this.recordUsage(session, agentState, parsedUsage, 'replace', this.effectiveModel(agentState));
             }

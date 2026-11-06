@@ -52,8 +52,8 @@ export const TERMINAL_HOOK_TOKEN_SECRET_KEY = 'terminal_hook_token';
 const DECISION_MEMORY_MS = 60 * 60_000;
 const DECISION_MEMORY_LIMIT = 5000;
 
-const ENGINE_LABEL: Record<HookEngine, string> = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity' };
-const HITL_ENGINE: Record<HookEngine, HitlEngine> = { claude: 'claude-cli', codex: 'codex-cli', antigravity: 'antigravity' };
+const ENGINE_LABEL: Record<HookEngine, string> = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', gemini: 'Gemini CLI' };
+const HITL_ENGINE: Record<HookEngine, HitlEngine> = { claude: 'claude-cli', codex: 'codex-cli', antigravity: 'antigravity', gemini: 'gemini-cli' };
 
 export interface TerminalHookRequestBody {
   engine: HookEngine;
@@ -265,6 +265,8 @@ export class TerminalHookService {
   }
 
   private dispatch(event: NormalizedHookEvent, projectPath: string, budgetMs: unknown, signal?: AbortSignal): Promise<HookVerdict> {
+    // Начало сессии терминалу ничего не решает: учёт сессии начинается с первого вызова инструмента.
+    if (event.event === 'SessionStart') return Promise.resolve({ kind: 'none' });
     // Stop учитывается в `stop()`: там известно, прошли ли проверки.
     if (event.event !== 'Stop') this.track(event, projectPath, event.event);
     switch (event.event) {
