@@ -582,6 +582,18 @@ class HubProcessManager {
   }
 
   /**
+   * Ждёт завершения hub-процесса этой сессии и возвращает его запись. Процесса нет (не из этой сессии или запись
+   * уже снята) — `undefined` сразу. Нужен тем, кто запускает процесс как шаг подготовки, например `worktreeInit`
+   * дерева агента перед первым ходом (TASK-270).
+   */
+  async waitForExit(id: string): Promise<ManagedProcess | undefined> {
+    const item = this.activeProcesses.get(id);
+    if (!item) return undefined;
+    await item.exited;
+    return item.info;
+  }
+
+  /**
    * Остановка процесса. Hub-процесс — tree-kill по pid и ожидание фактического закрытия
    * (до `STOP_WAIT_MS`), чтобы перезапуск не упёрся в занятый порт. Процесс env-tools
    * (не из этой сессии) — по записи `.env-state/processes.json`: дерево убивается, только если

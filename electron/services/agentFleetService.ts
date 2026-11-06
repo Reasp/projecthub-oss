@@ -6,6 +6,10 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import treeKill from 'tree-kill';
 import simpleGit from 'simple-git';
 import { worktreeService } from './worktreeService.js';
+import { runWorktreeInit, type WorktreeInitResult } from './worktreeInitService.js';
+import { processManager } from './processManager.js';
+import { findOwnTaskWorktree, isLongLivedWorktree, sessionHoldingWorktree, wantsTaskWorktree, type TaskWorktreeReuseInput } from './agentWorktree.js';
+import type { ManagedProcess } from '../../src/types/electron';
 import { agentResultRef, resultToKeep, RESULT_REFLOG_MESSAGE } from './agentResultRefs.js';
 import { aiAgentService, type AIProviderConfig, type AIMessage, type StreamToolBoundary } from './aiAgentService.js';
 import { claudeUsageService, type ClaudeRateLimitEventInfo } from './claudeUsageService.js';
@@ -420,6 +424,11 @@ export class AgentFleetService extends EventEmitter {
   private securityLookups = new Map<string, Promise<void>>();
   /** Зависимости отчёта безопасности слота; открыто для подмены в тестах. */
   public slotSecurityDeps: SlotSecurityDeps = defaultSlotSecurityDeps();
+  /** Подготовка нового дерева агента политикой `worktreeInit` проекта (TASK-270); открыто для подмены в тестах. */
+  public worktreeInitDeps: {
+    init: (projectPath: string, worktreePath: string) => Promise<WorktreeInitResult>;
+    waitForExit: (processId: string) => Promise<ManagedProcess | undefined>;
+  } = { init: runWorktreeInit, waitForExit: (id) => processManager.waitForExit(id) };
   private activeProcesses = new Map<string, Set<ChildProcess>>();
   private abortControllers = new Map<string, Set<AbortController>>();
   private agentProcesses = new Map<string, Set<ChildProcess>>();
@@ -1487,8 +1496,8 @@ export class AgentFleetService extends EventEmitter {
         if (seen.has(key)) continue;
         seen.add(key);
         if (normalizeFsPath(agent.worktreePath) === normalizeFsPath(session.projectPath)) continue;
-        // Личный worktree участника живёт дольше сессии: работа фиксируется коммитом, каталог остаётся.
-        if (session.memberWorktree && key === normalizeFsPath(session.memberWorktree.path)) {
+        // Личный worktree участника и дерево задачи живут дольше сессии: работа фиксируется коммитом, каталог остаётся.
+        if (isLongLivedWorktree(session, agent.worktreePath)) {
           if (this.pathExists(agent.worktreePath)) await this.materializeAgentResult(session, agent).catch(() => undefined);
           continue;
         }
@@ -1636,6 +1645,86 @@ export class AgentFleetService extends EventEmitter {
     };
   }
 
+  /**
+   * Готовое дерево задачи `task/<id>` для одиночного агента по задаче (TASK-270, decision-224): назначенный агент, цикл
+   * «до готовности», `runAgent` Automations и одиночный Swarm идут в него, а не во временный `swarm/…`. Дерева нет —
+   * `undefined`, сессия создаст своё. Дерево уже занято другой живой сессией — отказ запуска.
+   */
+  private async resolveTaskWorktree(projectPath: string, input: TaskWorktreeReuseInput): Promise<{ path: string; branch: string } | undefined> {
+    if (!wantsTaskWorktree(input)) return undefined;
+    const wt = findOwnTaskWorktree(await worktreeService.listWorktrees(projectPath), input.taskId);
+    if (!wt?.branch || wt.isPrunable || !this.pathExists(wt.path)) return undefined;
+    const holder = sessionHoldingWorktree(this.sessions.values(), wt.path);
+    if (holder) throw new AppError('swarm.taskWorktreeBusy', { branch: wt.branch });
+    return { path: wt.path, branch: wt.branch };
+  }
+
+  private useTaskWorktree(session: SwarmSession, agent: AgentSlotState, wt: { path: string; branch: string }): void {
+    agent.worktreePath = wt.path;
+    agent.worktreeBranch = wt.branch;
+    this.log(session, agent, `[Swarm] Task worktree: ${wt.path} (branch ${wt.branch})`);
+  }
+
+  /**
+   * Временное дерево агента от базовой ветки сессии с политикой `worktreeInit` проекта. Не создалось — `AppError`:
+   * запуск отказывает, а не уходит в основное дерево (TASK-270).
+   */
+  private async createAgentWorktree(session: SwarmSession, agent: AgentSlotState, branchName: string): Promise<void> {
+    agent.status = 'preparing';
+    this.log(session, agent, `[Swarm] Creating an isolated Git worktree: branch ${branchName}...`);
+    this.emitSwarmEvent({ type: 'agent_updated', swarmId: session.id, agentId: agent.id, session });
+    let wt: { path: string; branch?: string | null };
+    try {
+      wt = await worktreeService.addWorktree(session.projectPath, { branch: branchName, newBranch: true, baseCommitOrBranch: session.baseBranch });
+    } catch (err) {
+      console.error(`[AgentFleetService] Failed to create worktree for ${agent.id}:`, err);
+      throw new AppError('swarm.worktreeCreateFailed', { branch: branchName, reason: errorMessage(err) });
+    }
+    agent.worktreePath = wt.path;
+    agent.worktreeBranch = wt.branch || branchName;
+    this.log(session, agent, `[Swarm] Isolated working tree ready: ${wt.path}`);
+    await this.initAgentWorktree(session, agent, wt.path);
+  }
+
+  /**
+   * `worktreeInit` нового дерева: `node_modules` и команды проекта до первого хода, иначе проверки цикла падают из-за
+   * окружения. Сбой инициализации не отменяет запуск: дерево есть, причина — в логе агента.
+   */
+  private async initAgentWorktree(session: SwarmSession, agent: AgentSlotState, worktreePath: string): Promise<void> {
+    let init: WorktreeInitResult;
+    try {
+      init = await this.worktreeInitDeps.init(session.projectPath, worktreePath);
+    } catch (err) {
+      this.log(session, agent, `[Swarm] Worktree initialization failed: ${errorMessage(err)}`);
+      return;
+    }
+    if (init.linkedNodeModules) this.log(session, agent, '[Swarm] node_modules linked to the main tree.');
+    if (init.error) this.log(session, agent, `[Swarm] Worktree initialization failed: ${init.error}`);
+    if (!init.process) return;
+    this.log(session, agent, `[Swarm] Worktree initialization: ${(init.commands ?? []).join(' && ')}`);
+    const done = await this.worktreeInitDeps.waitForExit(init.process.id).catch(() => undefined);
+    if (done?.status === 'failed') {
+      this.log(session, agent, `[Swarm] Worktree initialization exited with code ${done.exitCode ?? '?'}: see process “${done.name}”.`);
+    } else {
+      this.log(session, agent, '[Swarm] Worktree initialization finished.');
+    }
+  }
+
+  /** Агент не дошёл до первого хода (дерево не подготовлено): статус, ошибка и событие сбоя, как у упавшего хода. */
+  private failAgentBeforeRun(session: SwarmSession, agent: AgentSlotState, err: unknown): void {
+    agent.status = 'failed';
+    setError(agent, err);
+    this.log(session, agent, `[Swarm Error] ${agent.error}`);
+    this.emitSwarmEvent({ type: 'agent_updated', swarmId: session.id, agentId: agent.id, session });
+    appEventBus.publish({
+      type: 'agent:failed',
+      ...this.agentBusBase(session, agent),
+      at: Date.now(),
+      error: agent.error || 'Agent error',
+      ...(agent.errorKey ? { errorKey: agent.errorKey } : {})
+    });
+  }
+
   /** Результат участника уходит в основную ветку только очередью слияния (decision-84 п. 6). */
   private memberMergeError(session: SwarmSession): AppError | null {
     return session.memberWorktree ? new AppError('swarm.memberMergeQueue', { branch: session.memberWorktree.branch }) : null;
@@ -1705,6 +1794,14 @@ export class AgentFleetService extends EventEmitter {
     const budgetUsd = capSessionBudget(options.budgetUsd, launch.capUsd);
     const useWorktrees = options.useWorktrees !== false;
     const autoCommitAgentResults = options.autoCommitAgentResults !== false;
+    const taskWorktree = await this.resolveTaskWorktree(projectPath, {
+      taskId,
+      slots: agents.length,
+      useWorktrees,
+      explicitBaseBranch: options.baseBranch,
+      review: !!options.review,
+      memberWorktree: !!memberWorktree
+    });
     const swarmId = `swarm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const baseBranch = await this.detectBaseBranch(projectPath, options.baseBranch);
     await this.getPriceTable();
@@ -1723,6 +1820,7 @@ export class AgentFleetService extends EventEmitter {
       ...(options.review ? { review: options.review } : {}),
       ...(options.memberId ? { memberId: options.memberId } : {}),
       ...(memberWorktree ? { memberWorktree } : {}),
+      ...(taskWorktree ? { taskWorktree } : {}),
       mode: 'fan_out',
       prompt,
       baseBranch,
@@ -1889,30 +1987,21 @@ export class AgentFleetService extends EventEmitter {
         agentState.worktreePath = session.memberWorktree.path;
         agentState.worktreeBranch = session.memberWorktree.branch;
         this.log(session, agentState, `[Swarm] Member worktree: ${session.memberWorktree.path} (branch ${session.memberWorktree.branch})`);
+      } else if (session.taskWorktree) {
+        this.useTaskWorktree(session, agentState, session.taskWorktree);
       } else if (session.useWorktrees) {
         try {
           const agentSlug = sanitizeSlug(agentState.config.name || agentState.id);
-          const branchName = `swarm/${session.id.slice(-6)}/${agentSlug}`;
-          agentState.status = 'preparing';
-          this.log(session, agentState, `[Swarm] Creating an isolated Git worktree: branch ${branchName}...`);
-          this.emitSwarmEvent({ type: 'agent_updated', swarmId: session.id, agentId: agentState.id, session });
-
-          const wt = await worktreeService.addWorktree(session.projectPath, {
-            branch: branchName,
-            newBranch: true,
-            baseCommitOrBranch: session.baseBranch
-          });
-          agentState.worktreePath = wt.path;
-          agentState.worktreeBranch = wt.branch || branchName;
-          this.log(session, agentState, `[Swarm] Isolated working tree ready: ${wt.path}`);
+          await this.createAgentWorktree(session, agentState, `swarm/${session.id.slice(-6)}/${agentSlug}`);
         } catch (err: unknown) {
-          console.error(`[AgentFleetService] Failed to create worktree for ${agentState.id}:`, err);
-          this.log(session, agentState, `[Swarm Error] Could not create the worktree: ${errorMessage(err)}. Running in the main directory.`);
+          // Без дерева агент не запускается: основное дерево — не запасной вариант (TASK-270).
+          this.failAgentBeforeRun(session, agentState, err);
         }
       }
     }
 
-    const agentPromises = targets.map((agentState) =>
+    const runnable = resume ? targets : targets.filter((a) => a.status !== 'failed');
+    const agentPromises = runnable.map((agentState) =>
       this.runSingleAgent(session, agentState, resume ? `${session.prompt}${RESUME_PROMPT_SUFFIX}` : undefined)
     );
     await Promise.allSettled(agentPromises);
@@ -1958,6 +2047,15 @@ export class AgentFleetService extends EventEmitter {
       autoReview: options.autoReview
     });
     const sessionBudgetUsd = capSessionBudget(settings.budgetUsd, launch.capUsd);
+    const useWorktrees = options.useWorktrees !== false;
+    // Узел плана задаёт базу сам (интеграционная ветка, decision-49) — ему нужно своё дерево, а не дерево задачи.
+    const taskWorktree = await this.resolveTaskWorktree(projectPath, {
+      taskId,
+      slots: 1,
+      useWorktrees,
+      explicitBaseBranch: options.baseBranch,
+      memberWorktree: !!member.memberWorktree
+    });
     const swarmId = `swarm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const baseBranch = await this.detectBaseBranch(projectPath, options.baseBranch);
     await this.getPriceTable();
@@ -1972,10 +2070,11 @@ export class AgentFleetService extends EventEmitter {
       ...(options.automation ? { automation: options.automation } : {}),
       ...(options.memberId ? { memberId: options.memberId } : {}),
       ...(member.memberWorktree ? { memberWorktree: member.memberWorktree } : {}),
+      ...(taskWorktree ? { taskWorktree } : {}),
       mode: 'done_loop',
       prompt,
       baseBranch,
-      useWorktrees: options.useWorktrees !== false,
+      useWorktrees,
       autoCommitAgentResults: options.autoCommitAgentResults !== false,
       // Бюджет цикла заодно становится бюджетом сессии: `enforceBudget` остановит ход на лету. Потолок
       // ограничений запуска (decision-124) снижает его, но не поднимает.
@@ -2009,29 +2108,24 @@ export class AgentFleetService extends EventEmitter {
       return;
     }
 
+    // Дерево не подготовлено — цикл не начинается: основное дерево не запасной вариант (TASK-270).
+    let prepareError: unknown;
     if (resume) {
       this.prepareAgentForResume(session, agent);
     } else if (how === 'start' && session.memberWorktree) {
       agent.worktreePath = session.memberWorktree.path;
       agent.worktreeBranch = session.memberWorktree.branch;
       this.log(session, agent, `[Swarm] Member worktree: ${session.memberWorktree.path} (branch ${session.memberWorktree.branch})`);
+    } else if (how === 'start' && session.taskWorktree) {
+      this.useTaskWorktree(session, agent, session.taskWorktree);
     } else if (how === 'start' && session.useWorktrees) {
       try {
-        const branchName = `swarm/${session.id.slice(-6)}/done-${sanitizeSlug(session.taskId || agent.config.name || agent.id)}`;
-        agent.status = 'preparing';
-        this.log(session, agent, `[Swarm] Creating an isolated Git worktree: branch ${branchName}...`);
-        this.emitSwarmEvent({ type: 'agent_updated', swarmId: session.id, agentId: agent.id, session });
-        const wt = await worktreeService.addWorktree(session.projectPath, {
-          branch: branchName,
-          newBranch: true,
-          baseCommitOrBranch: session.baseBranch
-        });
-        agent.worktreePath = wt.path;
-        agent.worktreeBranch = wt.branch || branchName;
-        this.log(session, agent, `[Swarm] Isolated working tree ready: ${wt.path}`);
+        await this.createAgentWorktree(session, agent, `swarm/${session.id.slice(-6)}/done-${sanitizeSlug(session.taskId || agent.config.name || agent.id)}`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.log(session, agent, `[Swarm Error] Could not create the worktree: ${message}. Running in the main directory.`);
+        prepareError = err;
+        agent.status = 'failed';
+        setError(agent, err);
+        this.emitSwarmEvent({ type: 'agent_updated', swarmId: session.id, agentId: agent.id, session });
       }
     }
 
@@ -2041,6 +2135,7 @@ export class AgentFleetService extends EventEmitter {
 
     let result: DoneLoopRunResult;
     try {
+      if (prepareError) throw prepareError;
       result = await doneLoopService.run(
         session,
         agent,
@@ -3853,8 +3948,8 @@ export class AgentFleetService extends EventEmitter {
         sharedWorktreeBranch = known.worktreeBranch || session.baseBranch;
       }
     } else if (session.useWorktrees) {
+      const branchName = `handoff/${session.id.slice(-6)}`;
       try {
-        const branchName = `handoff/${session.id.slice(-6)}`;
         const wt = await worktreeService.addWorktree(session.projectPath, {
           branch: branchName,
           newBranch: true,
@@ -3863,8 +3958,19 @@ export class AgentFleetService extends EventEmitter {
         sharedWorktreePath = wt.path;
         sharedWorktreeBranch = wt.branch || branchName;
       } catch (err) {
+        // Без общего дерева конвейер не начинается: основное дерево не запасной вариант (TASK-270).
         console.warn('[AgentFleetService] Failed to create shared worktree for handoff:', err);
+        const first = session.agents[startIndex];
+        const refusal = new AppError('swarm.worktreeCreateFailed', { branch: branchName, reason: errorMessage(err) });
+        if (first) this.failAgentBeforeRun(session, first, refusal);
+        session.status = 'failed';
+        setError(session, refusal);
+        session.completedAt = Date.now();
+        this.emitSwarmEvent({ type: 'swarm_updated', swarmId: session.id, session });
+        this.publishSwarmFinished(session);
+        return;
       }
+      if (session.agents[startIndex]) await this.initAgentWorktree(session, session.agents[startIndex], sharedWorktreePath);
     }
 
     let previousStageArtifact = startIndex > 0 ? this.formatHandoffArtifactRef(stages[startIndex - 1]) : '';
@@ -4364,8 +4470,8 @@ export class AgentFleetService extends EventEmitter {
     if (session.useWorktrees) {
       for (const agent of session.agents) {
         if (agent.id !== winnerAgentId && agent.worktreePath) {
-          // Личный worktree участника общий для его агентов и живёт дольше сессии — его не удаляем (как в discardSwarm).
-          if (session.memberWorktree && normalizeFsPath(agent.worktreePath) === normalizeFsPath(session.memberWorktree.path)) continue;
+          // Личный worktree участника и дерево задачи живут дольше сессии — их не удаляем (как в discardSwarm).
+          if (isLongLivedWorktree(session, agent.worktreePath)) continue;
           try {
             if (this.pathExists(agent.worktreePath)) {
               await this.materializeAgentResult(session, agent);

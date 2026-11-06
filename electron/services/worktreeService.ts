@@ -20,6 +20,7 @@ import { findTaskFile } from './taskFileLookup.js';
 import { normalizeFrontmatter, withUpdatedDate } from './backlogTaskFormat.js';
 import { dropRenumberedBranch, mergeMessageWithRenumber, prepareIncomingForMerge, summarizeRenumber, type PreparedIncoming } from './backlogMerge.js';
 import { reindexDocsInBackground } from './docsReindex.js';
+import { ownTaskIdOfBranch } from './agentWorktree.js';
 
 /**
  * Снять ссылки верхнего уровня worktree (junction `node_modules` из `linkNodeModules`, symlink) до его удаления:
@@ -283,9 +284,10 @@ export class WorktreeService {
     const worktrees = await this.listWorktrees(projectPath);
     const created = worktrees.find((w) => normalizePath(w.path) === normalizePath(targetDir));
     const taskId = extractTaskId(options.branch) || extractTaskId(targetDir);
-
-    if (taskId) {
-      await this.recordWorktreeInTask(projectPath, taskId, options.branch, targetDir);
+    // Ссылка в задаче — только на её собственное дерево: ветка роя или плана с `task-N` в имени её не перезатирает.
+    const ownTaskId = ownTaskIdOfBranch(options.branch);
+    if (ownTaskId) {
+      await this.recordWorktreeInTask(projectPath, ownTaskId, options.branch, targetDir);
     }
 
     if (!created) {

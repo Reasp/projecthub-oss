@@ -253,6 +253,11 @@ export interface SwarmSession {
    * сессия не удаляет, а в основную ветку результат попадает только через очередь слияния (TASK-142.4).
    */
   memberWorktree?: { path: string; branch: string };
+  /**
+   * Одиночный агент задачи работает в её готовом дереве `task/<id>`, а не во временном `swarm/…` (TASK-270). Дерево
+   * принадлежит задаче: сессия фиксирует в нём работу коммитом, но не удаляет ни каталог, ни ветку.
+   */
+  taskWorktree?: { path: string; branch: string };
   mode: SwarmMode;
   prompt: string;
   baseBranch: string;
