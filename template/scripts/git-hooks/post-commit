@@ -36,6 +36,50 @@ if [ ! -d ".gitnexus" ]; then
   exit 0
 fi
 
+# Индексация только изменённого (TASK-302, decision-221). GitNexus пропускает работу, лишь когда HEAD совпадает с проиндексированным
+# коммитом, а иначе заново гонит весь разбор — даже если коммит поменял одну задачу в backlog/. Поэтому хук сам смотрит,
+# что изменилось с последней индексации (lastCommit в .gitnexus/, только чтение), и не зовёт analyze, если все эти пути
+# исключены из индекса: граф кода от них не зависит. Исключён ли путь, решает git check-ignore по тем же .gitignore и
+# .gitnexusignore, что читает GitNexus. Встроенных исключений GitNexus проверка не знает — для таких путей analyze
+# запустится, как раньше. Нет индекса или коммита — смотрится только текущий коммит.
+indexed_last_commit() {
+  for meta in .gitnexus/gitnexus.json .gitnexus/meta.json; do
+    [ -f "$meta" ] || continue
+    sha=$(sed -n 's/.*"lastCommit"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{7,40\}\)".*/\1/p' "$meta" | head -n 1)
+    if [ -n "$sha" ] && git cat-file -e "$sha^{commit}" 2>/dev/null; then
+      echo "$sha"
+      return 0
+    fi
+  done
+  return 1
+}
+
+changed_paths() {
+  if [ -n "$LAST_INDEXED" ]; then
+    git diff -z --name-only --no-renames "$LAST_INDEXED" HEAD 2>/dev/null
+  else
+    git diff-tree -z --root --no-commit-id --name-only --no-renames -r HEAD 2>/dev/null
+  fi
+}
+
+only_excluded_paths_changed() {
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  LAST_INDEXED=$(indexed_last_commit) || LAST_INDEXED=""
+  # Список путей — во временный файл: в переменной оболочки NUL не хранится, а второй git diff по длинному диапазону
+  # стоит секунды.
+  list=$(mktemp 2>/dev/null) || return 1
+  changed_paths > "$list"
+  total=$(tr -cd '\000' < "$list" | wc -c)
+  excluded=$(git -c "core.excludesFile=$top/.gitnexusignore" check-ignore -z --no-index --stdin < "$list" 2>/dev/null | tr -cd '\000' | wc -c)
+  rm -f "$list"
+  [ "$total" -gt 0 ] && [ "$excluded" -eq "$total" ]
+}
+
+if [ -z "$FORCE_FLAG" ] && only_excluded_paths_changed; then
+  echo "[GitNexus Hook] С последней индексации изменились только файлы вне индекса кода — переиндексация не нужна."
+  exit 0
+fi
+
 NODE_BIN=""
 if command -v node >/dev/null 2>&1; then
   NODE_BIN="node"

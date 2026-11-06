@@ -325,7 +325,8 @@ ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features
     `core.hooksPath` (`npm run install-hooks`, автоматически при `npm install`), а не копируются
     в `.git/hooks/` руками. `pre-commit` гоняет `lint:docs`; `commit-msg` режет AI-атрибуцию;
     `post-commit` переиндексирует GitNexus и при порче FTS-индекса добивает полной пересборкой
-    (`clean --force` + `analyze`). Не обходить хуки `--no-verify`, кроме явной просьбы
+    (`clean --force` + `analyze`); если с последней индексации менялись только файлы вне индекса
+    (`.gitignore`, `.gitnexusignore` — в том числе `backlog/` и `.rag-index/`), `analyze` не запускается. Не обходить хуки `--no-verify`, кроме явной просьбы
     пользователя. `.gitattributes` держит `*.sh`, хуки, `*.service`/`*.timer`/`*.conf` в LF
     (иначе на Linux-сервере `$'\r': command not found`), а `*.bat`/`*.cmd`/`*.ps1` — в CRLF;
     новые скрипты, которые исполняются на сервере, добавляй туда же.
@@ -430,7 +431,8 @@ npm run lint:docs                    # frontmatter/даты/картинки/т�
 npm run check-index                  # только проверить, что .rag-index актуален относительно backlog/
 npm test                             # unit-тесты инфраструктуры (git-хуки и т.п.), node --test
 npm run install-hooks                # подключить scripts/git-hooks через core.hooksPath (делается и при npm install)
-npm run index-docs                   # пересобрать векторный индекс документации
+npm run index-docs                   # обновить индекс документации: актуальный не трогает, считает только изменённые чанки
+npm run index-docs -- --force        # пересобрать индекс целиком с пересчётом всех эмбеддингов
 npm run rag-search -- "запрос"       # поиск по докам из терминала (для человека)
 npm run rag-server                   # MCP-сервер docs-rag (обычно запускается агентом через .mcp.json)
 npm run env-server                   # MCP-сервер env-tools (обычно через .mcp.json)

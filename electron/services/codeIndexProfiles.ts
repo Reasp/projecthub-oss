@@ -13,7 +13,7 @@ import { AppError } from '../../src/lib/appError.js';
 import type { StackId } from './initStack.js';
 
 export type IndexProfileId = 'unreal' | 'unity' | 'godot' | 'node' | 'python' | 'dotnet' | 'go' | 'rust' | 'java' | 'flutter' | 'cpp';
-export type IndexGroupKind = 'case' | 'engine' | 'vendor' | 'generated' | 'build' | 'assets';
+export type IndexGroupKind = 'case' | 'docs' | 'engine' | 'vendor' | 'generated' | 'build' | 'assets';
 
 export interface Localized {
   ru: string;
@@ -102,6 +102,20 @@ export const INDEX_GROUPS: readonly IndexGroup[] = [
     },
     default: true,
     patterns: ['vendor/', 'third_party/', 'thirdparty/', '3rdparty/', 'node_modules/', 'dist/', 'build/', 'out/', 'bin/', 'obj/']
+  },
+  {
+    // Документация — не в графе кода (правило 1 infra-dev.md): её ищет docs-rag. В индексе GitNexus `backlog/` был
+    // до половины файлов, и каждая смена статуса задачи гнала полный analyze (TASK-302, decision-221).
+    id: 'common.docs',
+    profile: 'common',
+    kind: 'docs',
+    label: { ru: 'Документация Backlog.md и индекс RAG', en: 'Backlog.md documentation and RAG index' },
+    description: {
+      ru: 'Задачи, решения, документы и память проекта (backlog/) и индекс поиска по ним (.rag-index/). Документацию ищет docs-rag; в графе кода она только раздувает индекс, а коммит со сменой статуса задачи запускает переиндексацию.',
+      en: 'Tasks, decisions, documents and project memory (backlog/) and their search index (.rag-index/). docs-rag searches the documentation; in the code graph it only bloats the index, and a commit that changes a task status triggers reindexing.'
+    },
+    default: true,
+    patterns: ['/backlog/', '/.rag-index/']
   },
   // ── Unreal Engine ──────────────────────────────────────────────────────────────────────
   {
@@ -464,6 +478,24 @@ export function normalizeIndexSettings(raw: unknown): CodeIndexSettings | null {
   return { profiles, groups, headersOnly, custom: normalizeCustomPatterns(list('custom')) };
 }
 
+/** Версия строки настроек в блоке. 2 — группа `common.docs` (TASK-302). */
+export const SETTINGS_VERSION = 2;
+
+/** Группы, которых не было в первой версии настроек, и версия, где они появились. */
+const GROUPS_SINCE: Readonly<Record<string, number>> = { 'common.docs': 2 };
+
+/**
+ * Настройки из блока прежней версии: группы, появившиеся позже и включённые по умолчанию, включаются — человек их
+ * не выключал, он их не видел. Выключенная в блоке новой версии группа так и остаётся выключенной.
+ */
+export function upgradeIndexSettings(settings: CodeIndexSettings, version: unknown): CodeIndexSettings {
+  const from = typeof version === 'number' && Number.isInteger(version) && version > 0 ? version : 1;
+  const available = new Set(groupsForProfiles(settings.profiles).map((group) => group.id));
+  const added = INDEX_GROUPS.filter((group) => group.default && available.has(group.id) && (GROUPS_SINCE[group.id] ?? 1) > from).map((group) => group.id);
+  if (added.every((id) => settings.groups.includes(id))) return settings;
+  return { ...settings, groups: INDEX_GROUPS.map((group) => group.id).filter((id) => settings.groups.includes(id) || added.includes(id)) };
+}
+
 export function isIndexProfileId(value: unknown): value is IndexProfileId {
   return typeof value === 'string' && PROFILE_IDS.has(value);
 }
@@ -544,7 +576,7 @@ const HEADERS_NOTE: Localized = { ru: 'только заголовки', en: 'he
 
 /** Строки блока без маркеров начала и конца. */
 export function renderIndexBlockBody(settings: CodeIndexSettings, context: IndexContext, locale: IndexLocale = 'en'): string[] {
-  const lines = [`${SETTINGS_PREFIX}${JSON.stringify({ v: 1, ...settings })}`];
+  const lines = [`${SETTINGS_PREFIX}${JSON.stringify({ v: SETTINGS_VERSION, ...settings })}`];
   const profileLabel = (id: IndexGroup['profile']) =>
     id === 'common' ? 'GitNexus' : (INDEX_PROFILES.find((profile) => profile.id === id)?.label[locale] ?? id);
   const headersOf = (group: IndexGroup) => Boolean(group.headers && settings.headersOnly.includes(group.id));
@@ -598,7 +630,9 @@ export function parseGitnexusIgnore(text: string | null): ParsedGitnexusIgnore {
     const match = SETTINGS_RE.exec(line.trim());
     if (!match) continue;
     try {
-      settings = normalizeIndexSettings(JSON.parse(match[1]));
+      const raw = JSON.parse(match[1]) as unknown;
+      const normalized = normalizeIndexSettings(raw);
+      settings = normalized && upgradeIndexSettings(normalized, (raw as { v?: unknown }).v);
     } catch {
       settings = null;
     }

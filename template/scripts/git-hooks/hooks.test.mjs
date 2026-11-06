@@ -28,18 +28,34 @@ function sandboxDir() {
 /**
  * post-commit: песочница с заглушкой gitnexus. failFirstAnalyze повторяет боевой отказ.
  * commitFiles — песочница становится репозиторием, и последний коммит содержит эти файлы.
+ * commits — то же для нескольких коммитов: [{ путь: содержимое }], последний — HEAD.
+ * indexedAt — номер коммита из commits, который записан в индексе как lastCommit (`meta` — имя файла метаданных);
+ * lastCommit — записать в индекс этот хэш как есть.
  */
-function runPostCommit({ failFirstAnalyze, indexed = true, commitFiles = null }) {
+function runPostCommit({ failFirstAnalyze, indexed = true, commitFiles = null, commits = null, indexedAt = null, lastCommit = null, meta = 'gitnexus.json' }) {
   const dir = sandboxDir();
-  if (commitFiles) {
+  const plan = commits ?? (commitFiles ? [Object.fromEntries(commitFiles.map((file) => [file, 'x\n']))] : null);
+  const shas = [];
+  if (plan) {
     const git = (...args) => spawnSync('git', args, { cwd: dir, encoding: 'utf-8' });
     git('init', '-q');
-    for (const file of commitFiles) writeFileSync(join(dir, file), 'x\n');
-    git('add', ...commitFiles);
-    git('-c', 'user.email=hook@test', '-c', 'user.name=hook', 'commit', '-qm', 'test');
+    plan.forEach((files, i) => {
+      for (const [file, content] of Object.entries(files)) {
+        mkdirSync(dirname(join(dir, file)), { recursive: true });
+        writeFileSync(join(dir, file), content);
+      }
+      // -f: в коммит попадают и файлы под .gitignore — так бывает в проектах (сгенерированное закоммичено).
+      git('add', '-f', '--', ...Object.keys(files));
+      git('-c', 'user.email=hook@test', '-c', 'user.name=hook', 'commit', '-qm', `test ${i}`);
+      shas.push(git('rev-parse', 'HEAD').stdout.trim());
+    });
   }
   copyFileSync(join(HOOKS, 'post-commit'), join(dir, 'hook.sh'));
   if (indexed) mkdirSync(join(dir, '.gitnexus'));
+  const recorded = lastCommit ?? (indexedAt !== null ? shas[indexedAt] : null);
+  if (indexed && recorded) {
+    writeFileSync(join(dir, '.gitnexus', meta), JSON.stringify({ repoPath: dir, lastCommit: recorded, stats: { files: 1 } }, null, 2));
+  }
   writeFileSync(
     join(dir, 'stub.cjs'),
     `const fs = require('fs');
@@ -90,6 +106,64 @@ test('post-commit: коммит с .gitnexusignore или .gitignore — пол�
 test('post-commit: коммит без правил индексации — обычный инкрементальный проход', { skip }, () => {
   const { log } = runPostCommit({ failFirstAnalyze: false, commitFiles: ['src.ts'] });
   assert.deepEqual(log, ['analyze --skip-agents-md --skip-skills']);
+});
+
+const ANALYZE_PLAIN = 'analyze --skip-agents-md --skip-skills';
+const DOCS_EXCLUDED = { '.gitnexusignore': '/backlog/*\n/.rag-index/*\n', 'src/app.ts': 'export const a = 1;\n' };
+
+test('post-commit: коммит только исключённых файлов — analyze не зовётся', { skip }, () => {
+  const { run, log } = runPostCommit({
+    failFirstAnalyze: false,
+    commits: [DOCS_EXCLUDED, { 'backlog/tasks/task-1 - Задача.md': '# Задача\n', '.rag-index/meta.json': '{}\n' }],
+    indexedAt: 0,
+  });
+  assert.deepEqual(log, [], `analyze не нужен, а вызвано: ${log.join(' | ')}`);
+  assert.equal(run.status, 0);
+  assert.match(run.stdout, /переиндексация не нужна/);
+});
+
+test('post-commit: файл из .gitignore тоже вне индекса', { skip }, () => {
+  const { log } = runPostCommit({
+    failFirstAnalyze: false,
+    commits: [{ '.gitignore': 'generated/\n', 'src/app.ts': 'a\n' }, { 'generated/out.js': 'b\n' }],
+    indexedAt: 0,
+  });
+  assert.deepEqual(log, []);
+});
+
+test('post-commit: код, закоммиченный после индексации, — analyze, даже если текущий коммит только документация', { skip }, () => {
+  const { log } = runPostCommit({
+    failFirstAnalyze: false,
+    commits: [DOCS_EXCLUDED, { 'src/app.ts': 'export const a = 2;\n' }, { 'backlog/docs/doc-1 - Док.md': '# Док\n' }],
+    indexedAt: 0,
+    meta: 'meta.json',
+  });
+  assert.deepEqual(log, [ANALYZE_PLAIN], 'изменённый код с прошлой индексации пропущен');
+});
+
+test('post-commit: коммит с кодом и документацией — analyze', { skip }, () => {
+  const { log } = runPostCommit({
+    failFirstAnalyze: false,
+    commits: [DOCS_EXCLUDED, { 'backlog/tasks/task-2.md': '# 2\n', 'src/b.ts': 'b\n' }],
+    indexedAt: 0,
+  });
+  assert.deepEqual(log, [ANALYZE_PLAIN]);
+});
+
+test('post-commit: без lastCommit в индексе смотрит только текущий коммит', { skip }, () => {
+  const { log } = runPostCommit({
+    failFirstAnalyze: false,
+    commits: [DOCS_EXCLUDED, { 'backlog/tasks/task-3.md': '# 3\n' }],
+  });
+  assert.deepEqual(log, [], 'текущий коммит — только исключённые файлы');
+});
+
+test('post-commit: lastCommit неизвестного коммита — проверка по текущему коммиту', { skip }, () => {
+  const unknown = 'f'.repeat(40);
+  const docsOnly = runPostCommit({ failFirstAnalyze: false, commits: [DOCS_EXCLUDED, { 'backlog/tasks/task-4.md': '# 4\n' }], lastCommit: unknown });
+  assert.deepEqual(docsOnly.log, []);
+  const code = runPostCommit({ failFirstAnalyze: false, commits: [DOCS_EXCLUDED, { 'src/c.ts': 'c\n' }], lastCommit: unknown });
+  assert.deepEqual(code.log, [ANALYZE_PLAIN]);
 });
 
 test('post-commit: в проекте без .gitnexus/ молча ничего не делает', { skip }, () => {
