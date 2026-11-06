@@ -690,6 +690,7 @@ const EN = {
   'chat.generalNotArchivable': 'The general channel cannot be archived',
   'chat.memberNotFound': 'This member is no longer on the host',
   'chat.invalidAgent': 'Invalid agent id for the chat message',
+  'chat.answerRequired': 'Choose or type an answer to the agent’s question',
   // Участники общего хоста (ee/).
   'team.invalidTaskId': 'Invalid task id: {id}',
   'team.memberRemoved': 'The member was removed from the host: running on their behalf is not possible',
@@ -1714,6 +1715,7 @@ export const appErrorTextRu: AppErrorLabels = {
   'chat.generalNotArchivable': 'Общий канал нельзя архивировать',
   'chat.memberNotFound': 'Этого участника больше нет на хосте',
   'chat.invalidAgent': 'Неверный id агента для сообщения чата',
+  'chat.answerRequired': 'Выберите или введите ответ на вопрос агента',
   'team.invalidTaskId': 'Неверный id задачи: {id}',
   'team.memberRemoved': 'Участник удалён с хоста: запуск от его имени невозможен',
   'team.mcpPortInvalid': 'Порт — число от 1024 до 65535',

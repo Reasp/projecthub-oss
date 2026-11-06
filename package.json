@@ -1,6 +1,6 @@
 {
   "name": "project-hub",
-  "version": "0.1.171",
+  "version": "0.1.173",
   "private": true,
   "description": "ProjectHub — Единая десктопная панель управления проектами с обвязкой ProjectTemplate (Backlog.md, Git, RAG, MCP, Dev-окружение)",
   "main": "dist-electron/main.js",

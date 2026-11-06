@@ -2693,7 +2693,8 @@ export class AgentFleetService extends EventEmitter {
       agentId: agentState.id,
       agentName: agentState.config.name,
       role: agentState.config.role,
-      hostId: hitlService.currentHostId
+      hostId: hitlService.currentHostId,
+      ...(session.taskId ? { taskId: session.taskId } : {})
     };
   }
 

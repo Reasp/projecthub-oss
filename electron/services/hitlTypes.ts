@@ -338,6 +338,8 @@ export interface AgentEventBase {
   agentName?: string;
   role?: string;
   hostId?: string;
+  /** Задача сессии (`TASK-N`): по ней чат хоста команды пишет статус агента в тред задачи (TASK-260.4). */
+  taskId?: string;
   at: number;
 }
 

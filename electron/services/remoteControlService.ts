@@ -3758,13 +3758,15 @@ class RemoteControlService {
     // сужает их на каждом вызове (decision-126): владелец мог сменить роль, пока устройство подключено.
     const rights = this.effectiveDeviceRights(device);
     const extraMethod = editionRegistry.remoteMethod(method);
+    // Решение HITL из карточки в треде чата (TASK-260.4) — то же решение человека, что `hitl_decision`.
+    const hitlRightsMethod = hitlRightsMethods.has(method) || (extraMethod?.write === true && extraMethod.hitl === true);
     if (extraMethod?.write && this.readOnly) throw new AppError('remote.readOnlyMode', { method });
     if (writeMethods.has(method) || extraMethod?.write) {
       if (rights === 'readOnly') {
         throw new AppError('remote.deviceReadOnly', { method });
       }
       // Подтверждение задачи агента — такое же решение человека, как HITL (decision-89 п. 11).
-      if (rights === 'hitl' && !hitlRightsMethods.has(method)) {
+      if (rights === 'hitl' && !hitlRightsMethod) {
         throw new AppError('remote.deviceHitlOnly', { method });
       }
     }
@@ -3785,7 +3787,7 @@ class RemoteControlService {
     const deniedInProject = editionRegistry.checkProjectRpc(method, deviceRef, target);
     if (deniedInProject) throw deniedInProject;
     if (target) {
-      const reason = projectAccessDenied(this.projectAccessOf(device, target), writeMethods.has(method) || extraMethod?.write === true, hitlRightsMethods.has(method));
+      const reason = projectAccessDenied(this.projectAccessOf(device, target), writeMethods.has(method) || extraMethod?.write === true, hitlRightsMethod);
       if (reason) {
         const owner = owningProject(target, this.projectRoots) ?? target;
         throw new ProjectAccessError(reason, { method, project: path.basename(owner) }, owner);

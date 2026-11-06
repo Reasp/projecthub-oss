@@ -178,6 +178,11 @@ export interface RemoteCallContext {
 export interface RemoteMethodSpec {
   /** Метод меняет данные: устройству только для чтения недоступен. */
   write: boolean;
+  /**
+   * Запись — решение человека по HITL (карточка в треде чата, TASK-260.4): доступна и устройству с правом `hitl`, как
+   * `hitl_decision`. Права роли проверяет `hitlService.decide`.
+   */
+  hitl?: boolean;
   handler: (params: Record<string, unknown>, ctx: RemoteCallContext) => unknown;
   /**
    * Проект вызова, если он не в `params.projectPath` и не выбранный устройством (элемент очереди по `itemId`):
