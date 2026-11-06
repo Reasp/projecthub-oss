@@ -463,6 +463,7 @@ const api: IElectronAPI = {
   // Разговор вкладки занят фоновой сессией CLI (TASK-301)
   stopCliBackgroundSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) =>
     invoke('ai:stopCliBackgroundSession', query),
+  studioEngines: (query?: { projectPath?: string; force?: boolean }) => invoke('ai:studioEngines', query),
   // `/rewind` в Agents Studio (TASK-284)
   cliRewindPoints: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => invoke('ai:cliRewindPoints', query),
   cliRewindPreview: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string; promptUuid: string }) =>

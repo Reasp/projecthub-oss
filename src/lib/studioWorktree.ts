@@ -51,12 +51,12 @@ export function sessionWorktreeOf(path: string, worktrees: readonly GitWorktreeI
  * 3. иначе — активное дерево проекта на момент отправки.
  */
 export function sessionWorkDir(
-  session: Pick<AISession, 'worktree' | 'claudeCliSessionId' | 'claudeCliCwd'> | undefined,
+  session: Pick<AISession, 'worktree' | 'engineSessionId' | 'engineSessionCwd'> | undefined,
   activeRoot: string | null | undefined,
   projectPath: string
 ): string {
   if (session?.worktree?.path) return session.worktree.path;
-  if (session?.claudeCliSessionId && session.claudeCliCwd) return session.claudeCliCwd;
+  if (session?.engineSessionId && session.engineSessionCwd) return session.engineSessionCwd;
   return activeRoot || projectPath;
 }
 

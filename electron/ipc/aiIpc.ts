@@ -49,7 +49,8 @@ import { toIpcFailure } from './appErrorIpc';
 import { launchRefusal } from '../extensions/editionRegistry';
 import { hostText } from '../i18n/hostText';
 import { getHostLanguage } from '../services/hostLanguage';
-import { usesClaudeCli } from '../services/modelTarget';
+import { studioEngineOfRequest } from '../services/studioEngineRegistry';
+import { STUDIO_ENGINES } from '../../src/lib/studioEngines';
 import { hitlService } from '../services/hitlService';
 import { editionRegistry, type AgentLaunchContext } from '../extensions/editionRegistry';
 import { studioLiveRuns } from '../services/studioLiveRuns';
@@ -77,7 +78,7 @@ function studioLaunchContext(req: AIStreamRequest): AgentLaunchContext {
   return {
     projectPath: req.projectPath,
     ...(req.taskId ? { taskId: req.taskId } : {}),
-    engine: usesClaudeCli(req.config) ? 'claude-cli' : 'api',
+    engine: STUDIO_ENGINES[studioEngineOfRequest(req)].launchEngine,
     ...(req.config.model ? { model: req.config.model } : {}),
     origin: 'studio',
     ...(req.memberId ? { memberId: req.memberId } : {}),
@@ -271,6 +272,12 @@ export function registerAiIpc(ctx: IpcContext) {
     const { account } = await claudeAccountService.resolve({ projectPath, ...(slotAccountId ? { slotAccountId } : {}) });
     return readCliSessionMessages(account.configDir, cwd, query.cliSessionId);
   });
+
+  // Движки вкладки Studio, найденные на этой машине (TASK-277, decision-220): выбор во вкладке показывает только их.
+  // `projectPath` нужен только туннелю: у проекта другого ПК движки проверяет его хост.
+  ipcMain.handle('ai:studioEngines', async (_event, query?: { projectPath?: unknown; force?: unknown }) =>
+    claudeBridgeService.studioEngineStatuses(query?.force === true)
+  );
 
   // Разговор вкладки занят фоновой сессией CLI (TASK-301, decision-219): остановить её под аккаунтом вкладки.
   ipcMain.handle('ai:stopCliBackgroundSession', async (_event, query?: { projectPath?: unknown; cwd?: unknown; claudeAccountId?: unknown; cliSessionId?: unknown }) => {

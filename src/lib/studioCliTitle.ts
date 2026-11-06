@@ -21,10 +21,10 @@ export function cliSessionName(title: unknown): string {
  * Имя, которое нужно передать CLI для вкладки, или `null`: заголовок задал не человек, у вкладки ещё нет сессии CLI,
  * ответвление ещё не получило свою сессию или это имя этой сессии уже передано.
  */
-export function cliTitleToSync(session: Pick<AISession, 'title' | 'titleByUser' | 'claudeCliSessionId' | 'claudeCliTitle' | 'claudeCliForkPending'>): string | null {
-  if (!session.titleByUser || !session.claudeCliSessionId || session.claudeCliForkPending) return null;
+export function cliTitleToSync(session: Pick<AISession, 'title' | 'titleByUser' | 'engineSessionId' | 'claudeCliTitle' | 'claudeCliForkPending'>): string | null {
+  if (!session.titleByUser || !session.engineSessionId || session.claudeCliForkPending) return null;
   const name = cliSessionName(session.title);
   if (!name) return null;
   const sent = session.claudeCliTitle;
-  return sent && sent.sessionId === session.claudeCliSessionId && sent.title === name ? null : name;
+  return sent && sent.sessionId === session.engineSessionId && sent.title === name ? null : name;
 }

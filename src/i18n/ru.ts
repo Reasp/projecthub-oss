@@ -3874,6 +3874,8 @@ export const ru: TranslationDictionary = {
     importLegacyDone: 'Профиль «{name}» создан и выбран. Сохраните настройки, чтобы переключиться на него.',
     modelSearch: 'Поиск модели…',
     claudeCliGroup: 'Claude Code CLI',
+    claudeCliMissing: 'Claude Code CLI не найден: установите его или добавьте claude в PATH',
+    claudeCliChecking: 'Ищем Claude Code CLI…',
     noModels: 'Моделей нет — укажите id вручную в настройках',
     catalogError: 'каталог недоступен',
     loadingModels: 'загрузка каталога…',

@@ -3873,6 +3873,8 @@ export const en: TranslationDictionary = {
     importLegacyDone: 'Profile "{name}" is created and selected. Save the settings to switch to it.',
     modelSearch: 'Search models…',
     claudeCliGroup: 'Claude Code CLI',
+    claudeCliMissing: 'Claude Code CLI not found: install it or add claude to PATH',
+    claudeCliChecking: 'Looking for Claude Code CLI…',
     noModels: 'No models — enter an id in the settings',
     catalogError: 'catalog unavailable',
     loadingModels: 'loading catalog…',

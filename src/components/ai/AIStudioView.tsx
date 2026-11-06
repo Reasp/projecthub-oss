@@ -54,6 +54,7 @@ import { BackgroundTasksBar } from './BackgroundTasksBar';
 import { CliRewindModal } from './CliRewindModal';
 import { studioCliText } from '../../i18n/studioCliText';
 import { goesToClaudeCli } from '../../lib/studioCliCommands';
+import { studioEngineCapabilities, studioEngineOfConfig } from '../../lib/studioEngines';
 import { projectPromptHistory } from '../../lib/promptHistory';
 import { windowCliCommandCache } from '../../lib/cliCommandCache';
 import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
@@ -300,7 +301,7 @@ export const AIStudioView: React.FC = () => {
     if (!currentSession || (sameWorkPath(path, tabWorkDir) && currentSession.worktree)) return;
     const target = sessionWorktreeOf(path, worktrees, projectPath);
     const label = target.isMain ? t.aiStudio.tabWorktreeMain : worktreeLabel(target);
-    if (currentSession.claudeCliSessionId && !sameWorkPath(path, tabWorkDir)) {
+    if (currentSession.engineSessionId && !sameWorkPath(path, tabWorkDir)) {
       if (!(await dialog.confirm(t.aiStudio.tabWorktreeMoveConfirm.replace('{branch}', label)))) return;
     }
     setSessionWorktree(projectPath, currentSession.id, target);
@@ -319,10 +320,10 @@ export const AIStudioView: React.FC = () => {
 
   // Режим вкладки (TASK-291): свой у каждой вкладки.
   const mode = sessionMode(currentSession);
-  // Во вкладке Claude Code режим architect — plan mode CLI (TASK-272).
-  const tabGoesToCli = goesToClaudeCli(sessionRequestConfig(config, currentSession?.agent));
-  // Откат с реплики (TASK-284) — у вкладки Claude Code с разговором CLI, между ходами, не в чужой сессии участника.
-  const canRewind = tabGoesToCli && !!currentSession?.claudeCliSessionId && !isStreaming && !currentSession?.memberId && !!currentSessionId;
+  // Возможности движка вкладки (TASK-277): меню и действия — по ним, а не по имени движка.
+  const tabCaps = studioEngineCapabilities(studioEngineOfConfig(sessionRequestConfig(config, currentSession?.agent)));
+  // Откат с реплики (TASK-284) — у движка с откатом и начатым разговором, между ходами, не в чужой сессии участника.
+  const canRewind = tabCaps.rewind && !!currentSession?.engineSessionId && !isStreaming && !currentSession?.memberId && !!currentSessionId;
   const rewindLabel = `${studioCliText(language).rewindAction} (Esc Esc)`;
   // «Изменить» реплику (TASK-299) — у вкладки любого движка, между ходами.
   const canEditMessage = !isStreaming && !currentSession?.memberId && !!currentSessionId;
@@ -339,7 +340,7 @@ export const AIStudioView: React.FC = () => {
       ? t.aiStudio.input.agentMode
       : m === 'chat'
       ? t.aiStudio.input.chatMode
-      : tabGoesToCli
+      : tabCaps.plan
       ? t.aiStudio.input.planMode
       : t.aiStudio.input.adrMode;
   const modeIcon = (m: 'agent' | 'chat' | 'architect') =>
@@ -1214,7 +1215,7 @@ export const AIStudioView: React.FC = () => {
                     label: t.reasoningEffort[effort],
                     checked: tabEffort === effort,
                     // Claude Code CLI не умеет выключать рассуждения (`--effort` без «none»).
-                    disabled: effort === 'none' && tabGoesToCli,
+                    disabled: effort === 'none' && !tabCaps.effortNone,
                     onSelect: () => setSessionAgent(projectPath, currentSessionId, withSessionEffort(currentAgent, effort))
                   }))
                 ]}

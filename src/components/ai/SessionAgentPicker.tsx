@@ -5,6 +5,8 @@ import { useClaudeAccountsStore } from '../../store/useClaudeAccountsStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { accountDisplayName } from '../../lib/cliAccountEngines';
 import { sessionRequestConfig, withClaudeAccount, withSelection } from '../../lib/studioSessionAgent';
+import { claudeGroupState, studioEngineCapabilities, studioEngineOfAgent } from '../../lib/studioEngines';
+import { engineHostKey, useStudioEnginesStore } from '../../store/useStudioEnginesStore';
 import { ModelSelectorDropdown } from './ModelSelectorDropdown';
 import { ComposerMenu } from './ComposerMenu';
 
@@ -34,8 +36,18 @@ export const SessionAgentPicker: React.FC<SessionAgentPickerProps> = ({ projectP
     if (projectPath) void loadProjectAccount(projectPath);
   }, [projectPath, loadProjectAccount]);
 
+  // Движки, найденные на машине проекта (TASK-277): группа Claude Code видна, только если CLI найден.
+  const engineStatuses = useStudioEnginesStore((s) => s.statuses[engineHostKey(projectPath)]);
+  const loadEngines = useStudioEnginesStore((s) => s.load);
+  useEffect(() => {
+    if (projectPath) void loadEngines(projectPath);
+  }, [projectPath, loadEngines]);
+  const claudeGroup = claudeGroupState(config, agent, engineStatuses ?? null);
+
   const accounts = overview?.accounts ?? [];
-  const showAccount = agent.provider === 'anthropic' && accounts.length > 1;
+  // Аккаунт выбирается у движка с аккаунтами (TASK-277): Claude Code, не Anthropic API.
+  const engine = studioEngineOfAgent(config, agent);
+  const showAccount = studioEngineCapabilities(engine).accounts && accounts.length > 1;
   const own = agent.claudeAccountId ? accounts.find((a) => a.id === agent.claudeAccountId) : undefined;
   const projectName = projectAccount ? accountDisplayName(projectAccount.account, t.claudeAccounts.defaultName) : '…';
   const label = own ? accountDisplayName(own, t.claudeAccounts.defaultName) : projectName;
@@ -45,7 +57,9 @@ export const SessionAgentPicker: React.FC<SessionAgentPickerProps> = ({ projectP
       <ModelSelectorDropdown
         config={sessionRequestConfig(config, agent)}
         placement="above"
-        onSelect={(selection) => onChange(withSelection(agent, selection))}
+        claudeCliGroup={claudeGroup}
+        onOpen={claudeGroup === 'available' ? undefined : () => void loadEngines(projectPath)}
+        onSelect={(selection) => onChange(withSelection(agent, selection, config))}
       />
       {showAccount && (
         <ComposerMenu

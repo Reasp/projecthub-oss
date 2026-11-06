@@ -128,6 +128,7 @@ export const TUNNEL_CHANNELS: ReadonlySet<string> = new Set([
   'ai:readCliSession',
   'ai:previewContext',
   'ai:streamChat',
+  'ai:studioEngines',
   'ai:taskDraft',
   'agents:launchCheck',
   'claudeBridge:getAllProjectStatuses',

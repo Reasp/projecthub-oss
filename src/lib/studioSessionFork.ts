@@ -6,14 +6,14 @@ import type { AISession } from '../types/electron';
  * свою сессию, исходная сессия CLI не меняется. У вкладки без сессии CLI ответвлять нечего — `null`.
  */
 export function forkedSession(source: AISession, fork: { id: string; title: string; now: number }): AISession | null {
-  if (!source.claudeCliSessionId) return null;
+  if (!source.engineSessionId) return null;
   return {
     id: fork.id,
     title: fork.title,
     createdAt: fork.now,
     messages: (source.messages || []).map((m) => ({ ...m, ...(m.toolCalls ? { toolCalls: m.toolCalls.map((tc) => ({ ...tc })) } : {}) })),
-    claudeCliSessionId: source.claudeCliSessionId,
-    ...(source.claudeCliCwd ? { claudeCliCwd: source.claudeCliCwd } : {}),
+    engineSessionId: source.engineSessionId,
+    ...(source.engineSessionCwd ? { engineSessionCwd: source.engineSessionCwd } : {}),
     claudeCliForkPending: true,
     // Ответвление откаченной вкладки (TASK-284) начинается с того же места разговора.
     ...(source.claudeCliForkPending && source.claudeCliResumeAt ? { claudeCliResumeAt: source.claudeCliResumeAt } : {}),

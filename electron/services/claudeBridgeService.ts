@@ -35,7 +35,6 @@ import {
   subagentFromToolResult,
   subagentFromToolUse,
   subagentProgressFromText,
-  type CliForkKind,
   type CliSetModePermission,
   type CliStreamPiece,
   type CliSubagentUpdate
@@ -44,7 +43,7 @@ import { pricingService } from './pricingService.js';
 import { hitlService, ApprovalCancelledError } from './hitlService.js';
 import { keyedHitlText, readAnswerDenied } from './hitlText.js';
 import { appEventBus } from './eventBus.js';
-import { buildAgentContext, buildComputerUseInstructions, type ContextPartKey } from './contextBuilder.js';
+import { buildAgentContext, buildComputerUseInstructions } from './contextBuilder.js';
 import { computerUseService, type ComputerCallContext } from './computerUseService.js';
 import { COMPUTER_TOOL_PREFIX } from './computerToolCatalog.js';
 import { MEMORY_TOOL_PREFIX, type MemoryToolContext } from './memoryTools.js';
@@ -57,7 +56,8 @@ import { claudeCliEffortArgs, normalizeReasoningEffort } from './reasoningEffort
 import { CLI_FILE_CHECKPOINTING_ENV } from './claudeCliRewind.js';
 import { usableAddDirs } from './cliAddDir.js';
 import { cliBackgroundHoldInText, cliBackgroundHoldOf } from './cliBackgroundSession.js';
-import { usesClaudeCli } from './modelTarget.js';
+import { StudioEngineRegistry, type StudioEngineRequest } from './studioEngineRegistry.js';
+import { STUDIO_ENGINES, type StudioEngineStatus } from '../../src/lib/studioEngines.js';
 import { getHostLanguage } from './hostLanguage.js';
 import { hostText } from '../i18n/hostText.js';
 import { editionRegistry, launcherGitEnv } from '../extensions/editionRegistry.js';
@@ -227,7 +227,7 @@ export interface ClaudeBridgeMessageChunk {
   subagent?: SubagentInfo;
   approvalRequest?: ApprovalRequest;
   status?: AgentStatusType;
-  claudeCliSessionId?: string;
+  engineSessionId?: string;
   /** Имя сессии CLI сменилось в ходе (`/rename`, TASK-287): вкладка берёт его заголовком. */
   claudeCliTitle?: string;
   rateLimitWarning?: RateLimitWarning;
@@ -524,8 +524,28 @@ class ClaudeBridgeService extends EventEmitter {
   private sessionEngines = new Map<string, HitlEngine>();
   private sessionStartedAt = new Map<string, number>();
 
+  /** Движки вкладки Studio (TASK-277, decision-220): ход идёт через движок, а не через ветку по провайдеру. */
+  private readonly studioEngines = new StudioEngineRegistry<ClaudeBridgeMessageChunk>();
+
   constructor() {
     super();
+    this.studioEngines.register({
+      id: 'claude-code',
+      capabilities: STUDIO_ENGINES['claude-code'].capabilities,
+      detect: (force) => this.ensureClaudeCliAvailable(force),
+      run: (req, h) => this.runClaudeCliTask(req, h.onChunk, h.onComplete, h.onError, h.onPromptSuggestion)
+    });
+    this.studioEngines.register({
+      id: 'api',
+      capabilities: STUDIO_ENGINES.api.capabilities,
+      detect: async () => ({ available: true }),
+      run: (req, h) => this.runApiTask(req, h.onChunk, h.onComplete, h.onError)
+    });
+  }
+
+  /** Доступность движков вкладки на этой машине (`ai:studioEngines`): выбор во вкладке показывает только найденные. */
+  public studioEngineStatuses(force = false): Promise<StudioEngineStatus[]> {
+    return this.studioEngines.statuses(force);
   }
 
   public setCliPermissionBroker(broker: CliPermissionBroker | null): void {
@@ -1483,58 +1503,33 @@ class ClaudeBridgeService extends EventEmitter {
   }
 
   /**
-   * Run autonomous agent loop with Human-in-the-Loop approvals and subagents
+   * Ход вкладки Agents Studio (и голосовой команды компьютеру) с HITL: движок запроса (TASK-277, decision-220) — явный
+   * `req.engine` или выведенный из конфига правилом подписки (decision-74).
    */
   public async runAgentTask(
-    req: {
-      sessionId: string;
-      projectPath: string;
-      messages: AIMessage[];
-      config: AIProviderConfig;
-      mode: 'agent' | 'chat' | 'architect';
-      claudeCliSessionId?: string;
-      /** Активное рабочее дерево сессии (worktree); по умолчанию — корень проекта (TASK-62). */
-      workspaceRoot?: string;
-      /** Задача, привязанная к сессии Agents Studio (TASK-64) — по ней contextBuilder собирает контекст. */
-      taskId?: string;
-      contextParts?: Partial<Record<ContextPartKey, boolean>>;
-      /**
-       * Встроенные инструменты Claude CLI, доступные сессии (`--tools`); пустой список — ни одного,
-       * остаются только MCP-инструменты ProjectHub (`computer_*`). Без поля — набор CLI по умолчанию.
-       * Голосовая команда компьютеру ограничена так же, как в API-пути (TASK-83 п. 4, decision-35).
-       */
-      builtinTools?: string[];
-      /** Дополнение системного промпта CLI-сессии (например, правила голосовой команды). */
-      systemPromptAddon?: string;
-      /** Аккаунт Claude Code вкладки Agents Studio (TASK-170): перекрывает привязку проекта, как аккаунт слота. */
-      claudeAccountId?: string;
-      /** Участник общего хоста, чья сессия (TASK-142.3): git-автор коммитов, которые делает CLI. */
-      memberId?: string;
-      /** Ответвление разговора Claude CLI (TASK-283): вкладка-ответвление или побочный вопрос `/btw`. */
-      claudeCliFork?: CliForkKind;
-      /** Откат разговора `/rewind` (TASK-284): ответвление продолжает разговор только до этой записи CLI. */
-      claudeCliResumeAt?: string;
-      /** Дополнительные каталоги вкладки (`/add-dir`, TASK-285): ход идёт с `--add-dir`. */
-      claudeCliAddDirs?: string[];
-    },
+    req: StudioEngineRequest,
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
-    /** `info` — снимок ошибки провайдера API-пути (decision-43); у Claude CLI его нет. */
+    /** `info` — снимок ошибки с кодом (decision-43, decision-165). */
     onError: (err: string, info?: ProviderErrorInfo) => void,
     /** Подсказка следующего промпта Claude Code (TASK-294): приходит после `onComplete`. */
     onPromptSuggestion?: (text: string) => void
   ): Promise<void> {
     const { sessionId, projectPath } = req;
-
-    // Движок сессии — Claude Code по подписке или API-провайдер; правило — в одном месте (decision-74).
-    const useCli = usesClaudeCli(req.config);
-    this.startSession(sessionId, projectPath, useCli ? 'claude-cli' : 'api');
+    const engine = this.studioEngines.resolve(req);
+    this.startSession(sessionId, projectPath, STUDIO_ENGINES[engine.id].launchEngine);
     this.setProjectStatus(projectPath, 'running', { code: 'analyzing' });
+    return engine.run(req, { onChunk, onComplete, onError, onPromptSuggestion });
+  }
 
-    if (useCli) {
-      return this.runClaudeCliTask(req, onChunk, onComplete, onError, onPromptSuggestion);
-    }
-
+  /** Движок API: многошаговый цикл инструментов `aiAgentService.streamChat` с общим исполнителем (TASK-82, TASK-103). */
+  private async runApiTask(
+    req: StudioEngineRequest,
+    onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
+    onComplete: (msg: AIMessage) => void,
+    onError: (err: string, info?: ProviderErrorInfo) => void
+  ): Promise<void> {
+    const { sessionId, projectPath } = req;
     const toolContext = this.studioToolContext(req, onChunk);
     try {
       // Многошаговый tool-loop (TASK-82): инструменты исполняются по ходу ответа модели, их результаты
@@ -1604,26 +1599,9 @@ class ClaudeBridgeService extends EventEmitter {
     };
   }
 
+  /** Движок Claude Code: `claude -p` со stream-json, постоянный процесс на вкладку (TASK-298), HITL через MCP. */
   private async runClaudeCliTask(
-    req: {
-      sessionId: string;
-      projectPath: string;
-      messages: AIMessage[];
-      config: AIProviderConfig;
-      mode: 'agent' | 'chat' | 'architect';
-      claudeCliSessionId?: string;
-      /** Активное рабочее дерево сессии (worktree); по умолчанию — корень проекта (TASK-62). */
-      workspaceRoot?: string;
-      taskId?: string;
-      contextParts?: Partial<Record<ContextPartKey, boolean>>;
-      builtinTools?: string[];
-      systemPromptAddon?: string;
-      claudeAccountId?: string;
-      memberId?: string;
-      claudeCliFork?: CliForkKind;
-      claudeCliResumeAt?: string;
-      claudeCliAddDirs?: string[];
-    },
+    req: StudioEngineRequest,
     onChunk: (chunk: ClaudeBridgeMessageChunk) => void,
     onComplete: (msg: AIMessage) => void,
     onError: (err: string, info?: ProviderErrorInfo) => void,
@@ -1664,7 +1642,7 @@ class ClaudeBridgeService extends EventEmitter {
     // или в другом дереве (вкладку перенесли, TASK-268), `--resume` не найдёт — окно уже сняло его, кэш тоже не берём.
     const cached = this.sessionClaudeCliIds.get(sessionId);
     const cachedHere = cached?.configDir === account.configDir && sameDir(cached.workDir, workDir);
-    const existingCliSessionId = req.claudeCliSessionId || (cachedHere ? cached.id : undefined);
+    const existingCliSessionId = req.engineSessionId || (cachedHere ? cached.id : undefined);
     // Побочный вопрос `/btw` (TASK-283): ответвление без записи и без инструментов, id его сессии вкладке не нужен.
     const sideQuestion = req.claudeCliFork === 'side';
     // `--resume` — только при запуске процесса: живой процесс вкладки уже ведёт эту сессию (TASK-298).
@@ -2014,7 +1992,7 @@ class ClaudeBridgeService extends EventEmitter {
 
       if (typeof event.session_id === 'string' && event.session_id && !sideQuestion) {
         this.sessionClaudeCliIds.set(sessionId, { id: event.session_id, configDir: account.configDir, workDir });
-        onChunk({ claudeCliSessionId: event.session_id });
+        onChunk({ engineSessionId: event.session_id });
       }
 
       if (event.type === 'rate_limit_event' || event.rate_limit_info) {

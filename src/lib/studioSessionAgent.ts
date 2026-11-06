@@ -1,6 +1,7 @@
 import type { AIProviderConfig, StudioSessionAgent } from '../types/electron';
 import { claudeEngineOf } from './connections';
 import { parseReasoningEffort, type ReasoningEffort } from './reasoningEffort';
+import { configEngineFor, isStudioEngineId, studioEngineCapabilities, studioEngineOfAgent, type StudioEngineId } from './studioEngines';
 
 /**
  * Агент вкладки Agents Studio (TASK-170): у каждой вкладки свои провайдер, модель, аккаунт Claude Code и усилие
@@ -10,8 +11,9 @@ import { parseReasoningEffort, type ReasoningEffort } from './reasoningEffort';
 const PROVIDERS: ReadonlyArray<AIProviderConfig['provider']> = ['anthropic', 'openrouter', 'deepseek', 'ollama', 'custom', 'openai-compatible'];
 
 /**
- * Конфиг запроса вкладки: общий конфиг, поверх него провайдер и модель вкладки. Движок Claude — общий, если общий
- * провайдер тоже Claude; иначе подписка: ключ Anthropic в общем поле не должен молча увести вкладку на API.
+ * Конфиг запроса вкладки: общий конфиг, поверх него провайдер и модель вкладки. Движок Claude — свой у вкладки
+ * (TASK-277), у вкладки без поля — общий, если общий провайдер тоже Claude; иначе подписка: ключ Anthropic в общем поле
+ * не должен молча увести вкладку на API.
  */
 export function sessionRequestConfig(global: AIProviderConfig, agent: StudioSessionAgent | undefined): AIProviderConfig {
   if (!agent) return global;
@@ -20,7 +22,7 @@ export function sessionRequestConfig(global: AIProviderConfig, agent: StudioSess
     ...rest,
     provider: agent.provider,
     model: agent.model,
-    ...(agent.provider === 'anthropic' ? { engine: claudeEngineOf(global) } : {}),
+    ...(agent.provider === 'anthropic' ? { engine: agent.engine ? configEngineFor(agent.engine) : claudeEngineOf(global) } : {}),
     ...(agent.provider === 'openai-compatible' && agent.profileId ? { profileId: agent.profileId } : {}),
     ...(agent.reasoningEffort ? { reasoningEffort: agent.reasoningEffort } : {})
   };
@@ -32,10 +34,14 @@ export function withSessionEffort(current: StudioSessionAgent, effort: Reasoning
   return effort ? { ...rest, reasoningEffort: effort } : rest;
 }
 
-/** Текущий агент вкладки: свой, а у старой вкладки без поля — общий выбор Studio. */
+/**
+ * Текущий агент вкладки с движком: свой, а у старой вкладки без поля — общий выбор Studio. Движок старой вкладки
+ * выводится (`studioEngineOfAgent`) и закрепляется при первом же изменении агента.
+ */
 export function effectiveSessionAgent(global: AIProviderConfig, agent: StudioSessionAgent | undefined): StudioSessionAgent {
-  if (agent) return agent;
+  if (agent) return agent.engine ? agent : { ...agent, engine: studioEngineOfAgent(global, agent) };
   return {
+    engine: studioEngineOfAgent(global, undefined),
     provider: global.provider,
     model: global.model,
     ...(global.provider === 'openai-compatible' && global.profileId ? { profileId: global.profileId } : {})
@@ -43,14 +49,24 @@ export function effectiveSessionAgent(global: AIProviderConfig, agent: StudioSes
 }
 
 /**
- * Новый выбор модели во вкладке. Аккаунт Claude Code сохраняется, пока вкладка остаётся на Claude Code:
+ * Новый выбор модели во вкладке. Движок — из выбора; без него у того же провайдера остаётся движок вкладки, у
+ * другого — выводится по общему конфигу. Аккаунт Claude Code сохраняется, пока вкладка остаётся на Claude Code:
  * у другого провайдера аккаунта CLI нет.
  */
 export function withSelection(
   current: StudioSessionAgent,
-  selection: Pick<AIProviderConfig, 'provider' | 'profileId' | 'model'>
+  selection: Pick<AIProviderConfig, 'provider' | 'profileId' | 'model'> & { engine?: StudioEngineId },
+  global: AIProviderConfig
 ): StudioSessionAgent {
+  const engine =
+    selection.engine ??
+    studioEngineOfAgent(global, {
+      provider: selection.provider,
+      model: selection.model,
+      ...(current.provider === selection.provider && current.engine ? { engine: current.engine } : {})
+    });
   return {
+    engine,
     provider: selection.provider,
     model: selection.model,
     ...(selection.provider === 'openai-compatible' && selection.profileId ? { profileId: selection.profileId } : {}),
@@ -83,11 +99,14 @@ export function withClaudeAccount(current: StudioSessionAgent, accountId: string
 }
 
 /**
- * Сохраняет ли смена агента продолжение разговора CLI (`--resume`). Разговор лежит в каталоге аккаунта Claude Code:
- * смена модели его не трогает, смена аккаунта или уход на другого провайдера — начинают новый (ревью TASK-170).
+ * Сохраняет ли смена агента разговор движка (`engineSessionId`, TASK-277). Разговор принадлежит движку, а у Claude Code
+ * ещё и каталогу аккаунта: смена модели его не трогает, смена движка, провайдера или аккаунта — начинают новый
+ * (ревью TASK-170). Агенты — уже с движком (`effectiveSessionAgent`).
  */
-export function keepsClaudeCliSession(before: StudioSessionAgent, after: StudioSessionAgent): boolean {
-  return before.provider === 'anthropic' && after.provider === 'anthropic' && before.claudeAccountId === after.claudeAccountId;
+export function keepsEngineSession(before: StudioSessionAgent, after: StudioSessionAgent): boolean {
+  if (!before.engine || before.engine !== after.engine || before.provider !== after.provider) return false;
+  if (!studioEngineCapabilities(before.engine).resume) return false;
+  return !studioEngineCapabilities(before.engine).accounts || before.claudeAccountId === after.claudeAccountId;
 }
 
 /** Агент запуска Claude CLI вкладки: аккаунт имеет смысл только у провайдера `anthropic`. */
@@ -103,7 +122,10 @@ export function sanitizeSessionAgent(value: unknown): StudioSessionAgent | undef
   if (typeof v.model !== 'string' || !v.model.trim()) return undefined;
   const provider = v.provider as AIProviderConfig['provider'];
   const effort = parseReasoningEffort(typeof v.reasoningEffort === 'string' ? v.reasoningEffort : undefined);
+  // Движок вкладки (TASK-277): Claude Code — только у провайдера Anthropic, неизвестный движок отбрасывается.
+  const engine = isStudioEngineId(v.engine) && (v.engine !== 'claude-code' || provider === 'anthropic') ? v.engine : undefined;
   return {
+    ...(engine ? { engine } : {}),
     provider,
     model: v.model.slice(0, 200),
     ...(provider === 'openai-compatible' && typeof v.profileId === 'string' && v.profileId ? { profileId: v.profileId.slice(0, 120) } : {}),

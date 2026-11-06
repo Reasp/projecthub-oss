@@ -28,8 +28,9 @@ import { messagesForModel, retryTarget } from '../lib/providerErrorView';
 import { isApprovedPlanExit, upsertToolCall } from '../lib/aiToolCalls';
 import { sessionMode, withSessionMode } from '../lib/studioSessionMode';
 import type { StudioMode } from '../types/remote';
-import { effectiveSessionAgent, keepsClaudeCliSession, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
+import { effectiveSessionAgent, keepsEngineSession, sessionClaudeAccountId, sessionRequestConfig } from '../lib/studioSessionAgent';
 import { goesToClaudeCli, studioCliCommand, studioLocalCommand, unavailableCliCommand, type StudioCliCommand } from '../lib/studioCliCommands';
+import { STUDIO_ENGINES, studioEngineCapabilities, studioEngineOfConfig } from '../lib/studioEngines';
 import { conversationMarkdown, exportFileName, replyCount, replyToCopy } from '../lib/conversationExport';
 import { studioCliText } from '../i18n/studioCliText';
 import { canWriteStudioSession } from '../utils/studioRemote';
@@ -425,12 +426,12 @@ export function tabCliQuery(
   projectPath: string,
   session: AISession
 ): { projectPath: string; cwd: string; cliSessionId: string; claudeAccountId?: string } | null {
-  if (!session.claudeCliSessionId) return null;
+  if (!session.engineSessionId) return null;
   const claudeAccountId = sessionClaudeAccountId(session.agent);
   return {
     projectPath,
-    cwd: session.claudeCliCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
-    cliSessionId: session.claudeCliSessionId,
+    cwd: session.engineSessionCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
+    cliSessionId: session.engineSessionId,
     ...(claudeAccountId ? { claudeAccountId } : {})
   };
 }
@@ -792,7 +793,7 @@ export const useAIStudioStore = create<AIStudioState>()(
             projectPath,
             sessionId,
             ...(claudeAccountId ? { claudeAccountId } : {}),
-            ...(session.claudeCliSessionId ? { cliSessionId: session.claudeCliSessionId } : {}),
+            ...(session.engineSessionId ? { cliSessionId: session.engineSessionId } : {}),
             workspaceRoot: sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
             ...(session.claudeCliAddDirs?.length ? { addDirs: [...session.claudeCliAddDirs] } : {})
           }
@@ -804,19 +805,19 @@ export const useAIStudioStore = create<AIStudioState>()(
         if (!session || get().streamingSessions[sessionId] || !window.api?.cliRenameSession) return;
         if (!goesToClaudeCli(sessionRequestConfig(get().config, session.agent))) return;
         const name = cliTitleToSync(session);
-        if (!name || !session.claudeCliSessionId) return;
+        if (!name || !session.engineSessionId) return;
         if (titleSyncs.has(sessionId)) {
           titleSyncAgain.add(sessionId);
           return;
         }
         titleSyncs.add(sessionId);
-        const cliSessionId = session.claudeCliSessionId;
+        const cliSessionId = session.engineSessionId;
         const claudeAccountId = sessionClaudeAccountId(session.agent);
         void window.api
           .cliRenameSession({
             projectPath,
             // Разговор CLI лежит в каталоге, где начат (TASK-230): `--resume` ищет его там.
-            cwd: session.claudeCliCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
+            cwd: session.engineSessionCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
             ...(claudeAccountId ? { claudeAccountId } : {}),
             ...(session.claudeCliAddDirs?.length ? { addDirs: [...session.claudeCliAddDirs] } : {}),
             cliSessionId,
@@ -828,7 +829,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               sessions: {
                 ...state.sessions,
                 [projectPath]: (state.sessions[projectPath] || []).map((s) =>
-                  s.id === sessionId && s.claudeCliSessionId === cliSessionId ? { ...s, claudeCliTitle: { sessionId: cliSessionId, title: name } } : s
+                  s.id === sessionId && s.engineSessionId === cliSessionId ? { ...s, claudeCliTitle: { sessionId: cliSessionId, title: name } } : s
                 )
               }
             }));
@@ -875,7 +876,7 @@ export const useAIStudioStore = create<AIStudioState>()(
             [projectPath]: (state.sessions[projectPath] || []).map((s) =>
               // Продолжаемая сессия CLI сохраняет своё имя: заголовок вкладки ей не передаётся (TASK-287).
               s.id === sessionId
-                ? { ...s, claudeCliSessionId: cliSessionId, claudeCliCwd: cwd, claudeCliForkPending: undefined, claudeCliResumeAt: undefined, titleByUser: undefined, claudeCliTitle: undefined }
+                ? { ...s, engineSessionId: cliSessionId, engineSessionCwd: cwd, claudeCliForkPending: undefined, claudeCliResumeAt: undefined, titleByUser: undefined, claudeCliTitle: undefined }
                 : s
             )
           }
@@ -894,7 +895,7 @@ export const useAIStudioStore = create<AIStudioState>()(
                 ...state.sessions,
                 [projectPath]: (state.sessions[projectPath] || []).map((s) => {
                   // За время чтения вкладку могли привязать к другой сессии или начать в ней разговор.
-                  if (s.id !== sessionId || s.claudeCliSessionId !== cliSessionId || (s.messages || []).length > 0) return s;
+                  if (s.id !== sessionId || s.engineSessionId !== cliSessionId || (s.messages || []).length > 0) return s;
                   const firstPrompt = history.find((m) => m.role === 'user')?.content ?? '';
                   const autoTitle = isAutoSessionTitle(s) && Boolean(firstPrompt);
                   return {
@@ -988,7 +989,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           messages: [{ id: `msg-${Date.now()}`, role: 'user', content: text, timestamp: new Date().toISOString() }],
           config,
           mode: 'chat',
-          ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),
+          engine: studioEngineOfConfig(config),
+          ...(session.engineSessionId ? { engineSessionId: session.engineSessionId } : {}),
           claudeCliFork: 'side',
           // Откаченная вкладка (TASK-284) спрашивает об откаченном разговоре.
           ...(session.claudeCliForkPending && session.claudeCliResumeAt ? { claudeCliResumeAt: session.claudeCliResumeAt } : {}),
@@ -1043,8 +1045,10 @@ export const useAIStudioStore = create<AIStudioState>()(
           return;
         }
         const requestConfig = sessionRequestConfig(get().config, session.agent);
-        const viaCli = goesToClaudeCli(requestConfig);
-        const engine = viaCli ? 'Claude Code' : requestConfig.provider;
+        const engineId = studioEngineOfConfig(requestConfig);
+        const viaCli = engineId === 'claude-code';
+        // Имя движка в шапке экспорта: у API-пути — провайдер (TASK-277).
+        const engine = engineId === 'api' ? requestConfig.provider : STUDIO_ENGINES[engineId].label;
         const now = new Date();
         const markdown = conversationMarkdown({
           title: session.title,
@@ -1054,7 +1058,7 @@ export const useAIStudioStore = create<AIStudioState>()(
           agent: requestConfig.model ? `${engine} · ${requestConfig.model}` : engine
         });
         const claudeAccountId = viaCli ? sessionClaudeAccountId(session.agent) : undefined;
-        const cliSessionId = viaCli ? session.claudeCliSessionId : undefined;
+        const cliSessionId = viaCli ? session.engineSessionId : undefined;
         const result = await window.api
           .exportConversation({
             projectPath,
@@ -1064,7 +1068,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               ? {
                   cliSessionId,
                   // Разговор CLI лежит в каталоге, где начат (TASK-230): `--resume` ищет его там.
-                  cwd: session.claudeCliCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
+                  cwd: session.engineSessionCwd || sessionWorkDir(session, activeWorkRoot(projectPath), projectPath),
                   ...(claudeAccountId ? { claudeAccountId } : {}),
                   ...(session.claudeCliAddDirs?.length ? { addDirs: [...session.claudeCliAddDirs] } : {})
                 }
@@ -1272,9 +1276,11 @@ export const useAIStudioStore = create<AIStudioState>()(
             ...state.sessions,
             [projectPath]: (state.sessions[projectPath] || []).map((s) => {
               if (s.id !== sessionId) return s;
-              // Другой аккаунт Claude Code или провайдер — прежний разговор CLI под ним не найдётся (`--resume`).
-              const keep = keepsClaudeCliSession(effectiveSessionAgent(state.config, s.agent), agent);
-              return keep ? { ...s, agent } : { ...s, agent, claudeCliSessionId: undefined };
+              // Другой движок, провайдер или аккаунт Claude Code — прежний разговор движка под ним не найдётся (`--resume`).
+              // Агент вкладки хранится с движком (TASK-277): старая вкладка закрепляет выведенный движок здесь.
+              const next = effectiveSessionAgent(state.config, agent);
+              const keep = keepsEngineSession(effectiveSessionAgent(state.config, s.agent), next);
+              return keep ? { ...s, agent: next } : { ...s, agent: next, engineSessionId: undefined };
             })
           }
         }));
@@ -1288,7 +1294,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               if (s.id !== sessionId) return s;
               const before = sessionWorkDir(s, null, projectPath);
               if (sameWorkPath(before, worktree.path)) return { ...s, worktree };
-              return { ...s, worktree, claudeCliSessionId: undefined, claudeCliCwd: undefined };
+              return { ...s, worktree, engineSessionId: undefined, engineSessionCwd: undefined };
             })
           }
         }));
@@ -1371,7 +1377,7 @@ export const useAIStudioStore = create<AIStudioState>()(
                   autoTitle: true,
                   titleByUser: undefined,
                   claudeCliTitle: undefined,
-                  claudeCliSessionId: undefined,
+                  engineSessionId: undefined,
                   claudeCliForkPending: undefined,
                   claudeCliResumeAt: undefined
                 }
@@ -1468,7 +1474,8 @@ export const useAIStudioStore = create<AIStudioState>()(
           // Claude Code берёт реплику и посреди хода, как терминал (TASK-298, decision-215): она сразу уходит в stdin
           // процесса вкладки и встанет в ленту, когда модель её увидит. Команды со `/` ждут конца хода, как в CLI.
           const queued = get().queuedMessages[queueKey]?.some((m) => m.id === queuedId);
-          if (queued && goesToClaudeCli(requestConfig) && !text.trim().startsWith('/') && window.api?.cliSendDuringTurn) {
+          const liveInput = studioEngineCapabilities(studioEngineOfConfig(requestConfig)).liveInput;
+          if (queued && liveInput && !text.trim().startsWith('/') && window.api?.cliSendDuringTurn) {
             const sent = await window.api
               .cliSendDuringTurn(queueKey, { id: queuedId, text: text.trim(), ...(attachments.length > 0 ? { attachments } : {}) })
               .catch(() => false);
@@ -1514,7 +1521,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               projectPath,
               sessionId: activeSessionId,
               ...(claudeAccountId ? { claudeAccountId } : {}),
-              ...(currentSession.claudeCliSessionId ? { cliSessionId: currentSession.claudeCliSessionId } : {}),
+              ...(currentSession.engineSessionId ? { cliSessionId: currentSession.engineSessionId } : {}),
               workspaceRoot: cliCwd
             }
           });
@@ -1640,9 +1647,9 @@ export const useAIStudioStore = create<AIStudioState>()(
             if (sIdx === -1) return state;
 
             const targetSession = { ...pSessions[sIdx] };
-            if (chunk.claudeCliSessionId) {
-              targetSession.claudeCliSessionId = chunk.claudeCliSessionId;
-              targetSession.claudeCliCwd = workDir;
+            if (chunk.engineSessionId) {
+              targetSession.engineSessionId = chunk.engineSessionId;
+              targetSession.engineSessionCwd = workDir;
               // Ответвление получило свою сессию CLI (TASK-283): дальше вкладка продолжает её, а не исходную.
               delete targetSession.claudeCliForkPending;
               delete targetSession.claudeCliResumeAt;
@@ -1652,7 +1659,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               targetSession.title = chunk.claudeCliTitle;
               targetSession.titleByUser = true;
               delete targetSession.autoTitle;
-              if (targetSession.claudeCliSessionId) targetSession.claudeCliTitle = { sessionId: targetSession.claudeCliSessionId, title: chunk.claudeCliTitle };
+              if (targetSession.engineSessionId) targetSession.claudeCliTitle = { sessionId: targetSession.engineSessionId, title: chunk.claudeCliTitle };
             }
 
             const msgs = [...targetSession.messages];
@@ -1781,8 +1788,8 @@ export const useAIStudioStore = create<AIStudioState>()(
                       projectPath,
                       sessionId: activeSessionId,
                       ...(claudeAccountId ? { claudeAccountId } : {}),
-                      ...(targetSession.claudeCliSessionId ? { cliSessionId: targetSession.claudeCliSessionId } : {}),
-                      workspaceRoot: targetSession.claudeCliCwd || cliCwd
+                      ...(targetSession.engineSessionId ? { cliSessionId: targetSession.engineSessionId } : {}),
+                      workspaceRoot: targetSession.engineSessionCwd || cliCwd
                     }
                   }
                 : {}),
@@ -1858,12 +1865,16 @@ export const useAIStudioStore = create<AIStudioState>()(
           messages: messagesForModel([...currentMessages, userMsg]),
           config: requestConfig,
           mode: requestMode,
-          claudeCliSessionId: currentSession.claudeCliSessionId,
-          ...(currentSession.claudeCliForkPending && currentSession.claudeCliSessionId
+          // Движок вкладки (TASK-277): main ведёт ход через него, конфиг запроса указывает на тот же движок.
+          engine: studioEngineOfConfig(requestConfig),
+          engineSessionId: currentSession.engineSessionId,
+          ...(currentSession.claudeCliForkPending && currentSession.engineSessionId
             ? { claudeCliFork: 'branch' as const, ...(currentSession.claudeCliResumeAt ? { claudeCliResumeAt: currentSession.claudeCliResumeAt } : {}) }
             : {}),
           // Каталоги `/add-dir` вкладки (TASK-285) — только Claude Code: у API-движков своего `--add-dir` нет.
-          ...(currentSession.claudeCliAddDirs?.length && goesToClaudeCli(requestConfig) ? { claudeCliAddDirs: currentSession.claudeCliAddDirs } : {}),
+          ...(currentSession.claudeCliAddDirs?.length && studioEngineCapabilities(studioEngineOfConfig(requestConfig)).addDirs
+            ? { claudeCliAddDirs: currentSession.claudeCliAddDirs }
+            : {}),
           taskId: currentSession.activeTaskId,
           contextParts: currentSession.contextParts,
           // Агент работает в дереве вкладки (TASK-268, decision-195); основное дерево — без поля, как раньше.
@@ -1924,7 +1935,7 @@ export const useAIStudioStore = create<AIStudioState>()(
               if (s.id !== session.id) return s;
               const messages = withBackgroundReplies(s.messages || [], assistantMessageId, history);
               // Копия: первый ход уйдёт с `--fork-session`, разговор вкладки получит id копии; фоновая сессия цела.
-              return action === 'fork' && s.claudeCliSessionId ? { ...s, messages, claudeCliForkPending: true } : { ...s, messages };
+              return action === 'fork' && s.engineSessionId ? { ...s, messages, claudeCliForkPending: true } : { ...s, messages };
             })
           }
         }));

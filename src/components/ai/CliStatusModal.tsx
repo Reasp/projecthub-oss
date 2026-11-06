@@ -76,7 +76,7 @@ export function CliStatusModal() {
   const accountName = status.claudeAccountId
     ? overview?.accounts.find((a) => a.id === status.claudeAccountId)?.name
     : projectAccounts[status.projectPath]?.account.name;
-  const cliSessionId = session?.claudeCliSessionId ?? status.cliSessionId;
+  const cliSessionId = session?.engineSessionId ?? status.cliSessionId;
 
   const copyId = async () => {
     if (!cliSessionId) return;

@@ -20,6 +20,13 @@ interface ModelSelectorDropdownProps {
    * `auto` — туда, где больше места, по левому краю кнопки: середина окна настроек (TASK-172).
    */
   placement?: 'below' | 'above' | 'auto';
+  /**
+   * Группа Claude Code CLI (TASK-277): `missing` и `checking` — CLI не найден или ещё ищется, группа скрыта, вместо неё
+   * строка. Без поля группа видна всегда: в настройках она же служит Anthropic API по ключу.
+   */
+  claudeCliGroup?: 'available' | 'missing' | 'checking';
+  /** Меню открыли: выбор вкладки заново ищет ненайденный CLI — его могли установить. */
+  onOpen?: () => void;
 }
 
 const CLI_GROUP_KEY = 'claude-cli';
@@ -92,7 +99,7 @@ const FALLBACK_MODELS: ClaudeModelOption[] = [
   }
 ];
 
-export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ config, onSelect, placement = 'below' }) => {
+export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ config, onSelect, placement = 'below', claudeCliGroup = 'available', onOpen }) => {
   const { t } = useI18n();
   const ps = t.providerSelect;
   const [isOpen, setIsOpen] = useState(false);
@@ -159,6 +166,12 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
     void loadProfiles();
   }, [loadProfiles]);
 
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+  useEffect(() => {
+    if (isOpen) onOpenRef.current?.();
+  }, [isOpen]);
+
   // Каталоги профилей (кэш main-процесса, TASK-70.2) — при открытии меню, каждый независимо.
   useEffect(() => {
     if (!isOpen) return;
@@ -207,13 +220,16 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
   const activeProfile = config.provider === 'openai-compatible' ? profiles.find((p) => p.id === config.profileId) : undefined;
 
   const groups: ModelGroup[] = useMemo(() => {
-    const list: ModelGroup[] = [
-      {
-        key: CLI_GROUP_KEY,
-        label: ps.claudeCliGroup,
-        models: cliModels.map((m) => ({ id: m.id, name: m.name, description: m.description, badge: m.badge, family: m.family }))
-      }
-    ];
+    const list: ModelGroup[] =
+      claudeCliGroup === 'available'
+        ? [
+            {
+              key: CLI_GROUP_KEY,
+              label: ps.claudeCliGroup,
+              models: cliModels.map((m) => ({ id: m.id, name: m.name, description: m.description, badge: m.badge, family: m.family }))
+            }
+          ]
+        : [];
     for (const profile of sortProfilesForMenu(profiles)) {
       const catalog = catalogs[profile.id];
       const models = [...(catalog?.models ?? [])];
@@ -231,7 +247,7 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
       });
     }
     return list;
-  }, [cliModels, profiles, catalogs, config.provider, config.profileId, config.model, ps.claudeCliGroup]);
+  }, [cliModels, profiles, catalogs, config.provider, config.profileId, config.model, ps.claudeCliGroup, claudeCliGroup]);
 
   const visibleGroups = filterModelGroups(groups, query);
 
@@ -340,6 +356,12 @@ export const ModelSelectorDropdown: React.FC<ModelSelectorDropdownProps> = ({ co
             {isLegacyProvider && !query && (
               <div className="px-2 py-1.5 text-[11px] text-slate-400 border border-slate-800 rounded-lg">
                 {config.provider}: <span className="font-mono text-slate-200">{config.model || ps.noModelSelected}</span>
+              </div>
+            )}
+            {claudeCliGroup !== 'available' && !query && (
+              <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-slate-500" data-testid="claude-cli-group-note">
+                <Sparkles className="w-3 h-3 shrink-0" />
+                <span>{claudeCliGroup === 'missing' ? ps.claudeCliMissing : ps.claudeCliChecking}</span>
               </div>
             )}
             {visibleGroups.map((group) => (

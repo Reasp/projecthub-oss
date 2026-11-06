@@ -3558,6 +3558,9 @@ export interface TranslationDictionary {
     importLegacyDone: string;
     modelSearch: string;
     claudeCliGroup: string;
+    /** Claude Code не найден на машине (TASK-277): группа скрыта, строка вместо неё. */
+    claudeCliMissing: string;
+    claudeCliChecking: string;
     noModels: string;
     catalogError: string;
     loadingModels: string;

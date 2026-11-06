@@ -37,7 +37,7 @@ export function rewoundSession(session: AISession, point: CliRewindPoint, messag
   const index = messageId ? session.messages.findIndex((m) => m.id === messageId) : -1;
   const messages = index >= 0 ? session.messages.slice(0, index) : (feed ?? session.messages);
   const { claudeCliForkPending: _pending, claudeCliResumeAt: _at, ...rest } = session;
-  if (!point.keepUuid || !session.claudeCliSessionId) return { ...rest, messages, claudeCliSessionId: undefined };
+  if (!point.keepUuid || !session.engineSessionId) return { ...rest, messages, engineSessionId: undefined };
   return { ...rest, messages, claudeCliForkPending: true, claudeCliResumeAt: point.keepUuid };
 }
 

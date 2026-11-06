@@ -1,5 +1,5 @@
 import type { AIProviderConfig } from '../types/electron';
-import { claudeEngineOf } from './connections';
+import { studioEngineOfConfig } from './studioEngines';
 import { addDirArgument } from './studioAddDir';
 import { copyArgument, exportArgument } from './conversationExport';
 
@@ -136,9 +136,12 @@ export function studioLocalCommand(text: string): StudioLocalCommand | null {
   return fileName ? { kind: 'export', fileName } : { kind: 'export' };
 }
 
-/** Запрос вкладки уходит в Claude Code CLI (подписка), а не в API или другой провайдер. */
+/**
+ * Запрос вкладки уходит в Claude Code CLI (подписка), а не в API или другой провайдер. Команды `/…` этого модуля — команды
+ * Claude Code; движок решает `studioEngineOfConfig` (TASK-277).
+ */
 export function goesToClaudeCli(config: Pick<AIProviderConfig, 'provider' | 'apiKey' | 'engine'>): boolean {
-  return config.provider === 'anthropic' && claudeEngineOf(config) === 'claude-cli';
+  return studioEngineOfConfig(config) === 'claude-code';
 }
 
 export function studioCliCommand(text: string, config: Pick<AIProviderConfig, 'provider' | 'apiKey' | 'engine'>): StudioCliCommand | null {

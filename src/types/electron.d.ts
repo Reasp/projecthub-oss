@@ -1,4 +1,5 @@
 import type { BacklogProjectConfig } from '../utils/taskStatus';
+import type { StudioEngineId, StudioEngineStatus } from '../lib/studioEngines';
 
 export interface ActionDefinition {
   name: string;
@@ -1411,6 +1412,8 @@ export interface IElectronAPI {
   stopCliBackgroundSession: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => Promise<
     { ok: true; stopped: string | null } | { ok: false; error: string; errorKey?: import('../lib/appError').AppErrorKey }
   >;
+  /** Движки вкладки Studio и найдены ли они на машине (TASK-277); у проекта другого ПК — на его хосте. */
+  studioEngines: (query?: { projectPath?: string; force?: boolean }) => Promise<StudioEngineStatus[]>;
   /** Реплики человека текущего разговора CLI — точки `/rewind` (TASK-284). */
   cliRewindPoints: (query: { projectPath: string; cwd?: string; claudeAccountId?: string; cliSessionId: string }) => Promise<CliRewindPoint[]>;
   /** Файлы, которые изменит откат к реплике: сравнение с копиями CLI. */
@@ -1596,7 +1599,7 @@ export interface IElectronAPI {
       approvalRequest?: ApprovalRequest;
       subagent?: SubagentInfo;
       status?: AgentStatusType;
-      claudeCliSessionId?: string;
+      engineSessionId?: string;
       claudeCliTitle?: string;
       rateLimitWarning?: RateLimitWarning;
       cliBackground?: CliBackgroundSnapshot;
@@ -3358,11 +3361,18 @@ export interface AISession {
   claudeCliTitle?: { sessionId: string; title: string };
   createdAt: number;
   messages: AIMessage[];
-  claudeCliSessionId?: string;
-  /** Папка, где начат разговор CLI (TASK-230): там его ищут `/resume` и терминал после смены активного дерева. */
-  claudeCliCwd?: string;
   /**
-   * Вкладка — ответвление `/fork` (TASK-283): её первый ход продолжает `claudeCliSessionId` в новой сессии CLI
+   * Id разговора у движка вкладки (TASK-277, decision-220): у Claude Code — id сессии CLI для `--resume`. Принадлежит
+   * движку `agent.engine`: смена движка или аккаунта его снимает. В файлах до TASK-277 — поле `claudeCliSessionId`.
+   */
+  engineSessionId?: string;
+  /**
+   * Папка, где начат разговор движка (TASK-230): там его ищут `/resume` и терминал после смены активного дерева.
+   * В файлах до TASK-277 — `claudeCliCwd`.
+   */
+  engineSessionCwd?: string;
+  /**
+   * Вкладка — ответвление `/fork` (TASK-283): её первый ход продолжает `engineSessionId` в новой сессии CLI
    * (`--fork-session`), после события init поле снимается.
    */
   claudeCliForkPending?: boolean;
@@ -3417,6 +3427,11 @@ export interface StudioSessionWorktree {
 
 /** Агент вкладки Agents Studio (TASK-170). `claudeAccountId` действует только для Claude Code CLI. */
 export interface StudioSessionAgent {
+  /**
+   * Движок вкладки (TASK-277, decision-220): Claude Code CLI или API-провайдер. Без поля (вкладки до TASK-277) — по
+   * провайдеру вкладки и общему выбору движка Claude (`studioEngineOfAgent`).
+   */
+  engine?: StudioEngineId;
   provider: AIProviderConfig['provider'];
   profileId?: string;
   model: string;
@@ -3449,7 +3464,10 @@ export interface AIStreamRequest {
   mode: 'chat' | 'agent' | 'architect';
   /** Потолок ответа модели на один шаг API-пути (TASK-88); без значения — потолок по умолчанию. */
   maxTokens?: number;
-  claudeCliSessionId?: string;
+  /** Движок вкладки (TASK-277); без поля main выводит его из `config` (голосовая команда, старые окна). */
+  engine?: StudioEngineId;
+  /** Id разговора движка вкладки: с ним ход продолжает разговор (`--resume` у Claude Code). */
+  engineSessionId?: string;
   taskId?: string;
   contextParts?: Partial<Record<ContextPartKey, boolean>>;
   /** Активное рабочее дерево (worktree) — рабочий каталог агента; backlog общий (TASK-62). */

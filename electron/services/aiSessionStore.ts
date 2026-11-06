@@ -122,8 +122,24 @@ export function compactMessage(msg: AIMessage): AIMessage {
   return out;
 }
 
+/**
+ * Сессия до TASK-277 (decision-220): id разговора и его папка лежали в `claudeCliSessionId` и `claudeCliCwd`. Поля
+ * переносятся в `engineSessionId` и `engineSessionCwd`, старые ключи убираются; движок вкладка выводит сама.
+ */
+export function upgradeLegacySession<T>(session: T): T {
+  if (!session || typeof session !== 'object') return session;
+  const legacy = session as Record<string, unknown>;
+  if (!('claudeCliSessionId' in legacy) && !('claudeCliCwd' in legacy)) return session;
+  const { claudeCliSessionId, claudeCliCwd, ...rest } = legacy;
+  const out: Record<string, unknown> = { ...rest };
+  if (rest.engineSessionId === undefined && typeof claudeCliSessionId === 'string' && claudeCliSessionId) out.engineSessionId = claudeCliSessionId;
+  if (rest.engineSessionCwd === undefined && typeof claudeCliCwd === 'string' && claudeCliCwd) out.engineSessionCwd = claudeCliCwd;
+  return out as T;
+}
+
 /** Копия сессии, пригодная для записи на диск: усечённые тяжёлые поля, без служебных полей рендерера. */
-export function compactSessionForStorage(session: AISession): AISession {
+export function compactSessionForStorage(input: AISession): AISession {
+  const session = upgradeLegacySession(input);
   return {
     id: session.id,
     title: typeof session.title === 'string' ? session.title.slice(0, 500) : '',
@@ -133,10 +149,10 @@ export function compactSessionForStorage(session: AISession): AISession {
     ...withCliTitle(session.claudeCliTitle),
     createdAt: typeof session.createdAt === 'number' ? session.createdAt : Date.now(),
     messages: Array.isArray(session.messages) ? session.messages.map(compactMessage) : [],
-    ...(session.claudeCliSessionId ? { claudeCliSessionId: session.claudeCliSessionId } : {}),
-    ...(session.claudeCliSessionId && typeof session.claudeCliCwd === 'string' && session.claudeCliCwd ? { claudeCliCwd: session.claudeCliCwd.slice(0, 1000) } : {}),
-    ...(session.claudeCliSessionId && session.claudeCliForkPending === true ? { claudeCliForkPending: true } : {}),
-    ...(session.claudeCliSessionId && session.claudeCliForkPending === true && isCliSessionId(session.claudeCliResumeAt) ? { claudeCliResumeAt: session.claudeCliResumeAt } : {}),
+    ...(session.engineSessionId ? { engineSessionId: session.engineSessionId } : {}),
+    ...(session.engineSessionId && typeof session.engineSessionCwd === 'string' && session.engineSessionCwd ? { engineSessionCwd: session.engineSessionCwd.slice(0, 1000) } : {}),
+    ...(session.engineSessionId && session.claudeCliForkPending === true ? { claudeCliForkPending: true } : {}),
+    ...(session.engineSessionId && session.claudeCliForkPending === true && isCliSessionId(session.claudeCliResumeAt) ? { claudeCliResumeAt: session.claudeCliResumeAt } : {}),
     // Каталоги `/add-dir` вкладки (TASK-285) переживают перезапуск, как в CLI — на всю сессию.
     ...withAddDirs(normalizeAddDirs(session.claudeCliAddDirs)),
     // История, источник и модель (TASK-140.10, decision-83): закрытая вкладка остаётся на диске в истории.
@@ -241,7 +257,7 @@ export class AISessionStore {
       if (!isValidSessionId(id)) continue;
       try {
         const raw = await fs.readFile(path.join(dir, name), 'utf8');
-        const parsed = stateFields(JSON.parse(raw), SESSION_FILE_VERSION);
+        const parsed = upgradeLegacySession(stateFields(JSON.parse(raw), SESSION_FILE_VERSION));
         if (isSessionLike(parsed) && parsed.id === id) sessions.push(parsed);
       } catch (e) {
         console.warn(`[AISessionStore] Пропущен повреждённый файл сессии ${name}:`, e);
@@ -255,7 +271,7 @@ export class AISessionStore {
   public async get(projectPath: string, sessionId: string): Promise<AISession | null> {
     if (!isValidSessionId(sessionId)) return null;
     try {
-      const parsed = stateFields(JSON.parse(await fs.readFile(this.sessionFile(projectPath, sessionId), 'utf8')), SESSION_FILE_VERSION);
+      const parsed = upgradeLegacySession(stateFields(JSON.parse(await fs.readFile(this.sessionFile(projectPath, sessionId), 'utf8')), SESSION_FILE_VERSION));
       return isSessionLike(parsed) && parsed.id === sessionId ? parsed : null;
     } catch {
       return null;
