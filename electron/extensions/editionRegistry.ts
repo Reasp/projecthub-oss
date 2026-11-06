@@ -181,9 +181,10 @@ export interface RemoteMethodSpec {
   handler: (params: Record<string, unknown>, ctx: RemoteCallContext) => unknown;
   /**
    * Проект вызова, если он не в `params.projectPath` и не выбранный устройством (элемент очереди по `itemId`):
-   * хост проверяет по нему права устройства на проект (TASK-180). `undefined` — проект по умолчанию.
+   * хост проверяет по нему права устройства на проект (TASK-180). `undefined` — проект по умолчанию. `null` — метод вне
+   * проекта (канал команды в чате, TASK-260.1): права на проект не проверяются, права устройства и роли — да.
    */
-  projectOf?: (params: Record<string, unknown>) => Promise<string | undefined> | string | undefined;
+  projectOf?: (params: Record<string, unknown>) => Promise<string | null | undefined> | string | null | undefined;
 }
 
 // ── Работа участника общего хоста (TASK-142.3, decision-135) ──
@@ -251,6 +252,11 @@ export interface DeviceNotice {
   body?: string;
   /** Вид уведомления на ПК в hub-режиме — его матрица каналов (`mergeQueue`). Нет — только push телефону. */
   kind?: string;
+  /**
+   * Не класть событие в буфер догона после разрыва (TASK-260.1): частые события, которые клиент и так перечитывает
+   * (сообщения чата), не должны вытеснять оттуда запросы HITL.
+   */
+  transient?: boolean;
 }
 
 export type DeviceNotifier = (notice: DeviceNotice, audience: (device: RemoteDeviceRef) => boolean) => void;

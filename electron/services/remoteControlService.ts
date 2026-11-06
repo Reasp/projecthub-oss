@@ -1567,7 +1567,7 @@ class RemoteControlService {
       ...(d.memberId ? { memberId: d.memberId } : {}),
       rights: this.effectiveDeviceRights(d)
     });
-    this.broadcastEvent(notice.event, notice.payload, { audience: (d) => audience(refOf(d)) });
+    this.broadcastEvent(notice.event, notice.payload, { audience: (d) => audience(refOf(d)), ...(notice.transient ? { transient: true } : {}) });
     if (!notice.text) return;
     // ПК в hub-режиме показывает системное уведомление по общему `host:notice` (decision-138, ограничение «уведомления
     // очереди — только обновлением окна»): он не знает событий модулей редакции, а вид уведомления знает.
@@ -3681,6 +3681,8 @@ class RemoteControlService {
     if (extra?.projectOf) {
       const own = await extra.projectOf(params);
       if (own) return own;
+      // Метод модуля вне проекта (канал команды в чате): не по проекту, выбранному устройством.
+      if (own === null) return null;
     }
     if (OPTIONAL_PROJECT_METHODS.has(method) && !str(params.projectPath)) return null;
     return str(params.projectPath) || this.deviceProject(device.id) || null;
