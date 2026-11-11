@@ -30,6 +30,11 @@ npm-debug.log*
 # Claude Code runtime (сессионные локи и т.п., не часть проекта)
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+# Личные настройки сессии агента: allowlist команд и env с токенами (бот алертов и т.п.) — только локально,
+# правило 22 infra-dev.md. В WorldSim файл с живым токеном спасал только глобальный ~/.config/git/ignore.
+.claude/settings.local.json
+# Рабочие деревья задач/агентов (правило 27 infra-dev.md): `<корень>/.worktrees/<slug>` с веткой task/<id>
+.worktrees/
 
 # Environment & Secrets — каждая переменная документируется в .env.example
 .env

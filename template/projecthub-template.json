@@ -19,7 +19,9 @@
     { "path": "start-web.sh" },
     { "path": ".gitattributes" },
     { "path": ".gitignore", "apply": "merge-lines" },
+    { "path": ".ignore", "apply": "merge-lines", "target": "project" },
     { "path": ".claude/settings.json", "apply": "merge-settings", "target": "project" },
+    { "path": ".claude/agents/**", "target": "project" },
     { "path": ".claude/skills/**", "target": "project" },
     { "path": ".agents/skills/**", "target": "project" }
   ],

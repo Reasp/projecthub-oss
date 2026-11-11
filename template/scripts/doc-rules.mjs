@@ -27,6 +27,33 @@ export function sectionFieldError(section) {
   return null;
 }
 
+/**
+ * Текст файла с полем frontmatter `key: "value"`: строка дописывается перед закрывающим `---` или заменяет
+ * существующую строку `key:`; остальное (порядок полей, кавычки, LF/CRLF, updated_date) не меняется.
+ * null — поле уже такое. Нужна, потому что `backlog doc update`/`document_update` стирают неизвестные
+ * CLI поля (`section`, `description`) — WorldSim TASK-411.
+ */
+export function withFrontmatterField(content, key, value) {
+  const m = content.match(/^(﻿?---(\r?\n))([\s\S]*?)(\r?\n---[ \t]*(?:\r?\n|$))/);
+  if (!m) throw new Error('нет закрытого YAML frontmatter');
+  const [whole, open, eol, yamlText, close] = m;
+  const line = `${key}: ${JSON.stringify(value)}`;
+  const lines = yamlText.split(/\r?\n/);
+  const existing = lines.findIndex((l) => l.startsWith(`${key}:`));
+  if (existing !== -1) {
+    if (lines[existing] === line) return null;
+    lines[existing] = line;
+  } else {
+    lines.push(line);
+  }
+  return open + lines.join(eol) + close + content.slice(whole.length);
+}
+
+/** Текст файла с полем `section` (см. withFrontmatterField). */
+export function withSection(content, section) {
+  return withFrontmatterField(content, 'section', section);
+}
+
 /** Документ лежит во вложенной папке корня документации — папка тоже считается разделом. */
 export function isInSubfolder(relPath) {
   const docRoot = DOC_ROOTS.find((root) => relPath.startsWith(`${root}/`));

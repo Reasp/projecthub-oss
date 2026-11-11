@@ -64,10 +64,15 @@ npx --yes backlog.md init "<имя проекта>" --agent-instructions agents 
 | Из `F:\ProjectTemplate\...` | Куда |
 |---|---|
 | `infra-dev.md` | `./infra-dev.md` |
-| `scripts/config.mjs`, `scripts/setup.mjs`, `scripts/sync-agent-rules.mjs`, `scripts/web.mjs`, `scripts/validate-docs.mjs`, `scripts/memory-rules.mjs`, `scripts/doc-rules.mjs`, `scripts/*.test.mjs` | `./scripts/` |
+| `scripts/config.mjs`, `scripts/setup.mjs`, `scripts/sync-agent-rules.mjs`, `scripts/web.mjs`, `scripts/validate-docs.mjs`, `scripts/memory-rules.mjs`, `scripts/doc-rules.mjs`, `scripts/backlog-id-rules.mjs`, `scripts/task-merge-driver.mjs`, `scripts/task-merge-rules.mjs`, `scripts/generated-merge.mjs`, `scripts/set-doc-section.mjs`, `scripts/policy-check.mjs`, `scripts/policy-rules.mjs`, `scripts/*.test.mjs` | `./scripts/` |
 | `scripts/rag/*.mjs` | `./scripts/rag/` |
 | `scripts/env/*.mjs` | `./scripts/env/` |
-| `scripts/git-hooks/*` (pre-commit, commit-msg, post-commit, install.mjs, hooks.test.mjs) | `./scripts/git-hooks/` |
+| `scripts/gitnexus/gitnexus.mjs` | `./scripts/gitnexus/` |
+| `scripts/git-hooks/*` (pre-commit, commit-msg, post-commit, post-merge, post-rewrite, install.mjs, hooks.test.mjs) | `./scripts/git-hooks/` |
+| `rag-control-queries.json` (образец; проект заменяет запросы своими после первых гайдов) | `<корень проекта>/` |
+| `.gitnexusignore`, `.ignore` | `<корень проекта>/` (что GitNexus не индексирует; мусорка идей скрыта от поиска агента) |
+| `.claude/agents/critic.md` | `<корень проекта>/.claude/agents/` (субагент-критик для текстов наружу) |
+| `backlog/idea-bin/README.md` | `<корень проекта>/backlog/idea-bin/` — после `backlog init` (шаг 2), плюс `.gitkeep` в пустые каталоги `backlog/*` |
 | `scripts/bootstrap/bootstrap.mjs`, `scripts/bootstrap/stack.json` | `./scripts/bootstrap/` |
 | `scripts/lightrag/*` (только если LightRAG включён на шаге 1) | `./scripts/lightrag/` |
 | `scripts/computer-use/computer-use-bridge.mjs` (только если пользователь явно попросил `computerUse`) | `./scripts/computer-use/` |
@@ -138,12 +143,13 @@ node scripts/bootstrap/bootstrap.mjs
 выполни **в корне проекта**:
 
 ```bash
-gitnexus analyze --skip-agents-md --skip-skills  # глобальный CLI (npm i -g gitnexus); дальше post-commit хук обновляет индекс сам
+gitnexus analyze --skip-agents-md --skip-skills   # глобальный CLI (npm i -g gitnexus); дальше post-commit хук обновляет индекс сам
 ```
 
-Выполнять **до** шага 7 (sync-rules) — `gitnexus analyze` тоже пишет секцию в `AGENTS.md`, и
-порядок "сначала внешние инструменты, потом наш sync-rules последним" гарантирует, что наша
-секция довесится, не потеряется и не потеряет чужую.
+Флаги обязательны: без них `analyze` при каждом запуске дописывает свою секцию в `CLAUDE.md`/`AGENTS.md`
+и кладёт скиллы в `.claude/skills/gitnexus`. Что индексировать, задаёт `.gitnexusignore` (скопирован на
+шаге 3). Выполнять **до** шага 7 (sync-rules) — порядок "сначала внешние инструменты, потом наш
+sync-rules последним" гарантирует, что наша секция довесится, не потеряется и не потеряет чужую.
 
 ## Шаг 6 — RAG-индекс (и опционально LightRAG)
 
@@ -166,9 +172,15 @@ npm run lightrag-index    # построить граф — минуты, не �
 
 ```bash
 node scripts/sync-agent-rules.mjs   # infra-dev.md → CLAUDE.md/GEMINI.md/AGENTS.md и .agents/rules/infra-dev.md корня проекта
-npm run lint:docs                   # frontmatter/даты/картинки, разделы и ссылки [[id]] + актуальность индекса — должно быть зелёным
-npm test                            # тесты git-хуков — должно быть зелёным
+npm run lint:docs                   # frontmatter/даты/картинки, разделы, ссылки [[id]], дубли id + актуальность индекса — должно быть зелёным
+npm test                            # тесты хуков, merge-драйверов, линтеров, sync-rules — должно быть зелёным
+npm run rag-check                   # контрольные запросы поиска (если rag-control-queries.json заполнен под проект)
 ```
+
+`sync-agent-rules.mjs` вырезает из `infra-dev.md` блоки `<!-- if:фича -->` по включённым фичам и наборам
+правил `ruleSets` из `infra.config.json` (без ключа — все наборы: `lang-ru`, `windows`, `data-driven`,
+`code-ts`); если проект не на Windows или не data-driven — спроси пользователя и выставь `ruleSets`.
+`pre-commit` сверяет сгенерированные файлы с `infra-dev.md` по индексу git (`--check --staged`).
 
 Проверь, что хуки подключены: `git config core.hooksPath` → `scripts/git-hooks` (или путь
 через подпапку инфры). Если корень проекта стал git-репозиторием позже `npm install` —

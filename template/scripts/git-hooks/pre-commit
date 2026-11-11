@@ -42,6 +42,16 @@ if ! "$NODE_BIN" "$INFRA_ROOT/scripts/validate-docs.mjs"; then
   exit 1
 fi
 
+if [ -f "$INFRA_ROOT/scripts/sync-agent-rules.mjs" ]; then
+  # Сверяются версии из индекса git, а не рабочая копия: соседняя сессия может держать
+  # недописанную правку infra-dev.md (паттерн WorldSim TASK-400).
+  echo "[pre-commit] Сверка правил агентов (CLAUDE.md/GEMINI.md/AGENTS.md, .agents/rules) с infra-dev.md..."
+  if ! "$NODE_BIN" "$INFRA_ROOT/scripts/sync-agent-rules.mjs" --check --staged; then
+    echo "[pre-commit] Коммит остановлен: выполните npm run sync-rules и добавьте результат в коммит."
+    exit 1
+  fi
+fi
+
 if [ -f "$INFRA_ROOT/scripts/rag/check-index.mjs" ]; then
   echo "[pre-commit] Проверка актуальности RAG-индекса..."
   if ! "$NODE_BIN" "$INFRA_ROOT/scripts/rag/check-index.mjs"; then
