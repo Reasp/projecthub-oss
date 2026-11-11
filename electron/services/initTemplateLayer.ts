@@ -16,7 +16,7 @@ import {
   sectionMarkers
 } from './initMerge.js';
 import type { FoundationContribution, InitAction, InitLocale, InitPlanItem, InitReason } from './initFoundation.js';
-import { assembleRules, localize, MANIFEST_FILE, type McpServerDef, type TemplateManifest } from './templateManifest.js';
+import { assembleRules, localeOverlay, localizedSource, localize, MANIFEST_FILE, setDefaultFor, type McpServerDef, type TemplateManifest } from './templateManifest.js';
 import { sha256, threeWayDecision } from './templateLock.js';
 
 /** Файлы шаблона, которые никогда не копируются: данные самого шаблона и генерируемые файлы. */
@@ -184,8 +184,8 @@ function resolveCompatServer(def: McpServerDef, infraDir: string, templatePaths:
   return { ...def, args: def.args?.map((arg) => (templatePaths.has(arg.replace(/^\.\//, '')) ? `${prefix}${arg.replace(/^\.\//, '')}` : arg)) };
 }
 
-function enabledMap<T extends { id: string; default: boolean }>(list: T[], chosen: Record<string, boolean>): Record<string, boolean> {
-  return Object.fromEntries(list.map((item) => [item.id, chosen[item.id] ?? item.default]));
+function enabledMap<T extends { id: string }>(list: T[], chosen: Record<string, boolean>, defaultOf: (item: T) => boolean): Record<string, boolean> {
+  return Object.fromEntries(list.map((item) => [item.id, chosen[item.id] ?? defaultOf(item)]));
 }
 
 function copyItem(dest: string, source: string, projectHash: string | null, templateHash: string, baseHash: string | undefined): InitPlanItem {
@@ -236,8 +236,8 @@ function notJsonItem(id: string, dest: string): InitPlanItem {
 export function buildTemplateLayer(input: TemplateLayerInput, state: TemplateProjectState, options: TemplateLayerOptions): TemplateLayerResult {
   const { manifest } = input;
   const infraDir = infraDirFor(manifest, options.placement);
-  const features = enabledMap(manifest.features, options.features);
-  const sets = enabledMap(manifest.sets, options.sets);
+  const features = enabledMap(manifest.features, options.features, (f) => f.default);
+  const sets = enabledMap(manifest.sets, options.sets, (s) => setDefaultFor(s, options.locale));
   const isOn = (id: string | undefined) => !id || features[id] === true || sets[id] === true;
   const hooksAvailable = Boolean(manifest.gitHooks);
   const hooksEnabled = hooksAvailable && (options.gitHooks ?? !state.hooksConflict);
@@ -258,13 +258,18 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
   // 1. Файлы шаблона по правилам манифеста; первое совпавшее правило решает судьбу файла.
   const excluded = [...ALWAYS_EXCLUDE, ...manifest.exclude];
   const templatePaths = new Set(input.files.map((f) => f.path));
+  const fileByPath = new Map(input.files.map((f) => [f.path, f]));
+  // Перевод `locales/<код>/<путь>` сам не копируется: он заменяет файл `<путь>` для своего языка (decision-231).
+  const sourceOf = (rel: string) => localizedSource(manifest, rel, options.locale, (p) => templatePaths.has(p));
   const sorted = [...input.files].sort((a, b) => a.path.localeCompare(b.path));
-  for (const file of sorted) {
-    if (matchesAny(file.path, excluded)) continue;
-    if (manifest.rules && file.path === manifest.rules.source) continue;
-    const rule = manifest.files.find((candidate) => globToRegExp(candidate.path).test(file.path));
+  for (const baseFile of sorted) {
+    if (matchesAny(baseFile.path, excluded)) continue;
+    if (localeOverlay(manifest, baseFile.path)) continue;
+    if (manifest.rules && baseFile.path === manifest.rules.source) continue;
+    const rule = manifest.files.find((candidate) => globToRegExp(candidate.path).test(baseFile.path));
     if (!rule || !isOn(rule.when)) continue;
-    const dest = rule.target === 'project' ? file.path : join(infraDir, file.path);
+    const dest = rule.target === 'project' ? baseFile.path : join(infraDir, baseFile.path);
+    const file = fileByPath.get(sourceOf(baseFile.path)) ?? baseFile;
 
     if (rule.apply === 'merge-lines') {
       const lines = (input.texts[file.path] ?? '').replace(/\r\n/g, '\n').split('\n');
@@ -290,7 +295,7 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
     }
 
     // package.json инфраструктуры получает имя проекта: в корне — имя самого проекта, в подпапке — `<имя>-infra`.
-    if (file.path === 'package.json' && rule.target === 'infra' && options.projectName && input.texts[file.path]) {
+    if (baseFile.path === 'package.json' && rule.target === 'infra' && options.projectName && input.texts[file.path]) {
       const pkg = parseJsonObject(input.texts[file.path]);
       if (pkg) {
         const slug = options.projectName.toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
@@ -345,7 +350,7 @@ export function buildTemplateLayer(input: TemplateLayerInput, state: TemplatePro
 
   // 3. Правила: собранный текст — секцией в файлы правил, целиком в infra-dev.md и в правила Antigravity.
   if (manifest.rules) {
-    const source = input.texts[manifest.rules.source];
+    const source = input.texts[sourceOf(manifest.rules.source)];
     if (source !== undefined) {
       const enabled = new Set<string>([
         ...Object.entries(features).filter(([, on]) => on).map(([id]) => id),

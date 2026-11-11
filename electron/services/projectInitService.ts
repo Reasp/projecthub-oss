@@ -40,7 +40,7 @@ import {
   type TemplateLayerResult,
   type TemplateRisks
 } from './initTemplateLayer';
-import { localize } from './templateManifest';
+import { localize, setDefaultFor } from './templateManifest';
 import { BUILTIN_TEMPLATE_ID, listTemplates, loadTemplate, type TemplateEntry } from './templateCatalog';
 import {
   decodeBase,
@@ -335,7 +335,7 @@ async function buildPlan(request: InitRequest): Promise<BuiltPlan> {
         id: s.id,
         label: localize(s.label, locale),
         description: localize(s.description, locale),
-        default: s.default,
+        default: setDefaultFor(s, locale),
         enabled: layer.sets[s.id]
       })),
       gitHooks: { ...layer.gitHooks, description: localize(manifest.gitHooks?.description, locale) },

@@ -8,6 +8,7 @@ import {
   mergeSection,
   normalizeForCompare,
   renderRules,
+  rulesSourceFile,
   skillsDrift,
   START,
   END,
@@ -80,4 +81,10 @@ test('skillsDrift находит скилл на одной стороне и р
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('источник правил: английская база, перевод по locale из infra.config.json', () => {
+  assert.equal(rulesSourceFile(undefined), 'infra-dev.md');
+  assert.equal(rulesSourceFile('en'), 'infra-dev.md');
+  assert.equal(rulesSourceFile('ru'), 'locales/ru/infra-dev.md');
 });

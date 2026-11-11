@@ -737,6 +737,7 @@ const EN = {
   'templates.mcpNeedsCommandOrUrl': 'command or url is required',
   'templates.idChars': 'Latin letters, digits, - and _',
   'templates.pathNotRelative': 'the path must be relative and without ..',
+  'templates.localeCode': 'a language code like en, ru or pt-BR',
   'templates.duplicateId': 'duplicate id {id}',
   'templates.unknownWhen': 'no feature or set {when}',
   // «Входящие» телефона: заголовки ленты (TASK-140.5, decision-117, decision-161).
@@ -1757,6 +1758,7 @@ export const appErrorTextRu: AppErrorLabels = {
   'templates.mcpNeedsCommandOrUrl': 'нужен command или url',
   'templates.idChars': 'латиница, цифры, - и _',
   'templates.pathNotRelative': 'путь должен быть относительным и без ..',
+  'templates.localeCode': 'код языка вида en, ru или pt-BR',
   'templates.duplicateId': 'повторяющийся id {id}',
   'templates.unknownWhen': 'нет фичи или набора {when}',
   'inbox.agentFallback': 'Агент',

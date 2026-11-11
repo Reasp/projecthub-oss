@@ -120,7 +120,9 @@ export function manifestFromProject(input: ManifestFromProjectInput): TemplateMa
   if (input.appliedManifest) {
     const parsed = parseManifest(input.appliedManifest);
     if (parsed.ok) {
-      return { ...parsed.manifest, id: input.id, name: input.name, description: input.description ?? parsed.manifest.description, version: '1.0.0' };
+      // Файлы проекта уже на одном языке, переводов `locales/` у нового шаблона нет (decision-231).
+      const { locales: _locales, ...manifest } = parsed.manifest;
+      return { ...manifest, id: input.id, name: input.name, description: input.description ?? parsed.manifest.description, version: '1.0.0' };
     }
   }
 

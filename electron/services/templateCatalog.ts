@@ -19,6 +19,7 @@ import { isInsideProject } from './pathGuard';
 import {
   compatManifest,
   compatMcpServers,
+  localeOverlay,
   localize,
   MANIFEST_FILE,
   manifestIssuesParam,
@@ -224,8 +225,10 @@ export async function loadTemplate(id: string, locale = 'ru'): Promise<LoadedTem
   const texts: Record<string, string> = {};
   const mergeGlobs = manifest.files.filter((rule) => rule.apply !== 'copy').map((rule) => rule.path);
   for (const file of walked.files) {
+    // Перевод `locales/<код>/<путь>` нужен в тексте, если нужен его файл в корне шаблона (decision-231).
+    const base = localeOverlay(manifest, file.path)?.base ?? file.path;
     const wanted =
-      file.path === MANIFEST_FILE || file.path === 'package.json' || file.path === manifest.rules?.source || matchesAny(file.path, mergeGlobs);
+      file.path === MANIFEST_FILE || base === 'package.json' || base === manifest.rules?.source || matchesAny(base, mergeGlobs);
     if (!wanted) continue;
     const text = await readText(dir, file.path);
     if (text !== null) texts[file.path] = text;

@@ -1,75 +1,81 @@
 # ProjectTemplate
 
-> **Это встроенный базовый шаблон ProjectHub** (decision-78 ProjectHub). Он входит в сборку приложения
-> (`resources/template`) и применяется окном «Инициализировать» или мастером нового проекта: основу (git,
-> Backlog.md, документацию, правила) ставит сам ProjectHub, а этот шаблон добавляет инфраструктуру — в корень новой
-> папки или в `.projecthub/infra/` существующего проекта. Что и куда копируется, какие фичи и команды есть, задаёт
-> `projecthub-template.json`; правила `infra-dev.md` размечены условиями `<!-- if:фича -->`. Формат манифеста —
-> документ ProjectHub «Шаблоны проектов: манифест, правила по условиям и доверие» (doc-13).
+[Русская версия](README.ru.md)
+
+> **This is the built-in base template of ProjectHub** (decision-78 in ProjectHub). It ships with the application build
+> (`resources/template`) and is applied by the "Initialize" window or the new project wizard: ProjectHub itself sets up the foundation (git,
+> Backlog.md, documentation, rules), and this template adds the infrastructure — to the root of a new
+> folder or to `.projecthub/infra/` of an existing project. What is copied where and which features and commands exist is set by
+> `projecthub-template.json`; the `infra-dev.md` rules are marked up with `<!-- if:feature -->` conditions. The manifest format is
+> described in the ProjectHub document "Project templates: manifest, conditional rules and trust" (doc-13).
 >
-> Источник изменений — отдельный репозиторий ProjectTemplate, агрегатор практик из живых проектов (decision-1
-> ProjectTemplate). Здесь — его встроенная копия, чтобы ProjectHub не зависел от внешнего шаблона при инициализации;
-> изменения переносятся сюда вручную. Свои у копии только `projecthub-template.json`, вводная часть этого README
-> и абзац о разметке условий в разделе «Конфигурация» `infra-dev.md` (ProjectHub собирает правила сам, с перенумерацией).
-> Нет в копии `rag-control-queries.json`, `.gitnexusignore` и `scripts/idea-bin.test.mjs`: запросы и блок индексации
-> у ProjectTemplate свои, а мусорку идей `backlog/idea-bin/` шаблон в проект не кладёт (`backlog/**` в шаблон не входит).
+> Files in the template root are in English; translations live in `locales/<code>/` under the same paths (now `locales/ru/`:
+> rules, the critic subagent, the `init-dev-project` skill) and are picked by the project language (decision-231 in ProjectHub).
+>
+> The source of changes is the separate ProjectTemplate repository, an aggregator of practices from live projects (decision-1
+> in ProjectTemplate). This is its built-in copy, so that ProjectHub does not depend on an external template when initializing;
+> changes are carried over here by hand. Only `projecthub-template.json` and the introduction of the README files
+> are specific to the copy.
+> The copy has no `rag-control-queries.json`, `.gitnexusignore` or `scripts/idea-bin.test.mjs`: ProjectTemplate has its own queries and
+> indexing block, and the template does not put the idea bin `backlog/idea-bin/` into a project (`backlog/**` is not part of a template).
 
-**Базовая инфраструктура для разработки софта человеком и ИИ-агентами в паре.**
+**A base infrastructure for software development by a human and AI agents working as a pair.**
 
-Не фреймворк и не шаблон кода — это набор *локальных инструментов, конфигов и правил*,
-которые ставятся в корень любого проекта и сразу дают человеку и агенту общий язык:
-где лежат задачи, как агент понимает кодовую базу, как он ищет знания в документации,
-и как ему запускать/трогать окружение без импровизации каждый раз с нуля.
+Not a framework and not a code template — it is a set of *local tools, configs and rules*
+that go into the root of any project and immediately give the human and the agent a common language:
+where the tasks are, how the agent understands the code base, how it searches the documentation for knowledge,
+and how it starts and touches the environment without improvising from scratch every time.
 
-Смысл — не изобретать процесс заново в каждом новом репозитории, а один раз довести
-до состояния "работает предсказуемо" и переносить как есть.
+The point is not to reinvent the process in every new repository, but to bring it once
+to a "works predictably" state and carry it over as is.
 
-> **Как развернуть это на своём проекте** — окно «Инициализировать» в ProjectHub (кнопка у проекта или «Создать из
-> шаблона»). Вручную, без ProjectHub: скопировать каталог, затем `node scripts/setup.mjs` и `npm run sync-rules`.
-> Ниже — про то, что это и зачем.
+> **How to deploy this in your project** — the "Initialize" window in ProjectHub (the button on a project or "Create from
+> template"). By hand, without ProjectHub: copy the folder, then `node scripts/setup.mjs` and `npm run sync-rules`
+> (for Russian rules, add `"locale": "ru"` to `infra.config.json`).
+> Below is what this is and why.
 
 ---
 
-## Зачем это отдельный репозиторий
+## Why this is a separate repository
 
-Каждый новый проект начинается с одних и тех же вопросов: где трекать задачи, как
-агент не будет каждый раз читать всю кодовую базу заново, где хранить доки так, чтобы
-их находил и человек, и агент, что именно агенту можно/нельзя делать с окружением.
-`ProjectTemplate` — это то, что накопилось как ответ на эти вопросы, вынесенное так,
-чтобы **клонироваться/накатываться в новый проект за один шаг**, а не собираться руками
-каждый раз.
+Every new project starts with the same questions: where to track tasks, how to keep the
+agent from reading the whole code base again every time, where to store docs so that
+both the human and the agent can find them, what exactly the agent may and may not do with the environment.
+`ProjectTemplate` is what accumulated as the answer to these questions, packaged so that
+it **is cloned or rolled into a new project in one step** instead of being assembled by hand
+every time.
 
-Рабочие принципы:
+Working principles:
 
-- **Файлы, а не сервисы.** Всё, что можно закоммитить в git (индексы, конфиги, правила),
-  коммитится — никакой обязательной внешней БД или облака для базового цикла работы.
-- **Двойное назначение документации.** Один и тот же документ должен быть одинаково
-  полезен и человеку, который открыл его в редакторе, и агенту, который читает его
-  как контекст перед задачей.
-- **Разделение "код" и "знания о коде".** Граф кода (для рефакторинга/impact-анализа)
-  и база знаний/документации (для ответа "как это работает и почему") — разные системы
-  с разными свойствами, их не нужно смешивать в одном индексе.
-- **Агент-агностичность.** Claude Code, Antigravity, Roo Code, Hermes — правила и MCP
-  должны работать одинаково независимо от того, какой агент сейчас за рулём.
+- **Files, not services.** Everything that can be committed to git (indexes, configs, rules)
+  is committed — no mandatory external database or cloud for the basic work cycle.
+- **Documentation with a dual purpose.** The same document must be equally
+  useful to a human who opened it in an editor and to an agent that reads it
+  as context before a task.
+- **"Code" and "knowledge about code" are separate.** The code graph (for refactoring and impact analysis)
+  and the knowledge/documentation base (for answering "how does it work and why") are different systems
+  with different properties; there is no need to mix them in one index.
+- **Agent-agnostic.** Claude Code, Antigravity, Roo Code, Hermes — rules and MCP
+  must work the same way regardless of which agent is at the wheel.
 
-## Как это устроено сейчас
+## How it works now
 
 ```mermaid
 graph TD
-    subgraph L["Человек + агенты"]
-        H["Человек"]
+    subgraph L["Human + agents"]
+        H["Human"]
         A1["Claude Code"]
         A2["Antigravity"]
         A3["Roo Code"]
         A4["Hermes"]
     end
 
-    subgraph I["Локальная инфраструктура — этот репозиторий"]
-        RULES["CLAUDE.md / GEMINI.md / AGENTS.md<br/>+ общий infra-dev.md"]
-        B["Backlog.md<br/>задачи, milestones, доки"]
-        GN["GitNexus<br/>граф кода"]
-        RAG["Vector RAG<br/>индекс документации"]
-        MCP["MCP-серверы<br/>функции работы с окружением"]
+    subgraph I["Local infrastructure — this repository"]
+        RULES["CLAUDE.md / GEMINI.md / AGENTS.md<br/>+ shared infra-dev.md"]
+        B["Backlog.md<br/>tasks, milestones, docs"]
+        GN["GitNexus<br/>code graph"]
+        RAG["Vector RAG<br/>documentation index"]
+        MCP["MCP servers<br/>environment functions"]
         G["Git"]
     end
 
@@ -89,155 +95,155 @@ graph TD
     RULES --> MCP
 
     B --> G
-    GN -.индекс не коммитится.-> G
-    RAG --индекс коммитится--> G
+    GN -.index is not committed.-> G
+    RAG --index is committed--> G
 ```
 
-## Текущий стек
+## Current stack
 
-| Инструмент | Роль | Статус |
+| Tool | Role | Status |
 |---|---|---|
-| **Git** | система контроля версий, источник истины по истории | ✅ используется |
-| **[Backlog.md](https://github.com/MrLesk/Backlog.md)** | трекинг задач, milestones, decisions, доки — как для человека, так и для агента | ✅ используется |
-| **GitNexus** | MCP-сервер, строит граф кода (вызовы, зависимости, impact-анализ) для контекста агента | ✅ используется |
-| **Claude Code / Antigravity / Roo Code / Hermes** | агенты, работающие в паре с человеком | ✅ используется |
+| **Git** | version control, the source of truth for history | ✅ in use |
+| **[Backlog.md](https://github.com/MrLesk/Backlog.md)** | tracking tasks, milestones, decisions, docs — for both the human and the agent | ✅ in use |
+| **GitNexus** | an MCP server that builds a code graph (calls, dependencies, impact analysis) for the agent's context | ✅ in use |
+| **Claude Code / Antigravity / Roo Code / Hermes** | agents working as a pair with the human | ✅ in use |
 
-Проблема с GitNexus: он индексирует **весь** репозиторий как код, включая документацию —
-а документации нужен другой тип индекса (смысловой поиск, а не граф вызовов). Отсюда —
-первый открытый вопрос ниже.
+The problem with GitNexus: it indexes the **whole** repository as code, including the documentation —
+and documentation needs a different kind of index (semantic search, not a call graph). Hence
+the first open question below.
 
-## Что решаем и добавляем дальше
+## What we solve and add next
 
-Ниже — не готовые решения, а направления, по которым уже есть черновая ясность и
-(местами) рабочий прототип в `F:\PlatPhas`, взятый как референс.
+Below are not finished solutions but directions where there is already rough clarity and
+(in places) a working prototype in `F:\PlatPhas`, taken as a reference.
 
-### 1. Векторный RAG для документации — отдельно от GitNexus ✅ базовая версия готова
+### 1. Vector RAG for documentation — separate from GitNexus ✅ base version ready
 
-GitNexus продолжает индексировать **только код** (граф вызовов/зависимостей —
-это его сильная сторона). Документация — целиком внутри `backlog/` (`backlog/docs/`,
-`backlog/decisions/`), без отдельной верхнеуровневой `docs/` — получила отдельный
-**смысловой** индекс, который:
+GitNexus keeps indexing **only code** (the call/dependency graph is
+its strength). The documentation — entirely inside `backlog/` (`backlog/docs/`,
+`backlog/decisions/`), with no separate top-level `docs/` — got a separate
+**semantic** index that:
 
-- коммитится в git как обычные файлы (без внешней БД/сервиса);
-- пересобирается детерминированно одной командой;
-- отдаётся агенту через MCP-инструмент поиска.
+- is committed to git as regular files (no external database or service);
+- is rebuilt deterministically with one command;
+- is served to the agent through an MCP search tool.
 
-Реализовано по прототипу из `F:\PlatPhas` (`@lancedb/lancedb` + локальные эмбеддинги),
-но на актуальном `@huggingface/transformers` вместо устаревшего `@xenova/transformers`
-(тот больше не поддерживается и тащит критическую CVE в `protobufjs` через старый
+Implemented after the prototype in `F:\PlatPhas` (`@lancedb/lancedb` + local embeddings),
+but on the current `@huggingface/transformers` instead of the outdated `@xenova/transformers`
+(which is no longer maintained and pulls a critical CVE in `protobufjs` through the old
 `onnxruntime-web`):
 
-- `scripts/rag/index-docs.mjs` — обходит `backlog/docs/**/*.md`, `backlog/decisions/**/*.md`,
-  режет на чанки по заголовкам/параграфам, строит
-  эмбеддинги многоязычной моделью `Xenova/multilingual-e5-small` (только вычисление, без внешнего API)
-  и складывает их в LanceDB-таблицу `.rag-index/docs.lance` — обычные файлы, коммитятся.
-- `scripts/rag/rag-server.mjs` — MCP-сервер (`docs-rag` в `.mcp.json`) с тремя
-  инструментами: `search_docs`, `list_docs`, `get_doc`.
-- `scripts/rag/search-cli.mjs` — тот же поиск из терминала для человека, без агента:
-  `npm run rag-search -- "запрос"`.
-- Подробности и правила использования — гайд `doc-2` «Векторный RAG для документации» (`npx backlog.md doc view doc-2`).
+- `scripts/rag/index-docs.mjs` — walks `backlog/docs/**/*.md`, `backlog/decisions/**/*.md`,
+  splits them into chunks by headings and paragraphs, computes
+  embeddings with the multilingual model `Xenova/multilingual-e5-small` (computation only, no external API)
+  and stores them in the LanceDB table `.rag-index/docs.lance` — regular files, committed.
+- `scripts/rag/rag-server.mjs` — an MCP server (`docs-rag` in `.mcp.json`) with three
+  tools: `search_docs`, `list_docs`, `get_doc`.
+- `scripts/rag/search-cli.mjs` — the same search from the terminal for a human, without an agent:
+  `npm run rag-search -- "query"`.
+- Details and usage rules — the guide `doc-2` "Vector RAG for documentation" in ProjectTemplate (`npx backlog.md doc view doc-2`).
 
-Веса модели (~120MB, q8) кэшируются в `.rag-cache/` (в `.gitignore`) и скачиваются
-автоматически при первом `npm run index-docs`. Актуальность индекса относительно
-`backlog/` проверяет `npm run check-index` (хэш документов + версия чанкера в `meta.json`) —
-это часть `npm run lint:docs` и `pre-commit` хука.
+The model weights (~120MB, q8) are cached in `.rag-cache/` (in `.gitignore`) and downloaded
+automatically on the first `npm run index-docs`. Index freshness against
+`backlog/` is checked by `npm run check-index` (a document hash + the chunker version in `meta.json`) —
+it is part of `npm run lint:docs` and the `pre-commit` hook.
 
-Для более крупной/связной технической документации (там, где важны связи между
-разделами, а не только similarity) добавлен **LightRAG** — см. пункт 6 ниже.
+For larger, more connected technical documentation (where links between
+sections matter, not just similarity) there is **LightRAG** — see item 7 below.
 
 ```mermaid
 graph LR
-    subgraph Код
+    subgraph Code
         SRC["src/**"]
     end
-    subgraph Документация
+    subgraph Documentation
         DOCS["backlog/docs/**, backlog/decisions/**"]
     end
 
-    SRC --> GN["GitNexus<br/>граф вызовов/зависимостей"]
-    DOCS --> RAG["Vector RAG<br/>LanceDB + локальные эмбеддинги"]
-    DOCS -.опционально: features.lightrag.-> LR["LightRAG<br/>граф сущностей/связей"]
+    SRC --> GN["GitNexus<br/>call/dependency graph"]
+    DOCS --> RAG["Vector RAG<br/>LanceDB + local embeddings"]
+    DOCS -.optional: features.lightrag.-> LR["LightRAG<br/>entity/relation graph"]
 
-    GN -.не предназначен для коммита как есть.-> S1[("индекс графа кода")]
-    RAG --коммитится в git--> S2[(".rag-index/*.lance")]
-    LR --коммитится в git--> S3[(".lightrag-index/")]
+    GN -.not meant to be committed as is.-> S1[("code graph index")]
+    RAG --committed to git--> S2[(".rag-index/*.lance")]
+    LR --committed to git--> S3[(".lightrag-index/")]
 ```
 
-**Решено:** `pre-commit` хук (`scripts/git-hooks/pre-commit`) не даёт закоммитить документацию
-с устаревшим `.rag-index/` — `check-index` падает, пока не выполнен `npm run index-docs`.
-Сам индекс по-прежнему пересобирается явно (`npm run index-docs`/`reindex_docs`): эмбеддинги
-в хуке заняли бы десятки секунд на каждый коммит.
+**Solved:** the `pre-commit` hook (`scripts/git-hooks/pre-commit`) does not let you commit documentation
+with a stale `.rag-index/` — `check-index` fails until `npm run index-docs` is run.
+The index itself is still rebuilt explicitly (`npm run index-docs`/`reindex_docs`): embeddings
+in the hook would take tens of seconds on every commit.
 
-### 2. MCP-сервер `env-tools` — работа с окружением ✅ базовая версия готова
+### 2. The `env-tools` MCP server — working with the environment ✅ base version ready
 
-`scripts/env/env-server.mjs` (MCP `env-tools` в `.mcp.json`) даёт агенту функции работы с
-локальным окружением проекта — не просто доступ к данным, а действия:
+`scripts/env/env-server.mjs` (MCP `env-tools` in `.mcp.json`) gives the agent functions for the
+project's local environment — not just data access, but actions:
 
-- `start_process(name, command, cwd?)` / `stop_process(name)` — фоновые процессы (dev-сервер,
-  вотчер) с трекингом pid и логов в `.env-state/` (не коммитится). Процесс переживает
-  перезапуск самого MCP-сервера — на Windows через PowerShell-обёртку, запущенную напрямую
-  с `detached:true` (обычная связка `shell:true + detached:true` на Windows теряет
-  перенаправление stdout/stderr в файл — проверено эмпирически, поэтому там отдельный путь;
-  вариант через `cmd /c start /b` оказался нестабильным при закрытии терминала, TASK-1),
-  на POSIX — стандартной идиомой `detached + unref`.
-- `list_processes()` / `tail_log(name, lines?)` — что запущено и что пишет в лог.
-- `reindex_docs()` — пересобрать векторный индекс документации из пункта 1, не выходя в шелл.
+- `start_process(name, command, cwd?)` / `stop_process(name)` — background processes (a dev server,
+  a watcher) with pid and log tracking in `.env-state/` (not committed). A process survives
+  a restart of the MCP server itself — on Windows through a PowerShell wrapper started directly
+  with `detached:true` (the usual `shell:true + detached:true` combination on Windows loses
+  the redirection of stdout/stderr to a file — verified empirically, hence a separate path there;
+  the `cmd /c start /b` variant turned out unstable when the terminal closes, TASK-1),
+  on POSIX — the standard `detached + unref` idiom.
+- `list_processes()` / `tail_log(name, lines?)` — what is running and what it writes to the log.
+- `reindex_docs()` — rebuild the documentation vector index from item 1 without going to the shell.
 
-### 3. Кросс-платформенный bootstrap окружения ✅ базовая версия готова
+### 3. A cross-platform environment bootstrap ✅ base version ready
 
-`scripts/bootstrap/bootstrap.mjs` + декларативный `scripts/bootstrap/stack.json`: для каждого
-инструмента в манифесте (`{name, check, winget, brew, apt, dnf, pacman}`) скрипт проверяет,
-установлен ли он, определяет менеджер пакетов текущей ОС (`winget` / `brew` / `apt`/`dnf`/`pacman`)
-и ставит недостающее — либо печатает инструкцию для ручной установки, если автоустановщика нет.
-Базовый манифест покрывает `git` и `node` (нужны самой инфраструктуре); стек конкретного
-проекта (Python/Go/Rust/…) дополняется на шаге `init-dev-project` (пункт 4).
+`scripts/bootstrap/bootstrap.mjs` + the declarative `scripts/bootstrap/stack.json`: for each
+tool in the manifest (`{name, check, winget, brew, apt, dnf, pacman}`) the script checks
+whether it is installed, detects the package manager of the current OS (`winget` / `brew` / `apt`/`dnf`/`pacman`)
+and installs what is missing — or prints manual installation instructions if there is no automatic installer.
+The base manifest covers `git` and `node` (the infrastructure itself needs them); the stack of a particular
+project (Python/Go/Rust/…) is added at the `init-dev-project` step (item 4).
 
-### 4. Skill `init-dev-project` ✅ реализован
+### 4. The `init-dev-project` skill ✅ implemented
 
-Собирает три предыдущих пункта плюс Backlog.md/GitNexus в одну последовательность:
-опрос стека → `git init` + `backlog init` → копирование инфраструктуры из шаблона →
-`npm install` (заодно ставит git-хуки) → `bootstrap.mjs` → (опционально) `gitnexus analyze` →
-`index-docs.mjs` → `sync-agent-rules.mjs` → `lint:docs`/`test`. Полное описание шагов — `.claude/skills/init-dev-project/SKILL.md`
-(лежит и здесь, в шаблоне, и в `~/.claude/skills/init-dev-project/`, чтобы быть доступным
-в любом новом проекте).
+Puts the three previous items plus Backlog.md/GitNexus into one sequence:
+stack questions → `git init` + `backlog init` → copying the infrastructure from the template →
+`npm install` (which also installs the git hooks) → `bootstrap.mjs` → (optionally) `gitnexus analyze` →
+`index-docs.mjs` → `sync-agent-rules.mjs` → `lint:docs`/`test`. The full description of the steps is in `.claude/skills/init-dev-project/SKILL.md`
+(it lives both here, in the template, and in `~/.claude/skills/init-dev-project/`, so that it is available
+in any new project).
 
 ```mermaid
 sequenceDiagram
-    participant U as Человек
+    participant U as Human
     participant S as Skill init-dev-project
-    participant FS as Файловая система
-    participant ENV as bootstrap.mjs / пакетные менеджеры
+    participant FS as File system
+    participant ENV as bootstrap.mjs / package managers
 
-    U->>S: запуск skill'а
-    S->>U: опрос (язык/рантайм, имя проекта, индексировать ли код сейчас)
-    U->>S: ответы
-    S->>FS: git init + backlog init (создаёт AGENTS.md)
-    S->>FS: копирование infra-dev.md, scripts/rag, scripts/env, scripts/bootstrap, .mcp.json
-    S->>ENV: npm install + bootstrap.mjs (git/node/питон/го/раст по выбору)
-    S->>FS: (опц.) gitnexus analyze — тоже пишет в AGENTS.md
-    S->>FS: index-docs.mjs + sync-agent-rules.mjs (последним — только дополняет свою секцию)
-    S->>U: отчёт — что создано, что осталось на усмотрение пользователя
+    U->>S: run the skill
+    S->>U: questions (language/runtime, project name, rules language, index the code now?)
+    U->>S: answers
+    S->>FS: git init + backlog init (creates AGENTS.md)
+    S->>FS: copy infra-dev.md, scripts/rag, scripts/env, scripts/bootstrap, .mcp.json
+    S->>ENV: npm install + bootstrap.mjs (git/node/python/go/rust as chosen)
+    S->>FS: (opt.) gitnexus analyze — also writes to AGENTS.md
+    S->>FS: index-docs.mjs + sync-agent-rules.mjs (last — only updates its own section)
+    S->>U: report — what was created, what is left to the user
 ```
 
-### 5. Общий файл правил `infra-dev.md` ✅ реализован
+### 5. The shared rules file `infra-dev.md` ✅ implemented
 
-Один файл `infra-dev.md` с описанием Backlog.md/GitNexus/RAG/env-tools конвенций,
-который **не** инклюдится (агенты этого не поддерживают), а рассылается секцией через
-`scripts/sync-agent-rules.mjs` — по маркерам `<!-- infra-dev:start/end -->`, идемпотентно,
-не трогая остальное содержимое файла.
+One `infra-dev.md` file describing the Backlog.md/GitNexus/RAG/env-tools conventions,
+which is **not** included (agents do not support that) but sent out as a section by
+`scripts/sync-agent-rules.mjs` — between the `<!-- infra-dev:start/end -->` markers, idempotently,
+without touching the rest of the file.
 
-Важная деталь, всплывшая по ходу: общий файл называется **`AGENTS.md`** (во множественном
-числе), не `AGENT.md` — так его называют и Backlog.md (`--agent-instructions agents`),
-и GitNexus (`gitnexus analyze` тоже пишет в `AGENTS.md`). Изначальное название `AGENT.md`
-было заменено, чтобы наша секция и секции этих инструментов жили в одном файле, а не
-в трёх параллельных.
+An important detail that came up along the way: the shared file is called **`AGENTS.md`** (plural),
+not `AGENT.md` — that is what both Backlog.md (`--agent-instructions agents`)
+and GitNexus (`gitnexus analyze` also writes to `AGENTS.md`) call it. The original name `AGENT.md`
+was replaced so that our section and the sections of these tools live in one file, not
+in three parallel ones.
 
 ```mermaid
 graph TD
-    ID["infra-dev.md<br/>общие правила инфраструктуры"]
+    ID["infra-dev.md<br/>shared infrastructure rules"]
     ID -->|sync-agent-rules.mjs| C["CLAUDE.md"]
     ID -->|sync-agent-rules.mjs| G["GEMINI.md"]
-    ID -->|sync-agent-rules.mjs| A["AGENTS.md<br/>(+ секции Backlog.md и GitNexus)"]
+    ID -->|sync-agent-rules.mjs| A["AGENTS.md<br/>(+ Backlog.md and GitNexus sections)"]
 
     C --> CC["Claude Code"]
     G --> AG["Antigravity"]
@@ -245,21 +251,21 @@ graph TD
     A --> HE["Hermes"]
 ```
 
-### 6. Конфигурация: standalone vs. подпапка, опциональные фичи ✅ реализовано
+### 6. Configuration: standalone vs. subfolder, optional features ✅ implemented
 
-Инфраструктура должна одинаково работать и как **корень проекта** (обычный случай), и как
-**подпапка внутри уже существующего проекта** (например `some-project/dev-infra/`) — во
-втором случае `backlog/`/CLAUDE.md и т.п. лежат уровнем выше самих скриптов. Единый
-`infra.config.json` (`{ projectRoot, features }`) и `scripts/config.mjs` (Node) /
-`scripts/lightrag/pyconfig.py` (Python) — общий источник путей: `PROJECT_ROOT` (`backlog/`
-со всей документацией внутри, CLAUDE.md, `.rag-index/`, `.mcp.json`) и `INFRA_ROOT`
-(сами скрипты, кэши, runtime-состояние). Не настраивается руками — `node scripts/setup.mjs` (интерактивно или
-флагами) пишет конфиг и пересобирает `.mcp.json` с правильными относительными путями.
+The infrastructure must work the same way both as the **project root** (the usual case) and as
+a **subfolder inside an existing project** (for example `some-project/dev-infra/`) — in the
+second case `backlog/`, CLAUDE.md and so on are one level above the scripts themselves. A single
+`infra.config.json` (`{ projectRoot, features }`) and `scripts/config.mjs` (Node) /
+`scripts/lightrag/pyconfig.py` (Python) are the common source of paths: `PROJECT_ROOT` (`backlog/`
+with all the documentation inside, CLAUDE.md, `.rag-index/`, `.mcp.json`) and `INFRA_ROOT`
+(the scripts themselves, caches, runtime state). It is not configured by hand — `node scripts/setup.mjs` (interactively or
+with flags) writes the config and rebuilds `.mcp.json` with correct relative paths.
 
-Часть функций — опциональна и включается флагом в `features` (по умолчанию: всё включено,
-кроме `lightrag` — см. пункт 6). Не форсируется на пользователя: `init-dev-project`
-явно спрашивает про LightRAG отдельным вопросом с предупреждением о цене (Python, Ollama,
-несколько ГБ, медленная индексация), а не включает по умолчанию вместе с остальным.
+Some functions are optional and are switched on by a flag in `features` (by default everything is on
+except `lightrag` — see item 7). It is not forced on the user: `init-dev-project`
+explicitly asks about LightRAG in a separate question with a warning about the cost (Python, Ollama,
+several GB, slow indexing) instead of enabling it by default with the rest.
 
 ```mermaid
 graph TD
@@ -268,112 +274,113 @@ graph TD
     CFG --> PC["scripts/lightrag/pyconfig.py (Python)"]
     NC --> PR["PROJECT_ROOT<br/>backlog/ (+docs, decisions), CLAUDE.md, .mcp.json, .rag-index/"]
     NC --> IR["INFRA_ROOT<br/>scripts/, .rag-cache/, .env-state/"]
-    SETUP["scripts/setup.mjs"] -->|пишет| CFG
-    SETUP -->|синхронизирует| MCP[".mcp.json в PROJECT_ROOT"]
+    SETUP["scripts/setup.mjs"] -->|writes| CFG
+    SETUP -->|syncs| MCP[".mcp.json in PROJECT_ROOT"]
 ```
 
-### 7. LightRAG — граф технической документации ✅ базовая версия готова (опционально)
+### 7. LightRAG — a graph of the technical documentation ✅ base version ready (optional)
 
-По запросу — граф сущностей и связей поверх той же документации, что индексирует
-Vector RAG, но через LLM-экстракцию, а не просто эмбеддинг. Полностью локально, без
-тяжёлой БД: **NetworkX** (граф в GraphML-файле) + **NanoVectorDB** (JSON) — те же
-файловые бэкенды, что штатно использует `lightrag-hku`. LLM и эмбеддинги — через
-локальную **Ollama** (`qwen2.5:7b-instruct` для экстракции, `bge-m3` для эмбеддингов),
-без внешнего API.
+On request — a graph of entities and relations over the same documentation that the
+Vector RAG indexes, but through LLM extraction rather than plain embeddings. Fully local, without
+a heavy database: **NetworkX** (the graph in a GraphML file) + **NanoVectorDB** (JSON) — the same
+file backends that `lightrag-hku` uses by default. The LLM and embeddings go through a
+local **Ollama** (`qwen2.5:7b-instruct` for extraction, `bge-m3` for embeddings),
+with no external API.
 
-- `scripts/lightrag/index_docs.py` / `query.py` — индексация и запрос (режимы `local`/
+- `scripts/lightrag/index_docs.py` / `query.py` — indexing and querying (modes `local`/
   `global`/`hybrid`/`naive`/`mix`).
-- `scripts/lightrag/lightrag-server.mjs` — Node MCP-обёртка (`docs-graph` в `.mcp.json`,
-  инструменты `search_docs_graph`/`reindex_docs_graph`), сама на Python не завязана —
-  просто шлёт запросы в venv-интерпретатор.
-- `scripts/lightrag/setup.mjs` — отдельный, явно тяжёлый шаг (`npm run lightrag-setup`):
-  создаёт изолированный venv, ставит `lightrag-hku`, проверяет Ollama и докачивает модели.
-  **Не запускается автоматически** вместе с остальным bootstrap'ом.
-- Изолированный Python venv (`scripts/lightrag/.venv/`) создаётся explicit-путём к системному
-  Python, найденному перебором (`py -3` / `python` / `python3`, с проверкой, что `pip`
-  реально работает) — **не** полагаемся на первый `python` в PATH: на машине, где это
-  собиралось, `python` указывал на venv стороннего установленного агента со сломанным pip.
+- `scripts/lightrag/lightrag-server.mjs` — a Node MCP wrapper (`docs-graph` in `.mcp.json`,
+  tools `search_docs_graph`/`reindex_docs_graph`), not tied to Python itself —
+  it just sends requests to the venv interpreter.
+- `scripts/lightrag/setup.mjs` — a separate, explicitly heavy step (`npm run lightrag-setup`):
+  creates an isolated venv, installs `lightrag-hku`, checks Ollama and downloads the models.
+  **It does not run automatically** with the rest of the bootstrap.
+- The isolated Python venv (`scripts/lightrag/.venv/`) is created through an explicit path to the system
+  Python, found by trying candidates (`py -3` / `python` / `python3`, checking that `pip`
+  really works) — we **do not** rely on the first `python` in PATH: on the machine where this
+  was built, `python` pointed to the venv of a third-party installed agent with a broken pip.
 
 ```mermaid
 graph LR
     DOCS["backlog/docs/**, backlog/decisions/**"] --> IDX["index_docs.py"]
-    IDX -->|LLM-экстракция сущностей/связей| OLLAMA["Ollama<br/>qwen2.5:7b-instruct + bge-m3"]
+    IDX -->|LLM extraction of entities/relations| OLLAMA["Ollama<br/>qwen2.5:7b-instruct + bge-m3"]
     IDX --> GRAPH[("NetworkX GraphML<br/>+ NanoVectorDB JSON<br/>.lightrag-index/")]
     QUERY["query.py"] --> GRAPH
     MCP["lightrag-server.mjs<br/>MCP docs-graph"] -->|shell-out| QUERY
 ```
 
-**Найденные по пути грабли** (см. `.claude/memory/` в шаблоне для полной версии):
-- `OLLAMA_HOST` как имя переменной окружения — плохой выбор для клиента: на машине уже
-  может быть системная `OLLAMA_HOST` для конфигурации **сервера** Ollama (например "0.0.0.0"),
-  и как адрес для подключения клиента она не годится. Используется отдельное имя
+**Pitfalls found along the way** (see `.claude/memory/` in ProjectTemplate for the full version):
+- `OLLAMA_HOST` as an environment variable name is a bad choice for a client: the machine may already
+  have a system `OLLAMA_HOST` that configures the Ollama **server** (for example "0.0.0.0"),
+  and it does not work as an address for a client to connect to. A separate name is used
   (`LIGHTRAG_OLLAMA_HOST`).
-- `num_ctx` в опциях модели Ollama не ставить бездумно большим (например 32768) — на
-  видеопамяти со скромным запасом пересборка KV-cache под такой контекст может занимать
-  многие минуты вместо секунд. Использован разумный `8192`.
+- Do not set `num_ctx` in the Ollama model options thoughtlessly high (for example 32768) — with
+  modest spare video memory, rebuilding the KV cache for such a context can take
+  many minutes instead of seconds. A reasonable `8192` is used.
 
-### 8. Git-хуки и валидация документации ✅ реализовано
+### 8. Git hooks and documentation validation ✅ implemented
 
-Правила, которые можно проверить машиной, получают скрипт, а не только абзац в
-`infra-dev.md` (правило 19). Собрано из живых проектов (WorldSim — post-commit с
-самовосстановлением индекса GitNexus, ProjectHub — `validate-docs`/`check-index`,
-ProxiHorror/ProjectHub — запрет AI-атрибуции в коммитах):
+Rules that a machine can check get a script, not just a paragraph in
+`infra-dev.md` (rule 19). Collected from live projects (WorldSim — post-commit with
+self-healing of the GitNexus index, ProjectHub — `validate-docs`/`check-index`,
+ProxiHorror/ProjectHub — no AI attribution in commits):
 
 - `scripts/git-hooks/pre-commit` — `npm run lint:docs`: `scripts/validate-docs.mjs`
-  (frontmatter с `id`/`title`, даты только строками в кавычках, картинки одной строкой,
-  локальные файлы существуют, раздел `section` у документов, ссылки `[[id]]` и якоря
-  `[[id#Заголовок]]` ведут на существующее — `scripts/doc-rules.mjs`) + `scripts/rag/check-index.mjs` (хэш документов и версия
-  чанкера в `.rag-index/meta.json` совпадают с `backlog/`).
-- `scripts/git-hooks/commit-msg` — отклоняет `Co-Authored-By: Claude …`, `Generated with
-  Claude Code`, `Generated by AI`, `🤖` и аналоги; соавторы-люди проходят.
-- `scripts/git-hooks/post-commit` — `gitnexus analyze`; если инкрементальный проход уронил
-  FTS-индекс — `clean --force` + `analyze`; молчит в проектах без `.gitnexus/`. Не зовёт
-  `analyze`, если с последней индексации (`lastCommit` в `.gitnexus/`) менялись только файлы,
-  исключённые `.gitignore`/`.gitnexusignore` — например, задачи и документы в `backlog/`.
-- `scripts/git-hooks/install.mjs` — подключает каталог через `core.hooksPath` (хуки
-  версионируются вместе с проектом), вызывается из `npm install` (`prepare`) и `setup.mjs`.
-  Обход — только по явной просьбе: `--no-verify` или `INFRA_HOOKS_SKIP=1`.
-- `scripts/git-hooks/hooks.test.mjs` — `npm test`: порядок вызовов post-commit на заглушке
-  gitnexus, отказы/пропуски commit-msg, интеграционный прогон pre-commit на документации шаблона.
-- `.gitattributes` — LF для sh/хуков/юнитов systemd/скриптов, CRLF для `.bat`/`.ps1`:
-  CRLF в хуке или деплой-скрипте на Linux — это `$'\r': command not found`.
+  (frontmatter with `id`/`title`, dates only as quoted strings, images on one line,
+  local files exist, a `section` on documents, `[[id]]` links and `[[id#Heading]]`
+  anchors lead to something that exists — `scripts/doc-rules.mjs`) + `scripts/rag/check-index.mjs` (the document hash and the chunker
+  version in `.rag-index/meta.json` match `backlog/`); then the generated rule files are compared with the rules source
+  using the git index (`sync-agent-rules.mjs --check --staged`).
+- `scripts/git-hooks/commit-msg` — rejects `Co-Authored-By: Claude …`, `Generated with
+  Claude Code`, `Generated by AI`, `🤖` and equivalents; human co-authors pass.
+- `scripts/git-hooks/post-commit` — `gitnexus analyze`; if the incremental pass broke the
+  FTS index — `clean --force` + `analyze`; silent in projects without `.gitnexus/`. It does not call
+  `analyze` if since the last indexing (`lastCommit` in `.gitnexus/`) only files
+  excluded by `.gitignore`/`.gitnexusignore` changed — for example tasks and documents in `backlog/`.
+- `scripts/git-hooks/install.mjs` — connects the folder through `core.hooksPath` (the hooks
+  are versioned with the project); called from `npm install` (`prepare`) and `setup.mjs`.
+  Bypass only on explicit request: `--no-verify` or `INFRA_HOOKS_SKIP=1`.
+- `scripts/git-hooks/hooks.test.mjs` — `npm test`: the post-commit call order on a gitnexus
+  stub, commit-msg refusals and passes, an integration run of pre-commit on the project documentation.
+- `.gitattributes` — LF for sh, hooks, systemd units and scripts, CRLF for `.bat`/`.ps1`:
+  CRLF in a hook or a deploy script on Linux means `$'\r': command not found`.
 
 ```mermaid
 graph LR
-    C["git commit"] --> PC["pre-commit<br/>validate-docs + check-index"]
-    PC -->|ok| CM["commit-msg<br/>нет AI-атрибуции?"]
-    CM -->|ok| CO["коммит записан"]
+    C["git commit"] --> PC["pre-commit<br/>validate-docs + check-index + rules check"]
+    PC -->|ok| CM["commit-msg<br/>no AI attribution?"]
+    CM -->|ok| CO["commit recorded"]
     CO --> POST["post-commit<br/>gitnexus analyze"]
-    POST -->|упал| FIX["clean --force + analyze"]
-    PC -->|устарел индекс| STOP1["stop: npm run index-docs"]
-    CM -->|Co-Authored-By: Claude| STOP2["stop: убрать строку"]
+    POST -->|failed| FIX["clean --force + analyze"]
+    PC -->|stale index| STOP1["stop: npm run index-docs"]
+    CM -->|Co-Authored-By: Claude| STOP2["stop: remove the line"]
 ```
 
-### Веб-интерфейсы: `scripts/web.mjs`, `start-web.bat`/`.sh` ✅ реализовано
+### Web UIs: `scripts/web.mjs`, `start-web.bat`/`.sh` ✅ implemented
 
-Backlog.md и GitNexus умеют поднимать свои веб-UI (`backlog browser`, `gitnexus serve`).
-`scripts/web.mjs start|stop|status` поднимает их через уже готовый `env-tools` (трекинг
-pid/логов, без дублей на одном порту), пропуская то, что ещё не проинициализировано
-(`backlog/` нет → пропустить с подсказкой, `.gitnexus/` нет → пропустить с подсказкой).
-`start-web.bat` (Windows, CRLF) и `start-web.sh` — тонкие обёртки для запуска двойным
-кликом/из терминала без необходимости помнить node-команду.
+Backlog.md and GitNexus can start their web UIs (`backlog browser`, `gitnexus serve`).
+`scripts/web.mjs start|stop|status` starts them through the ready-made `env-tools` (pid/log
+tracking, no duplicates on one port), skipping what is not initialized yet
+(no `backlog/` → skip with a hint, no `.gitnexus/` → skip with a hint).
+`start-web.bat` (Windows, CRLF) and `start-web.sh` are thin wrappers for starting with a double
+click or from the terminal without having to remember the node command.
 
-## Статус
+## Status
 
-| Компонент | Статус |
+| Component | Status |
 |---|---|
-| Git / Backlog.md / GitNexus в связке | ✅ есть и используется |
-| Нативный MCP-сервер Backlog.md (`backlog mcp start`) | ✅ подключён (`.mcp.json`, фича `backlogMcp`) |
-| Vector RAG для документации (отдельно от GitNexus) | ✅ базовая версия готова (`scripts/rag/`) |
-| MCP-сервер `env-tools` (процессы, логи, reindex) | ✅ базовая версия готова (`scripts/env/`) |
-| Кросс-платформенный bootstrap (`stack.json`) | ✅ базовая версия готова (`scripts/bootstrap/`) |
-| Skill `init-dev-project` | ✅ реализован (`.claude/skills/init-dev-project/`) |
-| Общий `infra-dev.md` для CLAUDE.md/GEMINI.md/AGENTS.md | ✅ реализован |
-| Конфигурация (standalone/подпапка, опциональные фичи) | ✅ реализовано (`infra.config.json`, `scripts/setup.mjs`) |
-| LightRAG — граф технической документации | ✅ базовая версия готова, опционально (`scripts/lightrag/`) |
-| Веб-интерфейсы Backlog.md/GitNexus (`scripts/web.mjs`) | ✅ реализовано |
-| Git-хуки (`scripts/git-hooks/`: lint:docs, запрет AI-атрибуции, переиндексация GitNexus) | ✅ реализовано, ставятся через `core.hooksPath` при `npm install` |
-| Валидатор документации `npm run lint:docs` (frontmatter, даты, картинки, разделы и ссылки `[[id]]`, актуальность индекса) | ✅ реализовано (`scripts/validate-docs.mjs`, `scripts/doc-rules.mjs`, `scripts/rag/check-index.mjs`) |
-| Актуальность RAG-индекса | ✅ гейт в `pre-commit`; пересборка по-прежнему явная (`npm run index-docs`) |
+| Git / Backlog.md / GitNexus together | ✅ present and in use |
+| Native Backlog.md MCP server (`backlog mcp start`) | ✅ connected (`.mcp.json`, the `backlogMcp` feature) |
+| Vector RAG for documentation (separate from GitNexus) | ✅ base version ready (`scripts/rag/`) |
+| The `env-tools` MCP server (processes, logs, reindex) | ✅ base version ready (`scripts/env/`) |
+| Cross-platform bootstrap (`stack.json`) | ✅ base version ready (`scripts/bootstrap/`) |
+| The `init-dev-project` skill | ✅ implemented (`.claude/skills/init-dev-project/`) |
+| Shared `infra-dev.md` for CLAUDE.md/GEMINI.md/AGENTS.md | ✅ implemented, English with a Russian translation (`locales/ru/`) |
+| Configuration (standalone/subfolder, optional features) | ✅ implemented (`infra.config.json`, `scripts/setup.mjs`) |
+| LightRAG — a graph of the technical documentation | ✅ base version ready, optional (`scripts/lightrag/`) |
+| Backlog.md/GitNexus web UIs (`scripts/web.mjs`) | ✅ implemented |
+| Git hooks (`scripts/git-hooks/`: lint:docs, rules check, no AI attribution, GitNexus reindexing) | ✅ implemented, installed through `core.hooksPath` on `npm install` |
+| Documentation validator `npm run lint:docs` (frontmatter, dates, images, sections and `[[id]]` links, index freshness) | ✅ implemented (`scripts/validate-docs.mjs`, `scripts/doc-rules.mjs`, `scripts/rag/check-index.mjs`) |
+| RAG index freshness | ✅ a gate in `pre-commit`; the rebuild is still explicit (`npm run index-docs`) |
 
-Легенда: ✅ — работает и используется сегодня, 🧩 — открытый вопрос / не начато.
+Legend: ✅ — works and is in use today, 🧩 — an open question / not started.

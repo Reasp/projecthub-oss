@@ -25,7 +25,8 @@
     { "path": ".claude/skills/**", "target": "project" },
     { "path": ".agents/skills/**", "target": "project" }
   ],
-  "exclude": ["README.md", "scripts/lightrag/.venv/**"],
+  "exclude": ["README.md", "README.ru.md", "scripts/lightrag/.venv/**"],
+  "locales": ["en", "ru"],
   "features": [
     {
       "id": "docsRag",
@@ -113,7 +114,7 @@
     {
       "id": "lang-ru",
       "label": { "ru": "Ответы и документация на русском", "en": "Answers and docs in Russian" },
-      "default": true
+      "default": { "ru": true }
     },
     {
       "id": "windows",

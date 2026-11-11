@@ -1,775 +1,776 @@
-# infra-dev — правила работы с локальной инфраструктурой проекта
+# infra-dev — rules for working with the project's local infrastructure
 
-> Источник истины — этот файл. Он подключается секцией в `CLAUDE.md`, `GEMINI.md`, `AGENTS.md`,
-> а также копируется целиком в `.agents/rules/infra-dev.md` (workspace rules Google Antigravity)
-> через `npm run sync-rules` (скрипт `scripts/sync-agent-rules.mjs`). Правь только здесь и
-> перезапускай синхронизацию — не редактируй ни секции в файлах правил агентов, ни
-> `.agents/rules/infra-dev.md` напрямую, следующий `sync-rules` их перезапишет.
+> This file is the source of truth. It is included as a section in `CLAUDE.md`, `GEMINI.md` and `AGENTS.md`,
+> and copied in full to `.agents/rules/infra-dev.md` (Google Antigravity workspace rules)
+> by `npm run sync-rules` (the `scripts/sync-agent-rules.mjs` script). Edit only here and
+> rerun the sync — do not edit the sections in the agent rule files or
+> `.agents/rules/infra-dev.md` directly: the next `sync-rules` overwrites them.
 >
-> Правила ниже — общие для любого проекта на этом шаблоне (собраны из живых проектов:
-> ProxiHorror, ProjectHub, WorldSim, PlatPhas). Специфика конкретного движка/стека (Godot,
-> Blender, Electron, Phaser и т.п.) сюда не входит — она описывается в самом проекте: в
-> отдельной секции `CLAUDE.md` вне маркеров `infra-dev` или в документах `backlog/docs/`.
+> The rules below are common to any project built on this template (collected from live projects:
+> ProxiHorror, ProjectHub, WorldSim, PlatPhas). Specifics of a particular engine or stack (Godot,
+> Blender, Electron, Phaser and so on) do not belong here — the project describes them itself: in a
+> separate `CLAUDE.md` section outside the `infra-dev` markers or in `backlog/docs/` documents.
 <!-- if:subfolder -->
 >
-> Инфраструктура шаблона лежит в подпапке `{{infraDir}}` проекта: команды `npm run …` и
-> `node scripts/…` из этого файла выполняй в этом каталоге (или `npm --prefix {{infraDir}} run …`).
+> The template infrastructure lives in the `{{infraDir}}` subfolder of the project: run the `npm run …` and
+> `node scripts/…` commands from this file in that folder (or `npm --prefix {{infraDir}} run …`).
 <!-- endif -->
 
-## Что здесь есть и зачем
+## What is here and why
 
-| Инструмент | Для чего | Когда использовать |
+| Tool | What for | When to use |
 |---|---|---|
-| **Git** | контроль версий | всегда |
-| **Git-хуки** (`scripts/git-hooks/`, `npm run install-hooks`) | `pre-commit` — валидация документации и актуальность RAG-индекса; `commit-msg` — запрет AI-атрибуции в сообщениях; `post-commit` — самовосстанавливающаяся переиндексация GitNexus | ставятся автоматически при `npm install` (`prepare`); не обходить `--no-verify` без явной просьбы пользователя |
-| **Backlog.md** (`backlog/`, MCP `backlog`) | задачи, milestones, decisions, доки проекта | смотреть перед началом работы над задачей; заводить задачу, а не только код; управлять задачами через нативный MCP-сервер `backlog mcp start`, а не только CLI |
-| **GitNexus** (MCP) | граф кода: вызовы, зависимости, impact-анализ | перед рефакторингом/правкой — проверить, что затронет изменение; `detect_changes` перед коммитом |
-| **Vector RAG** (`docs-rag`, MCP) | смысловой поиск по markdown-документации (`backlog/docs/`, `backlog/decisions/`) | перед ответом на вопрос про архитектуру/конвенции — вызвать `search_docs`, а не отвечать из памяти |
-| **Валидаторы документации** (`npm run lint:docs` = `scripts/validate-docs.mjs` + `scripts/rag/check-index.mjs`) | frontmatter, даты в кавычках, картинки, таблицы, разделы, ссылки `[[id]]` и якоря; уникальность номеров `task/doc/decision/m-N` и совпадение номера в имени файла с `id`; формат, секреты и индекс памяти проекта `backlog/memory/`; актуальность `.rag-index/` относительно `backlog/` | перед каждым коммитом (делает `pre-commit`), после любой правки `backlog/docs/**`, `backlog/decisions/**` |
-| **Контроль качества поиска** (`npm run rag-check` = `scripts/rag/check-quality.mjs`) | контрольные запросы из `rag-control-queries.json` обязаны находить свой документ в топ-K | после `index-docs`, при смене модели/чанкера, когда поиск «вдруг» не находит документ |
-| **Субагент-критик** (`.claude/agents/critic.md`) | независимый вердикт `PASS / REWRITE / DROP` по тексту, который уходит наружу (пользователю, в соцсеть, в PR, в релиз-ноты) | перед любой публикацией текста за пределы проекта; без `PASS` не публиковать |
-| **LightRAG** (`docs-graph`, MCP) — опционально | граф сущностей/связей той же документации (LLM-экстракция через локальную Ollama) | вопросы про связи между понятиями ("как X связано с Y") — `search_docs_graph`; включён, только если `features.lightrag = true` в `infra.config.json` | <!-- if:lightrag -->
-| **env-tools** (`env-tools`, MCP) | старт/стоп/логи локальных процессов (dev-сервер и т.п.), пересборка RAG-индекса | вместо произвольного `Bash`/фоновых процессов, когда нужно, чтобы процесс был виден другим сессиям/агентам |
-| **Управление компьютером** (`projecthub-computer`, MCP) — опционально | инструменты `computer_*` (окна, дерево доступности, мышь, клавиатура) через прокси ProjectHub с HITL, allowlist и kill-switch | только когда задача требует GUI за пределами кода; включён, только если `features.computerUse = true` и в ProjectHub включено «Управление компьютером» (правило 24) | <!-- if:computerUse -->
-| **Браузер для проверки UI** (`playwright`, MCP) — опционально | инструменты `browser_*` Playwright MCP: открыть страницу проекта, снимок дерева, клики, скриншот; headless, профиль в памяти | проверить видимый результат правки UI; включён, только если `features.playwright = true` (правило 26) | <!-- if:playwright -->
+| **Git** | version control | always |
+| **Git hooks** (`scripts/git-hooks/`, `npm run install-hooks`) | `pre-commit` — documentation validation and RAG index freshness; `commit-msg` — rejects AI attribution in messages; `post-commit` — self-healing GitNexus reindexing | installed automatically on `npm install` (`prepare`); do not bypass with `--no-verify` unless the user explicitly asks |
+| **Backlog.md** (`backlog/`, MCP `backlog`) | tasks, milestones, decisions, project docs | check before starting work on a task; create a task, not just code; manage tasks through the native MCP server `backlog mcp start`, not only the CLI |
+| **GitNexus** (MCP) | code graph: calls, dependencies, impact analysis | before a refactor or edit — check what the change affects; `detect_changes` before a commit |
+| **Vector RAG** (`docs-rag`, MCP) | semantic search over the markdown documentation (`backlog/docs/`, `backlog/decisions/`) | before answering a question about architecture or conventions — call `search_docs` instead of answering from memory |
+| **Documentation validators** (`npm run lint:docs` = `scripts/validate-docs.mjs` + `scripts/rag/check-index.mjs`) | frontmatter, quoted dates, images, tables, sections, `[[id]]` links and anchors; unique `task/doc/decision/m-N` numbers and a file-name number that matches the `id`; format, secrets and index of the project memory `backlog/memory/`; freshness of `.rag-index/` against `backlog/` | before every commit (`pre-commit` does it), after any edit of `backlog/docs/**`, `backlog/decisions/**` |
+| **Search quality control** (`npm run rag-check` = `scripts/rag/check-quality.mjs`) | control queries from `rag-control-queries.json` must find their document in the top K | after `index-docs`, when the model or chunker changes, when search "suddenly" misses a document |
+| **Critic subagent** (`.claude/agents/critic.md`) | an independent `PASS / REWRITE / DROP` verdict on text that leaves the project (to the user, a social network, a PR, release notes) | before publishing any text outside the project; do not publish without `PASS` |
+| **LightRAG** (`docs-graph`, MCP) — optional | entity/relation graph of the same documentation (LLM extraction through a local Ollama) | questions about relations between concepts ("how is X related to Y") — `search_docs_graph`; enabled only if `features.lightrag = true` in `infra.config.json` | <!-- if:lightrag -->
+| **env-tools** (`env-tools`, MCP) | start/stop/logs of local processes (dev server and so on), RAG index rebuild | instead of ad-hoc `Bash`/background processes, when the process must be visible to other sessions and agents |
+| **Computer use** (`projecthub-computer`, MCP) — optional | `computer_*` tools (windows, accessibility tree, mouse, keyboard) through the ProjectHub proxy with HITL, an allowlist and a kill switch | only when the task needs a GUI outside the code; enabled only if `features.computerUse = true` and "Computer use" is turned on in ProjectHub (rule 24) | <!-- if:computerUse -->
+| **Browser for UI checks** (`playwright`, MCP) — optional | Playwright MCP `browser_*` tools: open a project page, take a tree snapshot, click, take a screenshot; headless, in-memory profile | check the visible result of a UI change; enabled only if `features.playwright = true` (rule 26) | <!-- if:playwright -->
 
-Google Antigravity — второй поддерживаемый агент наравне с Claude Code: те же MCP-серверы
-подключены через `.agents/mcp_config.json`, те же правила — через `.agents/rules/infra-dev.md`,
-а скилл `init-dev-project` продублирован в `.agents/skills/init-dev-project/SKILL.md` (у
-Antigravity свой каталог скиллов, `.claude/skills/` он не читает). Все три генерируются/
-синхронизируются автоматически (`setup.mjs`, `sync-agent-rules.mjs`) — кроме самого скилла,
-его при правке синхронизируй вручную с `.claude/skills/init-dev-project/SKILL.md`.
+Google Antigravity is the second supported agent on a par with Claude Code: the same MCP servers
+are connected through `.agents/mcp_config.json`, the same rules through `.agents/rules/infra-dev.md`,
+and the `init-dev-project` skill is duplicated in `.agents/skills/init-dev-project/SKILL.md`
+(Antigravity has its own skills folder and does not read `.claude/skills/`). All three are generated
+or synced automatically (`setup.mjs`, `sync-agent-rules.mjs`) — except the skill itself: when you
+edit it, sync it by hand with `.claude/skills/init-dev-project/SKILL.md`.
 
-## Конфигурация: `infra.config.json`
+## Configuration: `infra.config.json`
 
-Инфраструктура может быть **корнем проекта** или **подпапкой** внутри уже существующего
-проекта (`projectRoot` в конфиге указывает, где именно) — все скрипты читают путь оттуда
-через `scripts/config.mjs` (Node) / `scripts/lightrag/pyconfig.py` (Python), нет захардкоженных
-относительных путей. Часть функций опциональна и включается/выключается флагом в
-`features` (по умолчанию выключен только `lightrag` — Python + локальная LLM, тяжело и не
-всем нужно; `gitnexus` включён и требует глобально установленный `gitnexus` CLI). Менять
-конфиг — через `node scripts/setup.mjs` (интерактивно или флагами
-`--project-root`/`--features`), не руками: скрипт заодно синхронизирует **оба** MCP-конфига —
-`.mcp.json` (Claude Code) и `.agents/mcp_config.json` (Google Antigravity, тот же формат
-`mcpServers`) — одним и тем же набором серверов, по составу включённых `features`. Ручные
-ключи конфига, которые `setup.mjs` не спрашивает (например, путь к нестандартно
-установленному инструменту), при переконфигурации сохраняются как есть. Проект может
-расширять список фич своими (MCP-серверы движка и т.п.) — по образцу `blender`/`godot` в
-ProxiHorror или `computerUse` в ProjectHub: фича = флаг в `features` + запись в
-`buildDesiredMcpServers` + скрипт в `scripts/<фича>/`. Конвенция для ручных ключей: каждый
-ключ конфига (`godotPath`, `cpuLimit`, адрес сервиса) переопределяется одноимённой переменной
-окружения на сессию, env имеет приоритет. Другие ручные ключи: `"gitHooks": false` — у проекта
-свои хуки (husky, lefthook), `npm install` не трогает `core.hooksPath`; `"ruleSets": [...]` —
-какие наборы правил без кода оставлять в сгенерированных файлах правил (`lang-ru`, `windows`,
-`data-driven`, `code-ts`; без ключа включены все). В шаблоне `infra-dev.md` размечен условиями
-(HTML-комментарий `if:имя` в конце строки или блок до `endif`): `sync-rules` оставляет такой
-текст в `CLAUDE.md`/`GEMINI.md`/`AGENTS.md` только при включённой фиче или наборе и номера правил
-не пересчитывает. ProjectHub при инициализации кладёт в проект уже собранный `infra-dev.md`: без
-разметки, с фичами и наборами из окна инициализации и с перенумерованными правилами и ссылками
-на них — `ruleSets` на такой файл не влияет, наборы меняют повторной инициализацией.
+The infrastructure can be the **project root** or a **subfolder** inside an existing
+project (`projectRoot` in the config says where) — all scripts read the path from there
+through `scripts/config.mjs` (Node) / `scripts/lightrag/pyconfig.py` (Python); there are no hardcoded
+relative paths. Some functions are optional and are switched on or off by a flag in
+`features` (only `lightrag` is off by default — Python plus a local LLM, heavy and not
+needed by everyone; `gitnexus` is on and needs the `gitnexus` CLI installed globally). Change
+the config with `node scripts/setup.mjs` (interactively or with the
+`--project-root`/`--features` flags), not by hand: the script also syncs **both** MCP configs —
+`.mcp.json` (Claude Code) and `.agents/mcp_config.json` (Google Antigravity, the same
+`mcpServers` format) — with the same set of servers, according to the enabled `features`. Manual
+config keys that `setup.mjs` does not ask about (for example, the path to a tool installed in a
+non-standard place) are kept as they are on reconfiguration. A project can
+extend the feature list with its own (engine MCP servers and so on) — following `blender`/`godot` in
+ProxiHorror or `computerUse` in ProjectHub: a feature = a flag in `features` + an entry in
+`buildDesiredMcpServers` + a script in `scripts/<feature>/`. Convention for manual keys: every
+config key (`godotPath`, `cpuLimit`, a service address) is overridden by an environment
+variable of the same name for the session; env takes precedence. Other manual keys: `"gitHooks": false` — the project has
+its own hooks (husky, lefthook), and `npm install` does not touch `core.hooksPath`; `"ruleSets": [...]` —
+which code-free rule sets to keep in the generated rule files (`lang-ru`, `windows`,
+`data-driven`, `code-ts`; without the key all are on); `"locale": "ru"` — take the rules from the
+translation `locales/ru/infra-dev.md` instead of this file. In the template `infra-dev.md` is marked up with conditions
+(an `if:name` HTML comment at the end of a line or a block up to `endif`): `sync-rules` keeps such
+text in `CLAUDE.md`/`GEMINI.md`/`AGENTS.md` only when the feature or set is enabled and does not
+renumber the rules. On initialization ProjectHub puts an already assembled `infra-dev.md` into the project: without
+markup, in the project language, with the features and sets from the initialization window and with renumbered rules and
+references to them — `ruleSets` and `locale` do not affect such a file; sets are changed by reinitializing.
 
-## Правила
+## Rules
 
-1. **Документация не в GitNexus и не в отдельной верхнеуровневой `docs/`.** GitNexus
-   индексирует код; документация целиком живёт внутри `backlog/` (`backlog/docs/`,
-   `backlog/decisions/`), рядом с задачами. Если правишь `backlog/docs/**/*.md` или
-   `backlog/decisions/**/*.md` — после значимых изменений запусти
-   `npm run index-docs`, чтобы обновить векторный индекс. Индекс (`.rag-index/`) коммитится в git.
-   Актуальность индекса проверяется автоматически: `npm run check-index` (входит в
-   `npm run lint:docs` и в `pre-commit`) падает, если хэш документов в `.rag-index/meta.json`
-   не совпадает с текущим содержимым `backlog/docs/`, `backlog/decisions/` и `backlog/memory/`
-   (без генерируемого `MEMORY.md`) или изменилась версия чанкера. Сборка инкрементальная:
-   актуальный индекс `index-docs` не трогает, при пересборке эмбеддинги считаются только для
-   новых и изменённых чанков (`--force` — пересчитать всё); после слияния веток каталог индекса
-   собирается с нуля. При `git merge`/`pull` индекс и `MEMORY.md` не сливают руками: драйвер
-   `projecthub-generated` (ставит `npm install`) оставляет их своей стороне, хук `post-merge`
-   пересобирает и дополняет коммит слияния. После fast-forward и `pull --rebase` пересборка
-   остаётся в рабочем дереве — закоммить её. Слияние встало на конфликте в `.rag-index/` —
-   `npm run merge:generated`, затем `git commit`. Модель эмбеддингов — многоязычная `Xenova/multilingual-e5-small`
-   (документация на русском); запросы кодируются той моделью, что записана в `meta.json`
-   индекса, поэтому индекс и поиск не расходятся. Качество поиска сторожит `npm run rag-check`:
-   контрольные запросы в `rag-control-queries.json` (корень проекта) сформулированы своими
-   словами, а не копией заголовка, и обязаны находить свой документ в топ-3; при промахе сначала
-   проверь, не появился ли законный конкурент, запрос под выдачу не подгоняй; новый ключевой
-   гайд — новый контрольный запрос. Что GitNexus индексирует, задаёт `.gitnexusignore` в
-   корне (блок ProjectHub + свои строки ниже него; `backlog/` и `.rag-index/` исключены).
-   Устаревшие и противоречащие решениям документы не держи в базе знаний — см. мусорку идей в
-   правиле 16.
-2. **Перед ответом про архитектуру/устройство подсистемы — вызови `search_docs`** (MCP
-   `docs-rag`), а не отвечай только из контекста разговора или обучающих данных.
-3. **Перед рефакторингом/удалением — проверь impact через GitNexus**, а не только через grep.
-   Переименования — через `rename` GitNexus, не find-and-replace. Перед коммитом —
-   `detect_changes`, чтобы убедиться, что затронуто только ожидаемое. Индекс может быть
-   устаревшим: «not found» для символа, который точно есть в коде, — сигнал переиндексировать
-   (`gitnexus analyze --skip-agents-md --skip-skills`), а не повод пропустить impact; в начале
-   сессии после чужих коммитов — то же. Флаги обязательны: без них `analyze` при каждом запуске
-   дописывает свою секцию в `CLAUDE.md`/`AGENTS.md` и кладёт скиллы в `.claude/skills/gitnexus`.
-   MCP запускается через обёртку `scripts/gitnexus/gitnexus.mjs` (на Windows добавляет в PATH
-   OpenSSL из Git for Windows — без него поиск идёт без BM25, «FTS indexes missing»). Если MCP
-   отвечает `CONNECTION_CLOSED` или `partial: true` при нуле вызывающих — сообщи пользователю и
-   работай через CLI (`gitnexus impact <symbol> --direction upstream`, `gitnexus detect-changes`).
-4. **Долгоживущие процессы (dev-сервер, вотчеры) — через `env-tools`** (`start_process`/
-   `stop_process`/`tail_log`), а не голым `&` в фоне без учёта — так у процесса есть трекинг
-   pid/логов, и другой агент/сессия не запустит дубликат на том же порту. То же относится к
-   инструментам движка/редактора: если в проекте есть MCP-обёртка (тесты, запуск игры,
-   сцены), пользуйся ею, а не голым бинарём из Bash — обёртка сама захватывает оба потока
-   вывода, разбирает ошибки и трекает процесс (как писать такую обёртку — документ «Скрипты-
-   проверки и MCP-обёртки инструментов: соглашения» в `backlog/docs/`). **Никогда
-   `taskkill /IM node.exe`, `pkill node` и прочие «убить всё»** — у пользователя свои
-   процессы: перед запуском тест-серверов посмотри занятые порты (`netstat -ano`/
-   `Get-NetTCPConnection`), гаси только свой PID через `stop_process`; чужой dev-сервер не
-   трогай даже если мешает — спроси. У инструментов есть известные длительности (старт движка
-   20–40 с, редактора — до минуты, полная индексация — минуты): это норма, не зависание, не
-   перезапускай и не дублируй раньше заявленного бюджета времени.
-5. **Задачи — в Backlog.md** (`backlog/`), не в отдельных заметках/TODO-комментариях в коде.
-   - **Задача заводится ПЕРЕД первой правкой кода — для ЛЮБОЙ правки, багфикса или фичи**, а не
-     только для «нетривиальных». Диагностика (чтение кода, поиск причины) может идти без задачи,
-     но перед первым изменением файла задача должна существовать, даже если фикс однострочный.
-     Обнаружил, что чинишь что-то без задачи — заведи её немедленно, можно постфактум с готовым
-     итогом, но не пропускай молча. Инцидент на проде — баг как любой другой: задача перед
-     диагностикой по SSH, не «починить молча».
-   - **Задачи берутся ИЗ Backlog.md, а не придумываются заново.** Перед стартом — `task_list`/
-     `task_search`: нет ли уже задачи под эту работу (в том числе открытой `In Progress`) —
-     продолжай её, синхронизируя статус и заметки, а не создавай дубликат.
-   - **Управление только через MCP/CLI**: `task_create`, `task_edit`, `task_view` (или
-     `npx backlog.md task …`), не редактировать `.md`-файлы задач напрямую. Единственное
-     вынужденное исключение — `backlog/config.yml` (это конфиг, не markdown задачи) и
-     документ, переваливший за лимит длины аргумента CLI (см. правило 16).
-   - **Конфликт слияния в задаче** — тоже исключение. `npm install` ставит в копию драйвер
-     `projecthub-task`: при `git merge`/`pull` задачи сливаются по полям frontmatter, а маркеры
-     конфликта остаются только вокруг поля, которое обе стороны изменили по-разному. Разрешай их
-     правкой файла — CLI на файле с маркерами не работает и режет незнакомые поля.
-   - **Номер задачи/документа не выбирается руками** и окончателен только в основной ветке:
-     `lint:docs` падает на дубле id и на расхождении номера в имени файла с `id` во frontmatter
-     (типовой источник — две машины или две ветки завели один номер). Нашёл дубль —
-     перенумеруй входящую сторону вместе со ссылками `[[id]]`, не удаляй чужую задачу.
-   - **Задача, которую завёл агент сам** (без явной просьбы на именно эту задачу), получает
-     label `agent-created` и `reporter: "agent:<модель или роль>"` — так человек отличает
-     неподтверждённые задачи; снимает метку человек. Заголовок задачи — короче ~90 символов
-     (кириллица в имени файла → `ENAMETOOLONG` на Windows). Разбиение на подзадачи — через
-     `parentTaskId`/`dependencies`, план в `## Implementation Plan` родителя.
-   - **Одобрение списка задач ≠ разрешение их делать.** «Делаем», «делаем всё» после аудита или
-     плана — согласие **завести** задачи в Backlog; после «задачи заведены» спроси, какую брать.
-     Код трогается, когда пользователь назвал задачу или явно сказал «работай по порядку».
-   - **Одна задача за сессию.** После перевода задачи в `Review` — остановись и жди явного
-     запроса на следующую, даже при открытом майлстоуне: человеку нужен контроль между задачами,
-     а смена контекста внутри задачи дорога. Исключение — прямое указание пользователя починить
-     найденный дефект (это новый запрос).
-   - **Заголовки секций задачи — строго стандартные английские** (`## Description`,
+1. **Documentation is not in GitNexus and not in a separate top-level `docs/`.** GitNexus
+   indexes code; all documentation lives inside `backlog/` (`backlog/docs/`,
+   `backlog/decisions/`), next to the tasks. If you edit `backlog/docs/**/*.md` or
+   `backlog/decisions/**/*.md`, run `npm run index-docs` after significant changes
+   to update the vector index. The index (`.rag-index/`) is committed to git.
+   Index freshness is checked automatically: `npm run check-index` (part of
+   `npm run lint:docs` and `pre-commit`) fails if the document hash in `.rag-index/meta.json`
+   does not match the current contents of `backlog/docs/`, `backlog/decisions/` and `backlog/memory/`
+   (without the generated `MEMORY.md`) or the chunker version changed. The build is incremental:
+   `index-docs` leaves an up-to-date index alone, and a rebuild computes embeddings only for
+   new and changed chunks (`--force` recomputes everything); after a branch merge the index folder
+   is built from scratch. On `git merge`/`pull` the index and `MEMORY.md` are not merged by hand: the
+   `projecthub-generated` driver (installed by `npm install`) keeps our side, and the `post-merge` hook
+   rebuilds them and amends the merge commit. After a fast-forward or `pull --rebase` the rebuild
+   stays in the working tree — commit it. A merge stopped on a conflict in `.rag-index/` —
+   `npm run merge:generated`, then `git commit`. The embedding model is the multilingual `Xenova/multilingual-e5-small`
+   (documentation can be in any language); queries are encoded with the model recorded in the index
+   `meta.json`, so the index and the search never diverge. `npm run rag-check` guards search quality:
+   control queries in `rag-control-queries.json` (project root) are phrased in your own
+   words, not copied from a heading, and must find their document in the top 3; on a miss, first
+   check whether a legitimate competitor appeared — do not tune the query to the results; a new key
+   guide means a new control query. What GitNexus indexes is set by `.gitnexusignore` in the
+   root (the ProjectHub block plus your own lines below it; `backlog/` and `.rag-index/` are excluded).
+   Do not keep outdated documents that contradict decisions in the knowledge base — see the idea bin in
+   rule 16.
+2. **Before answering about the architecture or design of a subsystem, call `search_docs`** (MCP
+   `docs-rag`) instead of answering only from the conversation context or training data.
+3. **Before a refactor or deletion, check the impact with GitNexus**, not only with grep.
+   Renames go through GitNexus `rename`, not find-and-replace. Before a commit run
+   `detect_changes` to make sure only what you expected is affected. The index may be
+   stale: "not found" for a symbol that is definitely in the code is a signal to reindex
+   (`gitnexus analyze --skip-agents-md --skip-skills`), not a reason to skip the impact check; the same at the
+   start of a session after other people's commits. The flags are mandatory: without them `analyze` appends its
+   section to `CLAUDE.md`/`AGENTS.md` on every run and puts skills into `.claude/skills/gitnexus`.
+   The MCP server runs through the `scripts/gitnexus/gitnexus.mjs` wrapper (on Windows it adds OpenSSL from
+   Git for Windows to PATH — without it search runs without BM25, "FTS indexes missing"). If the MCP server
+   answers `CONNECTION_CLOSED` or `partial: true` with zero callers, tell the user and
+   work through the CLI (`gitnexus impact <symbol> --direction upstream`, `gitnexus detect-changes`).
+4. **Long-running processes (dev server, watchers) go through `env-tools`** (`start_process`/
+   `stop_process`/`tail_log`), not a bare untracked `&` in the background — that way the process has
+   pid/log tracking, and another agent or session will not start a duplicate on the same port. The same goes for
+   engine and editor tools: if the project has an MCP wrapper (tests, running the game,
+   scenes), use it instead of the bare binary from Bash — the wrapper captures both output
+   streams, parses errors and tracks the process (how to write such a wrapper — the document "Check
+   scripts and MCP tool wrappers: conventions" in `backlog/docs/`, if the project has it). **Never
+   `taskkill /IM node.exe`, `pkill node` or any other "kill everything"** — the user has their own
+   processes: before starting test servers look at the busy ports (`netstat -ano`/
+   `Get-NetTCPConnection`) and stop only your own PID through `stop_process`; do not touch someone else's dev server
+   even if it is in the way — ask. Tools have known durations (engine start
+   20–40 s, editor — up to a minute, a full index — minutes): that is normal, not a hang; do not
+   restart or duplicate them before the stated time budget runs out.
+5. **Tasks live in Backlog.md** (`backlog/`), not in separate notes or TODO comments in the code.
+   - **A task is created BEFORE the first code edit — for ANY edit, bug fix or feature**, not
+     only for "non-trivial" ones. Diagnostics (reading code, looking for the cause) may go without a task,
+     but before the first file change the task must exist, even if the fix is one line.
+     Caught yourself fixing something without a task — create it immediately, after the fact with the result
+     if needed, but never skip it silently. A production incident is a bug like any other: a task before
+     diagnostics over SSH, not "fix it quietly".
+   - **Tasks are taken FROM Backlog.md, not invented anew.** Before starting — `task_list`/
+     `task_search`: is there already a task for this work (including an open `In Progress` one) —
+     continue it, keeping its status and notes in sync, instead of creating a duplicate.
+   - **Manage tasks only through MCP/CLI**: `task_create`, `task_edit`, `task_view` (or
+     `npx backlog.md task …`); do not edit task `.md` files directly. The only
+     forced exceptions are `backlog/config.yml` (a config, not a task markdown) and a
+     document that exceeds the CLI argument length limit (see rule 16).
+   - **A merge conflict in a task** is also an exception. `npm install` installs the
+     `projecthub-task` driver in the clone: on `git merge`/`pull` tasks are merged field by field in the frontmatter, and conflict
+     markers remain only around a field that both sides changed differently. Resolve them
+     by editing the file — the CLI does not work on a file with markers and cuts unknown fields.
+   - **A task or document number is never chosen by hand** and is final only in the main branch:
+     `lint:docs` fails on a duplicate id and on a file-name number that differs from the frontmatter `id`
+     (the typical source is two machines or two branches that took the same number). Found a duplicate —
+     renumber the incoming side together with its `[[id]]` links; do not delete someone else's task.
+   - **A task the agent created on its own** (without an explicit request for exactly this task) gets the
+     `agent-created` label and `reporter: "agent:<model or role>"` — so a human can tell
+     unconfirmed tasks apart; the human removes the label. Keep the task title under ~90 characters
+     (non-Latin characters in a file name → `ENAMETOOLONG` on Windows). Split into subtasks with
+     `parentTaskId`/`dependencies`, with the plan in the parent's `## Implementation Plan`.
+   - **Approving a list of tasks ≠ permission to do them.** "Let's do it", "do everything" after an audit or
+     a plan means consent to **create** the tasks in Backlog; after "the tasks are created" ask which one to take.
+     Code is touched when the user named the task or explicitly said "work through them in order".
+   - **One task per session.** After moving a task to `Review`, stop and wait for an explicit
+     request for the next one, even with an open milestone: a human needs control between tasks,
+     and switching context inside a task is expensive. The exception is a direct instruction from the user to fix
+     a defect you found (that is a new request).
+   - **Task section headings are strictly the standard English ones** (`## Description`,
      `## Acceptance Criteria`, `## Definition of Done`, `## Implementation Plan`,
-     `## Implementation Notes`, `## Final Summary`) и маркеры (`<!-- SECTION:DESCRIPTION:BEGIN -->`,
-     `<!-- AC:BEGIN -->` и т.д.) — по ним парсят CLI и веб-интерфейс; переведённый заголовок
-     означает пропавшие чеклисты в UI. **Содержимое** секций — на русском.
-   - **Обязательные секции и их наполнение** — задача является единым и исчерпывающим
-     источником правды по фиче/багу, чтобы новая сессия могла продолжить работу по одному её
-     тексту, не восстанавливая контекст с нуля:
-     1. `description` — суть, контекст проблемы и ожидаемый результат (WHY). Пиши его
-        Markdown-разметкой, а не одной сплошной строкой: короткие разделы с заголовками `###`
-        («Исполнитель», «Почему», «Цель», «Ограничения»), перечисления списком, между абзацами
-        пустая строка. Первыми идут разделы `### Исполнитель` и `### Почему` (см. следующий
-        пункт). ProjectHub структурирует сплошной текст только при показе — в файле, CLI и
-        веб-интерфейсе Backlog.md он остаётся нечитаемым.
-     2. `acceptanceCriteria` — проверяемые критерии приёмки чекбоксами (WHAT).
-     3. `planSet`/`planAppend` — детальный пошаговый план ДО начала кода (HOW): подход, список
-        создаваемых/изменяемых файлов с путями, порядок шагов, граничные случаи, какие проверки
-        прогонять.
-     4. `implementationNotes` — ход работы: принятые решения, найденные грабли, отклонения от плана.
-     5. `finalSummary` — Walkthrough-отчёт в формате PR summary: что сделано, результаты проверки
-        по каждому пункту AC, как протестировать пользователю (сценарии, команды), готовность к
-        коммиту.
-     6. `modifiedFiles` — список изменённых файлов относительно корня проекта.
-   - **Рекомендуемый исполнитель — у КАЖДОЙ задачи.** Метки: `model:<алиас>` — всегда
+     `## Implementation Notes`, `## Final Summary`) together with the markers (`<!-- SECTION:DESCRIPTION:BEGIN -->`,
+     `<!-- AC:BEGIN -->` and so on) — the CLI and the web UI parse them; a translated heading
+     means checklists disappear from the UI. The **contents** of the sections are in the project language.
+   - **Mandatory sections and what goes into them** — the task is the single, exhaustive
+     source of truth about a feature or bug, so that a new session can continue the work from its text alone,
+     without rebuilding the context from scratch:
+     1. `description` — the essence, the problem context and the expected result (WHY). Write it
+        in Markdown, not as one solid line: short sections with `###` headings
+        ("Assignee", "Why", "Goal", "Constraints"), lists for enumerations, an empty line between
+        paragraphs. The `### Assignee` and `### Why` sections come first (see the next
+        item). ProjectHub structures solid text only on display — in the file, the CLI and the
+        Backlog.md web UI it stays unreadable.
+     2. `acceptanceCriteria` — verifiable acceptance criteria as checkboxes (WHAT).
+     3. `planSet`/`planAppend` — a detailed step-by-step plan BEFORE coding (HOW): the approach, the list of
+        files to create or change with paths, the order of steps, edge cases, which checks
+        to run.
+     4. `implementationNotes` — the course of work: decisions made, pitfalls found, deviations from the plan.
+     5. `finalSummary` — a walkthrough report in PR-summary format: what was done, verification results
+        for each AC item, how the user can test it (scenarios, commands), readiness to
+        commit.
+     6. `modifiedFiles` — the list of changed files relative to the project root.
+   - **A recommended assignee for EVERY task.** Labels: `model:<alias>` — always
      (`opus-5`, `sonnet-5`, `haiku-4.5`, `fable-5.1`, `gpt-5-codex`, `gemini-2.5-pro`, …);
-     `effort:<low|medium|high|xhigh|max>` — для Claude Code и Codex; `agent:<codex|gemini>` —
-     только если рекомендуется НЕ Claude Code (его отсутствие читается как «Claude Code»).
-     Плюс человекочитаемое обоснование разделами `### Исполнитель` и `### Почему` в начале
-     описания. Это метаданные для будущего
-     запуска, не повод останавливать текущую сессию: начатую «не той» моделью задачу доделывает
-     тот, кто начал. Справочник «тип задачи → модель/effort» и эвристика — документ «Выбор
-     агента, модели и параметров запуска для задачи» в `backlog/docs/`.
-   - **Не называть и не предлагать несуществующие номера задач.** Сначала создание через
-     MCP/CLI ➔ проверка, что файл `backlog/tasks/task-N - *.md` реально появился ➔ только
-     потом ссылка на `TASK-N` в ответе.
-   - **Эскалация в майлстоун**: фича, разбитая на 5 и больше задач, получает майлстоун
-     (`milestone_add`), и все её задачи привязываются к нему — не держать их рассыпанными по
-     плоскому списку. Метки исполнителя при этом проставляются каждой задаче отдельно.
-6. **Статусы задач**: `To Do` → `In Progress` → `Review` → `Done`, плюс два статуса «передачи
-   человеку» — `InProgress(Human)` и `Review(Human)` (все шесть — в `backlog/config.yml`).
-   - `Review` — реализация завершена и агент **сам объективно доказал** acceptance criteria
-     (автотесты, type-check, curl/Playwright/SQL-проверка, `detect_changes`), итог записан.
-     Это штатный конец работы агента: человеку остаётся только одобрить коммит. **Чекбокс AC
-     ставится только с evidence**: файл:строка, команда и её вывод, имя теста — в `Final
-     Summary` на каждый критерий; критерий без доказательства остаётся неотмеченным. Критерий
-     приёмки доказывается тем же механизмом, каким его увидит пользователь (реальный запуск,
-     настоящий процесс, боевой путь), а не прокси-проверкой.
-   - `InProgress(Human)` — работа **заблокирована** действием, доступным только человеку
-     (регистрация во внешнем сервисе, ключ/токен/оплата, настройка в чужой панели, продуктовое
-     или юридическое решение). Агент сначала делает всё, что от этого не зависит, потом
-     передаёт; после действия человека задача возвращается в `In Progress`.
-   - `Review(Human)` — реализация завершена, но проверить результат агент **не может**
-     объективно (визуальное качество, тон LLM-текста, поведение в реальном клиенте/платёжке/
-     проде). Ставится вместо `Review`. **Запрещён**, если проверка автоматизируема — тогда
-     агент обязан выполнить её сам. Это не «мне лень проверить» и не замена вопросу по скоупу.
-     Если результат агент воспринять не может (звук, картинка, тон текста), он всё равно
-     строит **инструментальную проверку** (числа, спектр, скриншот, который смотрит глазами) и
-     готовит человеку лист/страницу ревью с конкретными пунктами и формой ответа — а не
-     просит «посмотреть».
-   - Перед переводом в любой Human-статус агент обязан записать в задачу (`notesAppend`):
-     что сделано и какие автопроверки пройдены; чеклист для человека с конкретными шагами и
-     критерием успеха; почему автоматическая проверка невозможна и как её автоматизировать в
-     будущем. Без этой заметки перевод недействителен. Повторяющаяся причина — повод
-     предложить пользователю задачу на автоматизацию проверки.
-   - `Done` ставит человек или агент по явной реплике пользователя («ок, коммить», «проверил») —
-     никогда по своей инициативе и никогда в обход `Review`. Количество Human-переводов
-     должно стремиться к нулю — каждый из них сигнал недоработанной автоматизации.
-   - Подробный гайд с примерами и шаблоном заметки — документ «Статусы задач: Review,
-     InProgress(Human), Review(Human)» в `backlog/docs/`.
-7. Порядок разбора незнакомой части проекта: документ-карта проекта (если есть — `readme`
-   «Карта документации» в `backlog/docs/`) → `search_docs` (что это и почему) →
-   `search_docs_graph` (как это связано с другими понятиями) → <!-- if:lightrag -->
-   GitNexus `impact`/`explain` (как это связано с кодом) → сам код.
-8. **Опциональные фичи — не форсировать.** Фичи, выключенные в `infra.config.json` (LightRAG —
-   Python + Ollama + модель на несколько ГБ, управление компьютером, Playwright и т.п.), не
-   предлагать включать без явного запроса пользователя: это осознанно не часть базового набора.
-9. **Веб-интерфейсы (Backlog.md, GitNexus) — через `node scripts/web.mjs start`**
-   (или `start-web.bat`/`start-web.sh`), не поднимать их отдельными разрозненными командами —
-   так они тоже трекаются через `env-tools` и не плодят дубли на одних портах.
-10. **Коммиты и деплой — только по явному запросу пользователя.** Агент не делает `git commit`,
-    `git push` или деплой проекта самостоятельно. Формулировка собственного плана («предлагаю
-    закоммитить», «коммичу») — это НЕ запрос пользователя, а реплика агента; жди явного
-    «да»/«коммить» от человека. Если у агента настроены соответствующие возможности, он может
-    **предлагать** это сделать, но не выполнять без явного подтверждения в текущем запросе.
-    Синхронизацию с remote (`git pull`/`fetch`/`merge`/`push`) агент не делает никогда — её
-    делает пользователь; отказ remote — не сбой, о «непушенных коммитах» в итогах не писать.
-    Разрешённый коммит — **только по pathspec своих файлов** одной командой
-    (`git commit -m "…" -- <файлы>`; новые файлы сначала `git add <файл>`), не `git add -A` +
-    `git commit`: в дереве параллельно работают другие сессии (правило 27). Перед коммитом —
-    `git diff --cached --name-only` и `git diff -- <файл>` для файлов с чужими правками; после —
-    `git show --stat HEAD`. «Коммить всё» означает всё, что сделала **эта** сессия; чужие
-    незакоммиченные файлы и бинарники без прямой просьбы не коммитить, одной строкой сказать,
-    что осталось и чьё. Захватил чужое — `git reset --soft HEAD~1` и повтор.
-11. **По завершении задачи агент обязан навязчиво напомнить закоммитить изменения** —
-    заметным отдельным сообщением (не мелким комментарием в конце ответа), чтобы пользователь
-    точно это увидел, и предложить конкретную команду `git commit … -- <свои файлы>` (с
-    pathspec) и/или перевод задачи в `Review`/`Done` в Backlog.md. Само действие не выполняется
-    без отдельного согласия пользователя (см. правило 10).
+     `effort:<low|medium|high|xhigh|max>` — for Claude Code and Codex; `agent:<codex|gemini>` —
+     only if something other than Claude Code is recommended (its absence reads as "Claude Code").
+     Plus a human-readable rationale in the `### Assignee` and `### Why` sections at the start of the
+     description. This is metadata for a future
+     run, not a reason to stop the current session: a task started by the "wrong" model is finished by
+     whoever started it. The "task type → model/effort" reference and the heuristic — the document "Choosing the
+     agent, model and run parameters for a task" in `backlog/docs/`, if the project has it.
+   - **Do not name or offer task numbers that do not exist.** First create through
+     MCP/CLI ➔ check that the `backlog/tasks/task-N - *.md` file really appeared ➔ only
+     then reference `TASK-N` in the answer.
+   - **Escalation to a milestone**: a feature split into 5 or more tasks gets a milestone
+     (`milestone_add`), and all its tasks are attached to it — do not keep them scattered across
+     the flat list. Assignee labels are still set on each task separately.
+6. **Task statuses**: `To Do` → `In Progress` → `Review` → `Done`, plus two "hand over to a
+   human" statuses — `InProgress(Human)` and `Review(Human)` (all six are in `backlog/config.yml`).
+   - `Review` — the implementation is finished and the agent **has objectively proven** the acceptance criteria
+     itself (automated tests, type check, curl/Playwright/SQL check, `detect_changes`), and the summary is written.
+     This is the normal end of the agent's work: the human only has to approve the commit. **An AC checkbox
+     is ticked only with evidence**: file:line, a command and its output, a test name — in the `Final
+     Summary` for each criterion; a criterion without proof stays unticked. An acceptance
+     criterion is proven by the same mechanism the user will see it through (a real run,
+     a real process, the production path), not by a proxy check.
+   - `InProgress(Human)` — the work is **blocked** by an action only a human can take
+     (sign-up with an external service, a key/token/payment, a setting in someone else's dashboard, a product
+     or legal decision). The agent first does everything that does not depend on it, then
+     hands over; after the human acts the task returns to `In Progress`.
+   - `Review(Human)` — the implementation is finished, but the agent **cannot** check the result
+     objectively (visual quality, the tone of an LLM text, behavior in a real client, payment provider or
+     production). It is used instead of `Review`. **Forbidden** if the check can be automated — then
+     the agent must run it itself. It is not "I can't be bothered to check" and not a substitute for a scope question.
+     If the agent cannot perceive the result (sound, an image, the tone of a text), it still
+     builds an **instrumental check** (numbers, a spectrum, a screenshot it looks at) and
+     prepares a review sheet or page for the human with concrete items and an answer form — instead of
+     asking them to "take a look".
+   - Before moving to any Human status the agent must write into the task (`notesAppend`):
+     what was done and which automated checks passed; a checklist for the human with concrete steps and
+     a success criterion; why an automated check is impossible and how to automate it in
+     the future. Without this note the move is invalid. A recurring reason is a cue to
+     offer the user a task to automate the check.
+   - `Done` is set by a human, or by the agent on an explicit user remark ("ok, commit", "checked") —
+     never on its own initiative and never bypassing `Review`. The number of Human hand-overs
+     should tend to zero — each of them signals unfinished automation.
+   - A detailed guide with examples and a note template — the document "Task statuses: Review,
+     InProgress(Human), Review(Human)" in `backlog/docs/`, if the project has it.
+7. The order for studying an unfamiliar part of the project: the project map document (if there is one — the `readme`
+   "Documentation map" in `backlog/docs/`) → `search_docs` (what it is and why) →
+   `search_docs_graph` (how it relates to other concepts) → <!-- if:lightrag -->
+   GitNexus `impact`/`explain` (how it relates to the code) → the code itself.
+8. **Optional features — do not push them.** Features that are off in `infra.config.json` (LightRAG —
+   Python + Ollama + a model of several GB, computer use, Playwright and so on) are not
+   offered for enabling without an explicit user request: they are deliberately not part of the base set.
+9. **Web UIs (Backlog.md, GitNexus) go through `node scripts/web.mjs start`**
+   (or `start-web.bat`/`start-web.sh`); do not start them with separate scattered commands —
+   that way they are tracked through `env-tools` too and do not pile up duplicates on the same ports.
+10. **Commits and deployment — only on an explicit user request.** The agent does not run `git commit`,
+    `git push` or a project deployment on its own. Stating its own plan ("I suggest
+    committing", "committing now") is NOT a user request but an agent remark; wait for an explicit
+    "yes"/"commit" from the human. If the agent has the corresponding capabilities set up, it may
+    **offer** to do it, but not do it without explicit confirmation in the current request.
+    The agent never syncs with the remote (`git pull`/`fetch`/`merge`/`push`) — the
+    user does that; a remote rejection is not a failure, and "unpushed commits" are not mentioned in summaries.
+    A permitted commit goes **only by the pathspec of your own files** in one command
+    (`git commit -m "…" -- <files>`; new files first `git add <file>`), not `git add -A` +
+    `git commit`: other sessions work in the tree in parallel (rule 27). Before the commit —
+    `git diff --cached --name-only` and `git diff -- <file>` for files with other people's edits; after it —
+    `git show --stat HEAD`. "Commit everything" means everything **this** session did; other people's
+    uncommitted files and binaries are not committed without a direct request — say in one line
+    what is left and whose it is. Grabbed someone else's — `git reset --soft HEAD~1` and repeat.
+11. **When a task is finished the agent must insistently remind the user to commit the changes** —
+    in a noticeable separate message (not a small comment at the end of the answer), so the user
+    definitely sees it, and offer a concrete `git commit … -- <own files>` command (with a
+    pathspec) and/or moving the task to `Review`/`Done` in Backlog.md. The action itself is not performed
+    without separate user consent (see rule 10).
 <!-- if:lang-ru -->
-12. **Язык по умолчанию — русский, без исключений.** Все ответы пользователю — обычные
-    сообщения, промежуточные статусы по ходу работы («делаю X», «нашёл Y»), вопросы, итоговые
-    summary, тексты внутри артефактов и промптов для новых сессий — на русском, независимо от
-    языка запроса и от того, что часть работы (поиск, tool calls, чтение кода) велась на
-    английском. То же для любой документации (`backlog/docs/**`, `backlog/decisions/**`, README,
-    задачи, комментарии в коде и к данным), если пользователь явно не попросил другой язык.
-    Правило закреплено здесь, а не только в истории чата, поэтому действует и после
-    сжатия/суммаризации контекста: поймал себя на ответе не на русском — немедленно продолжи
-    на русском. Идентификаторы кода, названия команд, ключи конфигов, CSV-полей и цитаты из
-    английских источников не переводить. Правило — про язык **общения и внутренней
-    документации**; язык самого продукта (UI, тексты пользователю, ошибки, сайт) задаёт проект
-    отдельно (в ProjectHub — английский с обязательной русской локализацией в той же задаче,
-    строки только через словари i18n, ошибки пользователю — код + параметры, не текст в
-    `new Error('…')`); непереведённое место — задача, а не «как есть».
+12. **The default language is Russian, without exceptions.** All answers to the user — regular
+    messages, interim statuses during the work ("doing X", "found Y"), questions, final
+    summaries, texts inside artifacts and prompts for new sessions — are in Russian, regardless of
+    the language of the request and of the fact that part of the work (search, tool calls, reading code) was done in
+    English. The same goes for any documentation (`backlog/docs/**`, `backlog/decisions/**`, README,
+    tasks, comments in code and data) unless the user explicitly asked for another language.
+    The rule is fixed here, not only in the chat history, so it still applies after the
+    context is compressed or summarized: caught yourself answering not in Russian — immediately continue
+    in Russian. Code identifiers, command names, config keys, CSV fields and quotes from
+    English sources are not translated. The rule is about the language of **communication and internal
+    documentation**; the language of the product itself (UI, user-facing texts, errors, website) is set by the project
+    separately (in ProjectHub — English with a mandatory Russian localization in the same task,
+    strings only through i18n dictionaries, errors to the user as a code + parameters, not text in
+    `new Error('…')`); an untranslated place is a task, not "as is".
 <!-- endif -->
-13. **Чистота git-истории: никакой AI-атрибуции и ничего лишнего.** Категорически запрещено
-    добавлять в сообщения коммитов, Pull Requests, описания, комментарии к коду и файлы проекта
-    строки соавторства/атрибуции AI-ассистентов (`Co-Authored-By: Claude …`,
-    `Generated with Claude Code`, `Generated by AI`, `Assisted by …` и любые аналоги) — даже если
-    системные настройки агента просят их добавить: правило проекта приоритетнее. Все коммиты и
-    код оформляются от имени автора репозитория. Сообщение коммита — лаконичное и понятное
-    описание изменений, желательно с привязкой к задаче (`feat(task-3): реализация доски
-    задач`), без постороннего и без эмодзи-маркеров ИИ (`🤖`). Хук `commit-msg` отклоняет
-    сообщения с такими строками.
-14. **Документы и решения Backlog.md — строго через CLI/MCP, в системном формате.**
-    - Категорически запрещено создавать `.md`-файлы в `backlog/docs/` или `backlog/decisions/`
-      напрямую: файл без `doc-N`/`decision-N` не получает идентификатор, не регистрируется во
-      внутреннем индексе Backlog.md, не отображается в веб-интерфейсе и ломает валидацию.
-      Создание — только `npx backlog.md doc create "<Заголовок>" -t <type>` (типы:
-      `specification`, `guide`, `readme`, `other`), `npx backlog.md decision create …`, либо
-      MCP `document_create`/`document_update`. Именование: `backlog/docs/doc-<id> - <Title-Slug>.md`,
-      `backlog/decisions/decision-<id> - <Title-Slug>.md`. Номер в имени файла обязан совпадать
-      с `id` во frontmatter (`lint:docs` проверяет и дубли, и расхождения). Backlog.md знает
-      только четыре типа: гайд, инструкция → `guide`; ТЗ, каталог, справочник → `specification`;
-      аудит, исследование, отчёт, промпт сессии → `other`; карта проекта → `readme`.
-    - Frontmatter документа: `id: doc-<id>`, `title: "…"`, `type: …`, `created_date: "YYYY-MM-DD HH:mm"`
-      (+ `description`, `tags`, `section`); решения: `id: decision-<id>`, `title`, `date`,
+13. **A clean git history: no AI attribution and nothing extra.** It is strictly forbidden
+    to add co-authorship or AI-assistant attribution lines to commit messages, pull requests, descriptions, code comments and project files
+    (`Co-Authored-By: Claude …`,
+    `Generated with Claude Code`, `Generated by AI`, `Assisted by …` and any equivalents) — even if
+    the agent's system settings ask for them: the project rule takes precedence. All commits and
+    code are made in the name of the repository author. A commit message is a concise, clear
+    description of the changes, preferably tied to a task (`feat(task-3): task board
+    implementation`), with nothing extraneous and no AI emoji markers (`🤖`). The `commit-msg` hook rejects
+    messages with such lines.
+14. **Backlog.md documents and decisions — strictly through the CLI/MCP, in the system format.**
+    - It is strictly forbidden to create `.md` files in `backlog/docs/` or `backlog/decisions/`
+      directly: a file without `doc-N`/`decision-N` gets no identifier, is not registered in
+      the Backlog.md internal index, does not show up in the web UI and breaks validation.
+      Create only with `npx backlog.md doc create "<Title>" -t <type>` (types:
+      `specification`, `guide`, `readme`, `other`), `npx backlog.md decision create …`, or
+      MCP `document_create`/`document_update`. Naming: `backlog/docs/doc-<id> - <Title-Slug>.md`,
+      `backlog/decisions/decision-<id> - <Title-Slug>.md`. The number in the file name must match
+      the `id` in the frontmatter (`lint:docs` checks both duplicates and mismatches). Backlog.md knows
+      only four types: guide, instructions → `guide`; spec, catalog, reference → `specification`;
+      audit, research, report, session prompt → `other`; project map → `readme`.
+    - Document frontmatter: `id: doc-<id>`, `title: "…"`, `type: …`, `created_date: "YYYY-MM-DD HH:mm"`
+      (+ `description`, `tags`, `section`); decisions: `id: decision-<id>`, `title`, `date`,
       `status: accepted | proposed | rejected | deprecated`, `section`.
-    - **Даты и прочие «типизируемые» значения — только строками в кавычках** (`backlog/docs/`,
-      `backlog/decisions/`, `backlog/tasks/`, `backlog/milestones/`, включая элементы списков
-      `tags`/`labels`): незакавыченное `2026-09-03` YAML-парсер превращает в объект `Date`, и
-      потребители frontmatter (веб-интерфейсы, ProjectHub) падают на нём. `npm run lint:docs`
-      находит такие поля рекурсивно и падает с ошибкой.
-    - **Изображения** — только стандартный `![Описание](URL_или_data_URI)` в одну строку; сырые
-      многострочные `<img>` в таблицах запрещены (рвут разметку); локальные картинки — в
+    - **Dates and other "typeable" values — only as quoted strings** (`backlog/docs/`,
+      `backlog/decisions/`, `backlog/tasks/`, `backlog/milestones/`, including list items in
+      `tags`/`labels`): the YAML parser turns an unquoted `2026-09-03` into a `Date` object, and
+      frontmatter consumers (web UIs, ProjectHub) crash on it. `npm run lint:docs`
+      finds such fields recursively and fails with an error.
+    - **Images** — only the standard `![Description](URL_or_data_URI)` on one line; raw
+      multi-line `<img>` in tables is forbidden (it breaks the markup); local images go to
       `backlog/docs/assets/`.
-    - **Раздел дерева документации**: каждому документу и решению задавай раздел полем
-      `section: "Раздел/Подраздел"` во frontmatter (строка в кавычках, уровни через `/`); перед
-      созданием посмотри существующие разделы и выбери подходящий, новый заводи только для новой
-      темы. Решения лежат только в корне `backlog/decisions/` — вложенные папки ломают нумерацию
-      Backlog.md. Документ можно положить и во вложенную папку `backlog/docs/<раздел>/`
-      (`backlog doc create -p`) — папка считается разделом, поле `section` имеет приоритет.
-      `backlog doc update` и MCP `document_update` стирают `section` и `description` у документа
-      (CLI 1.50.1) — после обновления верни поля скриптом `npm run set-doc-section -- doc-N
-      "Раздел/Подраздел" --description "…"` (меняет только эти строки frontmatter). Список
-      разделов проекта: `grep -h "^section:" backlog/docs/*.md backlog/decisions/*.md | sort | uniq -c`;
-      если разделов много — заведи документ «Разделы документации» (таблица «раздел → что
-      лежит») и пополняй его вместе с новым разделом. `npm run lint:docs` падает на документе
-      без раздела, если разделом пользуется хотя бы один документ проекта. Дерево разделов
-      показывает ProjectHub; веб-интерфейс Backlog.md его не показывает.
-    - **Перекрёстные ссылки**: на решение, документ, задачу и факт памяти ссылайся
-      идентификатором в двойных скобках — `[[decision-46]]`, `[[doc-5]]`, `[[TASK-103]]`,
-      `[[mem-3]]`, с подписью `[[decision-46|исполнитель инструментов]]`. Голый номер `doc-26`
-      в тексте запрещён (не кликается, не попадает в обратные ссылки) — внутри `строчного кода`
-      и блоков кода допустим. Не ссылайся Markdown-ссылкой на имя файла: она ломается при
-      переименовании. `npm run lint:docs` падает на `[[decision-N]]`/`[[doc-N]]`, ведущих на
-      несуществующий документ. Поле `documentation:` задачи тоже заполняй идентификаторами, а
-      не путями.
-    - **Obsidian**: `backlog/` открывается как хранилище Obsidian. Формы ссылок, которые
-      вставляет Obsidian (`[[decision-46 - Заголовок]]`, путь, `.md`, `![[id]]`, вложенный
-      якорь `#A#B`), `lint:docs` понимает, но агент пишет короткую `[[id]]`. Callout'ы
-      (`> [!tip]`), `==выделение==` и `%%комментарии%%` допустимы; картинки — только
-      `![alt](assets/<doc-N>/…)`, не `![[файл.png]]`.
-    - **Ссылка на раздел документа**: `[[decision-46#Decision]]`, с подписью
-      `[[decision-46#Decision|как выбирали]]` — после `#` текст заголовка решения или документа;
-      регистр и знаки препинания не важны. `npm run lint:docs` падает на якорь, которого в
-      документе нет: переименовал заголовок — поправь ссылки на него. Обратные ссылки («На этот
-      документ ссылаются») ProjectHub собирает сам из решений, документов, задач и памяти —
-      вручную такой список в документ не писать.
-    - После создания/правки документа: убедиться, что он виден в `npx backlog.md doc list`,
-      затем `npm run index-docs`. Перед коммитом — `npm run lint:docs` (делает `pre-commit`).
-    - **Память проекта (`backlog/memory/`, decision-51 ProjectHub)** — не документы Backlog.md: один
-      факт = один файл `backlog/memory/mem-<N> - <Title-Slug>.md`, frontmatter `id`, `title`,
-      `description`, `type` (`project | feedback | reference`), `created`, необязательные `updated`,
-      `source`, `author` — все значения строками в кавычках (см. пункт про даты выше). Индекс
-      `backlog/memory/MEMORY.md` генерирует ProjectHub — руками не править. Писать память агент должен
-      инструментом `memory_write` (встроенный MCP ProjectHub или инструмент API-агента): он проверяет
-      формат, секреты и дубликаты. Секреты в память не пишутся никогда; `npm run lint:docs` проверяет
-      формат, секреты и соответствие индекса файлам (`scripts/memory-rules.mjs`).
-15. **Архитектурные решения — в `backlog/decisions/` (ADR), в той же задаче, где приняты.**
-    Любой значимый выбор — архитектура подсистемы, протокол, формат хранения, модель
-    безопасности, библиотека/движок, отказ от фичи, правило работы агентов — фиксируется
-    отдельным `decision-<N>`, а не «потом»; задача с таким выбором не переводится в `Review` без
-    ADR. Структура: `## Context` (что было и почему возник выбор, факты из кода/аудита,
-    отвергнутые альтернативы), `## Decision` (что выбрали, пронумерованно), `## Consequences`
-    (плюсы, минусы, долг, ссылка на реализующую `TASK-N`). Статусы: `proposed` для роадмапа,
-    `accepted` после реализации или если практика уже действует, `deprecated`/`rejected` при
-    пересмотре — старый ADR не удаляется, а получает статус и ссылку на новый (`[[decision-N]]`).
-    Если выяснилось, что действующая практика нигде не записана — ADR со статусом `accepted`
-    задним числом. Аудиты/ревизии (`doc-N`) описывают состояние, ADR — выбор; не смешивать.
-    Заголовок ADR называет **сам выбор** («Конфиг прокси целиком в репозитории»), а не повод
-    («Решения по TASK-242»); номер задачи — в `## Context`. Пересмотрен один пункт — статус
-    остаётся `accepted`, в начало тела `> **Пересмотрено:** п. N — [[decision-M]]`; заменён
-    целиком — `deprecated` + `> **Заменено:** [[decision-M]] — …`. Ответы пользователя на
-    «ворота» этапа (выбор между вариантами) — тоже ADR; решение, принятое агентом автономно по
-    поручению, помечается строкой «Выбор агента по поручению заказчика (дата)». Исследование
-    перед решением (спайк) — скрипт в `scripts/spikes/<имя>.mjs` с шапкой «не часть продукта,
-    запускается вручную», результат — документ `other` плюс ADR; код спайка в продукт не
-    переносится копированием.
-16. **Содержательные ответы — документом Backlog.md; индексный документ — не чейнджлог.**
-    - Любой содержательный ответ/отчёт агента — анализ, оценка, исследование, разбор «как это
-      работает», сводка проделанной работы — оформляется отдельным документом
-      (`document_create`), в чат — краткое резюме и ссылка на `doc-N`. Не применяется к коротким
-      статусным репликам и к плану реализации (тот живёт в задаче).
-    - Если в проекте есть обзорный документ-карта («Context Dump», «Архитектура»), он остаётся
-      короткой картой «подсистема → документ», а не местом для построчной истории решений.
-      Историю/детали фичи пиши в её фиче-доке/гайде (новая секция «## Обновление (дата) — …»);
-      нет документа-хозяина — заведи новый, один-два абзаца уже оправдывают отдельный документ.
-    - **Гигиена ссылок**: ссылайся на `[[doc-N]]`/`[[TASK-N]]`/`[[decision-N]]` (правило 14), а
-      не на пути файлов — документы переименовываются и переезжают. Заметил битую ссылку —
-      почини тут же.
-    - **Размер документа**: `doc update --content` передаёт содержимое аргументом командной
-      строки — на Windows это ~32К символов (`CreateProcess`), выше падает без обходного пути,
-      кроме прямой правки файла (вынужденное исключение из правила 14). Ориентир — документ
-      за 20–25 КБ пора делить или резюмировать, а не пополнять до упора. Делить так: оглавление
-      остаётся под старым `doc-N` с таблицей «§ → часть», части — отдельные документы, ссылки
-      на разделы — якорями `[[doc-M#Заголовок|doc-N §4]]`. Многострочный текст в
-      аргументах CLI на Windows тоже ненадёжен (`--append-notes` — одной строкой; `--notes`
-      **заменяет** секцию целиком); через MCP таких ограничений нет — предпочитай его. Полный
-      список граблей CLI на Windows (лимит 8К через `npx`, тихая обрезка, пустой файл стирает
-      документ) — документ «Грабли Windows: Bash-тул, Backlog CLI и git» в `backlog/docs/`.
-    - **Гайд живого инструмента/подсистемы** содержит разделы «Грабли (найдены на практике)»
-      — что случилось, почему, как теперь — и «Обновление (дата, TASK-N)»; пропустил провал,
-      которого гайд не предсказал — допиши случай в гайд и уточни правило.
-    - **Промпт-передача следующей сессии — тоже документ** типа `other` в разделе «Промпты
-      сессий», в чат — одним блоком кода. Промпт живёт, пока его задачи открыты; все в `Done` —
-      документ удаляется (история в git), ссылки на него снимаются, долговечное знание уходит
-      в гайд/ADR. Содержание и запреты для промпта — правило 28.
-    - **Корневой «контекст-файл»** (`contextdump.md`, `CONTEXT.md`, `PROJECT.md` с историей) не
-      заводить: он устаревает, противоречит ADR, и его боятся удалять. Карта проекта —
-      документ `readme` «Карта документации» в `backlog/docs/` (раздел → документы, «как
-      пользоваться»), история — в задачах и майлстоунах.
-    - **Мусорка идей `backlog/idea-bin/<дата>/`** — для документов, которые больше не правда,
-      но могут пригодиться человеку (отвергнутые концепты, устаревшие аудиты, исполненные
-      промпты). Первой строкой — шапка `> **Выброшено <дата>** ([[TASK-N]]): почему. Заменено:
-      doc-M, decision-K.`; ссылки из живых документов на выброшенное снимаются. Папка вне индекса
-      RAG, вне `lint:docs` и скрыта от ripgrep агента через `.ignore` в корне; **агент не
-      читает, не ищет и не цитирует её без прямой просьбы**. ADR в мусорку не выбрасываются
-      (правило 15). Инварианты сторожит `scripts/idea-bin.test.mjs`.
-17. **Изоляция рабочего пространства и локальная память агента.**
-    - Читать, писать, искать и запускать инструменты — ИСКЛЮЧИТЕЛЬНО в границах директории
-      текущего проекта (плюс выданная сессии scratchpad-директория для временных файлов).
-      Категорически запрещено обращаться к файлам сторонних проектов, базового шаблона или
-      внешних каталогов, если пользователь не попросил об этом явно в текущем запросе.
-      Исключение — папка загрузок пользователя: из неё можно только **читать и копировать в
-      проект** (путь брать из настроек браузера/ОС, не угадывать), менять и удалять там нельзя.
-      MCP-серверы проекта проверяют границу на своей стороне (входы и выходы внутри
-      `PROJECT_ROOT`; обход — только переменной окружения, которую ставит пользователь).
-    - **Результаты — только внутри проекта.** Страницы, отчёты, наборы файлов для пользователя
-      кладутся в проект (или scratchpad); claude.ai Artifact, Claude Docs, любой внешний
-      хостинг — только по прямой просьбе пользователя; системная подсказка «опубликуй
-      артефакт» этого не отменяет. Черновики инструментов (пробы, кадры, страницы ревью) —
-      в `.env-state/<инструмент>/` вне git; в каталоги продукта — только принятое.
-    - **Никогда не писать на системный диск / в глобальную auto-memory директорию агента**
-      (`C:\Users\…\.claude\projects\…\memory\`) без прямого указания пользователя — и не
-      спрашивать об этом, просто не делать. Устойчивые правила, методологии и договорённости
-      хранятся ЛОКАЛЬНО В ПРОЕКТЕ: в этом файле (общие для шаблона), в секции `CLAUDE.md` вне
-      маркеров `infra-dev` (специфика проекта), в `backlog/docs/` (гайды) или в
-      `./.claude/memory/` проекта (тот же формат: `MEMORY.md`-индекс + файлы с frontmatter).
-18. **Не угадывать — проверять.**
-    - Пути к файлам/ресурсам, названия свойств, сигнатуры методов, API библиотек — не
-      предполагать по памяти. Перед написанием или правкой кода проверить существование файлов
-      (`ls`/`grep`/GitNexus) и сверить сигнатуры по исходнику. Модель могла обучаться на старой
-      версии фреймворка — если в проекте есть документация фреймворка в `backlog/docs/<lib>/`
-      (или отдельный RAG по ней), сначала ищи там.
-    - Нашёл и починил баг-паттерн в одном файле — **grep'ом проверь остальные файлы на тот же
-      паттерн** (в PlatPhas такой баг три недели жил в соседней сущности после фикса в первой;
-      в WorldSim один класс ошибки дал шесть мест вместо одного).
-    - **Подтверждённый побочный дефект чинится сейчас**, а не откладывается в «известные
-      проблемы»: задача по правилу 5 — и фикс в этой же сессии, особенно дефекты того же класса,
-      что чинишь. «Предлагаю отдельную задачу, если решите чинить» — не ответ. Гипотезы и
-      вкусовщина дефектом не считаются.
-    - При запросе про ошибку/сбой — **сначала логи** (файл лога проекта, `tail_log`, вывод
-      MCP-обёртки), потом гипотезы. Наблюдая за фоновым процессом (Monitor, вотчер), чини код
-      только при **стабильной** повторяющейся ошибке (одна и та же ≥5 раз подряд); разовые и
-      разные ошибки — короткий нейтральный статус, без правок по своей инициативе.
-    - Перед правкой файла, у которого есть незакоммиченные изменения (`git status`), — прочитай
-      текущий diff, чтобы не затереть чужую работу. Чужие незакоммиченные файлы в `git status`
-      — норма (правило 27), не «мусор, который надо прибрать».
-19. **Гейты качества и проверочные скрипты.**
-    - Линтер, type-check и тесты входят в `build` (и в CI); ошибок быть не должно;
-      предупреждения — зафиксированный baseline техдолга, который можно только уменьшать;
-      отключать правило точечно — только с комментарием-обоснованием. TS-правка не считается
-      завершённой без `npm run type-check`.
-    - Новые чистые функции (парсеры, форматтеры, валидаторы) выносятся в отдельные модули без
-      UI/рантайм-зависимостей и покрываются unit-тестами (`node --test`/vitest).
-    - **Каждое правило, которое можно проверить машиной, получает скрипт или хук**
-      (`scripts/check-*.mjs`, `scripts/validate-docs.mjs`, `scripts/git-hooks/*`), а не только
-      абзац в этом файле: текст напоминает, скрипт гарантирует. Скрипт-проверка — типовой
-      результат задачи наравне с кодом. Соглашения класса `check-*.mjs` (один файл — одно
-      правило, шапка «что/почему/что не трогает/как запускать», `✓/✗` по-русски, выход 0/1,
-      2 — «не смог проверить», чистые функции с тестом) и форма ADR-«сторожа» в `npm test`
-      (чистая функция-правило + самотест на синтетике + прогон по проекту с подсказкой в
-      сообщении) — документ «Скрипты-проверки и MCP-обёртки инструментов: соглашения».
-      Baseline техдолга, который можно только уменьшать, — это **ratchet-список** «файл →
-      сколько осталось», проверяемый скриптом: меньше разрешённого — подсказка уменьшить число,
-      больше — ошибка.
-    - Автоматизируемая проверка выполняется агентом, а не перекладывается на человека
-      (см. правило 6 про `Review(Human)`).
-    - **Тесты изолированы от живых данных и платных API.** Тесты и проверочные скрипты работают
-      на `:memory:`/временных каталогах/копиях, никогда на рабочей БД или прод-состоянии;
-      предохранитель (`node --import`, setup-файл) подставляет mock-провайдеров и пустые ключи
-      платных сервисов **до** загрузки кода. Перед запуском любого ad-hoc скрипта прочитай, какую
-      БД он открывает и зовёт ли мутирующие функции напрямую — если трогает живое, это ручное
-      действие на проде: спроси или перенаправь на копию. Тесты, запускающие **реальные
-      процессы** (git, PowerShell, node, CLI), живут отдельным проектом/суффиксом
-      (`*.process.test.*`) с явным тайм-аутом «N запусков × стоимость», ограниченной
-      параллельностью и изолированным `HOME`; граница проверяется машиной (обёртка над
-      `child_process`, которая роняет unit-тест с подсказкой переименовать). Тайминговые
-      ассерты — по часам события/симуляции, не по настенному времени; мигающий тест
-      воспроизводится детерминированно, а не «печкой» нагрузки.
-    - Гейты качества — **локальные** хуки и `npm run build`; CI, если есть, повторяет тот же
-      `build`, а не отдельный набор проверок. Runtime-зависимость, которую код не импортирует,
-      переезжает в `devDependencies` (упаковщик тащит в сборку всё из `dependencies`).
-    - **Общие скрипты инфраструктуры не форкаются молча.** `scripts/{rag,env,git-hooks,
-      gitnexus}/`, `*-rules.mjs`, `validate-docs.mjs`, `setup.mjs`, `sync-agent-rules.mjs` —
-      копии из ProjectTemplate: правка общего поведения вносится там и приходит в проект
-      синхронизацией; локальная правка допустима только с пометкой в шапке файла и задачей на
-      перенос в шаблон. Правило проекта, полезное другим проектам, тоже переносится в шаблон.
-20. **Git-хуки и переносимость файлов.** Хуки лежат в `scripts/git-hooks/` и подключаются через
-    `core.hooksPath` (`npm run install-hooks`, автоматически при `npm install`; у проекта свои
-    хуки — `"gitHooks": false` в `infra.config.json`), а не копируются в `.git/hooks/` руками.
-    `pre-commit` гоняет `lint:docs` и сверяет сгенерированные файлы правил с `infra-dev.md` по
-    версиям **из индекса git** (`sync-agent-rules.mjs --check --staged`); `commit-msg` режет
-    AI-атрибуцию; `post-commit` переиндексирует GitNexus (`--skip-agents-md --skip-skills`) и
-    при порче FTS-индекса добивает полной пересборкой (`clean --force` + `analyze`); если с
-    последней индексации менялись только файлы вне индекса кода (`backlog/`, `.rag-index/`,
-    всё из `.gitignore`/`.gitnexusignore`), `analyze` не запускается, а правка самих
-    ignore-файлов даёт `analyze --force`; `post-merge`/`post-rewrite` пересобирают
-    `.rag-index/` и `MEMORY.md` после слияния (правило 1). Хук после свершившегося события
-    (`post-*`) никогда не ломает событие: сбой — `exit 0` и сообщение; `pre-commit` без Node
-    отказывает явно. Не обходить хуки `--no-verify` и `INFRA_HOOKS_SKIP=1`, кроме явной просьбы
-    пользователя (переменная — для деплой-скриптов и CI). Если проект ставит зависимости на
-    сервере без `.git`, `prepare` обязан молча пропускать установку хуков. `.gitattributes`
-    держит `*.sh`, хуки, `*.service`/`*.timer`/`*.conf` в LF (иначе на Linux-сервере
-    `$'\r': command not found`), а `*.bat`/`*.cmd`/`*.ps1` — в CRLF; новые скрипты, которые
-    исполняются на сервере, добавляй туда же; когда файлы одного расширения живут в разных
-    средах, правило пишется по каталогу, а не по расширению. Каждая нетривиальная строка
-    `.gitignore`/`.gitattributes` — с комментарием «почему» и ссылкой на задачу/ADR.
+    - **Documentation tree section**: give every document and decision a section with the
+      `section: "Section/Subsection"` frontmatter field (a quoted string, levels separated by `/`); before
+      creating one, look at the existing sections and pick a fitting one; create a new one only for a new
+      topic. Decisions live only in the root of `backlog/decisions/` — nested folders break
+      Backlog.md numbering. A document can also go into a nested folder `backlog/docs/<section>/`
+      (`backlog doc create -p`) — the folder counts as the section, and the `section` field takes precedence.
+      `backlog doc update` and MCP `document_update` erase a document's `section` and `description`
+      (CLI 1.50.1) — after an update restore the fields with `npm run set-doc-section -- doc-N
+      "Section/Subsection" --description "…"` (it changes only these frontmatter lines). The list of
+      project sections: `grep -h "^section:" backlog/docs/*.md backlog/decisions/*.md | sort | uniq -c`;
+      if there are many sections, create a "Documentation sections" document (a "section → what
+      is there" table) and extend it together with each new section. `npm run lint:docs` fails on a document
+      without a section if at least one project document uses sections. ProjectHub shows the section
+      tree; the Backlog.md web UI does not.
+    - **Cross-references**: refer to a decision, document, task or memory fact
+      by its identifier in double brackets — `[[decision-46]]`, `[[doc-5]]`, `[[TASK-103]]`,
+      `[[mem-3]]`, with a caption `[[decision-46|tool executor]]`. A bare number `doc-26`
+      in text is forbidden (it is not clickable and does not get into backlinks) — inside `inline code`
+      and code blocks it is fine. Do not link to a file name with a Markdown link: it breaks on
+      rename. `npm run lint:docs` fails on `[[decision-N]]`/`[[doc-N]]` that lead to a
+      document that does not exist. Fill the task `documentation:` field with identifiers too, not
+      paths.
+    - **Obsidian**: `backlog/` opens as an Obsidian vault. The link forms that
+      Obsidian inserts (`[[decision-46 - Title]]`, a path, `.md`, `![[id]]`, a nested
+      anchor `#A#B`) are understood by `lint:docs`, but the agent writes the short `[[id]]`. Callouts
+      (`> [!tip]`), `==highlight==` and `%%comments%%` are allowed; images only as
+      `![alt](assets/<doc-N>/…)`, not `![[file.png]]`.
+    - **A link to a document section**: `[[decision-46#Decision]]`, with a caption
+      `[[decision-46#Decision|how we chose]]` — after `#` comes the heading text of the decision or document;
+      case and punctuation do not matter. `npm run lint:docs` fails on an anchor that the
+      document does not have: renamed a heading — fix the links to it. Backlinks ("Referenced
+      by") are collected by ProjectHub itself from decisions, documents, tasks and memory —
+      do not write such a list into a document by hand.
+    - After creating or editing a document: make sure it is visible in `npx backlog.md doc list`,
+      then `npm run index-docs`. Before a commit — `npm run lint:docs` (`pre-commit` does it).
+    - **Project memory (`backlog/memory/`, decision-51 in ProjectHub)** — not Backlog.md documents: one
+      fact = one file `backlog/memory/mem-<N> - <Title-Slug>.md`, frontmatter `id`, `title`,
+      `description`, `type` (`project | feedback | reference`), `created`, optional `updated`,
+      `source`, `author` — all values as quoted strings (see the item about dates above). The index
+      `backlog/memory/MEMORY.md` is generated by ProjectHub — do not edit it by hand. The agent must write memory
+      with the `memory_write` tool (ProjectHub's built-in MCP or an API agent tool): it checks
+      the format, secrets and duplicates. Secrets are never written to memory; `npm run lint:docs` checks
+      the format, secrets and that the index matches the files (`scripts/memory-rules.mjs`).
+15. **Architecture decisions go to `backlog/decisions/` (ADR), in the same task where they are made.**
+    Any significant choice — subsystem architecture, a protocol, a storage format, a security
+    model, a library or engine, dropping a feature, an agent working rule — is recorded as a
+    separate `decision-<N>`, not "later"; a task with such a choice does not go to `Review` without
+    an ADR. Structure: `## Context` (what was there and why the choice came up, facts from the code or an audit,
+    rejected alternatives), `## Decision` (what was chosen, numbered), `## Consequences`
+    (pros, cons, debt, a link to the implementing `TASK-N`). Statuses: `proposed` for the roadmap,
+    `accepted` after implementation or if the practice is already in force, `deprecated`/`rejected` on
+    revision — an old ADR is not deleted but gets a status and a link to the new one (`[[decision-N]]`).
+    If it turns out that a practice in force is not written down anywhere — an ADR with status `accepted`
+    after the fact. Audits and reviews (`doc-N`) describe a state, an ADR describes a choice; do not mix them.
+    An ADR title names **the choice itself** ("The whole proxy config in the repository"), not the occasion
+    ("Decisions for TASK-242"); the task number goes into `## Context`. One item revised — the status
+    stays `accepted`, and the body starts with `> **Revised:** item N — [[decision-M]]`; replaced
+    entirely — `deprecated` + `> **Replaced by:** [[decision-M]] — …`. The user's answers at a stage
+    "gate" (a choice between options) are ADRs too; a decision the agent made autonomously on
+    instruction is marked with the line "Agent's choice on the customer's instruction (date)". Research
+    before a decision (a spike) is a script in `scripts/spikes/<name>.mjs` with a header "not part of the product,
+    run by hand", and the result is an `other` document plus an ADR; spike code is not
+    moved into the product by copying.
+16. **Substantive answers go into a Backlog.md document; the index document is not a changelog.**
+    - Any substantive answer or report of the agent — an analysis, an estimate, research, a "how it
+      works" breakdown, a summary of the work done — is written as a separate document
+      (`document_create`), with a short summary and a link to `doc-N` in the chat. This does not apply to short
+      status remarks or to the implementation plan (that lives in the task).
+    - If the project has an overview map document ("Context Dump", "Architecture"), it stays
+      a short "subsystem → document" map, not a place for a line-by-line history of decisions.
+      Write the history and details of a feature in its feature doc or guide (a new section "## Update (date) — …");
+      no owning document — create a new one; one or two paragraphs already justify a separate document.
+    - **Link hygiene**: refer to `[[doc-N]]`/`[[TASK-N]]`/`[[decision-N]]` (rule 14), not
+      to file paths — documents get renamed and move. Noticed a broken link —
+      fix it right away.
+    - **Document size**: `doc update --content` passes the content as a command-line
+      argument — on Windows that is about 32K characters (`CreateProcess`); above that it fails with no workaround
+      except editing the file directly (a forced exception to rule 14). As a guideline, a document
+      of 20–25 KB is due to be split or summarized, not filled to the limit. Split like this: the table of contents
+      stays under the old `doc-N` with a "§ → part" table, the parts become separate documents, and links
+      to sections use anchors `[[doc-M#Heading|doc-N §4]]`. Multi-line text in
+      CLI arguments on Windows is unreliable too (`--append-notes` — one line; `--notes`
+      **replaces** the whole section); MCP has no such limits — prefer it. The full
+      list of CLI pitfalls on Windows (an 8K limit through `npx`, silent truncation, an empty file erases the
+      document) — the document "Windows pitfalls: the Bash tool, the Backlog CLI and git" in `backlog/docs/`, if the project has it.
+    - **A guide to a live tool or subsystem** has the sections "Pitfalls (found in practice)"
+      — what happened, why, what we do now — and "Update (date, TASK-N)"; hit a failure
+      the guide did not predict — add the case to the guide and refine the rule.
+    - **A hand-over prompt for the next session is a document too**, of type `other` in the "Session
+      prompts" section, and goes to the chat as one code block. The prompt lives while its tasks are open; when all are `Done`,
+      the document is deleted (the history stays in git), links to it are removed, and durable knowledge moves
+      to a guide or ADR. The contents and restrictions for the prompt — rule 28.
+    - **Do not create a root "context file"** (`contextdump.md`, `CONTEXT.md`, `PROJECT.md` with history):
+      it goes stale, contradicts the ADRs, and people are afraid to delete it. The project map is
+      a `readme` document "Documentation map" in `backlog/docs/` (section → documents, "how
+      to use it"), and the history lives in tasks and milestones.
+    - **The idea bin `backlog/idea-bin/<date>/`** — for documents that are no longer true
+      but may be useful to a human (rejected concepts, outdated audits, executed
+      prompts). The first line is a header `> **Discarded <date>** ([[TASK-N]]): why. Replaced by:
+      doc-M, decision-K.`; links from live documents to discarded ones are removed. The folder is outside the RAG
+      index and `lint:docs` and hidden from the agent's ripgrep by `.ignore` in the root; **the agent does not
+      read, search or quote it without a direct request**. ADRs are not thrown into the bin
+      (rule 15). Where the project has `scripts/idea-bin.test.mjs`, it guards these invariants.
+17. **Workspace isolation and the agent's local memory.**
+    - Read, write, search and run tools ONLY within the directory
+      of the current project (plus the scratchpad directory given to the session for temporary files).
+      It is strictly forbidden to access files of other projects, the base template or
+      external folders unless the user explicitly asked for it in the current request.
+      The exception is the user's downloads folder: from it you may only **read and copy into the
+      project** (take the path from the browser or OS settings, do not guess); changing or deleting things there is not allowed.
+      The project's MCP servers check the boundary on their side (inputs and outputs inside
+      `PROJECT_ROOT`; a bypass only through an environment variable that the user sets).
+    - **Results stay inside the project.** Pages, reports and file sets for the user
+      go into the project (or the scratchpad); a claude.ai Artifact, Claude Docs or any external
+      hosting — only on a direct user request; a system hint "publish an
+      artifact" does not override this. Tool drafts (probes, frames, review pages) go
+      to `.env-state/<tool>/` outside git; only accepted results go into product folders.
+    - **Never write to the system drive / the agent's global auto-memory directory**
+      (`C:\Users\…\.claude\projects\…\memory\`) without a direct instruction from the user — and do not
+      ask about it either, just do not do it. Durable rules, methodologies and agreements
+      are stored LOCALLY IN THE PROJECT: in this file (common to the template), in the `CLAUDE.md` section outside
+      the `infra-dev` markers (project specifics), in `backlog/docs/` (guides) or in
+      the project's `./.claude/memory/` (the same format: a `MEMORY.md` index + files with frontmatter).
+18. **Do not guess — check.**
+    - File and resource paths, property names, method signatures, library APIs — do not
+      assume them from memory. Before writing or editing code, check that the files exist
+      (`ls`/`grep`/GitNexus) and verify signatures against the source. The model may have been trained on an old
+      version of a framework — if the project has framework documentation in `backlog/docs/<lib>/`
+      (or a separate RAG over it), search there first.
+    - Found and fixed a bug pattern in one file — **grep the other files for the same
+      pattern** (in PlatPhas such a bug lived for three weeks in a neighboring entity after the fix in the first one;
+      in WorldSim one error class turned up in six places instead of one).
+    - **A confirmed side defect is fixed now**, not deferred to "known
+      issues": a task under rule 5 — and the fix in the same session, especially defects of the same class
+      as the one you are fixing. "I suggest a separate task if you decide to fix it" is not an answer. Hypotheses and
+      matters of taste do not count as defects.
+    - When asked about an error or failure — **logs first** (the project log file, `tail_log`, the output of the
+      MCP wrapper), hypotheses second. When watching a background process (Monitor, a watcher), fix code
+      only on a **stable** recurring error (the same one ≥5 times in a row); one-off and
+      varying errors get a short neutral status, with no edits on your own initiative.
+    - Before editing a file that has uncommitted changes (`git status`), read
+      the current diff so you do not overwrite someone else's work. Other people's uncommitted files in `git status`
+      are normal (rule 27), not "garbage to clean up".
+19. **Quality gates and check scripts.**
+    - The linter, type check and tests are part of `build` (and CI); there must be no errors;
+      warnings are a recorded technical-debt baseline that may only decrease;
+      disabling a rule locally — only with a justifying comment. A TS edit is not
+      finished without `npm run type-check`.
+    - New pure functions (parsers, formatters, validators) go into separate modules without
+      UI or runtime dependencies and are covered by unit tests (`node --test`/vitest).
+    - **Every rule that a machine can check gets a script or a hook**
+      (`scripts/check-*.mjs`, `scripts/validate-docs.mjs`, `scripts/git-hooks/*`), not just
+      a paragraph in this file: the text reminds, the script guarantees. A check script is a typical
+      task result on a par with code. Conventions for the `check-*.mjs` class (one file — one
+      rule, a "what/why/what it does not touch/how to run" header, `✓/✗` messages in the project language, exit 0/1,
+      2 — "could not check", pure functions with a test) and the shape of an ADR "guard" in `npm test`
+      (a pure rule function + a self-test on synthetic data + a run over the project with a hint in the
+      message) — the document "Check scripts and MCP tool wrappers: conventions", if the project has it.
+      A technical-debt baseline that may only decrease is a **ratchet list** "file →
+      how many are left", checked by a script: fewer than allowed — a hint to lower the number,
+      more — an error.
+    - An automatable check is run by the agent, not shifted onto a human
+      (see rule 6 about `Review(Human)`).
+    - **Tests are isolated from live data and paid APIs.** Tests and check scripts work
+      on `:memory:`, temporary folders or copies, never on the working database or production state;
+      a safeguard (`node --import`, a setup file) substitutes mock providers and empty keys for
+      paid services **before** the code loads. Before running any ad-hoc script, read which
+      database it opens and whether it calls mutating functions directly — if it touches live data, that is a manual
+      action on production: ask, or redirect it to a copy. Tests that start **real
+      processes** (git, PowerShell, node, a CLI) live in a separate project or suffix
+      (`*.process.test.*`) with an explicit timeout of "N runs × cost", limited
+      parallelism and an isolated `HOME`; the boundary is checked by a machine (a wrapper around
+      `child_process` that fails a unit test with a hint to rename it). Timing
+      asserts use the event or simulation clock, not wall time; a flaky test
+      is reproduced deterministically, not with a load "oven".
+    - Quality gates are **local** hooks and `npm run build`; CI, if there is one, repeats the same
+      `build` rather than a separate set of checks. A runtime dependency that the code does not import
+      moves to `devDependencies` (the packager pulls everything from `dependencies` into the build).
+    - **Shared infrastructure scripts are not forked silently.** `scripts/{rag,env,git-hooks,
+      gitnexus}/`, `*-rules.mjs`, `validate-docs.mjs`, `setup.mjs`, `sync-agent-rules.mjs` are
+      copies from ProjectTemplate: a change to common behavior is made there and reaches the project
+      by syncing; a local edit is allowed only with a note in the file header and a task to
+      port it to the template. A project rule that is useful to other projects is ported to the template too.
+20. **Git hooks and file portability.** The hooks live in `scripts/git-hooks/` and are connected through
+    `core.hooksPath` (`npm run install-hooks`, automatically on `npm install`; if the project has its own
+    hooks — `"gitHooks": false` in `infra.config.json`), not copied into `.git/hooks/` by hand.
+    `pre-commit` runs `lint:docs` and compares the generated rule files with `infra-dev.md` using the
+    versions **from the git index** (`sync-agent-rules.mjs --check --staged`); `commit-msg` cuts
+    AI attribution; `post-commit` reindexes GitNexus (`--skip-agents-md --skip-skills`) and
+    finishes with a full rebuild (`clean --force` + `analyze`) if the FTS index is corrupted; if
+    since the last indexing only files outside the code index changed (`backlog/`, `.rag-index/`,
+    everything in `.gitignore`/`.gitnexusignore`), `analyze` is not run, while an edit of the
+    ignore files themselves gives `analyze --force`; `post-merge`/`post-rewrite` rebuild
+    `.rag-index/` and `MEMORY.md` after a merge (rule 1). A hook that runs after the event
+    (`post-*`) never breaks the event: a failure means `exit 0` and a message; `pre-commit` without Node
+    refuses explicitly. Do not bypass hooks with `--no-verify` or `INFRA_HOOKS_SKIP=1` unless the user explicitly
+    asks (the variable is for deploy scripts and CI). If the project installs dependencies on a
+    server without `.git`, `prepare` must silently skip installing the hooks. `.gitattributes`
+    keeps `*.sh`, hooks, `*.service`/`*.timer`/`*.conf` in LF (otherwise a Linux server says
+    `$'\r': command not found`), and `*.bat`/`*.cmd`/`*.ps1` in CRLF; add new scripts that
+    run on a server there too; when files with the same extension live in different
+    environments, the rule is written per folder, not per extension. Every non-trivial line of
+    `.gitignore`/`.gitattributes` has a "why" comment and a link to a task or ADR.
 <!-- if:windows -->
-21. **Windows-окружение.** Bash-тул — Git Bash поверх Windows, PowerShell — отдельный тул;
-    батники и `.ps1` — основной способ запуска для пользователя (`.bat` — только ASCII, `chcp
-    65001` с кириллицей ломает cmd; `.ps1` — с UTF-8 выводом). Detached-процессы с логом в
-    файл — только через `env-tools` (там решена проблема `shell:true + detached:true`).
-    Временные файлы — в scratchpad-директории сессии, не в проекте и не в `/tmp` (проект может
-    решить иначе и назначить `tmp/` внутри проекта — тогда это записано в его `CLAUDE.md`).
-    Известные грабли, которые ломают работу молча: Bash-тул разворачивает `\n` и другие
-    backslash-escape **до** оболочки даже в quoted heredoc (скрипты с экранированием — Write-
-    тулом в файл, затем запуск файлом); MSYS переписывает аргументы вида `/about/` в
-    Windows-пути (`MSYS_NO_PATHCONV=1`); PowerShell here-string `@'…'@` в Bash-туле — не
-    heredoc; `git diff --name-only` без `-z` экранирует кириллические пути; `core.autocrlf`
-    даёт CRLF в рабочей копии при LF в HEAD; заглушки `ssh/scp` для сухого прогона — только
-    POSIX-путём в PATH с `command -v` перед запуском (Windows-путь рвёт PATH, и скрипт уходит на
-    прод настоящим ssh). Подробности и обходы — документ «Грабли Windows: Bash-тул, Backlog
-    CLI и git» в `backlog/docs/`.
+21. **Windows environment.** The Bash tool is Git Bash on top of Windows, PowerShell is a separate tool;
+    batch files and `.ps1` are the user's main way of running things (`.bat` — ASCII only, `chcp
+    65001` with non-ASCII text breaks cmd; `.ps1` — with UTF-8 output). Detached processes with a log in
+    a file — only through `env-tools` (it solves the `shell:true + detached:true` problem).
+    Temporary files go to the session's scratchpad directory, not into the project and not into `/tmp` (a project may
+    decide otherwise and assign `tmp/` inside the project — then it is written in its `CLAUDE.md`).
+    Known pitfalls that break work silently: the Bash tool expands `\n` and other
+    backslash escapes **before** the shell even in a quoted heredoc (write scripts with escaping to a file with the Write
+    tool, then run the file); MSYS rewrites arguments like `/about/` into
+    Windows paths (`MSYS_NO_PATHCONV=1`); a PowerShell here-string `@'…'@` in the Bash tool is not
+    a heredoc; `git diff --name-only` without `-z` escapes non-ASCII paths; `core.autocrlf`
+    gives CRLF in the working copy with LF in HEAD; `ssh/scp` stubs for a dry run — only
+    as a POSIX path in PATH, with `command -v` before the run (a Windows path breaks PATH, and the script goes to
+    production with the real ssh). Details and workarounds — the document "Windows pitfalls: the Bash tool, the Backlog
+    CLI and git" in `backlog/docs/`, if the project has it.
 <!-- endif -->
-22. **Секреты и переменные окружения.** `.env` не коммитится (в `.gitignore`), каждая
-    переменная задокументирована в `.env.example` с комментарием-причиной; для прода —
-    отдельный `env.production.example` с пустыми заглушками. В коде переменные читаются одним
-    модулем-реестром со схемой (числа коэрсятся, обязательная переменная валит процесс со
-    списком всех проблем сразу), а не россыпью `process.env.X` по файлам. Токены MCP-серверов и
-    внешних API — только через переменные окружения или `.env.local` (в `.gitignore`;
-    инструмент `info` сообщает **источник** ключа, не значение), никогда в коммитящихся
-    `.mcp.json`/`.agents/mcp_config.json`. `.claude/settings.local.json` (allowlist сессии и её
-    env с токенами) — в `.gitignore` проекта явно, не надейся на глобальный ignore. Allowlist
-    команд в `.claude/settings*.json` — удобство, не граница безопасности: только проверочные
-    команды (`npm test`, `lint`, `type-check`), не мутирующие данные (`seed`, `restore`,
-    `deploy`); файл с правами агента создаёт человек, не агент. Имена секретов и содержимое
-    файлов в логи не писать. Вставил ли пользователь секрет в чат — решать о ротации ему: одно
-    короткое упоминание риска, никаких повторных напоминаний и to-do; значения секретов в
-    задачи, доки и память не попадают. Прод-конфиги живут только на сервере; деплой-скрипт их
-    не пересоздаёт.
+22. **Secrets and environment variables.** `.env` is not committed (it is in `.gitignore`); every
+    variable is documented in `.env.example` with a comment giving the reason; for production —
+    a separate `env.production.example` with empty placeholders. In code the variables are read by one
+    registry module with a schema (numbers are coerced, a missing required variable stops the process with
+    the list of all problems at once), not by `process.env.X` scattered across files. Tokens for MCP servers and
+    external APIs — only through environment variables or `.env.local` (in `.gitignore`;
+    the `info` tool reports the **source** of a key, not its value), never in the committed
+    `.mcp.json`/`.agents/mcp_config.json`. `.claude/settings.local.json` (the session allowlist and its
+    env with tokens) goes into the project `.gitignore` explicitly; do not rely on a global ignore. The command allowlist
+    in `.claude/settings*.json` is a convenience, not a security boundary: only check
+    commands (`npm test`, `lint`, `type-check`), not data-mutating ones (`seed`, `restore`,
+    `deploy`); the file with the agent's permissions is created by a human, not the agent. Do not write secret names or file
+    contents to logs. Whether to rotate a secret the user pasted into the chat is up to them: one
+    short mention of the risk, no repeated reminders or to-dos; secret values never get into
+    tasks, docs or memory. Production configs live only on the server; the deploy script does
+    not recreate them.
 <!-- if:data-driven -->
-23. **Data-driven по умолчанию.** Баланс, параметры, тексты, конфиги подсистем — в данных
-    (CSV/JSON/YAML в каталоге данных проекта), а не захардкожены в коде; код их читает через
-    единый провайдер. При добавлении новой механики/типа сущности агент сразу заводит и данные,
-    и (если в проекте есть редактор данных) модуль редактора, и документ-гайд в `backlog/docs/`
-    с описанием формата — не оставляет результат только в диффе кода. Наличие ожидаемых ключей
-    в данных проверяет скрипт (`check-config-constants`), а каталог данных не раздаётся
-    статикой: сборка его вырезает, проверка `check-dist-private` роняет `build`, наружу данные
-    идут только через API.
+23. **Data-driven by default.** Balance, parameters, texts and subsystem configs live in data
+    (CSV/JSON/YAML in the project's data folder), not hardcoded in code; the code reads them through
+    a single provider. When adding a new mechanic or entity type the agent immediately creates both the data
+    and (if the project has a data editor) an editor module, plus a guide document in `backlog/docs/`
+    describing the format — it does not leave the result only in the code diff. A script (`check-config-constants`)
+    checks that the expected keys exist in the data, and the data folder is not served
+    as static files: the build cuts it out, the `check-dist-private` check fails `build`, and data leaves
+    only through the API.
 <!-- endif -->
 <!-- if:computerUse -->
-24. **Управление компьютером — только через прокси ProjectHub и только по необходимости
-    (decision-27 ProjectHub).**
-    - Инструменты `computer_*` подключаются фичей шаблона `computerUse` (по умолчанию выключена) —
-      stdio-мостом `scripts/computer-use/computer-use-bridge.mjs` к встроенному MCP-серверу ProjectHub.
-      Рантайм `@zavora-ai/computer-use-mcp` напрямую в `.mcp.json`/`.agents/mcp_config.json` не подключать:
-      HITL, allowlist, аудит и kill-switch тогда зависели бы от движка. Токен — только в переменной
-      окружения `PROJECTHUB_MCP_TOKEN`, в конфиги не писать.
-    - Порядок работы — accessibility-first: `computer_list_windows` → `computer_get_ui_tree`/
-      `computer_find_element` → действия по элементам (`computer_click_element`, `computer_set_value`,
-      `computer_press_button`); скриншот — для проверки результата; координатные клики — крайний случай.
-      Координаты со скриншота передавать с `coordinate_space: "screenshot"`.
-    - Отказ пользователя, отказ политики или сработавший kill-switch не обходить другими инструментами
-      (скрипты, `run_command`, файловые операции) — остановиться и сообщить пользователю.
-    - В Automations и автозапуске назначенных задач ProjectHub управление компьютером запрещено; в цикле
-      «до готовности» — только для задач с label `computer-use`. Не предлагать включать `computerUse` без
-      явного запроса (правило 8).
+24. **Computer use — only through the ProjectHub proxy and only when needed
+    (decision-27 in ProjectHub).**
+    - The `computer_*` tools are connected by the template feature `computerUse` (off by default) —
+      through the stdio bridge `scripts/computer-use/computer-use-bridge.mjs` to the ProjectHub built-in MCP server.
+      Do not connect the `@zavora-ai/computer-use-mcp` runtime directly in `.mcp.json`/`.agents/mcp_config.json`:
+      HITL, the allowlist, the audit and the kill switch would then depend on the engine. The token goes only in the environment
+      variable `PROJECTHUB_MCP_TOKEN`; do not write it into configs.
+    - The order of work is accessibility-first: `computer_list_windows` → `computer_get_ui_tree`/
+      `computer_find_element` → actions on elements (`computer_click_element`, `computer_set_value`,
+      `computer_press_button`); a screenshot is for checking the result; coordinate clicks are a last resort.
+      Pass coordinates from a screenshot with `coordinate_space: "screenshot"`.
+    - A user refusal, a policy refusal or a triggered kill switch is not bypassed with other tools
+      (scripts, `run_command`, file operations) — stop and tell the user.
+    - Computer use is forbidden in ProjectHub Automations and in the autostart of assigned tasks; in the
+      "until done" loop — only for tasks with the `computer-use` label. Do not offer to enable `computerUse` without
+      an explicit request (rule 8).
 <!-- endif -->
-25. **Роли ProjectHub как субагенты и хуки терминала (decision-54 ProjectHub); ручные субагенты.**
-    - `.claude/agents/*.md`, `.codex/agents/*.toml`, `.projecthub/hooks/projecthub-hook.mjs` и записи хуков
-      в `.claude/settings.json` / `.codex/hooks.json` генерирует ProjectHub (Роли → «Синхронизация в
-      проект»); файлы с маркером `projecthub:generated` руками не править — править роль в ProjectHub и
-      синхронизировать заново. Ручные файлы без маркера ProjectHub не трогает; `setup.mjs` и
-      `sync-agent-rules.mjs` эти файлы тоже не меняют.
-    - Хуки ведут вызовы инструментов терминальных сессий `claude`/`codex` в политику роли, очередь
-      решений HITL и аудит ProjectHub. Отказ хука (`deny`, «Отклонено в ProjectHub») не обходить другими
-      инструментами — остановиться и сообщить пользователю. Antigravity считает **любой сбой хука
-      отказом** (нет Node, удалён скрипт, тайм-аут): если все вызовы отклоняются с `JSON hook … failed`,
-      чинить или снимать хук синхронизацией ролей, а не обходить.
-    - Токен хуков — только в переменной окружения `PROJECTHUB_HOOK_TOKEN` (адрес — `PROJECTHUB_HOOK_URL`,
-      режим отказа — `PROJECTHUB_HOOK_FAIL_MODE`), в конфиги и файлы проекта не писать. Встроенный
-      терминал ProjectHub получает их сам. Агенту выдаётся только `PROJECTHUB_AGENT_TOKEN` (задачи,
-      документы, поиск, память своего проекта), не основной токен, которым одобряются HITL-запросы.
-    - Если ProjectHub не запущен, хуки по умолчанию не мешают работе (fail-open с записью в лог).
-    - **Ручные субагенты** (`.claude/agents/*.md` без маркера `projecthub:generated`) — узкие роли с
-      ограниченными `tools`, дешёвой `model` и **строгим форматом ответа**. Образец — критик
-      `.claude/agents/critic.md`: всё, что уходит наружу (текст пользователю, пост, письмо, описание PR,
-      релиз-ноты), проходит через него, публикация без `PASS` запрещена; второй `REWRITE` подряд —
-      берётся его `TEXT`, но сверяется с источником на выдуманные факты. Долгоживущий повторяющийся
-      процесс (обход, мониторинг, батч) строится как скилл-оркестратор: проверка «одна сессия», Monitor
-      с тайм-аутом, `CronCreate`, сам обход — фоновый субагент с промптом **из файла рядом со скиллом**
-      (чтобы текст не попадал в контекст основной сессии каждый раз), состояние на диске, итог ≤15
-      строк — см. документ «Параллельные сессии, передача сессии и автономный режим».
+25. **ProjectHub roles as subagents and terminal hooks (decision-54 in ProjectHub); manual subagents.**
+    - `.claude/agents/*.md`, `.codex/agents/*.toml`, `.projecthub/hooks/projecthub-hook.mjs` and the hook entries
+      in `.claude/settings.json` / `.codex/hooks.json` are generated by ProjectHub (Roles → "Sync to
+      project"); do not edit files with the `projecthub:generated` marker by hand — edit the role in ProjectHub and
+      sync again. ProjectHub does not touch manual files without the marker; `setup.mjs` and
+      `sync-agent-rules.mjs` do not change these files either.
+    - The hooks route tool calls of `claude`/`codex` terminal sessions to the role policy, the HITL decision
+      queue and the ProjectHub audit. A hook refusal (`deny`, "Rejected in ProjectHub") is not bypassed with other
+      tools — stop and tell the user. Antigravity treats **any hook failure as a
+      refusal** (no Node, a deleted script, a timeout): if all calls are rejected with `JSON hook … failed`,
+      fix the hook or remove it by syncing the roles, do not work around it.
+    - The hook token goes only in the environment variable `PROJECTHUB_HOOK_TOKEN` (the address — `PROJECTHUB_HOOK_URL`,
+      the failure mode — `PROJECTHUB_HOOK_FAIL_MODE`); do not write it into configs or project files. The ProjectHub built-in
+      terminal gets them itself. The agent is given only `PROJECTHUB_AGENT_TOKEN` (tasks,
+      documents, search, memory of its own project), not the main token that approves HITL requests.
+    - If ProjectHub is not running, the hooks do not get in the way by default (fail-open with a log entry).
+    - **Manual subagents** (`.claude/agents/*.md` without the `projecthub:generated` marker) are narrow roles with
+      limited `tools`, a cheap `model` and a **strict answer format**. The example is the critic
+      `.claude/agents/critic.md`: everything that leaves the project (text to the user, a post, an email, a PR description,
+      release notes) goes through it, and publishing without `PASS` is forbidden; on a second `REWRITE` in a row
+      its `TEXT` is taken, but checked against the source for made-up facts. A long-running recurring
+      process (a sweep, monitoring, a batch) is built as an orchestrator skill: a "single session" check, a Monitor
+      with a timeout, `CronCreate`, and the sweep itself as a background subagent with a prompt **from a file next to the skill**
+      (so the text does not land in the main session's context every time), state on disk, a result of ≤15
+      lines — see the document "Parallel sessions, session hand-over and autonomous mode", if the project has it.
 <!-- if:playwright -->
-26. **Визуальная проверка UI: Playwright MCP и чек `ui-smoke` (decision-55 ProjectHub).**
-    - Фича шаблона `playwright` (по умолчанию выключена) добавляет в `.mcp.json` и
-      `.agents/mcp_config.json` сервер `playwright` — `@playwright/mcp` с закреплённой версией,
-      `--headless --isolated` — и `.playwright-mcp/` в `.gitignore`. Не предлагать включать её без
-      явного запроса (правило 8).
-    - **Когда проверять UI обязательно:** фича включена и правка меняет видимый интерфейс (компоненты,
-      стили, разметку страниц). После правки подними dev-сервер через `env-tools`, открой страницу по
-      `http://` (`file:` заблокирован), сначала `browser_snapshot`, затем `browser_take_screenshot` для
-      подтверждения — без `filename` или с `filename` внутри `.playwright-mcp/`, иначе снимок ляжет в
-      рабочий каталог и уйдёт в коммит; или прогони проверку `ui-smoke`. В ответе пользователю скажи,
-      что проверено в браузере и что нет.
-    - Проверка `ui-smoke` в `.projecthub.json` (`kind: "ui-smoke"`) пишет скриншоты в каталог из
-      `PROJECTHUB_ARTIFACTS_DIR` (или `${artifactsDir}` в команде). ProjectHub хранит их у себя,
-      показывает в Arena и Done-loop. Без скриншотов проверка считается проваленной.
-    - В цикле «до готовности» критерий с меткой `[ui]` засчитывается только со скриншотом проверки
-      `ui-smoke` этой итерации: поле `"screenshots": ["home.png"]` в строке отчёта. Свои снимки из
-      Playwright MCP evidence не являются.
-    - Действия внутри браузера идут без подтверждения. Выход за браузер — `browser_run_code_unsafe`,
-      файлы вне рабочего каталога (`filename`, `paths`), адреса `file:` — только с одобрения человека в
-      ProjectHub, в Automations и автозапуске назначенных задач отклоняется. Отказ не обходить другими
-      инструментами. Не подключать реальный браузер пользователя (`--extension`). Рабочий стол за
-      пределами браузера — только `computer_*` (фича `computerUse`).
-    - Визуальная регрессия — паттерн «baseline коммитится, обновляет только человек»: эталонные
-      скриншоты в `tests/visual/baseline/`, скрипт сравнивает с масками изменчивых зон и порогами,
-      `--update-baseline` запускает человек; вывод — в каталог артефактов вне git.
+26. **Visual UI checks: Playwright MCP and the `ui-smoke` check (decision-55 in ProjectHub).**
+    - The template feature `playwright` (off by default) adds the `playwright` server to `.mcp.json` and
+      `.agents/mcp_config.json` — `@playwright/mcp` with a pinned version,
+      `--headless --isolated` — and `.playwright-mcp/` to `.gitignore`. Do not offer to enable it without
+      an explicit request (rule 8).
+    - **When a UI check is mandatory:** the feature is on and the edit changes the visible interface (components,
+      styles, page markup). After the edit, start the dev server through `env-tools`, open the page over
+      `http://` (`file:` is blocked), first `browser_snapshot`, then `browser_take_screenshot` for
+      confirmation — without `filename` or with a `filename` inside `.playwright-mcp/`, otherwise the image lands in the
+      working folder and goes into the commit; or run the `ui-smoke` check. In the answer to the user, say
+      what was checked in the browser and what was not.
+    - The `ui-smoke` check in `.projecthub.json` (`kind: "ui-smoke"`) writes screenshots to the folder from
+      `PROJECTHUB_ARTIFACTS_DIR` (or `${artifactsDir}` in the command). ProjectHub stores them itself and
+      shows them in Arena and the Done loop. Without screenshots the check counts as failed.
+    - In the "until done" loop a criterion labeled `[ui]` counts only with a screenshot from the
+      `ui-smoke` check of this iteration: the `"screenshots": ["home.png"]` field in the report line. Your own images from
+      Playwright MCP are not evidence.
+    - Actions inside the browser need no confirmation. Leaving the browser — `browser_run_code_unsafe`,
+      files outside the working folder (`filename`, `paths`), `file:` addresses — only with a human's approval in
+      ProjectHub; in Automations and the autostart of assigned tasks it is rejected. Do not bypass a refusal with other
+      tools. Do not connect the user's real browser (`--extension`). The desktop outside
+      the browser — only `computer_*` (the `computerUse` feature).
+    - Visual regression follows the "the baseline is committed, only a human updates it" pattern: reference
+      screenshots in `tests/visual/baseline/`, a script compares them with masks for changing areas and thresholds,
+      `--update-baseline` is run by a human; the output goes to an artifacts folder outside git.
 <!-- endif -->
-27. **Параллельные сессии и worktree.** В одном рабочем дереве одновременно работают
-    несколько сессий агентов и человек — это норма, а не аномалия.
-    - Чужие незакоммиченные файлы и задачи в `In Progress` не трогать, не коммитить, не
-      «прибирать»; свой коммит — только по pathspec (правило 10); перед итогом сверься с
-      `git log -3`/`git status` — твои правки могли уже уехать чужим коммитом.
-    - Во время чужого долгого прогона (регрессия, сборка) код не править: ложные `Parse Error`
-      в чужих тестах — признак именно этого. Новый документ/ADR во время чужого коммита роняет
-      его `pre-commit` (`check-index`) — документы оркестратора пишутся между задачами
-      подагентов.
-    - Оркестратор отдаёт задачи подагентам **по одному** (параллельные прогоны делят порты и
-      машину), бриф — файлом в scratchpad (режим, база коммита, какие проверки гонять, ловушки,
-      форма отчёта), после отчёта сверяет `git log`, статус задачи, `git status`. Долгие
-      одиночные проверки надёжнее через CLI с `timeout`, чем MCP-вызовом на 30 минут.
-    - Изоляция задачи/агента — `git worktree` в `<корень>/.worktrees/<slug>` с веткой
-      `task/<id>` (`.worktrees/` в `.gitignore` и в ignore линтеров/вотчеров); связь задача ↔
-      ветка — поля `branch`/`worktree`/`pr` во frontmatter задачи; одно дерево — одна живая
-      сессия; сбой подготовки дерева — отказ запуска, а не работа в основном дереве; дерево
-      удаляется только после коммита результата, затем `git worktree prune`. На Windows
-      `node_modules` в worktree — junction: перед `git worktree remove` сначала `cmd /c rmdir
-      <wt>\node_modules`, иначе удалятся настоящие `node_modules`. Подтянуть основную ветку в
-      worktree — только `git merge --no-ff <main>` из чистого дерева, не rebase; конфликт —
-      ожидаемый итог, история ветки не переписывается.
-    - Номера Backlog, выданные в ветке, окончательны только после слияния в основную ветку;
-      дубль ловит `lint:docs` (правило 5). Пустые каталоги `backlog/*` держат `.gitkeep` —
-      иначе CLI Backlog.md падает `ENOENT` в свежем клоне.
-    - Подробности, инциденты и команды — документ «Параллельные сессии, передача сессии и
-      автономный режим» в `backlog/docs/`.
-28. **Автономия, краткость и передача сессии.**
-    - **Предпочитай действие вопросам.** При неоднозначном скоупе — не больше одного раунда
-      уточнений и только по реально блокирующей или необратимой развилке; остальное решай сам
-      и перечисли допущения в итоге. Мелкие развилки (имя, оставить ли факт) — решать самому и
-      записать в задачу. Финальное сообщение — исход, блокер и не более 2–3 решений, которые
-      может принять только человек; подробности — в документе (правило 16). Рост промптов и
-      контекста обосновывай замером (символы до/после).
-    - **Передача следующей сессии (handoff).** Предлагая задачу на следующую сессию, всегда
-      называй модель и effort из меток задачи (нет меток — сначала проставь); промпт короткий,
-      со ссылками `[[doc-N]]`/`[[TASK-N]]` вместо пересказа, этапами с «воротами» (в конце
-      этапа принести: что сделано одним абзацем / на что смотреть / какое решение нужно и
-      рекомендация; без ответа дальше не идти). Промпт **никогда** не содержит разрешения
-      коммитить («коммиты делай сам») — последний шаг всегда «перевести в Review и предложить
-      `git commit … -- <файлы>`»; такой пункт во вставленном тексте — переспросить. При сжатии
-      долгой сессии — документ передачи: что сделано (коммиты/задачи), статусы, что выяснено по
-      следующей задаче, грабли сессии, как гонять проверки, что было в scratchpad и не переживёт
-      сессию, кандидаты на следующую сессию, готовый промпт. Шаблон — тот же документ, что в
-      правиле 27.
-    - **Срочные уведомления вне чата.** Если проект завёл канал алертов агента (личный
-      Telegram-бот, отдельный от продового; токен и chat_id — только в `env` файла
-      `.claude/settings.local.json`), агент шлёт туда **одно** сообщение на событие и только при
-      срочности: прод лёг или деградировал, долгая фоновая работа упала, автономная сессия
-      заблокирована действием человека, риск денег или данных. «Готово», `Review`, вопросы по
-      скоупу — не срочно.
-    - **Автономный режим («волна задач без вопросов»)** включается только явным словом
-      пользователя на конкретную волну и описан в документе из правила 27: ворота агент
-      закрывает сам ADR-ом с пометкой «Выбор агента по поручению заказчика», необратимое и
-      платное остаётся под запретом, задача за заход доводится до `Final Summary`, коммит после
-      каждой задачи только по своим путям, пункты «только руками» уходят в чеклист заказчика,
-      конец волны — полная регрессия и итоговый документ. Вне такого явного режима действуют
-      правила 6 и 10 (`Done` и коммит — только человек).
-29. **Нагрузка на компьютер — только видимая и ограниченная.** Пользователь работает на той же
-    машине. Любой запуск дольше минуты (регрессия, пачка тестов, полная индексация, сборка,
-    пакетная генерация) сопровождается видимым ходом: строка в чате при старте («что запущено,
-    сколько займёт, где смотреть»), дальше статус «идёт X, N из M», лог в файле через
-    `env-tools` (`tail_log`) или окно хода для человека; по завершении свои процессы и окна не
-    оставлять, чужие не трогать. Сами тесты остаются headless. Тяжёлые инструменты не берут все
-    ядра: проект задаёт `cpuLimit` в `infra.config.json` (по умолчанию половина логических
-    процессоров, env на сессию снимает) и запускает их под ограничителем (Job Object / маска
-    сродства на Windows, `taskset`/`nice` на POSIX); искусственную нагрузку для воспроизведения
-    мигающих тестов не создавать. Вотчеры dev-серверов исключают служебные каталоги
-    (`backlog/`, `.gitnexus/`, `.rag-*`, `.claude/`, данные) — иначе десятки тысяч файлов под
-    наблюдением роняют соседние процессы.
-30. **Платные внешние сервисы, LLM-стоимость и происхождение артефактов.**
-    - Перед работой с платным API — инструмент `<tool>_info`/эквивалент: ключ, тариф, баланс,
-      доступные модели (по памяти не перечислять). Каждый вызов стоит денег: без нужды не
-      повторять, пачки согласовывать, варианты (`count > 1`) — только когда нужен выбор.
-    - Любая правка, увеличивающая расход токенов внешней LLM (окна контекста, частота вызовов,
-      капы), — сначала дельта в токенах и деньгах против целевой цены, иначе спросить. Выбор
-      провайдера и модели — решение пользователя, не агента; «тестовая» слабая модель годится
-      только для проверки механики, выводы о качестве с неё не переносятся; замеры токенов
-      помечаются моделью. Учёт — строка на каждый вызов провайдера (токены, кэш,
-      `finish_reason`, класс ошибки), цены в данных, отчёт по типам задач и сводка потерь
-      администратору вместо алерта на каждую ошибку.
-    - Генерируемые и скачиваемые артефакты (картинки, звуки, модели, шрифты) попадают в продукт
-      только с записью происхождения рядом (`sources.json`: источник, промпт/seed, автор,
-      лицензия, `derived_from`); бесплатные тарифы без коммерческой лицензии и NC-модели в
-      продукт не идут; сводка лицензий собирается скриптом, который падает на файле без записи.
-      Сторонние пакеты скиллов ставятся с `README` (источник, лицензия, что не взято и почему,
-      адаптация под проект); без файла лицензии не копировать.
-    - Эмодзи в UI и данных — не новее Emoji 12: новее рисуются квадратами на Windows 10 и в
+27. **Parallel sessions and worktrees.** Several agent sessions and a human work in the same
+    working tree at the same time — this is normal, not an anomaly.
+    - Do not touch, commit or "tidy up" other people's uncommitted files and `In Progress`
+      tasks; commit your own work only by pathspec (rule 10); before the summary check
+      `git log -3`/`git status` — your edits may already have gone out in someone else's commit.
+    - Do not edit code while someone else's long run is going (a regression, a build): false `Parse Error`s
+      in other people's tests are exactly the sign of this. A new document or ADR written during someone else's commit fails
+      its `pre-commit` (`check-index`) — the orchestrator writes its documents between subagent
+      tasks.
+    - The orchestrator gives tasks to subagents **one at a time** (parallel runs share ports and
+      the machine), with the brief as a file in the scratchpad (mode, commit base, which checks to run, traps,
+      report format), and after the report checks `git log`, the task status and `git status`. Long
+      single checks are more reliable through the CLI with `timeout` than through a 30-minute MCP call.
+    - Task or agent isolation is a `git worktree` in `<root>/.worktrees/<slug>` with a
+      `task/<id>` branch (`.worktrees/` in `.gitignore` and in the linter/watcher ignores); the task ↔
+      branch link is the `branch`/`worktree`/`pr` fields in the task frontmatter; one tree — one live
+      session; a failure to prepare the tree means refusing to start, not working in the main tree; a tree
+      is removed only after the result is committed, then `git worktree prune`. On Windows
+      `node_modules` in a worktree is a junction: before `git worktree remove` first run `cmd /c rmdir
+      <wt>\node_modules`, otherwise the real `node_modules` get deleted. Bring the main branch into a
+      worktree only with `git merge --no-ff <main>` from a clean tree, not a rebase; a conflict is
+      an expected outcome, and the branch history is not rewritten.
+    - Backlog numbers issued in a branch are final only after the merge into the main branch;
+      `lint:docs` catches a duplicate (rule 5). Empty `backlog/*` folders keep a `.gitkeep` —
+      otherwise the Backlog.md CLI fails with `ENOENT` in a fresh clone.
+    - Details, incidents and commands — the document "Parallel sessions, session hand-over and
+      autonomous mode" in `backlog/docs/`, if the project has it.
+28. **Autonomy, brevity and session hand-over.**
+    - **Prefer action to questions.** With an ambiguous scope — no more than one round of
+      clarification and only about a truly blocking or irreversible fork; decide the rest yourself
+      and list the assumptions in the summary. Small forks (a name, whether to keep a fact) — decide yourself and
+      write it into the task. The final message is the outcome, the blocker and no more than 2–3 decisions that
+      only a human can make; details go into a document (rule 16). Justify growth of prompts and
+      context with a measurement (characters before/after).
+    - **Hand-over to the next session.** When proposing a task for the next session, always
+      name the model and effort from the task labels (no labels — set them first); the prompt is short,
+      with `[[doc-N]]`/`[[TASK-N]]` links instead of retelling, in stages with "gates" (at the end of a
+      stage bring: what was done in one paragraph / what to look at / which decision is needed and a
+      recommendation; do not go further without an answer). The prompt **never** contains permission
+      to commit ("make the commits yourself") — the last step is always "move to Review and offer
+      `git commit … -- <files>`"; if a pasted text has such an item, ask again. When a long
+      session is compressed — a hand-over document: what was done (commits/tasks), statuses, what was found out about
+      the next task, the session's pitfalls, how to run the checks, what was in the scratchpad and will not survive the
+      session, candidates for the next session, a ready prompt. The template is the same document as in
+      rule 27.
+    - **Urgent notifications outside the chat.** If the project set up an agent alert channel (a personal
+      Telegram bot separate from the production one; the token and chat_id only in the `env` of
+      `.claude/settings.local.json`), the agent sends **one** message per event there and only when
+      it is urgent: production is down or degraded, long background work failed, an autonomous session
+      is blocked by a human action, money or data is at risk. "Done", `Review`, scope
+      questions are not urgent.
+    - **Autonomous mode ("a wave of tasks without questions")** is switched on only by an explicit word from the
+      user for a specific wave and is described in the document from rule 27: the agent closes the gates
+      itself with an ADR marked "Agent's choice on the customer's instruction", irreversible and
+      paid actions stay forbidden, each task is brought to a `Final Summary` in one go, a commit after
+      each task only for its own paths, "by hand only" items go to the customer's checklist,
+      and the end of the wave is a full regression and a final document. Outside such an explicit mode
+      rules 6 and 10 apply (`Done` and the commit — only by a human).
+29. **Load on the computer — only visible and limited.** The user works on the same
+    machine. Any run longer than a minute (a regression, a batch of tests, a full index, a build,
+    batch generation) comes with visible progress: a line in the chat at the start ("what is running,
+    how long it will take, where to look"), then a status "X is running, N of M", a log in a file through
+    `env-tools` (`tail_log`) or a progress window for the human; when it is over, do not leave your own processes and windows
+    behind, and do not touch other people's. The tests themselves stay headless. Heavy tools do not take all
+    the cores: the project sets `cpuLimit` in `infra.config.json` (by default half of the logical
+    processors; env for the session removes it) and runs them under a limiter (a Job Object / affinity
+    mask on Windows, `taskset`/`nice` on POSIX); do not create artificial load to reproduce
+    flaky tests. Dev-server watchers exclude service folders
+    (`backlog/`, `.gitnexus/`, `.rag-*`, `.claude/`, data) — otherwise tens of thousands of watched files
+    bring down neighboring processes.
+30. **Paid external services, LLM cost and artifact provenance.**
+    - Before working with a paid API — the `<tool>_info` tool or an equivalent: key, plan, balance,
+      available models (do not list them from memory). Every call costs money: do not
+      repeat calls without need, agree batches in advance, variants (`count > 1`) — only when a choice is needed.
+    - Any change that increases the token spend of an external LLM (context windows, call frequency,
+      caps) — first the delta in tokens and money against the target price, otherwise ask. The choice of
+      provider and model is the user's decision, not the agent's; a weak "test" model is fine
+      only for checking the mechanics, and conclusions about quality do not carry over from it; token measurements
+      are labeled with the model. Accounting — a line per provider call (tokens, cache,
+      `finish_reason`, error class), prices in data, a report by task type and a loss summary
+      for the administrator instead of an alert on every error.
+    - Generated and downloaded artifacts (images, sounds, models, fonts) get into the product
+      only with a provenance record next to them (`sources.json`: source, prompt/seed, author,
+      license, `derived_from`); free tiers without a commercial license and NC models do not go into the
+      product; the license summary is collected by a script that fails on a file without a record.
+      Third-party skill packages are installed with a `README` (source, license, what was not taken and why,
+      adaptation to the project); do not copy them without a license file.
+    - Emoji in the UI and data — not newer than Emoji 12: newer ones render as boxes on Windows 10 and in
       headless Chromium.
-31. **Деплой и прод.** Если у проекта есть прод, единственный путь на него — скрипт деплоя в
-    репозитории (`deploy/deploy.sh`), который держит замок от параллельных релизов, проверяет
-    состав архива до заливки, ждёт конца фоновой работы сервиса, раскладывает релиз в
-    `releases/<id>` + `shared/` (всё, что переживает деплой, живёт в `shared/`), сверяет
-    состояние «до/после» по `/health` с ожиданием готовности и печатает чеклист после деплоя;
-    конфиг прокси и юниты systemd лежат в репозитории и применяются с проверкой и откатом.
-    Прод-инцидент — задача до диагностики (правило 5); на проде агент читает только readonly,
-    пишущие проверки — `sudo -u <пользователь сервиса>`, не root; схему прода воспроизводит
-    локально из `git show HEAD:…`; шаги, требующие записи в прод-`.env`, заранее выносит в
-    чеклист человека готовыми командами; «000 на `/health` через 2 с после рестарта» — гонка,
-    не падение: перепроверить через минуту, прежде чем чинить. Бэкапы рантайм-состояния,
-    мониторинг (`/health`, сторож «алерт при смене состояния», второй экземпляр вне сервера) и
-    проверка эффекта релиза по копии прод-БД — паттерны в документе «Деплой на VPS, мониторинг
-    и бэкапы: паттерны» в `backlog/docs/`.
+31. **Deployment and production.** If the project has production, the only way to it is the deploy script in
+    the repository (`deploy/deploy.sh`), which holds a lock against parallel releases, checks
+    the archive contents before uploading, waits for the service's background work to finish, lays out the release in
+    `releases/<id>` + `shared/` (everything that survives a deploy lives in `shared/`), compares the
+    "before/after" state via `/health` while waiting for readiness, and prints a post-deploy checklist;
+    the proxy config and systemd units live in the repository and are applied with a check and a rollback.
+    A production incident is a task before diagnostics (rule 5); on production the agent only reads,
+    and writing checks run as `sudo -u <service user>`, not root; it reproduces the production schema
+    locally from `git show HEAD:…`; steps that need writing to the production `.env` go into the human's
+    checklist in advance as ready commands; "000 on `/health` 2 s after a restart" is a race,
+    not an outage: recheck a minute later before fixing anything. Backups of runtime state,
+    monitoring (`/health`, a "alert on state change" watchdog, a second instance outside the server) and
+    checking a release's effect on a copy of the production database — patterns in the document "VPS deployment, monitoring
+    and backups: patterns" in `backlog/docs/`, if the project has it.
 
 <!-- if:code-ts -->
-## Конвенции кода (TS/JS-проекты; для других стеков — по аналогии)
+## Code conventions (TS/JS projects; for other stacks — by analogy)
 
-- Классы (сцены, сущности, сервисы) — `PascalCase`, файлы классов — `PascalCase.ts`;
-  методы/переменные/поля — `camelCase` (приватные — тоже `camelCase`, без `_`);
-  константы модуля — `UPPER_SNAKE_CASE`.
-- `strict: true` в tsconfig, `any` не использовать. Публичные методы — с JSDoc.
-- Логи — через логгер проекта (`logger.info/warn/error`), не голый `console.log`, кроме
-  разовой отладки, которую нужно убрать перед коммитом.
-- Не использовать `===`/`---` как декоративные разделители секций в комментариях — путают
-  diff-тулинг и парсеры merge-конфликтов.
-- Числа из конфигов/данных читать без falsy-fallback: `val !== undefined && val !== '' ?
-  Number(val) : default` — `val || default` молча сбрасывает легитимный `0`.
-- Если старый дев-гайд расходится с реальным кодом — ориентируйся на код и почини гайд, а не
-  на гайд.
-- Node-скрипты инфраструктуры — ESM (`.mjs`), без сборки/транспиляции; ошибки и подсказки в
-  них — на русском.
-- React-проекты: модалки только через `createPortal(document.body)` (предки с
-  `backdrop-filter`/`transform` создают stacking context), единая шкала z-index (модалки /
-  плавающие контролы / диалоги подтверждения) вместо произвольных `z-50`; таймеры — только
-  через хуки с очисткой; цвета и отступы — дизайн-токены, не литералы.
-- Python из Node — `python -I <скрипт>` (изолированный режим: соседние файлы не подменят
-  модули), ответ — последняя строка stdout JSON-ом; правка файлов питоном — с `newline='\n'`.
+- Classes (scenes, entities, services) — `PascalCase`, class files — `PascalCase.ts`;
+  methods, variables and fields — `camelCase` (private ones too, without `_`);
+  module constants — `UPPER_SNAKE_CASE`.
+- `strict: true` in tsconfig, do not use `any`. Public methods have JSDoc.
+- Logs go through the project logger (`logger.info/warn/error`), not a bare `console.log`, except for
+  one-off debugging that must be removed before the commit.
+- Do not use `===`/`---` as decorative section separators in comments — they confuse
+  diff tooling and merge-conflict parsers.
+- Read numbers from configs or data without a falsy fallback: `val !== undefined && val !== '' ?
+  Number(val) : default` — `val || default` silently resets a legitimate `0`.
+- If an old dev guide disagrees with the actual code, follow the code and fix the guide, not
+  the other way round.
+- Infrastructure Node scripts are ESM (`.mjs`), with no build or transpilation; errors and hints in
+  them are in the project language.
+- React projects: modals only through `createPortal(document.body)` (ancestors with
+  `backdrop-filter`/`transform` create a stacking context), a single z-index scale (modals /
+  floating controls / confirmation dialogs) instead of arbitrary `z-50`; timers only
+  through hooks with cleanup; colors and spacing are design tokens, not literals.
+- Python from Node — `python -I <script>` (isolated mode: neighboring files will not shadow
+  modules), the answer is the last stdout line as JSON; files edited from Python — with `newline='\n'`.
 <!-- endif -->
 
-## Быстрые команды
+## Quick commands
 
 ```bash
-node scripts/setup.mjs               # настроить/переконфигурировать: корень проекта, включённые фичи
-npm run lint:docs                    # frontmatter/даты/картинки/таблицы, разделы и ссылки [[id]] + актуальность RAG-индекса
-npm run check-index                  # только проверить, что .rag-index актуален относительно backlog/
-npm test                             # unit-тесты инфраструктуры (git-хуки и т.п.), node --test
-npm run install-hooks                # подключить scripts/git-hooks через core.hooksPath (делается и при npm install)
-npm run index-docs                   # обновить индекс документации: актуальный не трогает, считает только изменённые чанки
-npm run index-docs -- --force        # пересобрать индекс целиком с пересчётом всех эмбеддингов
-npm run rag-check                    # контрольные запросы rag-control-queries.json находят свои документы в топ-K
-npm run rag-search -- "запрос"       # поиск по докам из терминала (для человека)
-npm run rag-server                   # MCP-сервер docs-rag (обычно запускается агентом через .mcp.json)
-npm run env-server                   # MCP-сервер env-tools (обычно через .mcp.json)
-npm run merge:generated              # снять конфликт слияния в .rag-index/ и MEMORY.md, пересобрать (правило 1)
-npm run policy:check                 # проверить .projecthub/policy.json (политика прав агента), если файл есть
-npm run set-doc-section -- doc-N "Раздел/Подраздел" [--description "…"]  # вернуть поля после doc update
-npx backlog.md mcp start             # нативный MCP-сервер Backlog.md (обычно через .mcp.json)
-npx backlog.md doc create "<Заголовок>" -t guide   # новый документ (никогда не создавать .md руками)
-npx backlog.md decision create "<Заголовок>"        # новое архитектурное решение (ADR)
-gitnexus analyze --skip-agents-md --skip-skills  # (пере)индексировать код GitNexus без правки CLAUDE.md/AGENTS.md; post-commit делает это сам; что индексировать — .gitnexusignore
-npm run bootstrap                    # поставить git/node/... под текущую ОС (scripts/bootstrap/stack.json)
-npm run lightrag-setup                # ОДНОРАЗОВО: venv + lightrag-hku + модели Ollama (если features.lightrag) <!-- if:lightrag -->
-npm run lightrag-index                # построить граф документации (LightRAG) <!-- if:lightrag -->
-npm run lightrag-server               # MCP-сервер docs-graph (обычно через .mcp.json) <!-- if:lightrag -->
-node scripts/web.mjs start|stop|status  # веб-интерфейсы Backlog.md/GitNexus (или start-web.bat/.sh)
-npm run sync-rules                    # разослать этот файл в CLAUDE.md/GEMINI.md/AGENTS.md (--check --staged — сверка, делает pre-commit)
+node scripts/setup.mjs               # set up/reconfigure: project root, enabled features
+npm run lint:docs                    # frontmatter/dates/images/tables, sections and [[id]] links + RAG index freshness
+npm run check-index                  # only check that .rag-index is up to date with backlog/
+npm test                             # infrastructure unit tests (git hooks and so on), node --test
+npm run install-hooks                # connect scripts/git-hooks through core.hooksPath (also done on npm install)
+npm run index-docs                   # update the documentation index: leaves an up-to-date one alone, computes only changed chunks
+npm run index-docs -- --force        # rebuild the whole index, recomputing all embeddings
+npm run rag-check                    # control queries from rag-control-queries.json find their documents in the top K
+npm run rag-search -- "query"        # search the docs from the terminal (for a human)
+npm run rag-server                   # docs-rag MCP server (usually started by the agent through .mcp.json)
+npm run env-server                   # env-tools MCP server (usually through .mcp.json)
+npm run merge:generated              # resolve a merge conflict in .rag-index/ and MEMORY.md, rebuild (rule 1)
+npm run policy:check                 # check .projecthub/policy.json (the agent permission policy), if the file exists
+npm run set-doc-section -- doc-N "Section/Subsection" [--description "…"]  # restore fields after doc update
+npx backlog.md mcp start             # native Backlog.md MCP server (usually through .mcp.json)
+npx backlog.md doc create "<Title>" -t guide   # a new document (never create .md files by hand)
+npx backlog.md decision create "<Title>"        # a new architecture decision (ADR)
+gitnexus analyze --skip-agents-md --skip-skills  # (re)index the code with GitNexus without editing CLAUDE.md/AGENTS.md; post-commit does it itself; what to index — .gitnexusignore
+npm run bootstrap                    # install git/node/... for the current OS (scripts/bootstrap/stack.json)
+npm run lightrag-setup                # ONE-TIME: venv + lightrag-hku + Ollama models (if features.lightrag) <!-- if:lightrag -->
+npm run lightrag-index                # build the documentation graph (LightRAG) <!-- if:lightrag -->
+npm run lightrag-server               # docs-graph MCP server (usually through .mcp.json) <!-- if:lightrag -->
+node scripts/web.mjs start|stop|status  # Backlog.md/GitNexus web UIs (or start-web.bat/.sh)
+npm run sync-rules                    # send this file to CLAUDE.md/GEMINI.md/AGENTS.md (--check --staged — comparison, done by pre-commit)
 ```

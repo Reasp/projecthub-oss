@@ -27,6 +27,15 @@ import { fileURLToPath } from 'node:url';
 import { CONFIG, FEATURES, INFRA_ROOT, PROJECT_ROOT } from './config.mjs';
 
 export const SOURCE_FILE = 'infra-dev.md';
+// Базовые правила — на английском; перевод лежит в `locales/<код>/infra-dev.md` и выбирается ключом
+// `"locale"` в infra.config.json. ProjectHub кладёт в проект уже собранный infra-dev.md на языке проекта
+// и `locale` не пишет — такой проект читает infra-dev.md.
+export const BASE_LOCALE = 'en';
+
+/** Путь источника правил от каталога инфраструктуры для языка из infra.config.json. Чистая функция. */
+export function rulesSourceFile(locale) {
+  return locale && locale !== BASE_LOCALE ? `locales/${locale}/${SOURCE_FILE}` : SOURCE_FILE;
+}
 // AGENTS.md (не AGENT.md) — так называют дженерик-файл правил и Backlog.md
 // (`backlog init --agent-instructions agents`), и GitNexus (`gitnexus analyze`),
 // так что infra-dev-секция окажется в том же файле, а не в отдельном третьем.
@@ -165,7 +174,7 @@ function main() {
   const staged = args.includes('--staged');
   const read = staged ? readStaged : readWorking;
 
-  const sourceRel = toPosix(path.relative(PROJECT_ROOT, path.join(INFRA_ROOT, SOURCE_FILE)));
+  const sourceRel = toPosix(path.relative(PROJECT_ROOT, path.join(INFRA_ROOT, rulesSourceFile(CONFIG.locale))));
   const sourceText = read(sourceRel);
   if (sourceText === null) {
     console.error(`нет источника правил: ${sourceRel}${staged ? ' (в индексе git)' : ''}`);

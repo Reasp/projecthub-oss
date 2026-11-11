@@ -68,7 +68,14 @@ const RuleSet = z.object({
   id: Id,
   label: LocalizedText,
   description: LocalizedText.optional(),
-  default: z.boolean().default(true)
+  /** Включён по умолчанию: одно значение или по языку проекта `{ "ru": true }` (языка нет в записи — выключен). */
+  default: z.union([z.boolean(), z.record(z.string(), z.boolean())]).default(true)
+});
+
+/** Код языка шаблона: `en`, `ru`, `pt-BR`. */
+const LocaleCode = z.string().refine((code) => /^[a-z]{2,3}(-[A-Z]{2})?$/.test(code), {
+  message: 'a language code like en, ru or pt-BR',
+  params: { appErrorKey: { code: 'templates.localeCode' } }
 });
 
 const Command = z.object({
@@ -97,6 +104,12 @@ export const ManifestSchema = z.object({
   exclude: z.array(z.string()).default([]),
   features: z.array(Feature).default([]),
   sets: z.array(RuleSet).default([]),
+  /**
+   * Языки шаблона (decision-231): первый — язык файлов в корне шаблона, для остальных переводы
+   * лежат оверлеем `locales/<код>/<тот же путь>` и подставляются по языку проекта. Без поля
+   * каталог `locales/` — обычные файлы шаблона.
+   */
+  locales: z.array(LocaleCode).min(1).optional(),
   rules: z
     .object({
       source: RelPath.default('infra-dev.md'),
@@ -123,6 +136,30 @@ export const ManifestSchema = z.object({
 
 export type TemplateManifest = z.infer<typeof ManifestSchema>;
 export type ManifestFeature = TemplateManifest['features'][number];
+export type ManifestRuleSet = TemplateManifest['sets'][number];
+
+/** Каталог переводов шаблона: `locales/<код>/<путь как в корне шаблона>`. */
+export const LOCALES_DIR = 'locales';
+
+/** Включён ли набор правил по умолчанию для языка проекта. */
+export function setDefaultFor(set: Pick<ManifestRuleSet, 'default'>, locale: string): boolean {
+  return typeof set.default === 'boolean' ? set.default : set.default[locale] === true;
+}
+
+/** Путь перевода `locales/<код>/<путь>` → язык и путь в корне шаблона; не перевод — `null`. */
+export function localeOverlay(manifest: Pick<TemplateManifest, 'locales'>, rel: string): { locale: string; base: string } | null {
+  if (!manifest.locales) return null;
+  const match = /^locales\/([^/]+)\/(.+)$/.exec(rel);
+  if (!match || !manifest.locales.slice(1).includes(match[1])) return null;
+  return { locale: match[1], base: match[2] };
+}
+
+/** Файл шаблона с содержимым пути `rel` для языка проекта: перевод, если он есть, иначе сам `rel`. */
+export function localizedSource(manifest: Pick<TemplateManifest, 'locales'>, rel: string, locale: string, exists: (rel: string) => boolean): string {
+  if (!manifest.locales || manifest.locales[0] === locale || !manifest.locales.includes(locale)) return rel;
+  const overlay = `${LOCALES_DIR}/${locale}/${rel}`;
+  return exists(overlay) ? overlay : rel;
+}
 
 export interface ManifestIssue {
   path: string;
